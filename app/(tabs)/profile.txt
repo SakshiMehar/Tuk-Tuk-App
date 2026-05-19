@@ -1,0 +1,522 @@
+import { useState } from "react";
+import {
+  View,
+  Text,
+  Image,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  StatusBar,
+  Dimensions,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+const meImg = require("../../assets/images/me.png");
+const profileImg = require("../../assets/images/android-icon-background.png");
+const frameImg = require("../../assets/images/new-user-frame.png");
+
+export default function Profile() {
+  const router = useRouter();
+  const [following] = useState(128);
+  const [followers] = useState(3402);
+  const [likes] = useState(12800);
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#0d0618" />
+
+      {/* Dark purple gradient background — same as login/home */}
+      <LinearGradient
+        colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
+        locations={[0, 0.25, 0.5, 0.75, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      {/* Pink orb — top left */}
+      <View style={styles.orbPink} />
+      {/* Purple orb — bottom right */}
+      <View style={styles.orbPurple} />
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── TOP BAR ── */}
+        <View style={styles.topBar}>
+          {/* Diamond counter */}
+          <TouchableOpacity style={styles.counterPill} activeOpacity={0.8}>
+            <View style={styles.counterIconWrap}>
+              <Text style={styles.counterEmoji}>💎</Text>
+            </View>
+            <Text style={styles.counterValue}>2</Text>
+            <View style={styles.plusBtn}>
+              <FontAwesome name="plus" size={10} color="white" />
+            </View>
+          </TouchableOpacity>
+
+          {/* Coin counter */}
+          <TouchableOpacity style={styles.counterPill} activeOpacity={0.8}>
+            <View style={[styles.counterIconWrap, styles.coinIconWrap]}>
+              <Text style={styles.counterEmoji}>🪙</Text>
+            </View>
+            <Text style={styles.counterValue}>0</Text>
+            <View style={styles.plusBtn}>
+              <FontAwesome name="plus" size={10} color="white" />
+            </View>
+          </TouchableOpacity>
+
+          <View style={{ flex: 1 }} />
+
+          {/* Settings */}
+          <TouchableOpacity style={styles.settingsBtn} activeOpacity={0.8}>
+            <Ionicons name="settings-outline" size={22} color="white" />
+          </TouchableOpacity>
+        </View>
+
+        {/* ── CHARACTER IMAGE ── */}
+        <View style={styles.characterWrapper}>
+          <Image
+            source={meImg}
+            style={styles.characterImg}
+            resizeMode="contain"
+          />
+
+          {/* Strong bottom fade to hide legs */}
+          <LinearGradient
+            colors={["transparent", "rgba(13,6,24,0.85)", "#0d0618", "#0d0618"]}
+            locations={[0, 0.5, 0.8, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.characterFade}
+          />
+
+          {/* Verify profile button — bottom right */}
+          <TouchableOpacity style={styles.verifyBtn} activeOpacity={0.85}>
+            <LinearGradient
+              colors={["#a78bfa", "#7c3aed"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.verifyGradient}
+            >
+              <View style={styles.verifyMicCircle}>
+                <FontAwesome5 name="microphone" size={14} color="white" />
+              </View>
+              <Text style={styles.verifyText}>Verify profile</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── PROFILE INFO CARD ── */}
+        <View style={styles.infoCard}>
+
+          {/* Top section: avatar left + name/id/badges right */}
+          <View style={styles.profileTopSection}>
+
+            {/* Avatar with frame */}
+            <View style={styles.profilePicWrapper}>
+              <Image source={profileImg} style={styles.profilePic} />
+              <Image source={frameImg} style={styles.profileFrame} resizeMode="contain" />
+            </View>
+
+            {/* Name + ID + badges */}
+            <View style={styles.profileInfoCol}>
+              <View style={styles.nameRow}>
+                <Text style={styles.userName} numberOfLines={1}>Tuk Tuk User</Text>
+                <TouchableOpacity style={styles.editBtn} activeOpacity={0.8}>
+                  <FontAwesome name="pencil" size={13} color="#7c3aed" />
+                  <Text style={styles.editText}>Edit</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* ID + level badge inline */}
+              <View style={styles.idRow}>
+                <Text style={styles.userId}>ID: 167038</Text>
+                <Image
+                  source={require("../../assets/level/level1.png")}
+                  style={styles.levelBadge}
+                  resizeMode="contain"
+                />
+              </View>
+
+              {/* Verified badge */}
+              <Image
+                source={require("../../assets/Batches/verified-batch.png")}
+                style={styles.verifiedBadge}
+                resizeMode="contain"
+              />
+            </View>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.cardDivider} />
+
+          {/* Stats row */}
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{following}</Text>
+              <Text style={styles.statLabel}>Following</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{followers.toLocaleString()}</Text>
+              <Text style={styles.statLabel}>Followers</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{likes.toLocaleString()}</Text>
+              <Text style={styles.statLabel}>Likes</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── MENU ITEMS ── */}
+         <View style={styles.menuCard}>
+          {[
+            { icon: "gift",         label: "Get Rewards",       color: "#7c4dff" },
+            { icon: "tasks",        label: "Task",              color: "#7c4dff" },
+            { icon: "id-card",      label: "Monthly Card",      color: "#7c4dff" },
+            { icon: "store",        label: "Store",             color: "#7c4dff" },
+            { icon: "wallet",       label: "Wallet",            color: "#7c4dff" },
+            { icon: "shield-alt",   label: "Premium & VIP",     color: "#7c4dff" },
+            { icon: "ticket-alt",   label: "Coupon",            color: "#7c4dff" },
+            { icon: "level-up-alt", label: "Level & Ranks",     color: "#7c4dff" },
+            { icon: "users",        label: "Connections",       color: "#7c4dff" },
+            { icon: "briefcase",    label: "Backpack",          color: "#7c4dff" },
+            { icon: "home",         label: "Room Settings",     color: "#7c4dff" },
+            { icon: "id-badge",     label: "Badges & Pass",     color: "#7c4dff" },
+            { icon: "share-alt",    label: "Social & Share",    color: "#7c4dff" },
+            { icon: "headset",      label: "Help & Feedback",   color: "#7c4dff" },
+          ].map((item, i, arr) => (
+            <TouchableOpacity
+              key={item.label}
+              style={[styles.menuItem, i === arr.length - 1 && { borderBottomWidth: 0 }]}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.menuIconWrap, { backgroundColor: "rgba(124,77,255,0.2)" }]}>
+                <FontAwesome5 name={item.icon} size={16} color={item.color} />
+              </View>
+              <Text style={styles.menuLabel}>{item.label}</Text>
+              <FontAwesome name="chevron-right" size={12} color="rgba(255,255,255,0.3)" />
+            </TouchableOpacity>
+          ))}
+        </View> 
+
+      </ScrollView>
+    </View>
+  );
+}
+ 
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#0d0618",
+  },
+  lavenderBg: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#0d0618",
+  },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 100 },
+
+  // Background orbs
+  orbPink: {
+    position: "absolute",
+    width: 300,
+    height: 300,
+    top: -80,
+    left: -80,
+    borderRadius: 150,
+    backgroundColor: "rgba(255,0,128,0.15)",
+    shadowColor: "#ff0080",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 80,
+  },
+  orbPurple: {
+    position: "absolute",
+    width: 350,
+    height: 350,
+    bottom: -120,
+    right: -120,
+    borderRadius: 175,
+    backgroundColor: "rgba(138,43,226,0.18)",
+    shadowColor: "#8a2be2",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 80,
+  },
+
+  // Top bar
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 52,
+    paddingBottom: 8,
+    gap: 10,
+  },
+  counterPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingLeft: 6,
+    paddingRight: 4,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  counterIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(124,77,255,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  coinIconWrap: {
+    backgroundColor: "rgba(251,191,36,0.2)",
+  },
+  counterEmoji: { fontSize: 15 },
+  counterValue: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "white",
+    minWidth: 14,
+    textAlign: "center",
+  },
+  plusBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#7c3aed",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // Character
+  characterWrapper: {
+    width: "100%",
+    height: SCREEN_HEIGHT * 0.42,
+    overflow: "hidden",
+    position: "relative",
+  },
+  characterImg: {
+    width: SCREEN_WIDTH * 0.85,
+    height: SCREEN_WIDTH * 0.85,
+    alignSelf: "center",
+    marginTop: -36,
+  },
+  characterFade: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 180,
+    zIndex: 5,
+  },
+  verifyBtn: {
+    position: "absolute",
+    bottom: 170,
+    right: 20,
+    borderRadius: 28,
+    overflow: "hidden",
+    shadowColor: "#7c3aed",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
+    zIndex: 10,
+  },
+  verifyGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 7,
+    paddingLeft: 5,
+    paddingRight: 12,
+    gap: 6,
+  },
+  verifyMicCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  verifyText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  // Info card
+  infoCard: {
+    marginHorizontal: 16,
+    marginBottom: 14,
+    marginTop: -160,
+    backgroundColor: "rgba(56, 40, 66, 0.08)",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    elevation: 1,
+    zIndex: 10,
+  },
+  profileTopSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 14,
+  },
+  profilePicWrapper: {
+    width: 90,
+    height: 90,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  profilePic: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    position: "absolute",
+    zIndex: 1,
+  },
+  profileFrame: {
+    width: 100,
+    height: 90,
+    position: "absolute",
+    zIndex: 2,
+  },
+  profileInfoCol: {
+    flex: 1,
+    gap: 2,
+  },
+  profilePicRow: {}, // legacy — unused
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  userName: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "white",
+    flex: 1,
+    marginRight: 8,
+  },
+  editBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(124,77,255,0.3)",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.4)",
+  },
+  editText: {
+    color: "#c4b5fd",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  idRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  userId: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+  },
+  levelBadge: {
+    width: 36,
+    height: 18,
+  },
+  verifiedBadge: {
+    width: 90,
+    height: 26,
+    marginTop: 0,
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    marginBottom: 14,
+  },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+  },
+  statItem: {
+    alignItems: "center",
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "white",
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.5)",
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+
+  // Menu card
+  menuCard: {
+    marginHorizontal: 16,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    elevation: 4,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,0,0,0.05)",
+    gap: 14,
+  },
+  menuIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.85)",
+  },
+});

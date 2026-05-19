@@ -19,12 +19,13 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const H_PAD = 14;
 const CARD_GAP = 10;
-const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2;
+const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2 * 0.88;
 
 // 4 equal action cards — 2×2 grid
 const actionCards = [
   {
     title: "Voice Party",
+    subtitle: "Join a live room",
     colors: ["#362407ff", "#f76b1c"],
     img: require("../../assets/images/TM1.png"),
     route: "/voice-party",
@@ -33,6 +34,7 @@ const actionCards = [
   },
   {
     title: "Find Friends",
+    subtitle: "Meet new people",
     colors: ["#180c3aff", "#a647eaff"],
     img: require("../../assets/images/ofcchat.gif"),
     route: "/chat",
@@ -40,13 +42,15 @@ const actionCards = [
   },
   {
     title: "Nearby",
+    subtitle: "People around you",
     colors: ["#143238ff", "#0077b6"],
     img: require("../../assets/images/TM3.gif"),
     route: "/chat",
-    imgSize: CARD_SIZE * 0.80,
+    imgSize: CARD_SIZE * 0.90,
   },
   {
     title: "Blind Pick",
+    subtitle: "Mystery match",
     colors: ["#dc62bcff", "#351743ff"],
     img: require("../../assets/images/TM2B.gif"),
     route: "/chat",
@@ -257,61 +261,94 @@ export default function Home() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── HEADER ── */}
-        <View style={styles.header}>
+        <View style={styles.headerCard}>
+          {/* Row 1: Avatar + Welcome/Title + Diamonds + Icons */}
           <View style={styles.headerTopRow}>
-            <MaskedView
-              maskElement={<Text style={styles.appName}>Tuk Tuk</Text>}
-            >
-              <LinearGradient
-                colors={["#ffffff", "#f0e6ff", "#ff69b4"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              >
-                <Text style={[styles.appName, { opacity: 0 }]}>Tuk Tuk</Text>
-              </LinearGradient>
-            </MaskedView>
 
+            {/* Avatar with green dot */}
+            <View style={styles.avatarWrapper}>
+              <Image
+                source={require("../../assets/images/android-icon-background.png")}
+                style={styles.headerAvatar}
+              />
+              <View style={styles.onlineDot} />
+            </View>
+
+            {/* Welcome + App name */}
+            <View style={styles.headerTitleCol}>
+              <Text style={styles.helloText}>Welcome to 👋</Text>
+              <MaskedView
+                maskElement={<Text style={styles.appName}>Tuk Tuk</Text>}
+              >
+                <LinearGradient
+                  colors={["#ffffff", "#f0e6ff", "#ff69b4"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                >
+                  <Text style={[styles.appName, { opacity: 0 }]}>Tuk Tuk</Text>
+                </LinearGradient>
+              </MaskedView>
+            </View>
+
+            {/* Right icons */}
             <View style={styles.headerIcons}>
+              {/* Diamond count */}
+              <View style={styles.diamondPill}>
+                <Text style={styles.diamondEmoji}>💎</Text>
+                <Text style={styles.diamondCount}>2,480</Text>
+              </View>
               <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8}>
                 <Text style={styles.headerIconEmoji}>🎁</Text>
-                <View style={styles.headerIconBadge}>
+                <View style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}>
                   <Text style={styles.headerIconBadgeText}>!</Text>
                 </View>
               </TouchableOpacity>
               <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8}>
                 <Text style={styles.headerIconEmoji}>🔔</Text>
-                <View style={styles.headerIconBadge}>
+                <View style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}>
                   <Text style={styles.headerIconBadgeText}>4</Text>
                 </View>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Row 2: active panel */}
-          <TouchableOpacity
-            style={styles.matchPill}
-            activeOpacity={0.85}
-            onPress={() => router.push("/chat")}
-          >
-            <Image
-              source={{ uri: "https://randomuser.me/api/portraits/men/45.jpg" }}
-              style={styles.matchAvatar}
-            />
-            <View style={styles.matchWaves}>
-              {[6, 11, 8, 13, 8].map((h, i) => (
-                <View key={i} style={[styles.matchWaveBar, { height: h }]} />
-              ))}
-            </View>
-            <Text style={styles.activeNumber}>167038</Text>
-            <Text style={styles.activeLabel}>Active now</Text>
-            <View style={styles.matchArrow}>
-              <ChevronRight size={11} color="white" />
-            </View>
-          </TouchableOpacity>
+          {/* Divider */}
+          <View style={styles.headerDivider} />
+
+          {/* Row 2: Active now pill + search */}
+          <View style={styles.activeRow}>
+            <TouchableOpacity
+              style={styles.matchPill}
+              activeOpacity={0.85}
+              onPress={() => router.push("/chat")}
+            >
+              <Image
+                source={{ uri: "https://randomuser.me/api/portraits/men/45.jpg" }}
+                style={styles.matchAvatar}
+              />
+              <View style={styles.matchWaves}>
+                {[5, 10, 7, 13, 9, 6, 11].map((h, i) => (
+                  <View key={i} style={[styles.matchWaveBar, { height: h }]} />
+                ))}
+              </View>
+              <View style={styles.activeTextCol}>
+                <Text style={styles.activeNumber}>167,038</Text>
+                <Text style={styles.activeLabel}>Active now</Text>
+              </View>
+              <View style={styles.matchArrow}>
+                <ChevronRight size={14} color="white" />
+              </View>
+            </TouchableOpacity>
+
+            {/* Search button */}
+            <TouchableOpacity style={styles.searchBtn} activeOpacity={0.8}>
+              <Text style={styles.searchIcon}>🔍</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         {/* ── 2×2 ACTION CARDS ── */}
         <View style={styles.actionGrid}>
-          {actionCards.map((card, i) => (
+          {actionCards.map((card) => (
             <TouchableOpacity
               key={card.title}
               style={styles.actionCard}
@@ -325,6 +362,9 @@ export default function Home() {
                 style={styles.actionCardGradient}
               >
                 <Text style={styles.cardTitle}>{card.title}</Text>
+                {card.subtitle && (
+                  <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
+                )}
                 {card.showWave && (
                   <View style={styles.waveRow}>
                     {[8, 14, 10, 18, 12].map((h, wi) => (
@@ -538,78 +578,137 @@ const styles = StyleSheet.create({
     shadowRadius: 80,
   },
 
-  // Header
-  header: {
-    paddingTop: 25,
-    paddingBottom: 10,
-    paddingHorizontal: H_PAD,
-    gap: 8,
+  // Header glass card
+  headerCard: {
+    marginTop: 20,
+    marginHorizontal: H_PAD,
+    marginBottom: 14,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
   },
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 8,
+  },
+  avatarWrapper: {
+    position: "relative",
+  },
+  headerAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  onlineDot: {
+    position: "absolute",
+    bottom: 1,
+    right: 1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#00e676",
+    borderWidth: 2,
+    borderColor: "#1a0a2e",
+  },
+  headerTitleCol: {
+    flex: 1,
+  },
+  helloText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 14,
   },
   appName: {
-    fontSize: 38,
+    fontSize: 22,
     fontWeight: "900",
-    fontStyle: "bold",
     color: "white",
-    
+    lineHeight: 26,
   },
   headerIcons: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 6,
+  },
+  diamondPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(80,50,160,0.6)",
+    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.5)",
+    gap: 3,
+  },
+  diamondEmoji: { fontSize: 12 },
+  diamondCount: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "700",
   },
   headerIconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderColor: "rgba(255,255,255,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerIconEmoji: { fontSize: 18 },
+  headerIconEmoji: { fontSize: 16 },
   headerIconBadge: {
     position: "absolute",
-    top: -2,
-    right: -2,
-    backgroundColor: "#ff3f72",
-    minWidth: 16,
-    height: 16,
+    top: -3,
+    right: -3,
+    minWidth: 15,
+    height: 15,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 3,
+    paddingHorizontal: 2,
     borderWidth: 1.5,
     borderColor: "#0d0618",
   },
   headerIconBadgeText: {
     color: "white",
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: "800",
   },
-
-  // Matching pill
-  matchPill: {
+  headerDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  // Active now row
+  activeRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(220,50,110,0.88)",
-    borderRadius: 24,
-    alignSelf: "flex-start",
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    gap: 6,
+    gap: 8,
+  },
+  matchPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#d63384",
+    borderRadius: 28,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    gap: 7,
   },
   matchAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "white",
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.5)",
   },
   matchWaves: {
     flexDirection: "row",
@@ -617,27 +716,43 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   matchWaveBar: {
-    width: 2.5,
-    backgroundColor: "rgba(255,255,255,0.85)",
+    width: 3,
+    backgroundColor: "rgba(255,255,255,0.7)",
     borderRadius: 2,
   },
-  matchCount: {
-    color: "white",
-    fontSize: 11,
-    fontWeight: "700",
+  activeTextCol: {
+    flex: 1,
   },
-  matchLabel: {
+  activeNumber: {
+    color: "#4eff91",
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 19,
+  },
+  activeLabel: {
     color: "rgba(255,255,255,0.9)",
-    fontSize: 10,
+    fontSize: 11,
+    lineHeight: 14,
   },
   matchArrow: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
+  searchBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchIcon: { fontSize: 18 },
 
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
@@ -649,10 +764,11 @@ const styles = StyleSheet.create({
     gap: CARD_GAP,
     paddingHorizontal: H_PAD,
     marginBottom: 14,
+    justifyContent: "center",
   },
   actionCard: {
     width: CARD_SIZE,
-    height: CARD_SIZE,
+    height: CARD_SIZE * 1.15,
     borderRadius: 20,
     overflow: "hidden",
   },
@@ -666,6 +782,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
     lineHeight: 20,
+  },
+  cardSubtitle: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: 2,
+    marginBottom: 4,
   },
   waveRow: {
     flexDirection: "row",
@@ -745,7 +868,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 
-  // Active now panel
+  // Active now panel (unused legacy — kept for reference)
   activePanel: {
     flexDirection: "row",
     justifyContent: "center",
@@ -757,17 +880,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
     borderColor: "rgba(78,255,145,0.2)",
-   
-  },
-  activeNumber: {
-    color: "#4eff91",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  activeLabel: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 14,
-    fontStyle :"bold",
   },
 
   // Feed
