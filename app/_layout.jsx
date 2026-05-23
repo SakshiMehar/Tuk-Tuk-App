@@ -1,15 +1,10 @@
 import { Stack } from "expo-router";
-import { useEffect } from "react";
-import * as SplashScreen from "expo-splash-screen";
-import "./global.css"
 
-SplashScreen.preventAutoHideAsync();
+// NOTE: Splash screen is handled manually inside app/index.jsx
+// using Animated transitions. SplashScreen.preventAutoHideAsync()
+// is intentionally NOT called here to avoid the keep-awake error.
 
 export default function RootLayout() {
-  useEffect(() => {
-    SplashScreen.hideAsync();
-  }, []);
-
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
@@ -19,6 +14,9 @@ export default function RootLayout() {
       <Stack.Screen name="verify-otp" />
       <Stack.Screen name="terms-of-use" />
       <Stack.Screen name="privacy-policy" />
+      <Stack.Screen name="voice-party" />
+      <Stack.Screen name="find-friends" />
+      <Stack.Screen name="nearby" />
     </Stack>
   );
 }

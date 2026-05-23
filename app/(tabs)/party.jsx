@@ -1,10 +1,2 @@
-import { View, Text } from 'react-native'
-import React from 'react'
+export { default } from "../../Components/voice-party";
 
-export default function Party() {
-  return (
-    <View>
-      <Text>party</Text>
-    </View>
-  )
-}

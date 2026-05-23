@@ -37,7 +37,7 @@ const actionCards = [
     subtitle: "Meet new people",
     colors: ["#180c3aff", "#a647eaff"],
     img: require("../../assets/images/ofcchat.gif"),
-    route: "/chat",
+    route: "/find-friends",
     imgSize: CARD_SIZE * 0.88,
   },
   {
@@ -45,7 +45,7 @@ const actionCards = [
     subtitle: "People around you",
     colors: ["#143238ff", "#0077b6"],
     img: require("../../assets/images/TM3.gif"),
-    route: "/chat",
+    route: "/nearby",
     imgSize: CARD_SIZE * 0.90,
   },
   {

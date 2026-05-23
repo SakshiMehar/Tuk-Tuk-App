@@ -38,7 +38,7 @@ const menuPages = [
     { icon: "heart",        label: "Matchmaker",   badge: true  },
     { icon: "briefcase",    label: "Backpack",     badge: false },
     { icon: "crown",        label: "Room Premium", badge: true  },
-    { icon: "id-badge",     label: "Achat Pass",   badge: true  },
+    { icon: "id-badge",     label: "TukTuk Pass",   badge: true  },
     { icon: "level-up-alt", label: "Level",        badge: true  },
   ],
   [
