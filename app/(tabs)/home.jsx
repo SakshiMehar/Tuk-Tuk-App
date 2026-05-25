@@ -9,6 +9,13 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  Animated,
+  Easing,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -53,7 +60,7 @@ const actionCards = [
     subtitle: "Mystery match",
     colors: ["#dc62bcff", "#351743ff"],
     img: require("../../assets/images/TM2B.gif"),
-    route: "/chat",
+    route: "/(tabs)/blind-pick",
     imgSize: CARD_SIZE * 0.80,
   },
 ];
@@ -219,11 +226,106 @@ const moreFeedPosts = [
   },
 ];
 
+const notifications = [
+  {
+    id: "1",
+    type: "like",
+    icon: "❤️",
+    title: "Priya liked your post",
+    subtitle: "\"Living the dream in Goa ✈️\"",
+    time: "2m ago",
+    avatar: "https://randomuser.me/api/portraits/women/32.jpg",
+    unread: true,
+  },
+  {
+    id: "2",
+    type: "follow",
+    icon: "👤",
+    title: "Rohan started following you",
+    subtitle: "Tap to view profile",
+    time: "15m ago",
+    avatar: "https://randomuser.me/api/portraits/men/45.jpg",
+    unread: true,
+  },
+  {
+    id: "3",
+    type: "gift",
+    icon: "🎁",
+    title: "You received a gift!",
+    subtitle: "Arjun sent you 200 💎 diamonds",
+    time: "1h ago",
+    avatar: "https://randomuser.me/api/portraits/men/67.jpg",
+    unread: true,
+  },
+  {
+    id: "4",
+    type: "comment",
+    icon: "💬",
+    title: "Sneha commented on your post",
+    subtitle: "\"You're so beautiful 😍\"",
+    time: "2h ago",
+    avatar: "https://randomuser.me/api/portraits/women/56.jpg",
+    unread: false,
+  },
+  {
+    id: "5",
+    type: "party",
+    icon: "🎉",
+    title: "Voice Party started!",
+    subtitle: "Rahul's room is live now — join in!",
+    time: "3h ago",
+    avatar: "https://randomuser.me/api/portraits/men/12.jpg",
+    unread: false,
+  },
+  {
+    id: "6",
+    type: "system",
+    icon: "🔔",
+    title: "New match found!",
+    subtitle: "Someone is waiting for you in Blind Pick",
+    time: "5h ago",
+    avatar: null,
+    unread: false,
+  },
+  {
+    id: "7",
+    type: "reward",
+    icon: "🏆",
+    title: "Daily login reward claimed",
+    subtitle: "You earned 50 💎 diamonds today",
+    time: "8h ago",
+    avatar: null,
+    unread: false,
+  },
+];
+
+const searchSuggestions = ["Voice Party", "Find Friends", "Nearby Users", "Blind Pick", "Truth & Dare", "Ludo"];
+
 export default function Home() {
   const router = useRouter();
   const [selectedTab, setSelectedTab] = useState("For You");
   const [activeBanner, setActiveBanner] = useState(0);
   const bannerRef = useRef(null);
+
+  // Tab press animations: scale bounce + underline slide-in per tab
+  const tabScales = useRef(TABS.reduce((acc, t) => { acc[t] = new Animated.Value(1); return acc; }, {})).current;
+  const tabUnderlineScales = useRef(TABS.reduce((acc, t) => { acc[t] = new Animated.Value(t === "For You" ? 1 : 0); return acc; }, {})).current;
+
+  const handleTabPress = (tab) => {
+    // Reset previous underline
+    Animated.timing(tabUnderlineScales[selectedTab], { toValue: 0, duration: 150, useNativeDriver: true }).start();
+    // Bounce the pressed tab
+    Animated.sequence([
+      Animated.timing(tabScales[tab], { toValue: 0.82, duration: 80, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
+      Animated.spring(tabScales[tab], { toValue: 1, tension: 260, friction: 7, useNativeDriver: true }),
+    ]).start();
+    // Slide-in underline
+    Animated.timing(tabUnderlineScales[tab], { toValue: 1, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.back(1.5)) }).start();
+    setSelectedTab(tab);
+  };
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [notifVisible, setNotifVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -303,7 +405,7 @@ export default function Home() {
                   <Text style={styles.headerIconBadgeText}>!</Text>
                 </View>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8} onPress={() => setNotifVisible(true)}>
                 <Text style={styles.headerIconEmoji}>🔔</Text>
                 <View style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}>
                   <Text style={styles.headerIconBadgeText}>4</Text>
@@ -341,7 +443,7 @@ export default function Home() {
             </TouchableOpacity>
 
             {/* Search button */}
-            <TouchableOpacity style={styles.searchBtn} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.searchBtn} activeOpacity={0.8} onPress={() => setSearchVisible(true)}>
               <Text style={styles.searchIcon}>🔍</Text>
             </TouchableOpacity>
           </View>
@@ -414,13 +516,25 @@ export default function Home() {
           {TABS.map((tab) => (
             <TouchableOpacity
               key={tab}
-              onPress={() => setSelectedTab(tab)}
+              onPress={() => handleTabPress(tab)}
               style={styles.tabItem}
+              activeOpacity={1}
             >
-              <Text style={[styles.tabText, selectedTab === tab && styles.tabActive]}>
+              <Animated.Text
+                style={[
+                  styles.tabText,
+                  selectedTab === tab && styles.tabActive,
+                  { transform: [{ scale: tabScales[tab] }] },
+                ]}
+              >
                 {tab}
-              </Text>
-              {selectedTab === tab && <View style={styles.tabUnderline} />}
+              </Animated.Text>
+              <Animated.View
+                style={[
+                  styles.tabUnderline,
+                  { transform: [{ scaleX: tabUnderlineScales[tab] }], opacity: tabUnderlineScales[tab] },
+                ]}
+              />
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -540,6 +654,151 @@ export default function Home() {
         </View>
 
       </ScrollView>
+
+      {/* ── SEARCH MODAL ── */}
+      <Modal
+        visible={searchVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSearchVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => { setSearchVisible(false); setSearchQuery(""); }} />
+          <View style={styles.searchPanel}>
+            <LinearGradient
+              colors={["#1e0a3c", "#2d1b4e"]}
+              style={StyleSheet.absoluteFill}
+              borderRadius={24}
+            />
+            {/* Search header */}
+            <View style={styles.searchHeader}>
+              <Text style={styles.searchPanelTitle}>Search</Text>
+              <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchQuery(""); }} style={styles.searchCloseBtn}>
+                <Text style={styles.searchCloseTxt}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Input row */}
+            <View style={styles.searchInputRow}>
+              <Text style={styles.searchInputIcon}>🔍</Text>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search people, parties, games…"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoFocus
+                selectionColor="#7c4dff"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery("")}>
+                  <Text style={styles.searchClearBtn}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Suggestions */}
+            <View style={styles.searchSuggestSection}>
+              <Text style={styles.searchSuggestLabel}>Quick explore</Text>
+              <View style={styles.searchSuggestRow}>
+                {searchSuggestions.map((s) => (
+                  <TouchableOpacity key={s} style={styles.searchChip} activeOpacity={0.8}>
+                    <LinearGradient
+                      colors={["#3d1a6e", "#5b2d8e"]}
+                      style={styles.searchChipGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <Text style={styles.searchChipText}>{s}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Trending section */}
+            <View style={styles.searchSuggestSection}>
+              <Text style={styles.searchSuggestLabel}>Trending now 🔥</Text>
+              {["#VoiceParty", "#BlindDate", "#TruthOrDare", "#TukTukGames"].map((tag) => (
+                <View key={tag} style={styles.trendingRow}>
+                  <View style={styles.trendingDot} />
+                  <Text style={styles.trendingTag}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── NOTIFICATION MODAL ── */}
+      <Modal
+        visible={notifVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNotifVisible(false)}
+      >
+        <View style={styles.notifOverlay}>
+          <TouchableOpacity style={styles.notifBackdrop} activeOpacity={1} onPress={() => setNotifVisible(false)} />
+          <SafeAreaView style={styles.notifPanel}>
+            <LinearGradient
+              colors={["#1a0a2e", "#16082a", "#0d0618"]}
+              style={StyleSheet.absoluteFill}
+            />
+            {/* Header */}
+            <View style={styles.notifHeader}>
+              <Text style={styles.notifTitle}>Notifications</Text>
+              <View style={styles.notifHeaderRight}>
+                <TouchableOpacity style={styles.notifMarkAll}>
+                  <Text style={styles.notifMarkAllText}>Mark all read</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setNotifVisible(false)} style={styles.notifCloseBtn}>
+                  <Text style={styles.notifCloseTxt}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Divider */}
+            <LinearGradient
+              colors={["transparent", "#7c4dff", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.notifDivider}
+            />
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
+              {notifications.map((notif) => (
+                <TouchableOpacity key={notif.id} style={[styles.notifItem, notif.unread && styles.notifItemUnread]} activeOpacity={0.8}>
+                  {notif.unread && <View style={styles.unreadDot} />}
+                  {/* Avatar or icon bubble */}
+                  {notif.avatar ? (
+                    <View style={styles.notifAvatarWrapper}>
+                      <Image source={{ uri: notif.avatar }} style={styles.notifAvatar} />
+                      <View style={styles.notifIconBubble}>
+                        <Text style={styles.notifIconBubbleTxt}>{notif.icon}</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <LinearGradient colors={["#3d1a6e", "#7c4dff"]} style={styles.notifSystemIcon}>
+                      <Text style={{ fontSize: 20 }}>{notif.icon}</Text>
+                    </LinearGradient>
+                  )}
+
+                  {/* Text */}
+                  <View style={styles.notifTextCol}>
+                    <Text style={styles.notifItemTitle}>{notif.title}</Text>
+                    <Text style={styles.notifItemSub} numberOfLines={1}>{notif.subtitle}</Text>
+                    <Text style={styles.notifTime}>{notif.time}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -1060,5 +1319,258 @@ const styles = StyleSheet.create({
   bannerDotActive: {
     width: 20,
     backgroundColor: "#7c4dff",
+  },
+
+  // ── SEARCH MODAL ──
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-start",
+    paddingTop: 60,
+  },
+  searchPanel: {
+    marginHorizontal: 14,
+    borderRadius: 24,
+    overflow: "hidden",
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+  },
+  searchHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  searchPanelTitle: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  searchCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchCloseTxt: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  searchInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.4)",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+    marginBottom: 20,
+  },
+  searchInputIcon: { fontSize: 16 },
+  searchInput: {
+    flex: 1,
+    color: "white",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  searchClearBtn: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
+    fontWeight: "700",
+    paddingHorizontal: 4,
+  },
+  searchSuggestSection: { marginBottom: 18 },
+  searchSuggestLabel: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginBottom: 10,
+  },
+  searchSuggestRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  searchChip: {
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  searchChipGradient: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.4)",
+  },
+  searchChipText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  trendingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  trendingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#7c4dff",
+  },
+  trendingTag: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  // ── NOTIFICATION MODAL ──
+  notifOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  notifBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  notifPanel: {
+    height: "85%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: "hidden",
+    borderTopWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+  },
+  notifHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 14,
+  },
+  notifTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  notifHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  notifMarkAll: {
+    backgroundColor: "rgba(124,77,255,0.15)",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+  },
+  notifMarkAllText: {
+    color: "#a47dff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  notifCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  notifCloseTxt: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  notifDivider: {
+    height: 1,
+    marginBottom: 6,
+  },
+  notifItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    gap: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.04)",
+  },
+  notifItemUnread: {
+    backgroundColor: "rgba(124,77,255,0.07)",
+  },
+  unreadDot: {
+    position: "absolute",
+    left: 8,
+    top: "50%",
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#7c4dff",
+  },
+  notifAvatarWrapper: {
+    width: 50,
+    height: 50,
+    position: "relative",
+  },
+  notifAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: "rgba(124,77,255,0.5)",
+  },
+  notifIconBubble: {
+    position: "absolute",
+    bottom: -2,
+    right: -4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#1a0a2e",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.4)",
+  },
+  notifIconBubbleTxt: { fontSize: 12 },
+  notifSystemIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  notifTextCol: { flex: 1 },
+  notifItemTitle: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  notifItemSub: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  notifTime: {
+    color: "#7c4dff",
+    fontSize: 11,
+    fontWeight: "600",
   },
 });

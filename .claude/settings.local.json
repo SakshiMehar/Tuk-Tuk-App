@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx expo *)",
+      "Bash(adb devices *)",
+      "Bash(ls \"C:\\\\Users\\\\hp\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\ndk\\\\27.1.12297006\" 2>&1 | head -20)",
+      "Read(//c/Users/hp/AppData/Local/Android/Sdk/ndk/27.1.12297006/**)",
+      "PowerShell(head)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\hp\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\ndk\" | ForEach-Object { $_.Name })"
+    ]
+  }
+}

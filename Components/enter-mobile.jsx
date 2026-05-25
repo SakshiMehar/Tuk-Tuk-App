@@ -18,7 +18,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft, Search, X, ChevronDown } from "lucide-react-native";
 import { sendOtp } from "../src/api/authApi";
 
-// ── Full country code list ───────────────────────────────────
 const COUNTRIES = [
   { name: "Afghanistan",                flag: "🇦🇫", code: "+93"  },
   { name: "Albania",                    flag: "🇦🇱", code: "+355" },
@@ -155,11 +154,11 @@ const COUNTRIES = [
 
 export default function EnterMobile() {
   const router = useRouter();
-  const [phone, setPhone]             = useState("");
-  const [loading, setLoading]         = useState(false);
-  const [pickerOpen, setPickerOpen]   = useState(false);
-  const [search, setSearch]           = useState("");
-  const [selected, setSelected]       = useState(
+  const [phone, setPhone]           = useState("");
+  const [loading, setLoading]       = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch]         = useState("");
+  const [selected, setSelected]     = useState(
     COUNTRIES.find((c) => c.name === "India") ?? COUNTRIES[0]
   );
 
@@ -183,7 +182,7 @@ export default function EnterMobile() {
       await sendOtp(e164);
       router.push({ pathname: "/verify-otp", params: { phone: e164 } });
     } catch (err) {
-      Alert.alert("Error", err.message || "Failed to send OTP. Please try again.");
+      Alert.alert("Error", err?.response?.data?.message || err.message || "Failed to send OTP. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -199,24 +198,15 @@ export default function EnterMobile() {
       {/* ── Country Picker Modal ── */}
       <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <TouchableOpacity
-            style={styles.pickerBackdrop}
-            activeOpacity={1}
-            onPress={() => setPickerOpen(false)}
-          />
+          <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={() => setPickerOpen(false)} />
           <View style={styles.pickerSheet}>
-            {/* Handle */}
             <View style={styles.pickerHandle} />
-
-            {/* Header */}
             <View style={styles.pickerHeader}>
               <Text style={styles.pickerTitle}>Select Country</Text>
               <TouchableOpacity onPress={() => setPickerOpen(false)} style={styles.pickerClose}>
                 <X size={20} color="rgba(255,255,255,0.7)" />
               </TouchableOpacity>
             </View>
-
-            {/* Search */}
             <View style={styles.searchRow}>
               <Search size={16} color="rgba(167,139,250,0.7)" style={{ marginRight: 8 }} />
               <TextInput
@@ -233,8 +223,6 @@ export default function EnterMobile() {
                 </TouchableOpacity>
               )}
             </View>
-
-            {/* List */}
             <FlatList
               data={filtered}
               keyExtractor={(item, i) => `${item.name}-${i}`}
@@ -246,22 +234,14 @@ export default function EnterMobile() {
                   <TouchableOpacity
                     style={[styles.countryRow, isActive && styles.countryRowActive]}
                     activeOpacity={0.75}
-                    onPress={() => {
-                      setSelected(item);
-                      setSearch("");
-                      setPickerOpen(false);
-                    }}
+                    onPress={() => { setSelected(item); setSearch(""); setPickerOpen(false); }}
                   >
                     <Text style={styles.countryFlag}>{item.flag}</Text>
                     <Text style={[styles.countryName, isActive && styles.countryNameActive]} numberOfLines={1}>
                       {item.name}
                     </Text>
-                    <Text style={[styles.countryCode, isActive && styles.countryCodeActive]}>
-                      {item.code}
-                    </Text>
-                    {isActive && (
-                      <View style={styles.activeDot} />
-                    )}
+                    <Text style={[styles.countryCode, isActive && styles.countryCodeActive]}>{item.code}</Text>
+                    {isActive && <View style={styles.activeDot} />}
                   </TouchableOpacity>
                 );
               }}
@@ -284,14 +264,11 @@ export default function EnterMobile() {
         </Text>
 
         <View style={styles.inputRow}>
-          {/* Country code picker button */}
           <TouchableOpacity style={styles.countryBtn} onPress={() => setPickerOpen(true)} activeOpacity={0.8}>
             <Text style={styles.countryBtnFlag}>{selected.flag}</Text>
             <Text style={styles.countryBtnCode}>{selected.code}</Text>
             <ChevronDown size={14} color="rgba(167,139,250,0.8)" />
           </TouchableOpacity>
-
-          {/* Phone input */}
           <TextInput
             style={styles.input}
             placeholder="Phone number"
@@ -344,24 +321,13 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, paddingHorizontal: 24, paddingTop: 32 },
   title: { color: "white", fontSize: 28, fontWeight: "800", marginBottom: 10 },
-  subtitle: {
-    color: "rgba(255,255,255,0.6)", fontSize: 14,
-    lineHeight: 22, marginBottom: 36,
-  },
-
-  // Input row
+  subtitle: { color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 22, marginBottom: 36 },
   inputRow: { flexDirection: "row", gap: 10, marginBottom: 24 },
   countryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    height: 54,
-    paddingHorizontal: 12,
-    borderRadius: 14,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    height: 54, paddingHorizontal: 12, borderRadius: 14,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.3)",
-    minWidth: 90,
+    borderWidth: 1, borderColor: "rgba(167,139,250,0.3)", minWidth: 90,
   },
   countryBtnFlag: { fontSize: 20 },
   countryBtnCode: { color: "white", fontSize: 14, fontWeight: "700" },
@@ -372,98 +338,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, color: "white", fontSize: 16,
   },
   continueBtn: { borderRadius: 14, overflow: "hidden" },
-  continueBtnGradient: {
-    height: 54, alignItems: "center", justifyContent: "center", borderRadius: 14,
-  },
+  continueBtnGradient: { height: 54, alignItems: "center", justifyContent: "center", borderRadius: 14 },
   continueBtnText: { color: "white", fontSize: 16, fontWeight: "700" },
-
-  // Picker modal
-  pickerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-  },
+  pickerBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)" },
   pickerSheet: {
-    backgroundColor: "#1a0a2e",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
-    maxHeight: "75%",
-    paddingBottom: 24,
-    shadowColor: "#7c4dff",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 20,
+    backgroundColor: "#1a0a2e", borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    borderWidth: 1, borderColor: "rgba(167,139,250,0.25)", maxHeight: "75%",
+    paddingBottom: 24, shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.4, shadowRadius: 16, elevation: 20,
   },
   pickerHandle: {
     width: 40, height: 4, borderRadius: 2,
-    backgroundColor: "rgba(167,139,250,0.4)",
-    alignSelf: "center", marginTop: 10, marginBottom: 4,
+    backgroundColor: "rgba(167,139,250,0.4)", alignSelf: "center", marginTop: 10, marginBottom: 4,
   },
   pickerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(167,139,250,0.12)",
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: "rgba(167,139,250,0.12)",
   },
   pickerTitle: { color: "white", fontSize: 17, fontWeight: "800" },
   pickerClose: {
     width: 32, height: 32, borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center",
   },
-
-  // Search
   searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginVertical: 12,
-    backgroundColor: "rgba(255,255,255,0.07)",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
-    paddingHorizontal: 14,
-    height: 46,
+    flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginVertical: 12,
+    backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 14,
+    borderWidth: 1, borderColor: "rgba(167,139,250,0.2)", paddingHorizontal: 14, height: 46,
   },
   searchInput: { flex: 1, color: "white", fontSize: 14 },
-
-  // Country row
   countryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 13,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.05)",
-    gap: 12,
+    flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 13,
+    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)", gap: 12,
   },
-  countryRowActive: {
-    backgroundColor: "rgba(124,77,255,0.18)",
-  },
+  countryRowActive: { backgroundColor: "rgba(124,77,255,0.18)" },
   countryFlag: { fontSize: 22, width: 30 },
-  countryName: {
-    flex: 1,
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 14,
-    fontWeight: "500",
-  },
+  countryName: { flex: 1, color: "rgba(255,255,255,0.75)", fontSize: 14, fontWeight: "500" },
   countryNameActive: { color: "white", fontWeight: "700" },
-  countryCode: {
-    color: "rgba(167,139,250,0.7)",
-    fontSize: 14,
-    fontWeight: "600",
-    minWidth: 44,
-    textAlign: "right",
-  },
+  countryCode: { color: "rgba(167,139,250,0.7)", fontSize: 14, fontWeight: "600", minWidth: 44, textAlign: "right" },
   countryCodeActive: { color: "#a78bfa" },
-  activeDot: {
-    width: 8, height: 8, borderRadius: 4,
-    backgroundColor: "#7c4dff",
-    marginLeft: 6,
-  },
+  activeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#7c4dff", marginLeft: 6 },
 });

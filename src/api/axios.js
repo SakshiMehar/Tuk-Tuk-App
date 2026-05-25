@@ -1,14 +1,14 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { API_BASE_URL, API_TIMEOUT_MS, isNgrokBaseUrl } from "../config/env";
 
 const API = axios.create({
-  baseURL: "https://neatly-twisted-agile.ngrok-free.dev",
+  baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
-    // ngrok requires this header to skip the browser warning page
-    "ngrok-skip-browser-warning": "true",
+    ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
   },
-  timeout: 15000,
+  timeout: API_TIMEOUT_MS,
 });
 
 // ── Request interceptor: attach JWT if present ──────────────

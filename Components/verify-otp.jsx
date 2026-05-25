@@ -14,12 +14,15 @@ import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft } from "lucide-react-native";
 import { verifyOtp, sendOtp } from "../src/api/authApi";
 import { saveSession } from "../src/store/authStore";
+import { normalizeAuthResponse } from "../src/utils/authResponse";
 
 export default function VerifyOtp() {
   const router = useRouter();
-  const { phone } = useLocalSearchParams();          // passed from enter-mobile
-  const [otp, setOtp]         = useState(["", "", "", "", "", ""]);
-  const [loading, setLoading] = useState(false);
+  const params = useLocalSearchParams();
+  const phone = Array.isArray(params.phone) ? params.phone[0] : params.phone;
+
+  const [otp, setOtp]           = useState(["", "", "", "", "", ""]);
+  const [loading, setLoading]   = useState(false);
   const [resending, setResending] = useState(false);
   const inputs = useRef([]);
 
@@ -43,15 +46,15 @@ export default function VerifyOtp() {
       Alert.alert("Invalid", "Please enter the 6-digit code.");
       return;
     }
-
     setLoading(true);
     try {
       const data = await verifyOtp(phone, code);
-      // data = { token, user }
-      await saveSession(data.token, data.user);
+      const { token, user } = normalizeAuthResponse(data);
+      if (!token) throw new Error("No token received from server.");
+      await saveSession(token, user);
       router.replace("/(tabs)/home");
     } catch (err) {
-      Alert.alert("Verification Failed", err.message || "Invalid OTP. Please try again.");
+      Alert.alert("Verification Failed", err?.response?.data?.message || err.message || "Invalid OTP. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -66,7 +69,7 @@ export default function VerifyOtp() {
       setOtp(["", "", "", "", "", ""]);
       inputs.current[0]?.focus();
     } catch (err) {
-      Alert.alert("Error", err.message || "Failed to resend OTP.");
+      Alert.alert("Error", err?.response?.data?.message || err.message || "Failed to resend OTP.");
     } finally {
       setResending(false);
     }
@@ -75,10 +78,7 @@ export default function VerifyOtp() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#070616" />
-      <LinearGradient
-        colors={["#070616", "#110d2f", "#150f3d"]}
-        style={StyleSheet.absoluteFill}
-      />
+      <LinearGradient colors={["#070616", "#110d2f", "#150f3d"]} style={StyleSheet.absoluteFill} />
       <View style={styles.orbPink} />
       <View style={styles.orbPurple} />
 
@@ -162,27 +162,18 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, paddingHorizontal: 24, paddingTop: 32 },
   title: { color: "white", fontSize: 28, fontWeight: "800", marginBottom: 10 },
-  subtitle: {
-    color: "rgba(255,255,255,0.6)", fontSize: 14,
-    lineHeight: 22, marginBottom: 36,
-  },
+  subtitle: { color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 22, marginBottom: 36 },
   phoneHighlight: { color: "#ff69b4", fontWeight: "700" },
-  otpRow: {
-    flexDirection: "row", gap: 10, marginBottom: 32, justifyContent: "center",
-  },
+  otpRow: { flexDirection: "row", gap: 10, marginBottom: 32, justifyContent: "center" },
   otpBox: {
     width: 48, height: 56, borderRadius: 14,
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
     color: "white", fontSize: 22, fontWeight: "700",
   },
-  otpBoxFilled: {
-    borderColor: "#ff4ea3", backgroundColor: "rgba(255,78,163,0.12)",
-  },
+  otpBoxFilled: { borderColor: "#ff4ea3", backgroundColor: "rgba(255,78,163,0.12)" },
   verifyBtn: { borderRadius: 14, overflow: "hidden", marginBottom: 20 },
-  verifyBtnGradient: {
-    height: 54, alignItems: "center", justifyContent: "center", borderRadius: 14,
-  },
+  verifyBtnGradient: { height: 54, alignItems: "center", justifyContent: "center", borderRadius: 14 },
   verifyBtnText: { color: "white", fontSize: 16, fontWeight: "700" },
   resendBtn: { alignItems: "center" },
   resendText: { color: "rgba(255,255,255,0.55)", fontSize: 13 },

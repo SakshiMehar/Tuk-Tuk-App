@@ -1,35 +1,6 @@
-import { sendOtp } from "../src/api/authApi";
+import { Redirect } from "expo-router";
 
-const handleContinue = async () => {
-
-  try {
-
-    setLoading(true);
-
-    const formattedPhone = `+91${phone}`;
-
-    const response = await sendOtp(formattedPhone);
-
-    console.log("OTP Sent:", response);
-
-    router.push({
-      pathname: "/verify-otp",
-      params: {
-        phone: formattedPhone,
-      },
-    });
-
-  } catch (error) {
-
-    console.log(error);
-
-    Alert.alert(
-      "Error",
-      "Failed to send OTP"
-    );
-
-  } finally {
-
-    setLoading(false);
-  }
-};
+/** Legacy route — phone login lives at /enter-mobile */
+export default function Mobile() {
+  return <Redirect href="/enter-mobile" />;
+}

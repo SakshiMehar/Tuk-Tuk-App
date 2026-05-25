@@ -1,10 +1,5 @@
-import { View, Text } from 'react-native'
-import React from 'react'
+import ChatTab from "../../Components/ChatTab";
 
-export default function chat() {
-  return (
-    <View>
-      <Text>chat</Text>
-    </View>
-  )
+export default function ChatScreen() {
+  return <ChatTab />;
 }

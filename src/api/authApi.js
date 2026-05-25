@@ -47,21 +47,39 @@ export const verifyOtp = async (phone, otp) => {
 };
 
 // ── Firebase Phone Auth ─────────────────────────────────────
+// POST /api/auth/firebase-phone  Body: { idToken }
 export const firebasePhoneAuth = async (idToken) => {
-  const response = await API.post("/api/auth/firebase-phone", { idToken });
-  return response.data;
+  try {
+    const response = await API.post("/api/auth/firebase-phone", { idToken });
+    return response.data;
+  } catch (error) {
+    console.log("Firebase Phone Auth Error:", error.message);
+    throw error;
+  }
 };
 
 // ── Google Mobile Login ─────────────────────────────────────
+// POST /api/auth/google-login  Body: { idToken }
 export const googleLogin = async (idToken) => {
-  const response = await API.post("/api/auth/google-login", { idToken });
-  return response.data;
+  try {
+    const response = await API.post("/api/auth/google-login", { idToken });
+    return response.data;
+  } catch (error) {
+    console.log("Google Login Error:", error.message);
+    throw error;
+  }
 };
 
 // ── Facebook Mobile Login ───────────────────────────────────
+// POST /api/auth/facebook-login  Body: { accessToken }
 export const facebookLogin = async (accessToken) => {
-  const response = await API.post("/api/auth/facebook-login", { accessToken });
-  return response.data;
+  try {
+    const response = await API.post("/api/auth/facebook-login", { accessToken });
+    return response.data;
+  } catch (error) {
+    console.log("Facebook Login Error:", error.message);
+    throw error;
+  }
 };
 
 // ── Apple Login (iOS) ───────────────────────────────────────

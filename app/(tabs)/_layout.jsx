@@ -48,6 +48,10 @@ const TabLayout = () => {
           tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="blind-pick"
+        options={{ href: null }}
+      />
     </Tabs>
   );
 };
