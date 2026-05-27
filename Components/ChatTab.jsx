@@ -109,18 +109,17 @@ const chatList = [
     id: "ch1",
     name: "Amit yadav ji",
     avatar: "https://randomuser.me/api/portraits/men/11.jpg",
-    lastMsg: "[Share]",
+    lastMsg: "",
     time: "2:42 AM",
-    unread: 2,
-    verified: true,
-    live: true,
-    liked: true,
+    unread: "",
+    verified: false,
+    live: false,
+    liked: false,
   },
   {
     id: "ch2",
     name: "thakor and thakor",
     avatar: "https://randomuser.me/api/portraits/men/55.jpg",
-    lastMsg: "hi",
     time: "12:09 AM",
     unread: 0,
     verified: false,
@@ -131,10 +130,10 @@ const chatList = [
     id: "ch3",
     name: "goopu thakor",
     avatar: "https://randomuser.me/api/portraits/men/66.jpg",
-    lastMsg: "Hello! Sab kuch theek h...",
+    lastMsg: "",
     time: "Yesterday",
     unread: 0,
-    verified: true,
+    verified: false,
     live: false,
     liked: false,
   },
@@ -142,21 +141,21 @@ const chatList = [
     id: "ch4",
     name: "Priya Sharma",
     avatar: "https://randomuser.me/api/portraits/women/33.jpg",
-    lastMsg: "😍 sent a gift",
+    lastMsg: "",
     time: "Yesterday",
     unread: 0,
     verified: false,
     live: false,
-    liked: true,
+    liked: false,
   },
   {
     id: "ch5",
     name: "Raj Kumar",
     avatar: "https://randomuser.me/api/portraits/men/77.jpg",
-    lastMsg: "okay bro 👍",
+    lastMsg: "",
     time: "Mon",
     unread: 0,
-    verified: true,
+    verified: false,
     live: false,
     liked: false,
   },
@@ -164,21 +163,21 @@ const chatList = [
     id: "ch6",
     name: "Sneha Patel",
     avatar: "https://randomuser.me/api/portraits/women/88.jpg",
-    lastMsg: "Come to my room!",
+    lastMsg: "",
     time: "Sun",
     unread: 0,
     verified: false,
-    live: true,
-    liked: true,
+    live: false,
+    liked: false,
   },
   {
     id: "ch7",
     name: "DJ Badshah",
     avatar: "https://randomuser.me/api/portraits/men/42.jpg",
-    lastMsg: "🎵 voice message",
+    lastMsg: "",
     time: "Sat",
     unread: 0,
-    verified: true,
+    verified: false,
     live: false,
     liked: false,
   },
@@ -259,7 +258,15 @@ export default function ChatTab() {
             <Text style={styles.subPageTitle}>
               {contactMenuItems.find((m) => m.id === contactsPage)?.label}
             </Text>
-            <TouchableOpacity style={styles.addBtn} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.addBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                setActiveTopTab("Contacts");
+                setContactsPage("following");
+                setContactSearch("");
+              }}
+            >
               <UserPlus size={20} color="#a78bfa" />
             </TouchableOpacity>
           </View>
@@ -294,10 +301,18 @@ export default function ChatTab() {
                   onChangeText={setSearchText}
                 />
               </View>
-              <TouchableOpacity style={styles.addBtn} activeOpacity={0.8}>
-                <UserPlus size={20} color="#a78bfa" />
-              </TouchableOpacity>
-            </View>
+              <TouchableOpacity
+              style={styles.addBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                setActiveTopTab("Contacts");
+                setContactsPage("following");
+                setContactSearch("");
+              }}
+            >
+              <UserPlus size={20} color="#a78bfa" />
+            </TouchableOpacity>
+          </View>
           </>
         )}
       </LinearGradient>

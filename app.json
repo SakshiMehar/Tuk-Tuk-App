@@ -10,7 +10,7 @@
       "com.googleusercontent.apps.807444567658-1doo16uhnb3pl3b7mr0dspmogvt1dmi9"
     ],
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -34,7 +34,6 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.INTERNET",
         "android.permission.INTERNET"
       ],
       "package": "com.anonymous.TukTuk"
@@ -74,7 +73,13 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "169d4774-2501-4d44-bdb8-88676b309e7f"
+      }
     }
   }
 }

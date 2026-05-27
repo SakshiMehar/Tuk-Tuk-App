@@ -19,6 +19,8 @@ export default function RootLayout() {
       <Stack.Screen name="verify-otp" />
       <Stack.Screen name="terms-of-use" />
       <Stack.Screen name="privacy-policy" />
+      <Stack.Screen name="settings" />
+      <Stack.Screen name="account" />
       <Stack.Screen name="voice-party" />
       <Stack.Screen name="find-friends" />
       <Stack.Screen name="nearby" />

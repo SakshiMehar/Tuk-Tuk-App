@@ -1263,7 +1263,8 @@ export default function VoiceParty() {
             </TouchableOpacity>
             <TouchableOpacity style={styles.headerBtn} onPress={() => setShowPowerMenu(true)}>
               <Power size={20} color="white" />
-            </TouchableOpacity>          </View>
+            </TouchableOpacity>
+          </View>
         </View>
  
         {/* ── BADGES ROW ── */}

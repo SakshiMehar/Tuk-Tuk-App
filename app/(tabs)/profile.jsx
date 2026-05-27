@@ -8,6 +8,8 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
+  Modal,
+  TextInput,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
@@ -64,6 +66,19 @@ export default function Profile() {
   const [activeTab, setActiveTab] = useState("Moment");
   const menuRef = useRef(null);
 
+  // Editable profile state
+  const [name, setName] = useState("Tuk Tuk User");
+  const [avatar, setAvatar] = useState(require("../../assets/Avatar/avatar1.webp"));
+  const [editVisible, setEditVisible] = useState(false);
+
+  const avatarOptions = [
+    require("../../assets/Avatar/avatar1.webp"),
+    require("../../assets/Avatar/avatar2.webp"),
+    require("../../assets/Avatar/avatar3.webp"),
+    require("../../assets/Avatar/avatar4.webp"),
+    require("../../assets/Avatar/avatar5.webp"),
+  ];
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0d0618" />
@@ -113,7 +128,11 @@ export default function Profile() {
           <View style={{ flex: 1 }} />
 
           {/* Settings */}
-          <TouchableOpacity style={styles.settingsBtn} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.settingsBtn}
+            activeOpacity={0.8}
+            onPress={() => router.push("/settings")}
+          >
             <Ionicons name="settings-outline" size={22} color="white" />
           </TouchableOpacity>
         </View>
@@ -159,15 +178,15 @@ export default function Profile() {
 
             {/* Avatar with frame */}
             <View style={styles.profilePicWrapper}>
-              <Image source={profileImg} style={styles.profilePic} />
+              <Image source={avatar} style={styles.profilePic} />
               <Image source={frameImg} style={styles.profileFrame} resizeMode="contain" />
             </View>
 
             {/* Name + ID + badges */}
             <View style={styles.profileInfoCol}>
               <View style={styles.nameRow}>
-                <Text style={styles.userName} numberOfLines={1}>Tuk Tuk User</Text>
-                <TouchableOpacity style={styles.editBtn} activeOpacity={0.8}>
+                <Text style={styles.userName} numberOfLines={1}>{name}</Text>
+                <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={() => setEditVisible(true)}>
                   <FontAwesome name="pencil" size={13} color="#7c3aed" />
                   <Text style={styles.editText}>Edit</Text>
                 </TouchableOpacity>
@@ -233,7 +252,7 @@ export default function Profile() {
                   {page.slice(0, 4).map((item) => (
                     <TouchableOpacity key={item.label} style={styles.menuGridItem} activeOpacity={0.7}>
                       <View style={styles.menuIconBox}>
-                        <FontAwesome5 name={item.icon} size={22} color="#a78bfa" />
+                        <FontAwesome5 name={item.icon} size={22} color="#a78bfa" solid />
                       </View>
                       <Text style={styles.menuGridLabel}>{item.label}</Text>
                     </TouchableOpacity>
@@ -244,7 +263,7 @@ export default function Profile() {
                   {page.slice(4, 8).map((item) => (
                     <TouchableOpacity key={item.label} style={styles.menuGridItem} activeOpacity={0.7}>
                       <View style={styles.menuIconBox}>
-                        <FontAwesome5 name={item.icon} size={22} color="#a78bfa" />
+                        <FontAwesome5 name={item.icon} size={22} color="#a78bfa" solid />
                       </View>
                       <Text style={styles.menuGridLabel}>{item.label}</Text>
                     </TouchableOpacity>
@@ -291,6 +310,47 @@ export default function Profile() {
         )}
 
       </ScrollView>
+      {/* Edit modal */}
+      <Modal visible={editVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Edit profile</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Display name"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              style={styles.nameInput}
+              maxLength={24}
+            />
+
+            <Text style={styles.sectionSmall}>Choose avatar</Text>
+            <View style={styles.avatarRow}>
+              {avatarOptions.map((img, i) => (
+                <TouchableOpacity
+                  key={i}
+                  onPress={() => setAvatar(img)}
+                  style={[styles.avatarOption, avatar === img && styles.avatarSelected]}
+                >
+                  <Image source={img} style={styles.avatarThumb} />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.modalButtonsRow}>
+              <TouchableOpacity style={styles.modalBtn} onPress={() => setEditVisible(false)}>
+                <Text style={styles.modalBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.saveBtn]}
+                onPress={() => setEditVisible(false)}
+              >
+                <Text style={[styles.modalBtnText, styles.saveBtnText]}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -754,5 +814,86 @@ const styles = StyleSheet.create({
   emptyText: {
     color: "rgba(255,255,255,0.35)",
     fontSize: 14,
+  },
+  // Edit modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalCard: {
+    width: "100%",
+    backgroundColor: "rgba(13,6,24,0.95)",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  modalTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 12,
+  },
+  nameInput: {
+    backgroundColor: "rgba(255,255,255,0.03)",
+    color: "white",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    marginBottom: 12,
+  },
+  sectionSmall: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  avatarRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14,
+  },
+  avatarOption: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarThumb: {
+    width: 52,
+    height: 52,
+    resizeMode: "cover",
+  },
+  avatarSelected: {
+    borderColor: "#7c3aed",
+  },
+  modalButtonsRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  modalBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  modalBtnText: {
+    color: "white",
+    fontWeight: "700",
+  },
+  saveBtn: {
+    backgroundColor: "#7c3aed",
+  },
+  saveBtnText: {
+    color: "white",
   },
 });
