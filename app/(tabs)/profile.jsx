@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,12 +14,22 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
+import { getUser, updateUser } from "../../src/store/authStore";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const meImg = require("../../assets/images/me.png");
 const profileImg = require("../../assets/images/android-icon-background.png");
 const frameImg = require("../../assets/images/new-user-frame.png");
+
+const avatarMap = {
+  avatar1: require("../../assets/Avatar/avatar1.webp"),
+  avatar2: require("../../assets/Avatar/avatar2.webp"),
+  avatar3: require("../../assets/Avatar/avatar3.webp"),
+  avatar4: require("../../assets/Avatar/avatar4.webp"),
+  avatar5: require("../../assets/Avatar/avatar5.webp"),
+};
 
 // Menu pages — 8 items per page (4×2 grid)
 const menuPages = [
@@ -68,16 +78,730 @@ export default function Profile() {
 
   // Editable profile state
   const [name, setName] = useState("Tuk Tuk User");
-  const [avatar, setAvatar] = useState(require("../../assets/Avatar/avatar1.webp"));
+  const [avatarId, setAvatarId] = useState("avatar1");
+  const [editAvatarId, setEditAvatarId] = useState("avatar1");
   const [editVisible, setEditVisible] = useState(false);
+  const avatarSource = avatarMap[avatarId] || avatarMap.avatar1;
 
-  const avatarOptions = [
-    require("../../assets/Avatar/avatar1.webp"),
-    require("../../assets/Avatar/avatar2.webp"),
-    require("../../assets/Avatar/avatar3.webp"),
-    require("../../assets/Avatar/avatar4.webp"),
-    require("../../assets/Avatar/avatar5.webp"),
-  ];
+  const avatarOptions = Object.keys(avatarMap);
+
+  // Menu modal state
+  const [activeMenu, setActiveMenu] = useState(null);
+  const [expandedFaqMM, setExpandedFaqMM] = useState(null);
+  const [profileFeedback, setProfileFeedback] = useState("");
+  const [feedbackSentMM, setFeedbackSentMM] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      const loadProfile = async () => {
+        const user = await getUser();
+        if (user) {
+          if (user.name) setName(user.name);
+          if (user.avatarId) {
+            setAvatarId(user.avatarId);
+            setEditAvatarId(user.avatarId);
+          }
+        }
+      };
+      loadProfile();
+    }, [])
+  );
+
+  const handleSaveProfile = async () => {
+    setEditVisible(false);
+    await updateUser({ name, avatarId: editAvatarId });
+    setAvatarId(editAvatarId);
+  };
+
+  const renderMenuContent = () => {
+    if (!activeMenu) return null;
+    const { label } = activeMenu;
+
+    // ── MENU UI COMMENTED OUT ─────────────────────────────────────────────────
+    // Remove the line below to re-enable individual menu section UIs
+    return null;
+
+    // ── GET REWARDS ───────────────────────────────────────────────────────────
+    if (label === "Get Rewards") {
+      const days = [
+        { day: "Mon", reward: "10💎", claimed: true },
+        { day: "Tue", reward: "20💎", claimed: true },
+        { day: "Wed", reward: "15🪙", claimed: true },
+        { day: "Thu", reward: "30💎", claimed: false, today: true },
+        { day: "Fri", reward: "25💎", claimed: false },
+        { day: "Sat", reward: "50💎", claimed: false },
+        { day: "Sun", reward: "100💎", claimed: false },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(168,85,247,0.1)"]} style={styles.mmHeroBox}>
+            <Text style={{ fontSize: 48 }}>🎁</Text>
+            <Text style={styles.mmHeroTitle}>Day 3 Streak!</Text>
+            <Text style={styles.mmHeroSub}>Keep logging in daily to earn bigger rewards</Text>
+          </LinearGradient>
+          <View style={styles.mmDayGrid}>
+            {days.map((d) => (
+              <View key={d.day} style={[styles.mmDayCell, d.today && styles.mmDayCellActive, d.claimed && styles.mmDayCellClaimed]}>
+                <Text style={styles.mmDayName}>{d.day}</Text>
+                <Text style={{ fontSize: 16, marginVertical: 4 }}>{d.claimed ? "✅" : d.today ? "🎯" : "🔒"}</Text>
+                <Text style={styles.mmDayVal}>{d.reward}</Text>
+              </View>
+            ))}
+          </View>
+          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
+              <Text style={styles.mmPrimaryBtnText}>Claim Today's Reward  30💎</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          <View style={styles.mmInfoRow}>
+            <Ionicons name="trophy-outline" size={16} color="#fbbf24" />
+            <Text style={styles.mmInfoText}>Complete 7 days for a 500💎 bonus!</Text>
+          </View>
+        </ScrollView>
+      );
+    }
+
+    // ── TASK ──────────────────────────────────────────────────────────────────
+    if (label === "Task") {
+      const daily = [
+        { label: "Log in today", xp: "10💎", done: true },
+        { label: "Send 5 messages", xp: "20💎", done: true },
+        { label: "Join a voice room", xp: "15🪙", done: false },
+        { label: "Follow 2 new people", xp: "10💎", done: false },
+      ];
+      const weekly = [
+        { label: "Reach Level 5", xp: "200💎", done: false },
+        { label: "Match 3 people", xp: "100💎", done: false },
+        { label: "Post a moment", xp: "50🪙", done: false },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <View style={styles.mmProgressCard}>
+            <View style={styles.mmProgressLabelRow}>
+              <Text style={styles.mmProgressTitle}>Daily Progress</Text>
+              <Text style={styles.mmProgressVal}>2 / 4</Text>
+            </View>
+            <View style={styles.mmProgressBar}><View style={[styles.mmProgressFill, { width: "50%" }]} /></View>
+          </View>
+          <Text style={styles.mmSectionLabel}>Daily Tasks</Text>
+          {daily.map((t) => (
+            <View key={t.label} style={styles.mmTaskRow}>
+              <View style={[styles.mmTaskCheck, t.done && styles.mmTaskCheckDone]}>
+                {t.done && <Ionicons name="checkmark" size={13} color="white" />}
+              </View>
+              <Text style={[styles.mmTaskText, t.done && styles.mmTaskTextDone]}>{t.label}</Text>
+              <Text style={styles.mmTaskReward}>{t.xp}</Text>
+            </View>
+          ))}
+          <Text style={styles.mmSectionLabel}>Weekly Tasks</Text>
+          {weekly.map((t) => (
+            <View key={t.label} style={styles.mmTaskRow}>
+              <View style={[styles.mmTaskCheck, t.done && styles.mmTaskCheckDone]}>
+                {t.done && <Ionicons name="checkmark" size={13} color="white" />}
+              </View>
+              <Text style={[styles.mmTaskText, t.done && styles.mmTaskTextDone]}>{t.label}</Text>
+              <Text style={styles.mmTaskReward}>{t.xp}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    // ── MONTHLY CARD ──────────────────────────────────────────────────────────
+    if (label === "Monthly Card") {
+      const perks = ["100💎 daily for 30 days", "Exclusive Monthly Card frame", "2× XP boost for 30 days", "Priority room entry", "Ad-free experience"];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.mmCardHero}>
+            <Text style={styles.mmCardHeroLabel}>MONTHLY CARD</Text>
+            <Text style={styles.mmCardHeroPrice}>₹199 / month</Text>
+            <Text style={styles.mmCardHeroSub}>3,000💎 total value</Text>
+          </LinearGradient>
+          <Text style={styles.mmSectionLabel}>What you get</Text>
+          {perks.map((p) => (
+            <View key={p} style={styles.mmPerkRow}>
+              <Ionicons name="checkmark-circle" size={20} color="#a78bfa" />
+              <Text style={styles.mmPerkText}>{p}</Text>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
+              <Text style={styles.mmPrimaryBtnText}>Subscribe Now</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </ScrollView>
+      );
+    }
+
+    // ── STORE ─────────────────────────────────────────────────────────────────
+    if (label === "Store") {
+      const items = [
+        { emoji: "💎", label: "60 Diamonds", price: "₹59" },
+        { emoji: "💎", label: "300 Diamonds", price: "₹249" },
+        { emoji: "💎", label: "980 Diamonds", price: "₹799", tag: "Popular" },
+        { emoji: "🪙", label: "500 Coins", price: "₹49" },
+        { emoji: "🪙", label: "2500 Coins", price: "₹199", tag: "Best Value" },
+        { emoji: "⭐", label: "VIP 1 Month", price: "₹399" },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <View style={styles.mmStoreGrid}>
+            {items.map((it) => (
+              <TouchableOpacity key={it.label} style={styles.mmStoreItem} activeOpacity={0.8}>
+                {it.tag && <View style={styles.mmStoreTag}><Text style={styles.mmStoreTagText}>{it.tag}</Text></View>}
+                <Text style={{ fontSize: 32, marginBottom: 6 }}>{it.emoji}</Text>
+                <Text style={styles.mmStoreLabel}>{it.label}</Text>
+                <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmStorePriceBtn}>
+                  <Text style={styles.mmStorePriceText}>{it.price}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+      );
+    }
+
+    // ── RELATIONSHIP ──────────────────────────────────────────────────────────
+    if (label === "Relationship") {
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(236,72,153,0.15)"]} style={styles.mmRelCard}>
+            <Text style={{ fontSize: 40, marginBottom: 10 }}>💑</Text>
+            <Text style={styles.mmRelTitle}>No Partner Yet</Text>
+            <Text style={styles.mmRelSub}>Connect with someone special to become a couple</Text>
+            <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+              <LinearGradient colors={["#7c4dff", "#ec4899"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
+                <Text style={styles.mmPrimaryBtnText}>Find a Partner</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </LinearGradient>
+          <Text style={styles.mmSectionLabel}>BFF</Text>
+          <View style={styles.mmBFFCard}>
+            <Text style={{ fontSize: 28 }}>🤝</Text>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.mmBFFTitle}>No BFF yet</Text>
+              <Text style={styles.mmBFFSub}>Add a best friend on Tuk-Tuk</Text>
+            </View>
+            <TouchableOpacity style={styles.mmSmallBtn} activeOpacity={0.8}>
+              <Text style={styles.mmSmallBtnText}>Add</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      );
+    }
+
+    // ── WALLET ────────────────────────────────────────────────────────────────
+    if (label === "Wallet") {
+      const txns = [
+        { label: "Daily reward", amount: "+10💎", date: "Today", color: "#4ade80" },
+        { label: "Daily reward", amount: "+10💎", date: "Yesterday", color: "#4ade80" },
+        { label: "Store purchase", amount: "-60💎", date: "May 28", color: "#f87171" },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmWalletCard}>
+            <Text style={styles.mmWalletLabel}>Total Balance</Text>
+            <View style={styles.mmWalletBalRow}>
+              <Text style={{ fontSize: 26 }}>💎</Text>
+              <Text style={styles.mmWalletAmount}>  2 Diamonds</Text>
+            </View>
+            <View style={styles.mmWalletBalRow}>
+              <Text style={{ fontSize: 20 }}>🪙</Text>
+              <Text style={[styles.mmWalletAmount, { fontSize: 18 }]}>  0 Coins</Text>
+            </View>
+            <TouchableOpacity style={styles.mmWalletTopUp} activeOpacity={0.8}>
+              <Text style={styles.mmWalletTopUpText}>+ Top Up</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+          <Text style={styles.mmSectionLabel}>Recent Transactions</Text>
+          {txns.map((t, i) => (
+            <View key={i} style={styles.mmTxnRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.mmTxnLabel}>{t.label}</Text>
+                <Text style={styles.mmTxnDate}>{t.date}</Text>
+              </View>
+              <Text style={[styles.mmTxnAmount, { color: t.color }]}>{t.amount}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    // ── PREMIUM ───────────────────────────────────────────────────────────────
+    if (label === "Premium") {
+      const features = [
+        { icon: "eye-off-outline", label: "Invisible mode", free: false },
+        { icon: "infinite-outline", label: "Unlimited matches", free: false },
+        { icon: "star-outline", label: "Priority in search", free: false },
+        { icon: "chatbubble-ellipses-outline", label: "Unlimited messages", free: true },
+        { icon: "person-outline", label: "See profile visitors", free: false },
+        { icon: "shield-checkmark-outline", label: "Verified badge", free: false },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.mmPremiumHero}>
+            <Ionicons name="shield-checkmark" size={44} color="white" />
+            <Text style={styles.mmPremiumHeroTitle}>Go Premium</Text>
+            <Text style={styles.mmPremiumHeroSub}>Unlock the full Tuk-Tuk experience</Text>
+          </LinearGradient>
+          {features.map((f) => (
+            <View key={f.label} style={styles.mmFeatureRow}>
+              <Ionicons name={f.icon} size={20} color="#a78bfa" />
+              <Text style={styles.mmFeatureLabel}>{f.label}</Text>
+              <Ionicons name={f.free ? "checkmark-circle" : "lock-closed"} size={20} color={f.free ? "#4ade80" : "#f87171"} />
+            </View>
+          ))}
+          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+            <LinearGradient colors={["#7c4dff", "#ec4899"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
+              <Text style={styles.mmPrimaryBtnText}>Upgrade for ₹299/month</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </ScrollView>
+      );
+    }
+
+    // ── VIP ───────────────────────────────────────────────────────────────────
+    if (label === "VIP") {
+      const tiers = [
+        { level: "VIP 1", req: "1,000 pts", colors: ["#cd7f32", "#a0522d"], emoji: "🥉" },
+        { level: "VIP 2", req: "5,000 pts", colors: ["#9ca3af", "#6b7280"], emoji: "🥈" },
+        { level: "VIP 3", req: "15,000 pts", colors: ["#fbbf24", "#f59e0b"], emoji: "🥇" },
+        { level: "VIP 4", req: "50,000 pts", colors: ["#7c4dff", "#a855f7"], emoji: "💜" },
+        { level: "VIP 5", req: "200,000 pts", colors: ["#ec4899", "#f43f5e"], emoji: "👑" },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <View style={styles.mmVIPCurrentBox}>
+            <Text style={styles.mmVIPCurrentLabel}>Your VIP Status</Text>
+            <Text style={styles.mmVIPCurrentVal}>Not VIP Yet</Text>
+            <Text style={styles.mmVIPCurrentSub}>Top up diamonds to earn VIP points</Text>
+          </View>
+          {tiers.map((t) => (
+            <LinearGradient key={t.level} colors={t.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmVIPTier}>
+              <Text style={{ fontSize: 24 }}>{t.emoji}</Text>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.mmVIPTierName}>{t.level}</Text>
+                <Text style={styles.mmVIPTierReq}>{t.req} to unlock</Text>
+              </View>
+              <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.65)" />
+            </LinearGradient>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    // ── COUPON ────────────────────────────────────────────────────────────────
+    if (label === "Coupon") {
+      return (
+        <View style={styles.mmEmptyCenter}>
+          <Text style={{ fontSize: 64 }}>🎟️</Text>
+          <Text style={styles.mmEmptyTitle}>No Coupons Yet</Text>
+          <Text style={styles.mmEmptySub}>Earn coupons by completing tasks, attending events, or purchasing premium packages.</Text>
+          <TouchableOpacity style={styles.mmOutlineBtn} activeOpacity={0.8}>
+            <Text style={styles.mmOutlineBtnText}>Browse Events</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // ── HONOR LEVEL ───────────────────────────────────────────────────────────
+    if (label === "Honor Level") {
+      const perks = ["Custom profile border at Lv 5", "Honor badge on profile at Lv 10", "Priority in discovery at Lv 20", "Exclusive room themes at Lv 50"];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <View style={styles.mmHonorHero}>
+            <Text style={{ fontSize: 52, marginBottom: 8 }}>⭐</Text>
+            <Text style={styles.mmHonorLevel}>Level 1</Text>
+            <Text style={styles.mmHonorXP}>0 / 500 XP to Level 2</Text>
+            <View style={[styles.mmProgressBar, { width: "100%", marginTop: 10 }]}>
+              <View style={[styles.mmProgressFill, { width: "3%" }]} />
+            </View>
+          </View>
+          <Text style={styles.mmSectionLabel}>Upcoming Perks</Text>
+          {perks.map((p) => (
+            <View key={p} style={styles.mmPerkRow}>
+              <Ionicons name="star" size={16} color="#fbbf24" />
+              <Text style={styles.mmPerkText}>{p}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    // ── FAMILY ────────────────────────────────────────────────────────────────
+    if (label === "Family") {
+      return (
+        <View style={styles.mmEmptyCenter}>
+          <Text style={{ fontSize: 64 }}>🏠</Text>
+          <Text style={styles.mmEmptyTitle}>No Family Yet</Text>
+          <Text style={styles.mmEmptySub}>Create or join a family to grow together, earn family rewards, and unlock exclusive perks.</Text>
+          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
+              <Text style={styles.mmPrimaryBtnText}>Create Family</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.mmOutlineBtn, { marginTop: 10 }]} activeOpacity={0.8}>
+            <Text style={styles.mmOutlineBtnText}>Join a Family</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // ── MATCHMAKER ────────────────────────────────────────────────────────────
+    if (label === "Matchmaker") {
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <View style={styles.mmMatchCard}>
+            <LinearGradient colors={["#7c4dff", "#ec4899"]} style={styles.mmMatchCardGrad}>
+              <Image source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }} style={styles.mmMatchAvatar} />
+              <Text style={styles.mmMatchName}>Aria, 23</Text>
+              <Text style={styles.mmMatchLocation}>📍 2 km away</Text>
+              <View style={styles.mmMatchTags}>
+                {["Music", "Travel", "Coffee"].map((tag) => (
+                  <View key={tag} style={styles.mmMatchTag}><Text style={styles.mmMatchTagText}>{tag}</Text></View>
+                ))}
+              </View>
+            </LinearGradient>
+          </View>
+          <View style={styles.mmMatchActions}>
+            <TouchableOpacity style={[styles.mmMatchBtn, { backgroundColor: "rgba(248,113,113,0.15)", borderWidth: 1, borderColor: "rgba(248,113,113,0.3)" }]} activeOpacity={0.8}>
+              <Ionicons name="close" size={30} color="#f87171" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.mmMatchBtn, { backgroundColor: "#7c4dff" }]} activeOpacity={0.8}>
+              <Ionicons name="heart" size={30} color="white" />
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      );
+    }
+
+    // ── BACKPACK ──────────────────────────────────────────────────────────────
+    if (label === "Backpack") {
+      const items = [
+        { emoji: "🎭", label: "Avatar Frame", qty: 1 },
+        { emoji: "✨", label: "Entry Effect", qty: 0 },
+        { emoji: "🎵", label: "Bubble Theme", qty: 0 },
+        { emoji: "🏅", label: "Room Badge", qty: 2 },
+        { emoji: "👑", label: "VIP Effect", qty: 0 },
+        { emoji: "🌈", label: "Profile BG", qty: 1 },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <View style={styles.mmBackpackGrid}>
+            {items.map((it) => (
+              <View key={it.label} style={[styles.mmBackpackItem, it.qty === 0 && { opacity: 0.38 }]}>
+                <Text style={{ fontSize: 32, marginBottom: 6 }}>{it.emoji}</Text>
+                <Text style={styles.mmBackpackLabel}>{it.label}</Text>
+                {it.qty > 0
+                  ? <View style={styles.mmBackpackBadge}><Text style={styles.mmBackpackBadgeText}>×{it.qty}</Text></View>
+                  : <Text style={styles.mmBackpackEmpty}>None</Text>}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      );
+    }
+
+    // ── ROOM PREMIUM ─────────────────────────────────────────────────────────
+    if (label === "Room Premium") {
+      const themes = [
+        { label: "Galaxy", colors: ["#1a0a2e", "#7c4dff"], emoji: "🌌" },
+        { label: "Neon City", colors: ["#0f2027", "#00c6ff"], emoji: "🏙️" },
+        { label: "Cherry Blossom", colors: ["#7c1c4e", "#ec4899"], emoji: "🌸" },
+        { label: "Ocean Deep", colors: ["#021b79", "#0575e6"], emoji: "🌊" },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <Text style={styles.mmSectionLabel}>Premium Room Themes</Text>
+          {themes.map((t) => (
+            <TouchableOpacity key={t.label} activeOpacity={0.8}>
+              <LinearGradient colors={t.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmThemeRow}>
+                <Text style={{ fontSize: 28 }}>{t.emoji}</Text>
+                <Text style={styles.mmThemeName}>{t.label}</Text>
+                <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.7)" />
+              </LinearGradient>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
+              <Text style={styles.mmPrimaryBtnText}>Upgrade Room</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </ScrollView>
+      );
+    }
+
+    // ── TUKTUK PASS ───────────────────────────────────────────────────────────
+    if (label === "TukTuk Pass") {
+      const benefits = ["Daily 50💎 for 7 days", "Exclusive pass holder frame", "Skip ads for 7 days", "Priority customer support", "Early access to new features"];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.mmPassCard}>
+            <Text style={styles.mmPassTitle}>TUKTUK PASS</Text>
+            <Text style={styles.mmPassPrice}>₹99 / week</Text>
+            <Text style={styles.mmPassSub}>350💎 total value</Text>
+          </LinearGradient>
+          <Text style={styles.mmSectionLabel}>Pass Benefits</Text>
+          {benefits.map((b) => (
+            <View key={b} style={styles.mmPerkRow}>
+              <Ionicons name="checkmark-circle" size={18} color="#a78bfa" />
+              <Text style={styles.mmPerkText}>{b}</Text>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
+              <Text style={styles.mmPrimaryBtnText}>Get TukTuk Pass</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </ScrollView>
+      );
+    }
+
+    // ── LEVEL ─────────────────────────────────────────────────────────────────
+    if (label === "Level") {
+      const milestones = [
+        { lv: 5, perk: "Custom nickname color" },
+        { lv: 10, perk: "Profile animation unlock" },
+        { lv: 20, perk: "Exclusive level badge" },
+        { lv: 50, perk: "VIP room access" },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <View style={styles.mmLevelHero}>
+            <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmLevelBadge}>
+              <Text style={styles.mmLevelNum}>1</Text>
+            </LinearGradient>
+            <Text style={styles.mmLevelTitle}>Level 1</Text>
+            <Text style={styles.mmLevelXP}>0 / 200 XP to next level</Text>
+            <View style={[styles.mmProgressBar, { width: "100%", marginTop: 10 }]}>
+              <View style={[styles.mmProgressFill, { width: "3%" }]} />
+            </View>
+          </View>
+          <Text style={styles.mmSectionLabel}>Level Milestones</Text>
+          {milestones.map((m) => (
+            <View key={m.lv} style={styles.mmTaskRow}>
+              <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmLevelPerkBadge}>
+                <Text style={styles.mmLevelPerkNum}>Lv{m.lv}</Text>
+              </LinearGradient>
+              <Text style={[styles.mmTaskText, { flex: 1, marginLeft: 12 }]}>{m.perk}</Text>
+              <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.35)" />
+            </View>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    // ── INSTAGRAM / FACEBOOK ──────────────────────────────────────────────────
+    if (label === "Instagram" || label === "Facebook") {
+      const isIG = label === "Instagram";
+      return (
+        <View style={styles.mmEmptyCenter}>
+          <View style={[styles.mmSocialIconCircle, { backgroundColor: isIG ? "rgba(225,48,108,0.12)" : "rgba(24,119,242,0.12)" }]}>
+            <Ionicons name={isIG ? "logo-instagram" : "logo-facebook"} size={56} color={isIG ? "#e1306c" : "#1877F2"} />
+          </View>
+          <Text style={styles.mmEmptyTitle}>Connect {label}</Text>
+          <Text style={styles.mmEmptySub}>Link your {label} account to share your Tuk-Tuk profile and grow your audience.</Text>
+          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+            <LinearGradient colors={isIG ? ["#f09433", "#e1306c"] : ["#1877F2", "#3b5998"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
+              <Ionicons name={isIG ? "logo-instagram" : "logo-facebook"} size={16} color="white" />
+              <Text style={[styles.mmPrimaryBtnText, { marginLeft: 8 }]}>Connect {label}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // ── SHARE ─────────────────────────────────────────────────────────────────
+    if (label === "Share") {
+      const options = [
+        { icon: "logo-whatsapp", label: "WhatsApp", color: "#25D366" },
+        { icon: "logo-twitter", label: "Twitter", color: "#1DA1F2" },
+        { icon: "logo-instagram", label: "Instagram", color: "#e1306c" },
+        { icon: "mail-outline", label: "Email", color: "#a78bfa" },
+        { icon: "copy-outline", label: "Copy Link", color: "#60a5fa" },
+        { icon: "share-social-outline", label: "More", color: "#fbbf24" },
+      ];
+      return (
+        <View style={styles.mmScroll}>
+          <Text style={styles.mmShareInvite}>Invite friends and earn 50💎 for each successful referral!</Text>
+          <View style={styles.mmShareGrid}>
+            {options.map((o) => (
+              <TouchableOpacity key={o.label} style={styles.mmShareItem} activeOpacity={0.8}>
+                <View style={[styles.mmShareIconCircle, { backgroundColor: o.color + "22" }]}>
+                  <Ionicons name={o.icon} size={28} color={o.color} />
+                </View>
+                <Text style={styles.mmShareLabel}>{o.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      );
+    }
+
+    // ── HELP ──────────────────────────────────────────────────────────────────
+    if (label === "Help") {
+      const faqs = [
+        { q: "How do I match with someone?", a: "Enable Match switch in Settings and browse nearby profiles. Tap the heart to match!" },
+        { q: "How do I earn diamonds?", a: "Complete daily tasks, login streaks, attend events, or purchase from the Store." },
+        { q: "How do I report a user?", a: "Open the user's profile, tap the three-dot menu, then select Report. We review all reports within 24 hours." },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <Text style={styles.mmSectionLabel}>Frequently Asked Questions</Text>
+          {faqs.map((f) => (
+            <TouchableOpacity key={f.q} style={styles.mmFaqRow} activeOpacity={0.8} onPress={() => setExpandedFaqMM(expandedFaqMM === f.q ? null : f.q)}>
+              <View style={styles.mmFaqQ}>
+                <Ionicons name="help-circle" size={18} color="#a78bfa" />
+                <Text style={styles.mmFaqQText}>{f.q}</Text>
+                <Ionicons name={expandedFaqMM === f.q ? "chevron-up" : "chevron-down"} size={14} color="rgba(255,255,255,0.4)" />
+              </View>
+              {expandedFaqMM === f.q && <Text style={styles.mmFaqAText}>{f.a}</Text>}
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={[styles.mmOutlineBtn, { marginTop: 20 }]} activeOpacity={0.8}>
+            <Text style={styles.mmOutlineBtnText}>Contact Support</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      );
+    }
+
+    // ── ROOM BADGE ────────────────────────────────────────────────────────────
+    if (label === "Room Badge") {
+      const badges = [
+        { emoji: "🎵", label: "Music Room", owned: true },
+        { emoji: "👾", label: "Game Room", owned: false },
+        { emoji: "🎤", label: "Karaoke", owned: true },
+        { emoji: "📺", label: "Movie Night", owned: false },
+        { emoji: "🎲", label: "Party Room", owned: false },
+        { emoji: "🌟", label: "Star Room", owned: false },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <Text style={styles.mmSectionLabel}>Your Room Badges</Text>
+          <View style={styles.mmBadgeGrid}>
+            {badges.map((b) => (
+              <View key={b.label} style={[styles.mmBadgeItem, !b.owned && { opacity: 0.38 }]}>
+                <View style={styles.mmBadgeCircle}><Text style={{ fontSize: 28 }}>{b.emoji}</Text></View>
+                <Text style={styles.mmBadgeLabel}>{b.label}</Text>
+                {b.owned && <View style={styles.mmBadgeOwned}><Text style={styles.mmBadgeOwnedText}>Owned</Text></View>}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      );
+    }
+
+    // ── BADGE ─────────────────────────────────────────────────────────────────
+    if (label === "Badge") {
+      const badges = [
+        { emoji: "🌟", label: "Early Adopter", owned: true },
+        { emoji: "💬", label: "Chatterbox", owned: true },
+        { emoji: "❤️", label: "Heartwarmer", owned: false },
+        { emoji: "🔥", label: "On Fire", owned: false },
+        { emoji: "🏆", label: "Champion", owned: false },
+        { emoji: "🎯", label: "Sharpshooter", owned: false },
+        { emoji: "🌈", label: "Colorful Soul", owned: false },
+        { emoji: "👑", label: "Royalty", owned: false },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <View style={styles.mmBadgeProgress}>
+            <Text style={styles.mmBadgeProgressText}>2 / 8 Badges Earned</Text>
+          </View>
+          <View style={styles.mmBadgeGrid}>
+            {badges.map((b) => (
+              <View key={b.label} style={[styles.mmBadgeItem, !b.owned && { opacity: 0.35 }]}>
+                <View style={styles.mmBadgeCircle}><Text style={{ fontSize: 28 }}>{b.emoji}</Text></View>
+                <Text style={styles.mmBadgeLabel}>{b.label}</Text>
+                {b.owned && <View style={styles.mmBadgeOwned}><Text style={styles.mmBadgeOwnedText}>Earned</Text></View>}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      );
+    }
+
+    // ── ROOM TITLE ────────────────────────────────────────────────────────────
+    if (label === "Room Title") {
+      const titles = [
+        { label: "🎵 Music King", unlocked: true },
+        { label: "🌟 Rising Star", unlocked: true },
+        { label: "👑 Room Legend", unlocked: false },
+        { label: "🔥 Party Animal", unlocked: false },
+        { label: "💜 Purple Heart", unlocked: false },
+      ];
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <Text style={styles.mmSectionLabel}>Select Room Title</Text>
+          {titles.map((t) => (
+            <View key={t.label} style={[styles.mmTitleRow, !t.unlocked && { opacity: 0.42 }]}>
+              <Text style={styles.mmTitleLabel}>{t.label}</Text>
+              {t.unlocked
+                ? <TouchableOpacity style={styles.mmTitleSelectBtn} activeOpacity={0.8}><Text style={styles.mmTitleSelectText}>Use</Text></TouchableOpacity>
+                : <Ionicons name="lock-closed" size={18} color="rgba(255,255,255,0.4)" />}
+            </View>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    // ── FEEDBACK ──────────────────────────────────────────────────────────────
+    if (label === "Feedback") {
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <View style={styles.mmFeedbackHero}>
+            <Text style={{ fontSize: 48 }}>💬</Text>
+            <Text style={styles.mmFeedbackTitle}>Share Your Thoughts</Text>
+            <Text style={styles.mmFeedbackSub}>Help us improve Tuk-Tuk</Text>
+          </View>
+          {feedbackSentMM ? (
+            <View style={styles.mmFeedbackSentBox}>
+              <Ionicons name="checkmark-circle" size={48} color="#4ade80" />
+              <Text style={styles.mmFeedbackSentText}>Thank you!</Text>
+              <Text style={styles.mmFeedbackSentSub}>We really appreciate your feedback.</Text>
+            </View>
+          ) : (
+            <>
+              <TextInput
+                style={styles.mmFeedbackInput}
+                placeholder="What's on your mind?"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                multiline
+                numberOfLines={5}
+                value={profileFeedback}
+                onChangeText={setProfileFeedback}
+                textAlignVertical="top"
+              />
+              <TouchableOpacity
+                style={[styles.mmPrimaryBtn, !profileFeedback.trim() && { opacity: 0.4 }]}
+                activeOpacity={0.8}
+                disabled={!profileFeedback.trim()}
+                onPress={() => {
+                  setFeedbackSentMM(true);
+                  setProfileFeedback("");
+                  setTimeout(() => setFeedbackSentMM(false), 3000);
+                }}
+              >
+                <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
+                  <Ionicons name="send" size={16} color="white" />
+                  <Text style={[styles.mmPrimaryBtnText, { marginLeft: 8 }]}>Send Feedback</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
+      );
+    }
+
+    // ── DEFAULT FALLBACK ──────────────────────────────────────────────────────
+    return (
+      <View style={styles.mmEmptyCenter}>
+        <Text style={{ fontSize: 48 }}>🚧</Text>
+        <Text style={styles.mmEmptyTitle}>Coming Soon</Text>
+        <Text style={styles.mmEmptySub}>This feature is under construction. Check back soon!</Text>
+      </View>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -178,7 +902,7 @@ export default function Profile() {
 
             {/* Avatar with frame */}
             <View style={styles.profilePicWrapper}>
-              <Image source={avatar} style={styles.profilePic} />
+              <Image source={avatarSource} style={styles.profilePic} />
               <Image source={frameImg} style={styles.profileFrame} resizeMode="contain" />
             </View>
 
@@ -250,7 +974,7 @@ export default function Profile() {
                 {/* Row 1 — items 0-3 */}
                 <View style={styles.menuRow}>
                   {page.slice(0, 4).map((item) => (
-                    <TouchableOpacity key={item.label} style={styles.menuGridItem} activeOpacity={0.7}>
+                    <TouchableOpacity key={item.label} style={styles.menuGridItem} activeOpacity={0.7} onPress={() => setActiveMenu(item)}>
                       <View style={styles.menuIconBox}>
                         <FontAwesome5 name={item.icon} size={22} color="#a78bfa" solid />
                       </View>
@@ -261,7 +985,7 @@ export default function Profile() {
                 {/* Row 2 — items 4-7 */}
                 <View style={styles.menuRow}>
                   {page.slice(4, 8).map((item) => (
-                    <TouchableOpacity key={item.label} style={styles.menuGridItem} activeOpacity={0.7}>
+                    <TouchableOpacity key={item.label} style={styles.menuGridItem} activeOpacity={0.7} onPress={() => setActiveMenu(item)}>
                       <View style={styles.menuIconBox}>
                         <FontAwesome5 name={item.icon} size={22} color="#a78bfa" solid />
                       </View>
@@ -310,6 +1034,31 @@ export default function Profile() {
         )}
 
       </ScrollView>
+      {/* ── MENU DETAIL MODAL ── */}
+      <Modal visible={!!activeMenu} transparent animationType="slide" onRequestClose={() => setActiveMenu(null)}>
+        <View style={styles.mmOverlay}>
+          <TouchableOpacity style={styles.mmBackdrop} activeOpacity={1} onPress={() => setActiveMenu(null)} />
+          <View style={styles.mmPanel}>
+            <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+            {/* Handle */}
+            <View style={styles.mmHandle} />
+            {/* Header */}
+            <View style={styles.mmHeader}>
+              <View style={styles.mmHeaderIcon}>
+                <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
+              </View>
+              <Text style={styles.mmHeaderTitle}>{activeMenu?.label}</Text>
+              <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
+                <Ionicons name="close" size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.mmDivider} />
+            {/* Dynamic content */}
+            {renderMenuContent()}
+          </View>
+        </View>
+      </Modal>
+
       {/* Edit modal */}
       <Modal visible={editVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -326,13 +1075,16 @@ export default function Profile() {
 
             <Text style={styles.sectionSmall}>Choose avatar</Text>
             <View style={styles.avatarRow}>
-              {avatarOptions.map((img, i) => (
+              {avatarOptions.map((id) => (
                 <TouchableOpacity
-                  key={i}
-                  onPress={() => setAvatar(img)}
-                  style={[styles.avatarOption, avatar === img && styles.avatarSelected]}
+                  key={id}
+                  onPress={() => setEditAvatarId(id)}
+                  style={[
+                    styles.avatarOption,
+                    editAvatarId === id && styles.avatarSelected,
+                  ]}
                 >
-                  <Image source={img} style={styles.avatarThumb} />
+                  <Image source={avatarMap[id]} style={styles.avatarThumb} />
                 </TouchableOpacity>
               ))}
             </View>
@@ -343,7 +1095,7 @@ export default function Profile() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.saveBtn]}
-                onPress={() => setEditVisible(false)}
+                onPress={handleSaveProfile}
               >
                 <Text style={[styles.modalBtnText, styles.saveBtnText]}>Save</Text>
               </TouchableOpacity>
@@ -895,5 +1647,939 @@ const styles = StyleSheet.create({
   },
   saveBtnText: {
     color: "white",
+  },
+
+  // ── MENU MODAL SHELL ───────────────────────────────────────────────────────
+  mmOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  mmBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
+  mmPanel: {
+    height: "88%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: "hidden",
+    borderTopWidth: 1,
+    borderColor: "rgba(124,77,255,0.35)",
+  },
+  mmHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  mmHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  mmHeaderIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: "rgba(124,77,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.25)",
+  },
+  mmHeaderTitle: {
+    flex: 1,
+    color: "white",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  mmCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mmDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    marginHorizontal: 16,
+    marginBottom: 4,
+  },
+
+  // ── SHARED MM COMPONENTS ──────────────────────────────────────────────────
+  mmScroll: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  mmSectionLabel: {
+    color: "#c4b5fd",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  mmPrimaryBtn: {
+    borderRadius: 24,
+    overflow: "hidden",
+    marginTop: 16,
+  },
+  mmPrimaryBtnGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+  },
+  mmPrimaryBtnText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  mmOutlineBtn: {
+    borderRadius: 24,
+    paddingVertical: 13,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.4)",
+    backgroundColor: "rgba(124,77,255,0.1)",
+  },
+  mmOutlineBtnText: {
+    color: "#a78bfa",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  mmSmallBtn: {
+    backgroundColor: "rgba(124,77,255,0.25)",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.3)",
+  },
+  mmSmallBtnText: {
+    color: "#a78bfa",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  mmInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 14,
+    justifyContent: "center",
+  },
+  mmInfoText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+  },
+  mmPerkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  mmPerkText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+    flex: 1,
+  },
+  mmProgressCard: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  mmProgressLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  mmProgressTitle: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  mmProgressVal: {
+    color: "#a78bfa",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  mmProgressBar: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    overflow: "hidden",
+  },
+  mmProgressFill: {
+    height: "100%",
+    borderRadius: 4,
+    backgroundColor: "#7c4dff",
+  },
+  mmTaskRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+    gap: 12,
+  },
+  mmTaskCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "rgba(167,139,250,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mmTaskCheckDone: {
+    backgroundColor: "#7c4dff",
+    borderColor: "#7c4dff",
+  },
+  mmTaskText: {
+    flex: 1,
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  mmTaskTextDone: {
+    color: "rgba(255,255,255,0.35)",
+    textDecorationLine: "line-through",
+  },
+  mmTaskReward: {
+    color: "#a78bfa",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  mmEmptyCenter: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+    gap: 12,
+  },
+  mmEmptyTitle: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  mmEmptySub: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  mmFeatureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  mmFeatureLabel: {
+    flex: 1,
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  // ── GET REWARDS ───────────────────────────────────────────────────────────
+  mmHeroBox: {
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.2)",
+    marginBottom: 4,
+  },
+  mmHeroTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  mmHeroSub: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  mmDayGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    justifyContent: "center",
+    marginVertical: 16,
+  },
+  mmDayCell: {
+    width: 44,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  mmDayCellActive: {
+    backgroundColor: "rgba(124,77,255,0.25)",
+    borderColor: "#7c4dff",
+  },
+  mmDayCellClaimed: {
+    backgroundColor: "rgba(74,222,128,0.08)",
+    borderColor: "rgba(74,222,128,0.2)",
+  },
+  mmDayName: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  mmDayVal: {
+    color: "white",
+    fontSize: 9,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+
+  // ── MONTHLY CARD / PASS ────────────────────────────────────────────────────
+  mmCardHero: {
+    borderRadius: 20,
+    padding: 28,
+    alignItems: "center",
+    gap: 6,
+  },
+  mmCardHeroLabel: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 2,
+  },
+  mmCardHeroPrice: {
+    color: "white",
+    fontSize: 28,
+    fontWeight: "900",
+  },
+  mmCardHeroSub: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 13,
+  },
+  mmPassCard: {
+    borderRadius: 20,
+    padding: 28,
+    alignItems: "center",
+    gap: 6,
+  },
+  mmPassTitle: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 2,
+  },
+  mmPassPrice: {
+    color: "white",
+    fontSize: 28,
+    fontWeight: "900",
+  },
+  mmPassSub: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 13,
+  },
+
+  // ── STORE ─────────────────────────────────────────────────────────────────
+  mmStoreGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  mmStoreItem: {
+    width: "30%",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 16,
+    alignItems: "center",
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    position: "relative",
+  },
+  mmStoreTag: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    backgroundColor: "#ec4899",
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  mmStoreTagText: {
+    color: "white",
+    fontSize: 8,
+    fontWeight: "800",
+  },
+  mmStoreLabel: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 11,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  mmStorePriceBtn: {
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    alignItems: "center",
+  },
+  mmStorePriceText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  // ── RELATIONSHIP ──────────────────────────────────────────────────────────
+  mmRelCard: {
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.2)",
+  },
+  mmRelTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  mmRelSub: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  mmBFFCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  mmBFFTitle: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  mmBFFSub: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+    marginTop: 2,
+  },
+
+  // ── WALLET ────────────────────────────────────────────────────────────────
+  mmWalletCard: {
+    borderRadius: 20,
+    padding: 24,
+    gap: 8,
+    alignItems: "center",
+  },
+  mmWalletLabel: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+  },
+  mmWalletBalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  mmWalletAmount: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  mmWalletTopUp: {
+    marginTop: 8,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
+  mmWalletTopUpText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  mmTxnRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  mmTxnLabel: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  mmTxnDate: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  mmTxnAmount: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+
+  // ── PREMIUM ───────────────────────────────────────────────────────────────
+  mmPremiumHero: {
+    borderRadius: 20,
+    padding: 28,
+    alignItems: "center",
+    gap: 8,
+  },
+  mmPremiumHeroTitle: {
+    color: "white",
+    fontSize: 24,
+    fontWeight: "900",
+  },
+  mmPremiumHeroSub: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 13,
+  },
+
+  // ── VIP ───────────────────────────────────────────────────────────────────
+  mmVIPCurrentBox: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 18,
+    padding: 18,
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    marginBottom: 14,
+  },
+  mmVIPCurrentLabel: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  mmVIPCurrentVal: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  mmVIPCurrentSub: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
+  },
+  mmVIPTier: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 8,
+  },
+  mmVIPTierName: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  mmVIPTierReq: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    marginTop: 2,
+  },
+
+  // ── HONOR LEVEL ───────────────────────────────────────────────────────────
+  mmHonorHero: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  mmHonorLevel: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  mmHonorXP: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+  },
+
+  // ── MATCHMAKER ────────────────────────────────────────────────────────────
+  mmMatchCard: {
+    borderRadius: 24,
+    overflow: "hidden",
+    marginBottom: 20,
+  },
+  mmMatchCardGrad: {
+    padding: 24,
+    alignItems: "center",
+    gap: 8,
+  },
+  mmMatchAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.35)",
+    marginBottom: 4,
+  },
+  mmMatchName: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  mmMatchLocation: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 13,
+  },
+  mmMatchTags: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 6,
+  },
+  mmMatchTag: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  mmMatchTagText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  mmMatchActions: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 24,
+    paddingVertical: 8,
+  },
+  mmMatchBtn: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // ── BACKPACK ──────────────────────────────────────────────────────────────
+  mmBackpackGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  mmBackpackItem: {
+    width: "30%",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 16,
+    alignItems: "center",
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  mmBackpackLabel: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 11,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  mmBackpackBadge: {
+    backgroundColor: "#7c4dff",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  mmBackpackBadgeText: {
+    color: "white",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  mmBackpackEmpty: {
+    color: "rgba(255,255,255,0.3)",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+
+  // ── ROOM PREMIUM ─────────────────────────────────────────────────────────
+  mmThemeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 8,
+    gap: 14,
+  },
+  mmThemeName: {
+    flex: 1,
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  // ── LEVEL ─────────────────────────────────────────────────────────────────
+  mmLevelHero: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  mmLevelBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  mmLevelNum: {
+    color: "white",
+    fontSize: 32,
+    fontWeight: "900",
+  },
+  mmLevelTitle: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  mmLevelXP: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+  },
+  mmLevelPerkBadge: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  mmLevelPerkNum: {
+    color: "white",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+
+  // ── SOCIAL CONNECT ────────────────────────────────────────────────────────
+  mmSocialIconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+
+  // ── SHARE ─────────────────────────────────────────────────────────────────
+  mmShareInvite: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 19,
+    marginBottom: 20,
+    paddingHorizontal: 8,
+  },
+  mmShareGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-around",
+    gap: 16,
+  },
+  mmShareItem: {
+    alignItems: "center",
+    gap: 8,
+  },
+  mmShareIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mmShareLabel: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  // ── HELP / FAQ ────────────────────────────────────────────────────────────
+  mmFaqRow: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 14,
+    marginBottom: 8,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  mmFaqQ: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 10,
+  },
+  mmFaqQText: {
+    flex: 1,
+    color: "white",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  mmFaqAText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    lineHeight: 18,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+
+  // ── BADGES ────────────────────────────────────────────────────────────────
+  mmBadgeProgress: {
+    backgroundColor: "rgba(124,77,255,0.15)",
+    borderRadius: 12,
+    padding: 10,
+    alignItems: "center",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.25)",
+  },
+  mmBadgeProgressText: {
+    color: "#a78bfa",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  mmBadgeGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  mmBadgeItem: {
+    width: "30%",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+    gap: 4,
+  },
+  mmBadgeCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(124,77,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.2)",
+  },
+  mmBadgeLabel: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 10,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  mmBadgeOwned: {
+    backgroundColor: "#7c4dff",
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  mmBadgeOwnedText: {
+    color: "white",
+    fontSize: 9,
+    fontWeight: "800",
+  },
+
+  // ── ROOM TITLE ────────────────────────────────────────────────────────────
+  mmTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  mmTitleLabel: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  mmTitleSelectBtn: {
+    backgroundColor: "rgba(124,77,255,0.3)",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.35)",
+  },
+  mmTitleSelectText: {
+    color: "#a78bfa",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  // ── FEEDBACK ──────────────────────────────────────────────────────────────
+  mmFeedbackHero: {
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 18,
+  },
+  mmFeedbackTitle: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  mmFeedbackSub: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+  },
+  mmFeedbackInput: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 16,
+    padding: 14,
+    color: "white",
+    fontSize: 14,
+    minHeight: 110,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.2)",
+    marginBottom: 4,
+  },
+  mmFeedbackSentBox: {
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 24,
+  },
+  mmFeedbackSentText: {
+    color: "#4ade80",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  mmFeedbackSentSub: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    textAlign: "center",
   },
 });

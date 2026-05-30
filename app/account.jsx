@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,14 +13,17 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
+import { getUser, updateUser } from "../src/store/authStore";
 
-const avatarOptions = [
-  require("../assets/Avatar/avatar1.webp"),
-  require("../assets/Avatar/avatar2.webp"),
-  require("../assets/Avatar/avatar3.webp"),
-  require("../assets/Avatar/avatar4.webp"),
-  require("../assets/Avatar/avatar5.webp"),
-];
+const avatarMap = {
+  avatar1: require("../assets/Avatar/avatar1.webp"),
+  avatar2: require("../assets/Avatar/avatar2.webp"),
+  avatar3: require("../assets/Avatar/avatar3.webp"),
+  avatar4: require("../assets/Avatar/avatar4.webp"),
+  avatar5: require("../assets/Avatar/avatar5.webp"),
+};
+const avatarOptions = Object.keys(avatarMap);
 
 const accountFields = [
   { key: "avatar", label: "Avatar", type: "avatar", note: "New" },
@@ -46,7 +49,7 @@ const answerFields = [
 export default function Account() {
   const router = useRouter();
   const [profile, setProfile] = useState({
-    avatar: avatarOptions[0],
+    avatarId: "avatar1",
     name: "sakku",
     gender: "Female",
     birthday: "2002-02-01",
@@ -64,7 +67,8 @@ export default function Account() {
   });
   const [editingField, setEditingField] = useState(null);
   const [editorValue, setEditorValue] = useState("");
-  const [selectedAvatar, setSelectedAvatar] = useState(profile.avatar);
+  const [selectedAvatar, setSelectedAvatar] = useState(profile.avatarId);
+  const currentAvatar = avatarMap[profile.avatarId] || avatarMap.avatar1;
 
   const filledFields = useMemo(() => {
     const keys = [
@@ -87,23 +91,45 @@ export default function Account() {
     const fieldValue = profile[fieldKey] ?? "";
     setEditingField(fieldKey);
     setEditorValue(typeof fieldValue === "string" ? fieldValue : "");
-    setSelectedAvatar(profile.avatar);
+    setSelectedAvatar(profile.avatarId);
   };
 
-  const saveField = () => {
+  const saveField = async () => {
     if (!editingField) {
       return;
     }
+    const fieldValue = editingField === "avatar" ? selectedAvatar : editorValue;
     setProfile((prev) => ({
       ...prev,
-      [editingField]: editingField === "avatar" ? selectedAvatar : editorValue,
+      [editingField]: fieldValue,
     }));
+    await updateUser({
+      [editingField === "avatar" ? "avatarId" : editingField]: fieldValue,
+    });
     setEditingField(null);
   };
 
   const currentField =
     accountFields.find((item) => item.key === editingField) ||
     answerFields.find((item) => item.key === editingField);
+
+  useFocusEffect(
+    useCallback(() => {
+      const loadUserProfile = async () => {
+        const user = await getUser();
+        if (user) {
+          setProfile((prev) => ({
+            ...prev,
+            ...user,
+          }));
+          if (user.avatarId) {
+            setSelectedAvatar(user.avatarId);
+          }
+        }
+      };
+      loadUserProfile();
+    }, [])
+  );
 
   const editingTitle = currentField?.label || "Edit";
   const isAvatarField = editingField === "avatar";
@@ -140,7 +166,7 @@ export default function Account() {
                 <View style={[styles.sprinkleDot, styles.sprinkleDotFour]} />
               </View>
               <View style={styles.avatarWrapper}>
-                <Image source={profile.avatar} style={styles.accountAvatar} />
+                <Image source={currentAvatar} style={styles.accountAvatar} />
               </View>
             </View>
           </View>
@@ -203,14 +229,17 @@ export default function Account() {
             <Text style={styles.modalTitle}>{editingTitle}</Text>
             {isAvatarField ? (
               <View style={styles.avatarSelectionRow}>
-                {avatarOptions.map((img, index) => (
+                {avatarOptions.map((id) => (
                   <TouchableOpacity
-                    key={index}
-                    style={[styles.avatarOption, selectedAvatar === img && styles.avatarOptionActive]}
-                    onPress={() => setSelectedAvatar(img)}
+                    key={id}
+                    style={[
+                      styles.avatarOption,
+                      selectedAvatar === id && styles.avatarOptionActive,
+                    ]}
+                    onPress={() => setSelectedAvatar(id)}
                     activeOpacity={0.8}
                   >
-                    <Image source={img} style={styles.avatarOptionImage} />
+                    <Image source={avatarMap[id]} style={styles.avatarOptionImage} />
                   </TouchableOpacity>
                 ))}
               </View>

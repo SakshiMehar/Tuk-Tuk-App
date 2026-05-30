@@ -22,6 +22,17 @@ export const getUser = async () => {
   return raw ? JSON.parse(raw) : null;
 };
 
+export const setUser = async (user) => {
+  await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+};
+
+export const updateUser = async (updates) => {
+  const current = (await getUser()) || {};
+  const next = { ...current, ...updates };
+  await setUser(next);
+  return next;
+};
+
 // ── Clear session on logout ─────────────────────────────────
 export const clearSession = async () => {
   await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);

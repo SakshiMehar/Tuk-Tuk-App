@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Stack } from "expo-router";
 import { initFirebase } from "../src/lib/firebase";
 
+
 // NOTE: Splash screen is handled manually inside app/index.jsx
 // using Animated transitions. SplashScreen.preventAutoHideAsync()
 // is intentionally NOT called here to avoid the keep-awake error.

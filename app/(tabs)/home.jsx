@@ -301,6 +301,54 @@ const notifications = [
 
 const searchSuggestions = ["Voice Party", "Find Friends", "Nearby Users", "Blind Pick", "Truth & Dare", "Ludo"];
 
+const gifts = [
+  {
+    id: "1",
+    name: "Golden Coins",
+    emoji: "🪙",
+    value: 100,
+    colors: ["#ff9500ff", "#ffb700ff"],
+    description: "Get 100 coins daily",
+    isFree: true,
+  },
+  {
+    id: "2",
+    name: "Diamond Box",
+    emoji: "💎",
+    value: 50,
+    colors: ["#0077b6", "#00b4d8ff"],
+    description: "Get 50 diamonds daily",
+    isFree: true,
+  },
+  {
+    id: "3",
+    name: "Heart Gift",
+    emoji: "❤️",
+    value: 25,
+    colors: ["#dc62bcff", "#ff4ea3"],
+    description: "Get 25 hearts daily",
+    isFree: true,
+  },
+  {
+    id: "4",
+    name: "Star Bonus",
+    emoji: "⭐",
+    value: 10,
+    colors: ["#ffd700", "#ffed4e"],
+    description: "Get 10 stars daily",
+    isFree: true,
+  },
+  {
+    id: "5",
+    name: "Mystery Box",
+    emoji: "🎁",
+    value: 200,
+    colors: ["#a647eaff", "#7c4dff"],
+    description: "Random rewards",
+    isFree: false,
+  },
+];
+
 export default function Home() {
   const router = useRouter();
   const [selectedTab, setSelectedTab] = useState("For You");
@@ -325,7 +373,69 @@ export default function Home() {
   };
   const [searchVisible, setSearchVisible] = useState(false);
   const [notifVisible, setNotifVisible] = useState(false);
+  const [giftsVisible, setGiftsVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(
+    notifications.filter((n) => n.unread).map((n) => n.id)
+  );
+
+  const handleMarkAllRead = () => {
+    setUnreadNotifications([]);
+  };
+
+  const handleSearchQuery = (text) => {
+    setSearchQuery(text);
+    if (text.trim().length === 0) {
+      setSearchResults([]);
+      return;
+    }
+
+    const query = text.toLowerCase();
+    const results = [];
+
+    actionCards.forEach((card) => {
+      if (
+        card.title.toLowerCase().includes(query) ||
+        card.subtitle.toLowerCase().includes(query)
+      ) {
+        results.push({
+          id: card.title,
+          title: card.title,
+          subtitle: card.subtitle,
+          type: "action",
+          route: card.route,
+          colors: card.colors,
+        });
+      }
+    });
+
+    iconItems.forEach((item) => {
+      if (item.label.toLowerCase().includes(query)) {
+        results.push({
+          id: item.label,
+          title: item.label,
+          type: "icon",
+          colors: item.colors,
+        });
+      }
+    });
+
+    searchSuggestions.forEach((suggestion) => {
+      if (
+        suggestion.toLowerCase().includes(query) &&
+        !results.some((r) => r.title === suggestion)
+      ) {
+        results.push({
+          id: suggestion,
+          title: suggestion,
+          type: "suggestion",
+        });
+      }
+    });
+
+    setSearchResults(results);
+  };
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -399,7 +509,11 @@ export default function Home() {
                 <Text style={styles.diamondEmoji}>💎</Text>
                 <Text style={styles.diamondCount}>2,480</Text>
               </View>
-              <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8}>
+              <TouchableOpacity
+                style={styles.headerIconBtn}
+                activeOpacity={0.8}
+                onPress={() => setGiftsVisible(true)}
+              >
                 <Text style={styles.headerIconEmoji}>🎁</Text>
                 <View style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}>
                   <Text style={styles.headerIconBadgeText}>!</Text>
@@ -689,48 +803,188 @@ export default function Home() {
                 placeholder="Search people, parties, games…"
                 placeholderTextColor="rgba(255,255,255,0.35)"
                 value={searchQuery}
-                onChangeText={setSearchQuery}
+                onChangeText={handleSearchQuery}
                 autoFocus
                 selectionColor="#7c4dff"
               />
               {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery("")}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setSearchQuery("");
+                    setSearchResults([]);
+                  }}
+                >
                   <Text style={styles.searchClearBtn}>✕</Text>
                 </TouchableOpacity>
               )}
             </View>
 
-            {/* Suggestions */}
-            <View style={styles.searchSuggestSection}>
-              <Text style={styles.searchSuggestLabel}>Quick explore</Text>
-              <View style={styles.searchSuggestRow}>
-                {searchSuggestions.map((s) => (
-                  <TouchableOpacity key={s} style={styles.searchChip} activeOpacity={0.8}>
+            {/* Search Results or Suggestions */}
+            {searchResults.length > 0 ? (
+              <View style={styles.searchResultsSection}>
+                <Text style={styles.searchSuggestLabel}>Search Results</Text>
+                {searchResults.map((result) => (
+                  <TouchableOpacity
+                    key={result.id}
+                    style={styles.searchResultItem}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      if (result.route) {
+                        router.push(result.route);
+                        setSearchVisible(false);
+                        setSearchQuery("");
+                        setSearchResults([]);
+                      }
+                    }}
+                  >
                     <LinearGradient
-                      colors={["#3d1a6e", "#5b2d8e"]}
-                      style={styles.searchChipGradient}
+                      colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
+                      style={styles.resultIconBox}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                     >
-                      <Text style={styles.searchChipText}>{s}</Text>
+                      <Text style={styles.resultIcon}>
+                        {result.type === "action" ? "🎮" : "✨"}
+                      </Text>
+                    </LinearGradient>
+                    <View style={styles.resultTextCol}>
+                      <Text style={styles.resultTitle}>{result.title}</Text>
+                      {result.subtitle && (
+                        <Text style={styles.resultSubtitle}>{result.subtitle}</Text>
+                      )}
+                    </View>
+                    <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : searchQuery.length === 0 ? (
+              <>
+                {/* Suggestions */}
+                <View style={styles.searchSuggestSection}>
+                  <Text style={styles.searchSuggestLabel}>Quick explore</Text>
+                  <View style={styles.searchSuggestRow}>
+                    {searchSuggestions.map((s) => (
+                      <TouchableOpacity key={s} style={styles.searchChip} activeOpacity={0.8}>
+                        <LinearGradient
+                          colors={["#3d1a6e", "#5b2d8e"]}
+                          style={styles.searchChipGradient}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                        >
+                          <Text style={styles.searchChipText}>{s}</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Trending section */}
+                <View style={styles.searchSuggestSection}>
+                  <Text style={styles.searchSuggestLabel}>Trending now 🔥</Text>
+                  {["#VoiceParty", "#BlindDate", "#TruthOrDare", "#TukTukGames"].map(
+                    (tag) => (
+                      <View key={tag} style={styles.trendingRow}>
+                        <View style={styles.trendingDot} />
+                        <Text style={styles.trendingTag}>{tag}</Text>
+                      </View>
+                    )
+                  )}
+                </View>
+              </>
+            ) : (
+              <View style={styles.noResultsContainer}>
+                <Text style={styles.noResultsEmoji}>🔍</Text>
+                <Text style={styles.noResultsText}>No results found</Text>
+                <Text style={styles.noResultsSubtext}>Try searching for features like Voice Party, Games, or People</Text>
+              </View>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── GIFT MODAL ── */}
+      <Modal
+        visible={giftsVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setGiftsVisible(false)}
+      >
+        <View style={styles.giftsOverlay}>
+          <TouchableOpacity
+            style={styles.giftBackdrop}
+            activeOpacity={1}
+            onPress={() => setGiftsVisible(false)}
+          />
+          <SafeAreaView style={styles.giftsPanel}>
+            <LinearGradient
+              colors={["#1a0a2e", "#16082a", "#0d0618"]}
+              style={StyleSheet.absoluteFill}
+            />
+            {/* Header */}
+            <View style={styles.giftsHeader}>
+              <Text style={styles.giftsTitle}>Daily Gifts</Text>
+              <TouchableOpacity
+                onPress={() => setGiftsVisible(false)}
+                style={styles.giftCloseBtn}
+              >
+                <Text style={styles.giftCloseTxt}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Free Gift Info */}
+            <View style={styles.freeGiftBanner}>
+              <LinearGradient
+                colors={["#ffb700", "#ff9500"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.freeGiftGradient}
+              >
+                <View style={styles.freeGiftContent}>
+                  <Text style={styles.freeGiftEmoji}>🎉</Text>
+                  <View style={styles.freeGiftText}>
+                    <Text style={styles.freeGiftTitle}>Free Gift Daily!</Text>
+                    <Text style={styles.freeGiftSubtitle}>
+                      Claim one free gift every 24 hours
+                    </Text>
+                  </View>
+                </View>
+              </LinearGradient>
+            </View>
+
+            {/* Gifts Grid */}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.giftsScrollContent}
+            >
+              <View style={styles.giftsGrid}>
+                {gifts.map((gift) => (
+                  <TouchableOpacity
+                    key={gift.id}
+                    style={styles.giftCard}
+                    activeOpacity={0.85}
+                  >
+                    <LinearGradient
+                      colors={gift.colors}
+                      style={styles.giftCardGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <Text style={styles.giftEmoji}>{gift.emoji}</Text>
+                      <Text style={styles.giftName}>{gift.name}</Text>
+                      <Text style={styles.giftValue}>+{gift.value}</Text>
+                      <Text style={styles.giftDescription}>{gift.description}</Text>
+                      {gift.isFree && (
+                        <View style={styles.freeTag}>
+                          <Text style={styles.freeTagText}>FREE</Text>
+                        </View>
+                      )}
                     </LinearGradient>
                   </TouchableOpacity>
                 ))}
               </View>
-            </View>
-
-            {/* Trending section */}
-            <View style={styles.searchSuggestSection}>
-              <Text style={styles.searchSuggestLabel}>Trending now 🔥</Text>
-              {["#VoiceParty", "#BlindDate", "#TruthOrDare", "#TukTukGames"].map((tag) => (
-                <View key={tag} style={styles.trendingRow}>
-                  <View style={styles.trendingDot} />
-                  <Text style={styles.trendingTag}>{tag}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
       </Modal>
 
       {/* ── NOTIFICATION MODAL ── */}
@@ -751,7 +1005,10 @@ export default function Home() {
             <View style={styles.notifHeader}>
               <Text style={styles.notifTitle}>Notifications</Text>
               <View style={styles.notifHeaderRight}>
-                <TouchableOpacity style={styles.notifMarkAll}>
+                <TouchableOpacity
+                  style={styles.notifMarkAll}
+                  onPress={handleMarkAllRead}
+                >
                   <Text style={styles.notifMarkAllText}>Mark all read</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => setNotifVisible(false)} style={styles.notifCloseBtn}>
@@ -770,8 +1027,17 @@ export default function Home() {
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
               {notifications.map((notif) => (
-                <TouchableOpacity key={notif.id} style={[styles.notifItem, notif.unread && styles.notifItemUnread]} activeOpacity={0.8}>
-                  {notif.unread && <View style={styles.unreadDot} />}
+                <TouchableOpacity
+                  key={notif.id}
+                  style={[
+                    styles.notifItem,
+                    unreadNotifications.includes(notif.id) && styles.notifItemUnread,
+                  ]}
+                  activeOpacity={0.8}
+                >
+                  {unreadNotifications.includes(notif.id) && (
+                    <View style={styles.unreadDot} />
+                  )}
                   {/* Avatar or icon bubble */}
                   {notif.avatar ? (
                     <View style={styles.notifAvatarWrapper}>
@@ -781,7 +1047,10 @@ export default function Home() {
                       </View>
                     </View>
                   ) : (
-                    <LinearGradient colors={["#3d1a6e", "#7c4dff"]} style={styles.notifSystemIcon}>
+                    <LinearGradient
+                      colors={["#3d1a6e", "#7c4dff"]}
+                      style={styles.notifSystemIcon}
+                    >
                       <Text style={{ fontSize: 20 }}>{notif.icon}</Text>
                     </LinearGradient>
                   )}
@@ -789,7 +1058,9 @@ export default function Home() {
                   {/* Text */}
                   <View style={styles.notifTextCol}>
                     <Text style={styles.notifItemTitle}>{notif.title}</Text>
-                    <Text style={styles.notifItemSub} numberOfLines={1}>{notif.subtitle}</Text>
+                    <Text style={styles.notifItemSub} numberOfLines={1}>
+                      {notif.subtitle}
+                    </Text>
                     <Text style={styles.notifTime}>{notif.time}</Text>
                   </View>
                 </TouchableOpacity>
@@ -1572,5 +1843,197 @@ const styles = StyleSheet.create({
     color: "#7c4dff",
     fontSize: 11,
     fontWeight: "600",
+  },
+
+  // ── SEARCH RESULTS ──
+  searchResultsSection: {
+    marginBottom: 18,
+  },
+  searchResultItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+    gap: 12,
+  },
+  resultIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resultIcon: {
+    fontSize: 20,
+  },
+  resultTextCol: {
+    flex: 1,
+  },
+  resultTitle: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  resultSubtitle: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+  },
+  noResultsContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  noResultsEmoji: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  noResultsText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  noResultsSubtext: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
+    textAlign: "center",
+    paddingHorizontal: 30,
+    lineHeight: 18,
+  },
+
+  // ── GIFT MODAL ──
+  giftsOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  giftBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  giftsPanel: {
+    height: "90%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: "hidden",
+    borderTopWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+  },
+  giftsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 14,
+  },
+  giftsTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  giftCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  giftCloseTxt: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  freeGiftBanner: {
+    marginHorizontal: 16,
+    marginBottom: 18,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  freeGiftGradient: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  freeGiftContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  freeGiftEmoji: {
+    fontSize: 32,
+  },
+  freeGiftText: {
+    flex: 1,
+  },
+  freeGiftTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+    marginBottom: 2,
+  },
+  freeGiftSubtitle: {
+    color: "rgba(0,0,0,0.7)",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  giftsScrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 30,
+  },
+  giftsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  giftCard: {
+    width: "48%",
+    borderRadius: 16,
+    overflow: "hidden",
+    aspectRatio: 1,
+  },
+  giftCardGradient: {
+    flex: 1,
+    padding: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+  },
+  giftEmoji: {
+    fontSize: 36,
+    marginBottom: 8,
+  },
+  giftName: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 4,
+    textAlign: "center",
+  },
+  giftValue: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 16,
+    fontWeight: "800",
+    marginBottom: 2,
+  },
+  giftDescription: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 11,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  freeTag: {
+    backgroundColor: "rgba(255,255,255,0.3)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  freeTagText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "700",
   },
 });

@@ -10,7 +10,7 @@
       "com.googleusercontent.apps.807444567658-1doo16uhnb3pl3b7mr0dspmogvt1dmi9"
     ],
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
