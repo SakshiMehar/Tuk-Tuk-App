@@ -118,8 +118,7 @@ export default function Profile() {
     const { label } = activeMenu;
 
     // ── MENU UI COMMENTED OUT ─────────────────────────────────────────────────
-    // Remove the line below to re-enable individual menu section UIs
-    return null;
+   
 
     // ── GET REWARDS ───────────────────────────────────────────────────────────
     if (label === "Get Rewards") {
@@ -1731,6 +1730,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: "hidden",
     marginTop: 16,
+    alignSelf: "stretch",
   },
   mmPrimaryBtnGrad: {
     flexDirection: "row",
@@ -1750,17 +1750,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.4)",
     backgroundColor: "rgba(124,77,255,0.1)",
+    alignSelf: "stretch",
   },
   mmOutlineBtnText: {
     color: "#a78bfa",
     fontSize: 15,
     fontWeight: "700",
+    alignSelf: "center",
+    alignItems: "center",
   },
   mmSmallBtn: {
     backgroundColor: "rgba(124,77,255,0.25)",
     borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.3)",
   },
