@@ -3,8 +3,7 @@ import {
   signInWithCredential,
 } from "firebase/auth";
 import { getFirebaseAuth } from "../lib/firebase";
-import { firebasePhoneAuth } from "../api/authApi";
-import { establishSessionFromApi } from "./authSessionService";
+import { saveSession } from "../store/authStore";
 
 const assertRecaptcha = (recaptchaVerifier) => {
   if (!recaptchaVerifier) {
@@ -15,8 +14,8 @@ const assertRecaptcha = (recaptchaVerifier) => {
 };
 
 /**
- * Step 1–2: Firebase SDK → send SMS OTP (reCAPTCHA required in Expo / RN).
- * @returns {Promise<string>} verificationId for confirm step
+ * Step 1: Send OTP via Firebase.
+ * @returns {Promise<string>} verificationId
  */
 export const sendPhoneOtp = async (phoneNumber, recaptchaVerifier) => {
   assertRecaptcha(recaptchaVerifier);
@@ -26,7 +25,8 @@ export const sendPhoneOtp = async (phoneNumber, recaptchaVerifier) => {
 };
 
 /**
- * Step 3–5: Verify OTP → Firebase ID token → POST /api/auth/firebase-phone → JWT session.
+ * Step 2: Verify OTP → get Firebase ID token → save session directly.
+ * No backend call — Firebase token is used as the session token.
  */
 export const verifyPhoneOtpAndLogin = async (verificationId, smsCode) => {
   if (!verificationId) {
@@ -36,11 +36,20 @@ export const verifyPhoneOtpAndLogin = async (verificationId, smsCode) => {
   const auth = getFirebaseAuth();
   const credential = PhoneAuthProvider.credential(verificationId, smsCode);
   const userCredential = await signInWithCredential(auth, credential);
+
   const idToken = await userCredential.user.getIdToken(true);
+  const { uid, phoneNumber } = userCredential.user;
 
   if (!idToken) {
     throw new Error("Firebase did not return an ID token.");
   }
 
-  return establishSessionFromApi(firebasePhoneAuth, idToken);
+  const user = {
+    id:    uid,
+    phone: phoneNumber,
+    provider: "phone",
+  };
+
+  await saveSession(idToken, user);
+  return { token: idToken, user };
 };

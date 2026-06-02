@@ -5,10 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": [
-      "tuktuk",
-      "com.googleusercontent.apps.807444567658-1doo16uhnb3pl3b7mr0dspmogvt1dmi9"
-    ],
+    "scheme": "tuktuk",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -36,7 +33,7 @@
       "permissions": [
         "android.permission.INTERNET"
       ],
-      "package": "com.anonymous.TukTuk"
+      "package": "tuk.tuk.app"
     },
     "web": {
       "bundler": "metro",
@@ -45,6 +42,7 @@
     },
     "plugins": [
       "expo-router",
+      "@react-native-google-signin/google-signin",
       [
         "expo-splash-screen",
         {

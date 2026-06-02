@@ -1,58 +1,39 @@
-import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
+import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
+import { GOOGLE_WEB_CLIENT_ID } from "../config/auth";
 
-WebBrowser.maybeCompleteAuthSession();
+let configured = false;
 
-export function useGoogleSignIn() {
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId:
-      "807444567658-l9gq0ophos92739p6o9vjms7kmq0407o.apps.googleusercontent.com",
-
-    androidClientId:
-      "807444567658-1doo16uhnb3pl3b7mr0dspmogvt1dmi9.apps.googleusercontent.com",
-
-    webClientId:
-      "807444567658-l9gq0ophos92739p6o9vjms7kmq0407o.apps.googleusercontent.com",
-
-    scopes: ["openid", "profile", "email"],
-
-    responseType: "id_token",
-
-    selectAccount: true,
+function ensureConfigured() {
+  if (configured) return;
+  GoogleSignin.configure({
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    offlineAccess: true,
+    scopes: ["profile", "email"],
   });
-
-  return {
-    request,
-    response,
-    promptAsync,
-  };
+  configured = true;
 }
 
-export const getGoogleIdToken = (authResponse) => {
-  if (!authResponse || authResponse.type !== "success") {
-    return null;
+export async function signInWithGoogle() {
+  ensureConfigured();
+  await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  const response = await GoogleSignin.signIn();
+  return response;
+}
+
+export function getGoogleIdToken(response) {
+  if (!response) return null;
+  if (response.type === "success") {
+    return response.data?.idToken ?? null;
   }
+  return response.idToken ?? null;
+}
 
-  return (
-    authResponse.authentication?.idToken ??
-    authResponse.params?.id_token ??
-    null
-  );
-};
-
-export const getGoogleAuthErrorMessage = (authResponse) => {
-  if (!authResponse) return null;
-
-  if (
-    authResponse.type === "cancel" ||
-    authResponse.type === "dismiss"
-  ) {
-    return "cancelled";
-  }
-
-  if (authResponse.type === "error") {
-    return authResponse.error?.message ?? "Google sign-in failed.";
-  }
-
-  return null;
-};
+export function getGoogleAuthErrorMessage(error) {
+  if (!error) return null;
+  if (error.code === statusCodes.SIGN_IN_CANCELLED) return "cancelled";
+  if (error.code === statusCodes.IN_PROGRESS)
+    return "Sign-in already in progress.";
+  if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE)
+    return "Google Play Services not available on this device.";
+  return error.message ?? "Google sign-in failed.";
+}

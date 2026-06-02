@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Alert,
   Image,
@@ -13,91 +13,21 @@ import {
 import { FontAwesome, FontAwesome5, AntDesign } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
-import * as WebBrowser from "expo-web-browser";
 import { guestLogin, googleLogin } from "../src/api/authApi";
 import { saveSession } from "../src/store/authStore";
 import { establishSessionFromApi } from "../src/services/authSessionService";
 import { signInWithFacebook } from "../src/services/facebookSdkNative";
-import {
-  useGoogleSignIn,
-  getGoogleIdToken,
-  getGoogleAuthErrorMessage,
-} from "../src/hooks/useGoogleSignIn";
-
-WebBrowser.maybeCompleteAuthSession();
+import { signInWithGoogle, getGoogleIdToken, getGoogleAuthErrorMessage } from "../src/hooks/useGoogleSignIn";
 
 const logo = require("../assets/images/splash-icon.png");
 
 // ── Main Login Screen ────────────────────────────────────────
 export default function Login() {
   const router = useRouter();
-  const [accepted, setAccepted]           = useState(false);
-  const [guestLoading, setGuestLoading]   = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
+  const [accepted, setAccepted]               = useState(false);
+  const [guestLoading, setGuestLoading]       = useState(false);
+  const [googleLoading, setGoogleLoading]     = useState(false);
   const [facebookLoading, setFacebookLoading] = useState(false);
-
- const {
-  response: googleResponse,
-  promptAsync: googlePromptAsync,
-} = useGoogleSignIn();
-
- useEffect(() => {
-  console.log("GOOGLE RESPONSE:", googleResponse);
-
-  if (!googleResponse) return;
-
-  const errMsg = getGoogleAuthErrorMessage(googleResponse);
-
-  console.log("GOOGLE ERROR:", errMsg);
-
-  if (errMsg === "cancelled") {
-    setGoogleLoading(false);
-    return;
-  }
-
-  if (errMsg) {
-    setGoogleLoading(false);
-    Alert.alert("Google Sign-In", errMsg);
-    return;
-  }
-
-  if (googleResponse.type !== "success") {
-    console.log("NOT SUCCESS");
-    setGoogleLoading(false);
-    return;
-  }
-
-  (async () => {
-    try {
-      console.log("GOOGLE SUCCESS");
-
-      const idToken = getGoogleIdToken(googleResponse);
-
-      console.log("ID TOKEN:", idToken);
-
-      if (!idToken) {
-        throw new Error("Google sign-in did not return an ID token.");
-      }
-
-      const result = await establishSessionFromApi(
-        googleLogin,
-        idToken
-      );
-
-      console.log("LOGIN RESULT:", result);
-
-      router.replace("/(tabs)/home");
-    } catch (err) {
-      console.log("GOOGLE LOGIN ERROR:", err);
-
-      const msg = err?.message ?? "Google sign-in failed.";
-
-      Alert.alert("Google Sign-In", msg);
-    } finally {
-      setGoogleLoading(false);
-    }
-  })();
-}, [googleResponse]);
 
   const requireAccepted = () => {
     if (!accepted) {
@@ -107,22 +37,28 @@ export default function Login() {
     return true;
   };
 
-const handleGoogleLogin = async () => {
-  if (!requireAccepted()) return;
-
-  try {
+  const handleGoogleLogin = async () => {
+    if (!requireAccepted()) return;
     setGoogleLoading(true);
-
- await googlePromptAsync();
-  } catch (err) {
-    Alert.alert(
-      "Google Sign-In",
-      err?.message ?? "Google sign-in failed."
-    );
-
-    setGoogleLoading(false);
-  }
-};
+    try {
+      const response = await signInWithGoogle();
+      console.log("=== GOOGLE SIGNIN RESPONSE ===");
+      console.log("Response type:", response?.type);
+      console.log("Response data:", JSON.stringify(response?.data));
+      const idToken = getGoogleIdToken(response);
+      const name = response?.data?.user?.name ?? response?.user?.name ?? "";
+      console.log("idToken exists:", !!idToken);
+      console.log("name:", name);
+      if (!idToken) throw new Error("Google sign-in did not return a token.");
+      await establishSessionFromApi(() => googleLogin(idToken, name));
+      router.replace("/(tabs)/home");
+    } catch (err) {
+      const msg = getGoogleAuthErrorMessage(err);
+      if (msg && msg !== "cancelled") Alert.alert("Google Sign-In", msg);
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleFacebookLogin = async () => {
     if (!requireAccepted()) return;
@@ -361,6 +297,7 @@ const handleGoogleLogin = async () => {
 
         </View>
       </ScrollView>
+
     </View>
   );
 }

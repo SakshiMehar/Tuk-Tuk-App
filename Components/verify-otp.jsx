@@ -21,8 +21,8 @@ export default function VerifyOtp() {
   const params = useLocalSearchParams();
   const phone = Array.isArray(params.phone) ? params.phone[0] : params.phone;
 
-  const [otp, setOtp]           = useState(["", "", "", "", "", ""]);
-  const [loading, setLoading]   = useState(false);
+  const [otp, setOtp]             = useState(["", "", "", "", "", ""]);
+  const [loading, setLoading]     = useState(false);
   const [resending, setResending] = useState(false);
   const inputs = useRef([]);
 
