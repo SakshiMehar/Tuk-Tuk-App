@@ -33,7 +33,8 @@
       "permissions": [
         "android.permission.INTERNET"
       ],
-      "package": "tuk.tuk.app"
+      "package": "tuk.tuk.app",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",
@@ -42,6 +43,7 @@
     },
     "plugins": [
       "expo-router",
+      "@react-native-firebase/app",
       "@react-native-google-signin/google-signin",
       [
         "expo-splash-screen",

@@ -16,6 +16,7 @@ import MaskedView from "@react-native-masked-view/masked-view";
 import { guestLogin, googleLogin } from "../src/api/authApi";
 import { saveSession } from "../src/store/authStore";
 import { establishSessionFromApi } from "../src/services/authSessionService";
+import { normalizeAuthResponse } from "../src/utils/authResponse";
 import { signInWithFacebook } from "../src/services/facebookSdkNative";
 import { signInWithGoogle, getGoogleIdToken, getGoogleAuthErrorMessage } from "../src/hooks/useGoogleSignIn";
 
@@ -85,7 +86,8 @@ export default function Login() {
     setGuestLoading(true);
     try {
       const data = await guestLogin();
-      if (data?.token) await saveSession(data.token, data.user ?? {});
+      const { token, user } = normalizeAuthResponse(data);
+      if (token) await saveSession(token, user);
     } catch (_) {
       // Guest endpoint not available — continue as unauthenticated guest
     } finally {

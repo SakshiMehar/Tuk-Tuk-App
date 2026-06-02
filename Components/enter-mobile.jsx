@@ -16,7 +16,7 @@ import {
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft, Search, X, ChevronDown } from "lucide-react-native";
-import { sendOtp } from "../src/api/authApi";
+import { sendPhoneOtp } from "../src/services/firebasePhoneService";
 
 const COUNTRIES = [
   { name: "Afghanistan",                flag: "🇦🇫", code: "+93"  },
@@ -179,10 +179,10 @@ export default function EnterMobile() {
     const e164 = `${selected.code}${trimmed.replace(/^0+/, "")}`;
     setLoading(true);
     try {
-      await sendOtp(e164);
+      await sendPhoneOtp(e164);
       router.push({ pathname: "/verify-otp", params: { phone: e164 } });
     } catch (err) {
-      Alert.alert("Error", err?.response?.data?.message || err.message || "Failed to send OTP. Please try again.");
+      Alert.alert("Error", err?.message || "Failed to send OTP. Please try again.");
     } finally {
       setLoading(false);
     }

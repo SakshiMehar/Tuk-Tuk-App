@@ -12,9 +12,7 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft } from "lucide-react-native";
-import { verifyOtp, sendOtp } from "../src/api/authApi";
-import { saveSession } from "../src/store/authStore";
-import { normalizeAuthResponse } from "../src/utils/authResponse";
+import { verifyPhoneOtpAndLogin } from "../src/services/firebasePhoneService";
 
 export default function VerifyOtp() {
   const router = useRouter();
@@ -48,31 +46,17 @@ export default function VerifyOtp() {
     }
     setLoading(true);
     try {
-      const data = await verifyOtp(phone, code);
-      const { token, user } = normalizeAuthResponse(data);
-      if (!token) throw new Error("No token received from server.");
-      await saveSession(token, user);
+      await verifyPhoneOtpAndLogin(code);
       router.replace("/(tabs)/home");
     } catch (err) {
-      Alert.alert("Verification Failed", err?.response?.data?.message || err.message || "Invalid OTP. Please try again.");
+      Alert.alert("Verification Failed", err?.message || "Invalid OTP. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleResend = async () => {
-    if (!phone) return;
-    setResending(true);
-    try {
-      await sendOtp(phone);
-      Alert.alert("Sent", "A new OTP has been sent to your number.");
-      setOtp(["", "", "", "", "", ""]);
-      inputs.current[0]?.focus();
-    } catch (err) {
-      Alert.alert("Error", err?.response?.data?.message || err.message || "Failed to resend OTP.");
-    } finally {
-      setResending(false);
-    }
+    Alert.alert("Resend OTP", "Please go back and enter your number again to resend the code.");
   };
 
   return (
