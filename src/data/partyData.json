@@ -1,0 +1,46 @@
+{
+  "liveRooms": [
+    {
+      "id": "893429426",
+      "name": "demouser's room",
+      "ownerId": "893429426",
+      "ownerName": "demouser",
+      "ownerAvatar": "https://randomuser.me/api/portraits/men/32.jpg",
+      "listenerCount": 128,
+      "isLive": true
+    }
+  ],
+  "room": {
+    "id": "893429426",
+    "name": "demouser's room",
+    "owner": {
+      "id": "893429426",
+      "name": "demouser",
+      "avatar": "https://randomuser.me/api/portraits/men/32.jpg"
+    },
+    "micSeats": [
+      { "id": 1, "user": null, "locked": true },
+      {
+        "id": 2,
+        "user": {
+          "id": "u2",
+          "name": "nobby",
+          "avatar": "https://randomuser.me/api/portraits/men/11.jpg",
+          "badge": "🍁",
+          "active": false
+        }
+      },
+      { "id": 3, "user": null },
+      {
+        "id": 4,
+        "user": {
+          "id": "u4",
+          "name": "doremon",
+          "avatar": "https://randomuser.me/api/portraits/women/22.jpg",
+          "badge": "💗"
+        }
+      }
+    ],
+    "recommendedUsers": []
+  }
+}

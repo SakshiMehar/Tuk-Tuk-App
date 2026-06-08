@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Image,
@@ -16,19 +16,26 @@ import MaskedView from "@react-native-masked-view/masked-view";
 import { guestLogin, googleLogin } from "../src/api/authApi";
 import { saveSession } from "../src/store/authStore";
 import { establishSessionFromApi } from "../src/services/authSessionService";
-import { normalizeAuthResponse } from "../src/utils/authResponse";
-import { signInWithFacebook } from "../src/services/facebookSdkNative";
-import { signInWithGoogle, getGoogleIdToken, getGoogleAuthErrorMessage } from "../src/hooks/useGoogleSignIn";
+import { signInWithFacebook } from "../src/services/facebookAuthService";
+import {
+  configureGoogleSignIn,
+  signInWithGoogle,
+  getGoogleAuthErrorMessage,
+} from "../src/hooks/useGoogleSignIn";
 
 const logo = require("../assets/images/splash-icon.png");
 
 // ── Main Login Screen ────────────────────────────────────────
 export default function Login() {
   const router = useRouter();
-  const [accepted, setAccepted]               = useState(false);
-  const [guestLoading, setGuestLoading]       = useState(false);
-  const [googleLoading, setGoogleLoading]     = useState(false);
+  const [accepted, setAccepted]           = useState(false);
+  const [guestLoading, setGuestLoading]   = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [facebookLoading, setFacebookLoading] = useState(false);
+
+  useEffect(() => {
+    configureGoogleSignIn();
+  }, []);
 
   const requireAccepted = () => {
     if (!accepted) {
@@ -42,20 +49,15 @@ export default function Login() {
     if (!requireAccepted()) return;
     setGoogleLoading(true);
     try {
-      const response = await signInWithGoogle();
-      console.log("=== GOOGLE SIGNIN RESPONSE ===");
-      console.log("Response type:", response?.type);
-      console.log("Response data:", JSON.stringify(response?.data));
-      const idToken = getGoogleIdToken(response);
-      const name = response?.data?.user?.name ?? response?.user?.name ?? "";
-      console.log("idToken exists:", !!idToken);
-      console.log("name:", name);
-      if (!idToken) throw new Error("Google sign-in did not return a token.");
-      await establishSessionFromApi(() => googleLogin(idToken, name));
+      const idToken = await signInWithGoogle();
+      if (!idToken) throw new Error("Google sign-in did not return an ID token.");
+      await establishSessionFromApi(googleLogin, idToken);
       router.replace("/(tabs)/home");
     } catch (err) {
       const msg = getGoogleAuthErrorMessage(err);
-      if (msg && msg !== "cancelled") Alert.alert("Google Sign-In", msg);
+      if (msg && msg !== "cancelled") {
+        Alert.alert("Google Sign-In", msg);
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -86,8 +88,7 @@ export default function Login() {
     setGuestLoading(true);
     try {
       const data = await guestLogin();
-      const { token, user } = normalizeAuthResponse(data);
-      if (token) await saveSession(token, user);
+      if (data?.token) await saveSession(data.token, data.user ?? {});
     } catch (_) {
       // Guest endpoint not available — continue as unauthenticated guest
     } finally {
@@ -299,7 +300,6 @@ export default function Login() {
 
         </View>
       </ScrollView>
-
     </View>
   );
 }

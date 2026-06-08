@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { loadChatHistory, markChatAsRead } from "../src/services/chatService";
 import {
   View,
   Text,
@@ -38,6 +39,7 @@ const LOCKED_PHOTO_W = (W - 80) / 3 - 6;
 
 export default function ChatBox({ user = {}, onBack }) {
   const {
+    userId = null,
     name = "User",
     avatar = "https://randomuser.me/api/portraits/men/34.jpg",
     matchPercent = 95,
@@ -52,6 +54,26 @@ export default function ChatBox({ user = {}, onBack }) {
   const [liked, setLiked] = useState(false);
   const [likedCount, setLikedCount] = useState(likeCount);
   const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    loadChatHistory(userId)
+      .then(({ messages: apiMessages }) => {
+        if (cancelled || !apiMessages?.length) return;
+        setMessages(
+          apiMessages.map((m) => ({
+            id: m.messageId,
+            text: m.content,
+            fromMe: false,
+            time: m.timestamp ? new Date(m.timestamp) : new Date(),
+          }))
+        );
+      })
+      .catch(() => {});
+    markChatAsRead(userId).catch(() => {});
+    return () => { cancelled = true; };
+  }, [userId]);
 
   const sendMessage = () => {
     const text = message.trim();

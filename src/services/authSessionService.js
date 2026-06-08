@@ -1,5 +1,7 @@
 import { saveSession } from "../store/authStore";
 import { normalizeAuthResponse } from "../utils/authResponse";
+import { refreshTokenCache } from "../api/axios";
+import { wsService } from "./websocket";
 
 /** Call backend auth endpoint, persist JWT + user. */
 export const establishSessionFromApi = async (apiCall, credential) => {
@@ -9,5 +11,11 @@ export const establishSessionFromApi = async (apiCall, credential) => {
     throw new Error("Authentication succeeded but no token was returned.");
   }
   await saveSession(token, user);
+  await refreshTokenCache(); // keep axios cache in sync immediately after login
+  try {
+    await wsService.connect();
+  } catch {
+    // WebSocket optional on login — reconnect when chat/party opens
+  }
   return { token, user };
 };

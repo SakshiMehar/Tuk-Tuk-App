@@ -1,0 +1,119 @@
+{
+  "topTabs": ["Related", "Explore"],
+  "relatedSubTabs": ["Recently", "Following", "Managed"],
+  "filterChips": ["Recommend", "New", "Game", "Blind date"],
+  "featureCards": [
+    {
+      "id": "ranking",
+      "label": "Ranking",
+      "emoji": "👑",
+      "colors": ["#ff8c00", "#ffb347"]
+    },
+    {
+      "id": "game",
+      "label": "Game",
+      "emoji": "🎮",
+      "colors": ["#3a1fa0", "#7c4dff"]
+    },
+    {
+      "id": "family",
+      "label": "Family",
+      "emoji": "🏰",
+      "colors": ["#1a2a6c", "#4a6cf7"]
+    }
+  ],
+  "banner": {
+    "title": "Achat glory star VIP Packs",
+    "subtitle": "Limited Time Only!",
+    "userName": "ABHIR",
+    "userId": "419988719",
+    "userAvatar": "https://randomuser.me/api/portraits/men/75.jpg"
+  },
+  "recentlyRooms": [
+    {
+      "id": "recent-1",
+      "title": "*BADNAME AASHIQ*",
+      "thumbnail": "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=200",
+      "participantCount": 2,
+      "badges": ["🎵", "🏆", "💎"],
+      "statusIcons": ["👫"]
+    },
+    {
+      "id": "recent-2",
+      "title": "BLIND DATE",
+      "thumbnail": "https://images.unsplash.com/photo-1522673607200-164d1b6ce486?w=200",
+      "participantCount": 16,
+      "badges": ["💘", "⭐"],
+      "statusIcons": ["👑"]
+    },
+    {
+      "id": "recent-3",
+      "title": "✨ dil ki khamoshi ✨",
+      "thumbnail": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=200",
+      "participantCount": 5,
+      "badges": ["🎤", "💫"],
+      "statusIcons": []
+    }
+  ],
+  "followingSuggestions": [
+    {
+      "id": "suggest-1",
+      "title": "TEAM AWESOME 😎 🌹 10007",
+      "thumbnail": "https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=200",
+      "hasChat": true
+    },
+    {
+      "id": "suggest-2",
+      "title": "🎵 Music Vibes Only",
+      "thumbnail": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200",
+      "hasChat": true
+    }
+  ],
+  "rooms": [
+    {
+      "id": "893429426",
+      "title": "• ✧ * LOVE IS LIFE 💕💕 * ✧ •",
+      "thumbnail": "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=200",
+      "participantCount": 4,
+      "hasChat": true,
+      "verified": true,
+      "category": "Recommend"
+    },
+    {
+      "id": "room-2",
+      "title": "🎵 Music & Chill Vibes Only",
+      "thumbnail": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200",
+      "participantCount": 12,
+      "hasChat": true,
+      "verified": false,
+      "category": "Recommend"
+    },
+    {
+      "id": "room-3",
+      "title": "🔥 Late Night Talks • Open Mic",
+      "thumbnail": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=200",
+      "participantCount": 8,
+      "hasChat": false,
+      "verified": true,
+      "category": "New"
+    },
+    {
+      "id": "room-4",
+      "title": "🎮 Game Room — Ludo & Fun",
+      "thumbnail": "https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=200",
+      "participantCount": 6,
+      "hasChat": true,
+      "verified": false,
+      "category": "Game"
+    },
+    {
+      "id": "room-5",
+      "title": "💘 Blind Date • Match & Chat",
+      "thumbnail": "https://images.unsplash.com/photo-1522673607200-164d1b6ce486?w=200",
+      "participantCount": 3,
+      "hasChat": true,
+      "verified": true,
+      "category": "Blind date"
+    }
+  ]
+}

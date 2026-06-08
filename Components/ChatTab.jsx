@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,10 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Search, UserPlus, X, Check, ChevronDown, AlignJustify } from "lucide-react-native";
 import { useRouter } from "expo-router";
+import { getRecommendedUsers } from "../src/services/homeService";
+import { loadConversations } from "../src/services/chatService";
+
+const RECOMMEND_RING_COLORS = ["#7c4dff", "#ff4ea3"];
 
 const { width: W } = Dimensions.get("window");
 
@@ -68,39 +72,6 @@ const featureCards = [
     colors: ["#0d2952", "#4a6cf7"],
     badge: 12,
     borderColors: ["#4a6cf7", "#a78bfa"],
-  },
-];
-
-const recommendedUsers = [
-  {
-    id: "ru1",
-    name: "do yo...",
-    avatar: "https://randomuser.me/api/portraits/men/21.jpg",
-    ringColors: ["#7c4dff", "#a78bfa"],
-  },
-  {
-    id: "ru2",
-    name: "Sachin...",
-    avatar: "https://randomuser.me/api/portraits/men/34.jpg",
-    ringColors: ["#4a6cf7", "#7c4dff"],
-  },
-  {
-    id: "ru3",
-    name: "ALONE...",
-    avatar: "https://randomuser.me/api/portraits/women/55.jpg",
-    ringColors: ["#f953c6", "#7c4dff"],
-  },
-  {
-    id: "ru4",
-    name: "(Deep)/(...",
-    avatar: "https://randomuser.me/api/portraits/men/67.jpg",
-    ringColors: ["#7c4dff", "#4a6cf7"],
-  },
-  {
-    id: "ru5",
-    name: "Riya 🌸",
-    avatar: "https://randomuser.me/api/portraits/women/22.jpg",
-    ringColors: ["#ff4ea3", "#a78bfa"],
   },
 ];
 
@@ -234,6 +205,21 @@ export default function ChatTab() {
   const [contactsPage, setContactsPage] = useState(null); // null | "friends"|"followers"|"following"|"family"
   const [contactSearch, setContactSearch] = useState("");
   const [followedBack, setFollowedBack] = useState({});
+  const [recommendedUsers, setRecommendedUsers] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRecommendedUsers()
+      .then((users) => {
+        if (!cancelled) setRecommendedUsers(users);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    loadConversations().catch(() => {});
+  }, []);
 
   const filteredChats = chatList.filter((c) =>
     c.name.toLowerCase().includes(searchText.toLowerCase())
@@ -529,7 +515,7 @@ export default function ChatTab() {
           {recommendedUsers.map((user) => (
             <TouchableOpacity key={user.id} style={styles.recommendCard} activeOpacity={0.8}>
               <LinearGradient
-                colors={user.ringColors}
+                colors={RECOMMEND_RING_COLORS}
                 style={styles.recommendRing}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}

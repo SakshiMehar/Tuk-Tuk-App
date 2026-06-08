@@ -1,0 +1,347 @@
+{
+  "userProfile": {
+    "id": "u001",
+    "name": "My User",
+    "avatarUrl": null,
+    "diamonds": 2480,
+    "isOnline": true
+  },
+  "stats": {
+    "activeUsers": 167038,
+    "featuredUserAvatar": "https://randomuser.me/api/portraits/men/45.jpg",
+    "unreadNotifications": 4
+  },
+  "bannerSlides": [
+    {
+      "id": "b1",
+      "title": "Invite Friends\nTo Get Diamonds",
+      "imageUrl": null,
+      "actionRoute": "/invite-friends"
+    },
+    {
+      "id": "b2",
+      "title": "Play Games\nMeet New People",
+      "imageUrl": null,
+      "actionRoute": "/find-friends"
+    },
+    {
+      "id": "b3",
+      "title": "Win Surprises\nBe a Winner",
+      "imageUrl": null,
+      "actionRoute": "/voice-party"
+    },
+    {
+      "id": "b4",
+      "title": "Earn Money\nFind Your Match",
+      "imageUrl": null,
+      "actionRoute": "/(tabs)/blind-pick"
+    },
+    {
+      "id": "b5",
+      "title": "Search for Calmness\nChoose Your Area Of Interest",
+      "imageUrl": null,
+      "actionRoute": "/nearby"
+    }
+  ],
+  "recommendedUsers": [
+    {
+      "id": "1",
+      "name": "Sanu 🇮🇳 —...",
+      "avatar": "https://randomuser.me/api/portraits/men/11.jpg",
+      "isOnline": true
+    },
+    {
+      "id": "2",
+      "name": "Sanjay ❤️❤️",
+      "avatar": "https://randomuser.me/api/portraits/men/22.jpg",
+      "isOnline": true
+    },
+    {
+      "id": "3",
+      "name": "Rajput sha...",
+      "avatar": "https://randomuser.me/api/portraits/men/33.jpg",
+      "isOnline": false
+    },
+    {
+      "id": "4",
+      "name": "M+D=< 🔺 ...",
+      "avatar": "https://randomuser.me/api/portraits/men/44.jpg",
+      "isOnline": true
+    },
+    {
+      "id": "5",
+      "name": "Aryan 🔥...",
+      "avatar": "https://randomuser.me/api/portraits/men/55.jpg",
+      "isOnline": true
+    },
+    {
+      "id": "6",
+      "name": "Priya 💫...",
+      "avatar": "https://randomuser.me/api/portraits/women/22.jpg",
+      "isOnline": false
+    },
+    {
+      "id": "7",
+      "name": "Zara ✨...",
+      "avatar": "https://randomuser.me/api/portraits/women/33.jpg",
+      "isOnline": true
+    }
+  ],
+  "feedPosts": [
+    {
+      "id": 1,
+      "userId": "u101",
+      "name": "Sk Jobiulla",
+      "avatar": "https://randomuser.me/api/portraits/men/32.jpg",
+      "text": "# 🇯🇵 Japan is turning footsteps into electricity! Using piezoelectric tiles, every step you take generates a small amount of energy. Millions of steps together can power LED lights...",
+      "hasVideo": true,
+      "duration": "00:12",
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-03T10:00:00Z"
+    },
+    {
+      "id": 2,
+      "userId": "u102",
+      "name": "Priya Singh",
+      "avatar": "https://randomuser.me/api/portraits/women/44.jpg",
+      "text": "Just had the most amazing sunset view from the rooftop. Life is beautiful when you slow down and appreciate the little things around you 🌅",
+      "hasVideo": false,
+      "duration": null,
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-03T09:30:00Z"
+    },
+    {
+      "id": 3,
+      "userId": "u103",
+      "name": "Arjun Mehta",
+      "avatar": "https://randomuser.me/api/portraits/men/55.jpg",
+      "text": "🎵 Music is the shortcut to every emotion. Been jamming all night and honestly this is the best therapy. Drop your favorite song below 👇",
+      "hasVideo": false,
+      "duration": null,
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-03T08:45:00Z"
+    },
+    {
+      "id": 4,
+      "userId": "u104",
+      "name": "Zara Khan",
+      "avatar": "https://randomuser.me/api/portraits/women/68.jpg",
+      "text": "✈️ Solo trip to Manali was the best decision of 2024. The mountains don't judge you, they just welcome you. Already planning the next one!",
+      "hasVideo": true,
+      "duration": "00:28",
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-03T07:00:00Z"
+    },
+    {
+      "id": 5,
+      "userId": "u105",
+      "name": "Rohan Das",
+      "avatar": "https://randomuser.me/api/portraits/men/76.jpg",
+      "text": "🤯 Did you know octopuses have three hearts and blue blood? Nature is absolutely wild. Share a crazy animal fact below 👇",
+      "hasVideo": false,
+      "duration": null,
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-03T06:30:00Z"
+    },
+    {
+      "id": 6,
+      "userId": "u106",
+      "name": "Aisha Verma",
+      "avatar": "https://randomuser.me/api/portraits/women/55.jpg",
+      "text": "☕ There's something magical about the first sip of coffee in the morning. It's not just a drink, it's a whole ritual. What's your morning routine? 🌅",
+      "hasVideo": false,
+      "duration": null,
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-03T06:00:00Z"
+    },
+    {
+      "id": 7,
+      "userId": "u107",
+      "name": "Kabir Singh",
+      "avatar": "https://randomuser.me/api/portraits/men/62.jpg",
+      "text": "💡 Reminder: You don't have to be perfect to be amazing. Progress over perfection, always. Keep going, you're doing better than you think 💪",
+      "hasVideo": false,
+      "duration": null,
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-02T22:00:00Z"
+    },
+    {
+      "id": 8,
+      "userId": "u108",
+      "name": "Neha Sharma",
+      "avatar": "https://randomuser.me/api/portraits/women/71.jpg",
+      "text": "🌸 Spring is finally here and the flowers outside my window are absolutely stunning. Nature has a way of healing everything silently 🌺",
+      "hasVideo": false,
+      "duration": null,
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-02T20:00:00Z"
+    },
+    {
+      "id": 9,
+      "userId": "u109",
+      "name": "Dev Patel",
+      "avatar": "https://randomuser.me/api/portraits/men/83.jpg",
+      "text": "🎮 Just finished a 6-hour gaming session and honestly no regrets. Sometimes you just need to unplug from reality and plug into another world 😄",
+      "hasVideo": false,
+      "duration": null,
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-02T18:00:00Z"
+    },
+    {
+      "id": 10,
+      "userId": "u110",
+      "name": "Riya Joshi",
+      "avatar": "https://randomuser.me/api/portraits/women/88.jpg",
+      "text": "📚 Currently reading Atomic Habits and it's genuinely changing the way I think about small daily actions. Highly recommend to everyone here 🔥",
+      "hasVideo": false,
+      "duration": null,
+      "videoThumbnailUrl": null,
+      "timestamp": "2026-06-02T16:00:00Z"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "1",
+      "type": "like",
+      "icon": "❤️",
+      "title": "Priya liked your post",
+      "subtitle": "\"Living the dream in Goa ✈️\"",
+      "time": "2m ago",
+      "timestamp": "2026-06-03T11:58:00Z",
+      "avatar": "https://randomuser.me/api/portraits/women/32.jpg",
+      "unread": true
+    },
+    {
+      "id": "2",
+      "type": "follow",
+      "icon": "👤",
+      "title": "Rohan started following you",
+      "subtitle": "Tap to view profile",
+      "time": "15m ago",
+      "timestamp": "2026-06-03T11:45:00Z",
+      "avatar": "https://randomuser.me/api/portraits/men/45.jpg",
+      "unread": true
+    },
+    {
+      "id": "3",
+      "type": "gift",
+      "icon": "🎁",
+      "title": "You received a gift!",
+      "subtitle": "Arjun sent you 200 💎 diamonds",
+      "time": "1h ago",
+      "timestamp": "2026-06-03T11:00:00Z",
+      "avatar": "https://randomuser.me/api/portraits/men/67.jpg",
+      "unread": true
+    },
+    {
+      "id": "4",
+      "type": "comment",
+      "icon": "💬",
+      "title": "Sneha commented on your post",
+      "subtitle": "\"You're so beautiful 😍\"",
+      "time": "2h ago",
+      "timestamp": "2026-06-03T10:00:00Z",
+      "avatar": "https://randomuser.me/api/portraits/women/56.jpg",
+      "unread": false
+    },
+    {
+      "id": "5",
+      "type": "party",
+      "icon": "🎉",
+      "title": "Voice Party started!",
+      "subtitle": "Rahul's room is live now — join in!",
+      "time": "3h ago",
+      "timestamp": "2026-06-03T09:00:00Z",
+      "avatar": "https://randomuser.me/api/portraits/men/12.jpg",
+      "unread": false
+    },
+    {
+      "id": "6",
+      "type": "system",
+      "icon": "🔔",
+      "title": "New match found!",
+      "subtitle": "Someone is waiting for you in Blind Pick",
+      "time": "5h ago",
+      "timestamp": "2026-06-03T07:00:00Z",
+      "avatar": null,
+      "unread": false
+    },
+    {
+      "id": "7",
+      "type": "reward",
+      "icon": "🏆",
+      "title": "Daily login reward claimed",
+      "subtitle": "You earned 50 💎 diamonds today",
+      "time": "8h ago",
+      "timestamp": "2026-06-03T04:00:00Z",
+      "avatar": null,
+      "unread": false
+    }
+  ],
+  "gifts": [
+    {
+      "id": "1",
+      "name": "Golden Coins",
+      "emoji": "🪙",
+      "value": 100,
+      "colors": ["#ff9500", "#ffb700"],
+      "description": "Get 100 coins daily",
+      "isFree": true,
+      "claimedToday": false
+    },
+    {
+      "id": "2",
+      "name": "Diamond Box",
+      "emoji": "💎",
+      "value": 50,
+      "colors": ["#0077b6", "#00b4d8"],
+      "description": "Get 50 diamonds daily",
+      "isFree": true,
+      "claimedToday": false
+    },
+    {
+      "id": "3",
+      "name": "Heart Gift",
+      "emoji": "❤️",
+      "value": 25,
+      "colors": ["#dc62bc", "#ff4ea3"],
+      "description": "Get 25 hearts daily",
+      "isFree": true,
+      "claimedToday": false
+    },
+    {
+      "id": "4",
+      "name": "Star Bonus",
+      "emoji": "⭐",
+      "value": 10,
+      "colors": ["#ffd700", "#ffed4e"],
+      "description": "Get 10 stars daily",
+      "isFree": true,
+      "claimedToday": false
+    },
+    {
+      "id": "5",
+      "name": "Mystery Box",
+      "emoji": "🎁",
+      "value": 200,
+      "colors": ["#a647ea", "#7c4dff"],
+      "description": "Random rewards",
+      "isFree": false,
+      "claimedToday": false
+    }
+  ],
+  "searchSuggestions": [
+    "Voice Party",
+    "Find Friends",
+    "Nearby Users",
+    "Blind Pick",
+    "Truth & Dare",
+    "Ludo"
+  ],
+  "trendingTags": [
+    "#VoiceParty",
+    "#BlindDate",
+    "#TruthOrDare",
+    "#TukTukGames"
+  ]
+}

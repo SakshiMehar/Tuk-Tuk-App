@@ -1,14 +1,40 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { refreshTokenCache } from "../api/axios";
+
+const resetVoiceUid = () => {
+  try {
+    require("../utils/voiceUid").resetVoiceUidCache();
+  } catch {
+    // voice util optional at startup
+  }
+};
 
 const TOKEN_KEY = "@auth_token";
 const USER_KEY  = "@auth_user";
 
 // ── Save token + user after any successful login ────────────
 export const saveSession = async (token, user) => {
+  let sessionUser = user ?? {};
+  try {
+    const { resolveAppUserId } = require("../utils/sessionUser");
+    const userId = resolveAppUserId(sessionUser, token);
+    if (userId) {
+      sessionUser = {
+        ...sessionUser,
+        id: sessionUser?.id ?? userId,
+        userId: sessionUser?.userId ?? userId,
+      };
+    }
+  } catch {
+    // keep raw user payload
+  }
+
   await AsyncStorage.multiSet([
     [TOKEN_KEY, token],
-    [USER_KEY, JSON.stringify(user)],
+    [USER_KEY, JSON.stringify(sessionUser)],
   ]);
+  await refreshTokenCache();
+  resetVoiceUid();
 };
 
 // ── Read stored token ───────────────────────────────────────
@@ -36,4 +62,5 @@ export const updateUser = async (updates) => {
 // ── Clear session on logout ─────────────────────────────────
 export const clearSession = async () => {
   await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+  resetVoiceUid();
 };

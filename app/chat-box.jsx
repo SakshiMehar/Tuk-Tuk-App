@@ -6,6 +6,7 @@ export default function ChatBoxScreen() {
   const params = useLocalSearchParams();
 
   const user = {
+    userId: params.userId ?? params.id ?? null,
     name: params.name ?? "User",
     avatar: params.avatar ?? "https://randomuser.me/api/portraits/men/34.jpg",
     matchPercent: Number(params.matchPercent ?? 95),

@@ -1,7 +1,9 @@
 {
   "expo": {
+    
     "name": "Tuk-Tuk",
     "slug": "Tuk-Tuk",
+    "owner": "sakshil13",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -11,17 +13,15 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "SKAdNetworkItems": [
-          {
-            "SKAdNetworkIdentifier": "v9wttpbfk9.skadnetwork"
-          },
-          {
-            "SKAdNetworkIdentifier": "n38lu8286q.skadnetwork"
-          }
-        ]
+        "NSMicrophoneUsageDescription": "Tuk-Tuk needs microphone access so you can speak in voice party rooms."
       }
     },
     "android": {
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.INTERNET"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -29,22 +29,16 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "android.permission.INTERNET"
-      ],
-      "package": "tuk.tuk.app",
-      "googleServicesFile": "./google-services.json"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
+     
     },
     "plugins": [
       "expo-router",
-      "@react-native-firebase/app",
-      "@react-native-google-signin/google-signin",
       [
         "expo-splash-screen",
         {
@@ -58,6 +52,12 @@
         }
       ],
       [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.807444567658-l9gq0ophos92739p6o9vjms7kmq0407o"
+        }
+      ],
+      [
         "react-native-fbsdk-next",
         {
           "appID": "999372849281178",
@@ -68,18 +68,11 @@
           "autoLogAppEventsEnabled": false,
           "isAutoInitEnabled": true
         }
-      ],
-      "expo-video"
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": false
-    },
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "169d4774-2501-4d44-bdb8-88676b309e7f"
-      }
+      "reactCompiler": true
     }
   }
 }

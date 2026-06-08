@@ -18,3 +18,6 @@ export const API_TIMEOUT_MS = Number(
 /** ngrok free tier needs this header to skip the browser warning page. */
 export const isNgrokBaseUrl = () =>
   /ngrok-free\.dev|ngrok\.io/i.test(API_BASE_URL);
+
+/** Agora App ID — fallback if voice-token API does not return appId. */
+export const AGORA_APP_ID = process.env.EXPO_PUBLIC_AGORA_APP_ID ?? "";

@@ -1,7 +1,6 @@
 import auth from "@react-native-firebase/auth";
-import { saveSession } from "../store/authStore";
+import { establishSessionFromApi } from "./authSessionService";
 import { firebasePhoneAuth } from "../api/authApi";
-import { normalizeAuthResponse } from "../utils/authResponse";
 
 // Stores the confirmation object between sendPhoneOtp and verifyPhoneOtpAndLogin
 let pendingConfirmation = null;
@@ -30,12 +29,10 @@ export const verifyPhoneOtpAndLogin = async (smsCode, name) => {
 
   if (!idToken) throw new Error("Firebase did not return a token.");
 
-  const data = await firebasePhoneAuth(idToken, phoneNumber, name);
-  const { token, user } = normalizeAuthResponse(data);
-
-  if (!token) throw new Error("Backend did not return a token.");
-
-  await saveSession(token, user);
+  const result = await establishSessionFromApi(
+    (credential) => firebasePhoneAuth(credential.idToken, credential.phoneNumber, credential.name),
+    { idToken, phoneNumber, name }
+  );
   pendingConfirmation = null;
-  return { token, user };
+  return result;
 };

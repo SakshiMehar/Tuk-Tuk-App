@@ -17,8 +17,22 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { VideoView, useVideoPlayer } from "expo-video";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { followUser, unfollowUser } from "../src/api/relationshipApi";
+import {
+  enterRoomSession,
+  exitRoomSession,
+  createAndJoinRoom,
+  parseSeats,
+  parseOnlineUsers,
+  normalizeChatMessage,
+  normalizeChatMessages,
+} from "../src/services/partyService";
+import { wsService } from "../src/services/websocket";
+import { getRoomState, getRoomChatMessages } from "../src/api/partyApi";
+import { refreshTokenCache } from "../src/api/axios";
+import * as partyVoice from "../src/services/partyVoiceService";
+import * as agoraVoice from "../src/services/agoraVoiceService";
 import {
   ArrowLeft,
   Share2,
@@ -207,17 +221,25 @@ const intimacyVideos = [
   { id: "iv6", name: "Moment 6", uri: require("../assets/videos/v6.mp4"), colors: ["#2a0a3e", "#9c27b0"] },
 ];
 
-const roomOwner = {
-  name: "demouser",
-  id: "893429426",
-  avatar: "https://randomuser.me/api/portraits/men/32.jpg",
-};
-
 export default function VoiceParty() {
   const router = useRouter();
-  const [messages, setMessages] = useState(initialMessages);
+  const params = useLocalSearchParams();
+  const roomIdParam = params.roomId ?? params.id ?? null;
+  const isCreate = params.create === "true";
+
+  const [roomLoading, setRoomLoading] = useState(true);
+  const [roomId, setRoomId] = useState(roomIdParam);
+  const [roomInfo, setRoomInfo] = useState(null);
+  const [seats, setSeats] = useState(micSeats);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [onlineCount, setOnlineCount] = useState(0);
+  const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
-  const [isMuted, setIsMuted] = useState(false);
+  const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [onMic, setOnMic] = useState(false);
+  const [mySeatNumber, setMySeatNumber] = useState(null);
+  const [voiceConnecting, setVoiceConnecting] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
@@ -249,12 +271,14 @@ export default function VoiceParty() {
   const [followLoading, setFollowLoading] = useState(false);
 
   const handleFollowToggle = async () => {
+    const hostId = roomInfo?.hostId;
+    if (!hostId) return;
     setFollowLoading(true);
     try {
       if (isFollowing) {
-        await unfollowUser(roomOwner.id);
+        await unfollowUser(hostId);
       } else {
-        await followUser(roomOwner.id);
+        await followUser(hostId);
       }
       setIsFollowing((v) => !v);
     } catch (err) {
@@ -266,8 +290,181 @@ export default function VoiceParty() {
       setFollowLoading(false);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    const initRoom = async () => {
+      setRoomLoading(true);
+      await refreshTokenCache();
+      try {
+        let session;
+        if (isCreate) {
+          session = await createAndJoinRoom();
+        } else if (roomIdParam) {
+          session = await enterRoomSession(String(roomIdParam));
+        } else {
+          session = await enterRoomSession("seed-room-music");
+        }
+        if (cancelled) return;
+        setRoomId(session.roomId);
+        setRoomInfo(session.room);
+        setSeats(session.seats);
+        setOnlineUsers(session.onlineUsers);
+        setOnlineCount(session.onlineCount);
+        setMessages(session.messages);
+        console.log("[VoiceParty] room loaded:", session.roomId, session.room?.name);
+      } catch (err) {
+        if (!cancelled) {
+          Alert.alert("Could not join room", err?.message || "Please try again.");
+        }
+      } finally {
+        if (!cancelled) setRoomLoading(false);
+      }
+    };
+    initRoom();
+    return () => {
+      cancelled = true;
+      partyVoice.teardownVoice();
+    };
+  }, [roomIdParam, isCreate]);
+
+  useEffect(() => {
+    messageCountRef.current = messages.length;
+  }, [messages]);
+
+  useEffect(() => {
+    if (!roomId) return undefined;
+    const appendChatMessage = (payload) => {
+      const normalized = normalizeChatMessage(payload);
+      if (!normalized.text) return;
+      setMessages((prev) => {
+        const exists = prev.some((m) => String(m.id) === String(normalized.id));
+        if (exists) return prev;
+        return [...prev, normalized];
+      });
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    };
+
+    const unsubChat = wsService.onRoomChat(String(roomId), appendChatMessage);
+    const unsubChatSummary = wsService.onRoomChatSummary(String(roomId), async (summary) => {
+      const remoteCount = summary?.messageCount;
+      if (remoteCount == null || messageCountRef.current >= remoteCount) return;
+      try {
+        const data = await getRoomChatMessages(String(roomId));
+        setMessages(normalizeChatMessages(data));
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      } catch {
+        // logged in partyApi
+      }
+    });
+    const unsubUi = wsService.onRoomUiState(String(roomId), (payload) => {
+      if (payload?.seats) setSeats(parseSeats(payload.seats, payload));
+      const users = parseOnlineUsers(payload, null);
+      if (users.length) {
+        setOnlineUsers(users);
+        setOnlineCount(users.length);
+      }
+    });
+    const unsubSpeaking = wsService.onRoomSpeaking(String(roomId), (payload) => {
+      const speakerId = payload.userId;
+      if (!speakerId) return;
+      setOnlineUsers((prev) =>
+        prev.map((u) => ({
+          ...u,
+          isSpeaking: u.id === speakerId ? Boolean(payload.isSpeaking) : u.isSpeaking,
+        }))
+      );
+    });
+    return () => {
+      unsubChat();
+      unsubChatSummary();
+      unsubUi();
+      unsubSpeaking();
+    };
+  }, [roomId]);
+
+  const handleExitRoom = async () => {
+    setShowPowerMenu(false);
+    try {
+      if (onMic && roomId && mySeatNumber) {
+        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => {});
+      } else {
+        await partyVoice.teardownVoice();
+      }
+      if (roomId) {
+        await exitRoomSession(String(roomId));
+      }
+    } catch {
+      // APIs logged in partyApi
+    }
+    setOnMic(false);
+    setMySeatNumber(null);
+    router.back();
+  };
+
+  const handleTakeMic = async () => {
+    if (!roomId || voiceConnecting) return;
+
+    if (onMic && mySeatNumber) {
+      setVoiceConnecting(true);
+      try {
+        await partyVoice.leaveMic(String(roomId), mySeatNumber);
+        setOnMic(false);
+        setMySeatNumber(null);
+        setIsMicMuted(true);
+        const state = await getRoomState(String(roomId));
+        setSeats(parseSeats(state?.seats, state));
+      } catch (err) {
+        Alert.alert("Leave mic failed", err?.message || "Please try again.");
+      } finally {
+        setVoiceConnecting(false);
+      }
+      return;
+    }
+
+    const emptySeat = seats.find((seat) => !seat.user && !seat.locked);
+    if (!emptySeat) {
+      Alert.alert("No seats available", "All microphone seats are currently full.");
+      return;
+    }
+
+    setVoiceConnecting(true);
+    try {
+      await partyVoice.takeMic(String(roomId), emptySeat.id);
+      setOnMic(true);
+      setMySeatNumber(emptySeat.id);
+      setIsMicMuted(false);
+      if (isSpeakerMuted) {
+        agoraVoice.toggleRemoteMute(true);
+      }
+
+      const state = await getRoomState(String(roomId));
+      setSeats(parseSeats(state?.seats, state));
+      setOnlineCount(state?.onlineCount ?? onlineCount);
+    } catch (err) {
+      const msg = err?.message ?? "Could not start voice.";
+      console.log("[VoiceParty] take mic failed:", msg);
+      if (msg.toLowerCase().includes("auth token") || msg.toLowerCase().includes("authentication token")) {
+        Alert.alert("Login required", "Please log in again to use voice chat.");
+      } else if (msg.includes("permission")) {
+        Alert.alert("Microphone required", "Please allow microphone access to speak in the room.");
+      } else {
+        Alert.alert("Take mic failed", msg);
+      }
+    } finally {
+      setVoiceConnecting(false);
+    }
+  };
+
+  const handleToggleSpeaker = () => {
+    const nextMuted = !isSpeakerMuted;
+    setIsSpeakerMuted(nextMuted);
+    agoraVoice.toggleRemoteMute(nextMuted);
+  };
+
   const [shareTab, setShareTab] = useState("Recently");
   const scrollRef = useRef(null);
+  const messageCountRef = useRef(0);
 
   const shareTabs = ["Recently", "Friends", "Followers", "Room Followers"];
 
@@ -347,19 +544,14 @@ export default function VoiceParty() {
   ];
 
   const sendMessage = () => {
-    if (!inputText.trim()) return;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        user: "You",
-        avatar: "https://randomuser.me/api/portraits/men/32.jpg",
-        level: 3,
-        text: inputText.trim(),
-        coins: 0,
-        diamonds: 0,
-      },
-    ]);
+    const text = inputText.trim();
+    if (!text || !roomId) return;
+    try {
+      wsService.sendRoomMessage(String(roomId), text);
+    } catch (err) {
+      Alert.alert("Send failed", err?.message || "WebSocket not connected.");
+      return;
+    }
     setInputText("");
     setShowChatInput(false);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -560,7 +752,7 @@ export default function VoiceParty() {
                   />
                   <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
                     <Text style={styles.bpSendHeart}>❤️ </Text>
-                    <Text style={styles.bpSendName}>{roomOwner.name}</Text>
+                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
                     <Text style={styles.bpSendChev}> ▼</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -670,7 +862,7 @@ export default function VoiceParty() {
                   />
                   <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
                     <Text style={styles.bpSendHeart}>❤️ </Text>
-                    <Text style={styles.bpSendName}>{roomOwner.name}</Text>
+                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
                     <Text style={styles.bpSendChev}> ▼</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -749,7 +941,7 @@ export default function VoiceParty() {
                   />
                   <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
                     <Text style={styles.bpSendHeart}>❤️ </Text>
-                    <Text style={styles.bpSendName}>{roomOwner.name}</Text>
+                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
                     <Text style={styles.bpSendChev}> ▼</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -814,7 +1006,7 @@ export default function VoiceParty() {
                   />
                   <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
                     <Text style={styles.bpSendHeart}>❤️ </Text>
-                    <Text style={styles.bpSendName}>{roomOwner.name}</Text>
+                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
                     <Text style={styles.bpSendChev}> ▼</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -1111,10 +1303,7 @@ export default function VoiceParty() {
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
-                onPress={() => {
-                  setShowPowerMenu(false);
-                  router.back();
-                }}
+                onPress={handleExitRoom}
               >
                 <View style={[styles.playCenterIconWrap, styles.powerExitIconWrap]}>
                   <Power size={28} color="#ff6b6b" />
@@ -1218,9 +1407,20 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
+      {roomLoading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#a78bfa" />
+          <Text style={styles.loadingText}>Joining room...</Text>
+        </View>
+      )}
+
       {/* ── BACKGROUND ── */}
       <Image
-        source={{ uri: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400" }}
+        source={{
+          uri:
+            roomInfo?.profileImageUrl ??
+            "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400",
+        }}
         style={styles.bgImage}
         resizeMode="cover"
       />
@@ -1232,14 +1432,21 @@ export default function VoiceParty() {
       >
         {/* ── HEADER ── */}
         <View style={styles.header}>
-          {/* Owner info + follow button */}
+          {/* Room info + follow button */}
           <View style={styles.ownerSection}>
-            <Image source={{ uri: roomOwner.avatar }} style={styles.ownerAvatar} />
+            <Image
+              source={{
+                uri:
+                  roomInfo?.profileImageUrl ??
+                  "https://randomuser.me/api/portraits/men/32.jpg",
+              }}
+              style={styles.ownerAvatar}
+            />
             <View style={styles.ownerTextCol}>
-              <Text style={styles.ownerName}>
-                {roomOwner.name}'s room
+              <Text style={styles.ownerName} numberOfLines={1}>
+                {roomInfo?.name ?? "Voice Room"}
               </Text>
-              <Text style={styles.ownerId}>ID:{roomOwner.id}</Text>
+              <Text style={styles.ownerId}>ID:{roomId ?? "—"}</Text>
             </View>
             <TouchableOpacity
               style={[styles.plusBtn, isFollowing && styles.plusBtnFollowing]}
@@ -1267,31 +1474,66 @@ export default function VoiceParty() {
           </View>
         </View>
  
-        {/* ── BADGES ROW ── */}
+        {/* ── ONLINE USERS ROW ── */}
         <View style={styles.badgesRow}>
           <View style={styles.trophyBadge}>
-            <Text style={styles.trophyText}>🏆 9 ›</Text>
+            <Text style={styles.trophyText}>👥 {onlineCount}</Text>
           </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+            <View style={styles.audienceRow}>
+              {onlineUsers.slice(0, 6).map((user, index) => (
+                <View key={user.id ?? `user-${index}`} style={styles.audienceItem}>
+                  {user.avatar ? (
+                    <Image
+                      source={{ uri: user.avatar }}
+                      style={[styles.audienceAvatar, index > 0 && { marginLeft: -8 }]}
+                    />
+                  ) : (
+                    <View style={[styles.audienceAvatar, styles.audienceAvatarPlaceholder, index > 0 && { marginLeft: -8 }]}>
+                      <Text style={styles.audienceInitial}>{user.name?.[0] ?? "?"}</Text>
+                    </View>
+                  )}
+                  <View style={styles.micStatusDot}>
+                    {user.muted ? (
+                      <MicOff size={9} color="#f87171" />
+                    ) : user.isSpeaking ? (
+                      <Mic size={9} color="#4ade80" />
+                    ) : (
+                      <Mic size={9} color="rgba(255,255,255,0.5)" />
+                    )}
+                  </View>
+                </View>
+              ))}
+              {onlineCount > 6 && (
+                <View style={styles.audienceCount}>
+                  <Text style={styles.audienceCountText}>+{onlineCount - 6}</Text>
+                </View>
+              )}
+            </View>
+          </ScrollView>
         </View>
 
         {/* ── MIC SEATS GRID ── */}
         <View style={styles.seatsGrid}>
-          {micSeats.map((seat) => (
+          {seats.map((seat) => (
             <TouchableOpacity key={seat.id} style={styles.seatItem} activeOpacity={0.8}>
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
                   {seat.user.active && (
                     <LinearGradient
-                      colors={["#ffd700", "#ff8c00"]}
+                      colors={["#4ade80", "#22c55e"]}
                       style={styles.activeRing}
                     />
                   )}
-                  <View style={[styles.seatEmpty, seat.user.active && { borderColor: "#ffd700" }]}>
-                    <Mic size={18} color={seat.user.active ? "#ffd700" : "rgba(255,255,255,0.8)"} />
-                  </View>
-                  {seat.user.rank && (
-                    <View style={styles.rankBadge}>
-                      <Text style={styles.rankText}>{seat.user.rank}</Text>
+                  {seat.user.avatar ? (
+                    <Image source={{ uri: seat.user.avatar }} style={styles.seatAvatar} />
+                  ) : (
+                    <View style={[styles.seatEmpty, seat.user.active && { borderColor: "#4ade80" }]}>
+                      {seat.user.muted ? (
+                        <MicOff size={18} color="#f87171" />
+                      ) : (
+                        <Mic size={18} color={seat.user.active ? "#4ade80" : "rgba(255,255,255,0.8)"} />
+                      )}
                     </View>
                   )}
                 </View>
@@ -1307,7 +1549,7 @@ export default function VoiceParty() {
               <Text style={styles.seatNum}>{seat.id}</Text>
               {seat.user && (
                 <Text style={styles.seatName} numberOfLines={1}>
-                  {seat.user.badge} {seat.user.name}
+                  {seat.user.name}
                 </Text>
               )}
             </TouchableOpacity>
@@ -1360,15 +1602,28 @@ export default function VoiceParty() {
             <TouchableOpacity style={styles.rightIconBtn} onPress={() => setShowGiftPanel(true)}>
               <Text style={styles.rightIconEmoji}>🎁</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.rightIconBtn} onPress={() => router.push("/(tabs)/chat")}>
+            <TouchableOpacity
+              style={styles.rightIconBtn}
+              onPress={() => setShowChatInput((v) => !v)}
+            >
               <MessageSquare size={22} color="white" />
               <View style={styles.chatBadge}>
-                <Text style={styles.chatBadgeText}>25</Text>
+                <Text style={styles.chatBadgeText}>{messages.length}</Text>
               </View>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.takeMicBtn}>
-              <Text style={styles.takeMicEmoji}>🎤</Text>
-              <Text style={styles.takeMicText}>Take Mic</Text>
+            <TouchableOpacity
+              style={styles.takeMicBtn}
+              onPress={handleTakeMic}
+              disabled={voiceConnecting}
+            >
+              {voiceConnecting ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <>
+                  <Text style={styles.takeMicEmoji}>🎤</Text>
+                  <Text style={styles.takeMicText}>{onMic ? "Leave Mic" : "Take Mic"}</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -1377,9 +1632,9 @@ export default function VoiceParty() {
         <View style={styles.bottomBar}>
           <TouchableOpacity
             style={styles.bottomIconBtn}
-            onPress={() => setIsMuted((v) => !v)}
+            onPress={handleToggleSpeaker}
           >
-            {isMuted ? (
+            {isSpeakerMuted ? (
               <MicOff size={24} color="white" />
             ) : (
               <Volume2 size={24} color="white" />
@@ -1492,7 +1747,44 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(124,77,255,0.3)",
     borderColor: "rgba(167,139,250,0.6)",
     shadowOpacity: 0.2,
-  },  audienceRow: { flexDirection: "row", alignItems: "center" },
+  },  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    backgroundColor: "rgba(15,7,32,0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  loadingText: {
+    color: "#a78bfa",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  audienceRow: { flexDirection: "row", alignItems: "center", paddingRight: 8 },
+  audienceItem: { position: "relative" },
+  micStatusDot: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "rgba(15,7,32,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.3)",
+  },
+  audienceAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  audienceInitial: {
+    color: "white",
+    fontSize: 11,
+    fontWeight: "700",
+  },
   audienceAvatar: {
     width: 28,
     height: 28,
