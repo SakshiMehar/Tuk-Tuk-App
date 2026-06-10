@@ -31,7 +31,6 @@ const parseTokenPayload = (data, roomId, uid) => {
 
 export const requestMicPermission = async () => {
   const { status } = await Audio.requestPermissionsAsync();
-  console.log("[agoraVoice] mic permission:", status);
   return status === "granted";
 };
 
@@ -46,25 +45,15 @@ const ensureEngine = (appId) => {
   });
 
   engine.registerEventHandler({
-    onJoinChannelSuccess: (connection, elapsed) => {
-      console.log("[agoraVoice] joined channel:", connection?.channelId, "elapsed:", elapsed);
+    onJoinChannelSuccess: (connection) => {
       joined = true;
       currentChannel = connection?.channelId ?? currentChannel;
     },
-    onLeaveChannel: (connection, stats) => {
-      console.log("[agoraVoice] left channel:", connection?.channelId, stats);
+    onLeaveChannel: () => {
       joined = false;
       currentChannel = null;
     },
-    onUserJoined: (connection, remoteUid, elapsed) => {
-      console.log("[agoraVoice] remote user joined:", remoteUid, "channel:", connection?.channelId);
-    },
-    onUserOffline: (connection, remoteUid, reason) => {
-      console.log("[agoraVoice] remote user left:", remoteUid, "reason:", reason);
-    },
-    onError: (err, msg) => {
-      console.log("[agoraVoice] error:", err, msg);
-    },
+    onError: () => {},
   });
 
   engine.enableAudio();
@@ -73,7 +62,6 @@ const ensureEngine = (appId) => {
 
 export const joinVoiceChannel = async ({ roomId, uid, tokenData, isSpeaker = true }) => {
   const payload = parseTokenPayload(tokenData, roomId, uid);
-  console.log("[agoraVoice] joinVoiceChannel:", JSON.stringify(payload, null, 2));
 
   if (!payload.token) throw new Error("Voice token missing from backend response.");
 
@@ -84,7 +72,6 @@ export const joinVoiceChannel = async ({ roomId, uid, tokenData, isSpeaker = tru
       isSpeaker ? ClientRoleType.ClientRoleBroadcaster : ClientRoleType.ClientRoleAudience
     );
     rtc.muteLocalAudioStream(!isSpeaker);
-    console.log("[agoraVoice] switched role, speaker:", isSpeaker);
     return payload;
   }
 
@@ -93,13 +80,12 @@ export const joinVoiceChannel = async ({ roomId, uid, tokenData, isSpeaker = tru
   );
   rtc.muteLocalAudioStream(!isSpeaker);
 
-  const result = rtc.joinChannel(payload.token, payload.channel, payload.uid, {
+  rtc.joinChannel(payload.token, payload.channel, payload.uid, {
     clientRoleType: isSpeaker
       ? ClientRoleType.ClientRoleBroadcaster
       : ClientRoleType.ClientRoleAudience,
   });
 
-  console.log("[agoraVoice] joinChannel result:", result);
   return payload;
 };
 
@@ -107,9 +93,8 @@ export const leaveVoiceChannel = async () => {
   if (!engine || !joined) return;
   try {
     engine.leaveChannel();
-    console.log("[agoraVoice] leaveChannel called");
-  } catch (err) {
-    console.log("[agoraVoice] leave failed:", err?.message ?? err);
+  } catch {
+    // ignore leave errors on teardown
   }
   joined = false;
   currentChannel = null;
@@ -118,13 +103,11 @@ export const leaveVoiceChannel = async () => {
 export const toggleLocalMute = async (muted) => {
   if (!engine) return;
   engine.muteLocalAudioStream(muted);
-  console.log("[agoraVoice] local mute:", muted);
 };
 
 export const toggleRemoteMute = (muted) => {
   if (!engine) return;
   engine.muteAllRemoteAudioStreams(muted);
-  console.log("[agoraVoice] remote mute:", muted);
 };
 
 export const isVoiceJoined = () => joined;

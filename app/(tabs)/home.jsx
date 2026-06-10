@@ -29,9 +29,11 @@ import {
   followUser,
   unfollowUser,
   blockUser,
-  getFollowing,
-  getFollowers,
-} from "../../src/api/relationshipApi";
+  loadFollowing,
+  loadFollowers,
+  isSameUser,
+} from "../../src/services/relationshipService";
+import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import {
   createPost,
   deletePost,
@@ -62,7 +64,7 @@ const actionCards = [
     subtitle: "Join a live room",
     colors: ["#362407ff", "#f76b1c"],
     img: require("../../assets/images/TM1.png"),
-    route: "/(tabs)/party",
+    partyRandom: true,
     showWave: true,
     imgSize: CARD_SIZE * 0.80,
     gifDelay: 0,
@@ -197,8 +199,10 @@ const MENU_ACTIONS = [
 // ── Post more-menu bottom sheet ───────────────────────────────
 const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete, currentUserId }) => {
   // Show delete if: post was created by this user (flag), OR userId matches current user
-  const isOwnPost = post?._isOwn === true ||
-    (post?.userId != null && currentUserId != null && String(post.userId) === String(currentUserId));
+  const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
+  const menuActions = isOwnPost
+    ? MENU_ACTIONS.filter((action) => action.id !== "block")
+    : MENU_ACTIONS;
 
   const handleSocialShare = useCallback(async (platform) => {
     const text = `Check this out on Tuk Tuk! "${(post?.text ?? "").slice(0, 100)}..."`;
@@ -338,7 +342,7 @@ const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete,
           />
 
           {/* ── ACTION BUTTONS ── */}
-          {MENU_ACTIONS.map((action, i) => (
+          {menuActions.map((action, i) => (
             <View key={action.id}>
               <TouchableOpacity
                 style={moreMenuStyles.actionRow}
@@ -356,7 +360,7 @@ const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete,
                 </Text>
                 <Text style={moreMenuStyles.actionChevron}>›</Text>
               </TouchableOpacity>
-              {i < MENU_ACTIONS.length - 1 && <View style={moreMenuStyles.actionDivider} />}
+              {i < menuActions.length - 1 && <View style={moreMenuStyles.actionDivider} />}
             </View>
           ))}
 
@@ -1357,7 +1361,8 @@ const cs = StyleSheet.create({
   sendIcon: { color: "#fff", fontSize: 15 },
 });
 
-const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress }) => {
+const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, currentUserId }) => {
+  const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
   // Resolve media — prefer CDN URL, fall back to local URI picked from device
   const imageUri  = post.imageUrl      ?? post._localMediaUri ?? null;
   const hasImage  = imageUri && (post._mediaType !== "video" && !post.hasVideo);
@@ -1377,15 +1382,17 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
             </View>
         }
         <Text style={styles.postName}>{post.name ?? "User"}</Text>
-        <TouchableOpacity
-          style={[styles.followBtn, isFollowing && styles.followBtnActive]}
-          onPress={() => onFollowToggle?.(post.userId)}
-          activeOpacity={0.75}
-        >
-          <Text style={[styles.followBtnText, isFollowing && styles.followBtnTextActive]}>
-            {isFollowing ? "✓ Following" : "👤 Follow"}
-          </Text>
-        </TouchableOpacity>
+        {!isOwnPost && (
+          <TouchableOpacity
+            style={[styles.followBtn, isFollowing && styles.followBtnActive]}
+            onPress={() => onFollowToggle?.(post.userId)}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.followBtnText, isFollowing && styles.followBtnTextActive]}>
+              {isFollowing ? "✓ Following" : "👤 Follow"}
+            </Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.moreBtn} onPress={() => onMore?.(post)}>
           <Text style={styles.moreBtnText}>⋯</Text>
         </TouchableOpacity>
@@ -1461,7 +1468,13 @@ const RecommendedUserItem = memo(({ user }) => (
       end={{ x: 1, y: 1 }}
       style={styles.recommendAvatarRing}
     >
-      <Image source={{ uri: user.avatar }} style={styles.recommendAvatar} cachePolicy="memory-disk" transition={150} />
+      {user.avatar ? (
+        <Image source={{ uri: user.avatar }} style={styles.recommendAvatar} cachePolicy="memory-disk" transition={150} />
+      ) : (
+        <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
+          <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
+        </View>
+      )}
     </LinearGradient>
     <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
   </TouchableOpacity>
@@ -1632,7 +1645,13 @@ const HomeHeader = memo(({
           key={card.title}
           style={styles.actionCard}
           activeOpacity={0.88}
-          onPress={() => router.push(card.route)}
+          onPress={() => {
+            if (card.partyRandom) {
+              router.push({ pathname: "/voice-party", params: { party: "true" } });
+            } else if (card.route) {
+              router.push(card.route);
+            }
+          }}
         >
           <LinearGradient
             colors={card.colors}
@@ -1745,6 +1764,7 @@ export default function Home() {
 
   // ── Data state ────────────────────────────────────────────
   const [userProfile, setUserProfile] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
   const [stats, setStats] = useState(null);
   const [bannerSlides, setBannerSlides] = useState([]);
   const [recommendedUsers, setRecommendedUsers] = useState([]);
@@ -1793,14 +1813,35 @@ export default function Home() {
   // Deferred until after navigation animations finish so the first
   // paint is never blocked by data fetching
   useEffect(() => {
+    getAppUserId()
+      .then((id) => setCurrentUserId(String(id)))
+      .catch(() => {});
+
     const task = InteractionManager.runAfterInteractions(() => {
       homeService.getHomeData()
-        .then((data) => {
+        .then(async (data) => {
+          let sessionUserId = currentUserId;
+          try {
+            sessionUserId = String(await getAppUserId());
+            setCurrentUserId(sessionUserId);
+          } catch {
+            const profileId = data.userProfile?.userId ?? data.userProfile?.id ?? null;
+            if (profileId) {
+              sessionUserId = String(profileId);
+              setCurrentUserId(sessionUserId);
+            }
+          }
+
           setUserProfile(data.userProfile);
           setStats(data.stats);
           setBannerSlides(data.bannerSlides);
           setRecommendedUsers(data.recommendedUsers);
-          setFeedPosts(data.feedPosts);
+          setFeedPosts(
+            (data.feedPosts ?? []).map((post) => ({
+              ...post,
+              _isOwn: sessionUserId ? isOwnContent(post, sessionUserId) : false,
+            }))
+          );
           setFeedHasMore(data.feedHasMore ?? false);
           setNotifications(data.notifications);
           setGifts(data.gifts);
@@ -1819,17 +1860,9 @@ export default function Home() {
         .catch(() => {});
 
       // Load following + followers in parallel after home data
-      Promise.all([getFollowing(), getFollowers()])
-        .then(([followingData, followersData]) => {
-          // API may return a paginated object or a plain array
-          const followingArr = Array.isArray(followingData)
-            ? followingData
-            : (followingData?.content ?? followingData?.data ?? []);
-          const followersArr = Array.isArray(followersData)
-            ? followersData
-            : (followersData?.content ?? followersData?.data ?? []);
-
-          const ids = followingArr.map((u) => u.id ?? u.userId).filter(Boolean);
+      Promise.all([loadFollowing(), loadFollowers()])
+        .then(([followingArr, followersArr]) => {
+          const ids = followingArr.map((u) => u.userId ?? u.id).filter(Boolean);
           followingIdsRef.current = ids;
           setFollowingIds(ids);
           setFollowingList(followingArr);
@@ -1864,7 +1897,15 @@ export default function Home() {
     const results = [];
     actionCards.forEach((card) => {
       if (card.title.toLowerCase().includes(query) || card.subtitle.toLowerCase().includes(query)) {
-        results.push({ id: card.title, title: card.title, subtitle: card.subtitle, type: "action", route: card.route, colors: card.colors });
+        results.push({
+          id: card.title,
+          title: card.title,
+          subtitle: card.subtitle,
+          type: "action",
+          route: card.route,
+          partyRandom: card.partyRandom,
+          colors: card.colors,
+        });
       }
     });
     iconItems.forEach((item) => {
@@ -1886,14 +1927,20 @@ export default function Home() {
     const nextPage = feedPage + 1;
     try {
       const more = await homeService.loadMoreFeed(selectedTab, nextPage);
-      setFeedPosts((prev) => [...prev, ...(more.posts ?? [])]);
+      setFeedPosts((prev) => [
+        ...prev,
+        ...(more.posts ?? []).map((post) => ({
+          ...post,
+          _isOwn: currentUserId ? isOwnContent(post, currentUserId) : false,
+        })),
+      ]);
       setFeedHasMore(more.hasMore ?? false);
       setFeedPage(nextPage);
     } catch (e) {
     } finally {
       setFeedLoading(false);
     }
-  }, [feedHasMore, feedLoading, feedPage, selectedTab]);
+  }, [feedHasMore, feedLoading, feedPage, selectedTab, currentUserId]);
 
   const handleMorePress = useCallback((post) => setMoreMenuPost(post), []);
   const handleMoreClose = useCallback(() => setMoreMenuPost(null), []);
@@ -1901,21 +1948,28 @@ export default function Home() {
   // Follow / Unfollow — optimistic toggle backed by ref so callback is stable
   const handleFollowToggle = useCallback(async (userId) => {
     if (!userId) return;
+    if (isSameUser(userId, currentUserId)) return;
 
-    const wasFollowing = followingIdsRef.current.includes(userId);
+    const targetId = String(userId);
+    const wasFollowing = followingIdsRef.current.some((id) => isSameUser(id, targetId));
+    console.log(
+      `[Home] follow toggle userId=${targetId} wasFollowing=${wasFollowing}`
+    );
     const updated = wasFollowing
-      ? followingIdsRef.current.filter((id) => id !== userId)
-      : [...followingIdsRef.current, userId];
+      ? followingIdsRef.current.filter((id) => !isSameUser(id, targetId))
+      : [...followingIdsRef.current, targetId];
     followingIdsRef.current = updated;
     setFollowingIds([...updated]);
 
     try {
       if (wasFollowing) {
-        await unfollowUser(userId);
+        await unfollowUser(targetId);
       } else {
-        await followUser(userId);
+        await followUser(targetId);
       }
+      console.log(`[Home] follow toggle success userId=${targetId}`);
     } catch (e) {
+      console.log(`[Home] follow toggle failed userId=${targetId}:`, e?.message);
       const msg = e?.message?.toLowerCase() ?? "";
 
       // "not following" on unfollow → backend agrees, keep UI as not-following (already reverted)
@@ -1926,12 +1980,12 @@ export default function Home() {
 
       // Any other error → revert optimistic UI
       const reverted = wasFollowing
-        ? [...followingIdsRef.current, userId]
-        : followingIdsRef.current.filter((id) => id !== userId);
+        ? [...followingIdsRef.current, targetId]
+        : followingIdsRef.current.filter((id) => !isSameUser(id, targetId));
       followingIdsRef.current = reverted;
       setFollowingIds([...reverted]);
     }
-  }, []);
+  }, [currentUserId]);
 
   // Like / Dislike — optimistic toggle
   const handleLikeToggle = useCallback(async (postId) => {
@@ -1977,7 +2031,18 @@ export default function Home() {
     // Helper — calls GET /api/home/feed?tab=for_you&page=1&limit=10 and resets the feed
     const refreshFeed = async () => {
       const fresh = await homeService.refreshFeed(selectedTabRef.current);
-      setFeedPosts(fresh.posts ?? []);
+      let sessionUserId = currentUserId;
+      try {
+        sessionUserId = String(await getAppUserId());
+      } catch {
+        // keep existing currentUserId
+      }
+      setFeedPosts(
+        (fresh.posts ?? []).map((post) => ({
+          ...post,
+          _isOwn: sessionUserId ? isOwnContent(post, sessionUserId) : false,
+        }))
+      );
       setFeedHasMore(fresh.hasMore ?? false);
       setFeedPage(1);
     };
@@ -1992,9 +2057,16 @@ export default function Home() {
     }
 
     // Normalize backend response so the optimistic item matches our feed shape
+    let sessionUserId = currentUserId;
+    try {
+      sessionUserId = String(await getAppUserId());
+    } catch {
+      // keep existing currentUserId
+    }
+
     const normalized = {
       id:        newPost?.id        ?? newPost?.postId  ?? `local-${Date.now()}`,
-      userId:    newPost?.userId    ?? newPost?.authorId ?? null,
+      userId:    newPost?.userId    ?? newPost?.authorId ?? sessionUserId ?? null,
       name:      newPost?.name      ?? newPost?.username  ?? newPost?.authorName ?? "You",
       avatar:    newPost?.avatar    ?? newPost?.profileImage ?? newPost?.authorAvatar ?? null,
       text:      newPost?.text      ?? newPost?.caption  ?? newPost?.content ?? caption ?? "",
@@ -2012,17 +2084,18 @@ export default function Home() {
 
     // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
     await refreshFeed().catch(() => {});
-  }, []);
+  }, [currentUserId]);
 
   // Block — removes user's posts from feed immediately
   const handleBlockUser = useCallback(async (userId, userName) => {
     if (!userId) return;
+    if (isSameUser(userId, currentUserId)) return;
     try {
       await blockUser(userId);
       setFeedPosts((prev) => prev.filter((p) => p.userId !== userId));
     } catch (e) {
     }
-  }, []);
+  }, [currentUserId]);
 
   const handleDeletePost = useCallback(async (postId) => {
     if (!postId) return;
@@ -2070,14 +2143,15 @@ export default function Home() {
       <PostCard
         post={item}
         onMore={handleMorePress}
-        isFollowing={followingIds.includes(item.userId)}
+        isFollowing={followingIds.some((id) => isSameUser(id, item.userId))}
         onFollowToggle={handleFollowToggle}
         isLiked={likedPostIds.includes(item.id)}
         onLikeToggle={handleLikeToggle}
         onCommentPress={handleCommentPress}
+        currentUserId={currentUserId}
       />
     );
-  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress]);
+  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, currentUserId]);
 
   const keyExtractor = useCallback((item) => String(item.id), []);
 
@@ -2190,7 +2264,11 @@ export default function Home() {
                       style={styles.searchResultItem}
                       activeOpacity={0.7}
                       onPress={() => {
-                        if (result.route) {
+                        if (result.partyRandom) {
+                          router.push({ pathname: "/voice-party", params: { party: "true" } });
+                          closeSearch();
+                          setSearchResults([]);
+                        } else if (result.route) {
                           router.push(result.route);
                           closeSearch();
                           setSearchResults([]);
@@ -2428,7 +2506,7 @@ export default function Home() {
         onClose={handleMoreClose}
         onBlock={handleBlockUser}
         onDelete={handleDeletePost}
-        currentUserId={userProfile?.id ?? userProfile?.userId ?? null}
+        currentUserId={currentUserId}
       />
 
     </View>
@@ -2965,6 +3043,16 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 33,
+  },
+  recommendAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recommendInitial: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "800",
   },
   recommendName: {
     color: "rgba(255,255,255,0.85)",

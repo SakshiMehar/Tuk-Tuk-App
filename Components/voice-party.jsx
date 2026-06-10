@@ -9,7 +9,6 @@ import {
   Dimensions,
   StatusBar,
   TextInput,
-  KeyboardAvoidingView,
   Platform,
   Modal,
   Alert,
@@ -18,11 +17,19 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { followUser, unfollowUser } from "../src/api/relationshipApi";
+import {
+  followUser,
+  unfollowUser,
+  blockUser,
+  loadRelationshipStatus,
+  isSameUser,
+} from "../src/services/relationshipService";
+import { getAppUserId } from "../src/utils/sessionUser";
 import {
   enterRoomSession,
   exitRoomSession,
   createAndJoinRoom,
+  enterRandomPartySession,
   parseSeats,
   parseOnlineUsers,
   normalizeChatMessage,
@@ -31,6 +38,9 @@ import {
 import { wsService } from "../src/services/websocket";
 import { getRoomState, getRoomChatMessages } from "../src/api/partyApi";
 import { refreshTokenCache } from "../src/api/axios";
+import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
+import { loadConversations } from "../src/services/chatService";
+import { getUser } from "../src/store/authStore";
 import * as partyVoice from "../src/services/partyVoiceService";
 import * as agoraVoice from "../src/services/agoraVoiceService";
 import {
@@ -55,6 +65,27 @@ import {
 } from "lucide-react-native";
 
 const { width: W, height: H } = Dimensions.get("window");
+
+const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
+  if (!seatNumber) return parsedSeats;
+  const user = await getUser();
+  const avatar =
+    user?.avatarUrl ?? user?.avatar ?? user?.profileImageUrl ?? user?.profileImage ?? null;
+  const name = user?.name ?? user?.username ?? user?.nickname ?? null;
+
+  return parsedSeats.map((seat) => {
+    if (seat.id !== seatNumber || !seat.user) return seat;
+    return {
+      ...seat,
+      user: {
+        ...seat.user,
+        name: seat.user.name && seat.user.name !== "Guest" ? seat.user.name : (name ?? seat.user.name),
+        avatar: seat.user.avatar ?? avatar,
+        active: true,
+      },
+    };
+  });
+};
 
 const micSeats = [
   { id: 1, user: null, locked: true },
@@ -212,6 +243,17 @@ const vipGifts = [
   { id: "vip8", name: "God's Eye",    price: 1077777, emoji: "👁️" },
 ];
 
+const pkGifts = [
+  { id: "pk1", name: "PK Hammer",     price: 1777,   emoji: "🔨", hot: true  },
+  { id: "pk2", name: "Battle Shield", price: 3077,   emoji: "🛡️", hot: false },
+  { id: "pk3", name: "Victory Flame", price: 7777,   emoji: "🔥", hot: false },
+  { id: "pk4", name: "Arena Crown",   price: 17777,  emoji: "👑", hot: false },
+  { id: "pk5", name: "Power Surge",   price: 37777,  emoji: "⚡", hot: true  },
+  { id: "pk6", name: "Champion Star", price: 57777,  emoji: "⭐", hot: false },
+  { id: "pk7", name: "PK Champion",   price: 107777, emoji: "🏆", hot: false },
+  { id: "pk8", name: "Legend Boost",  price: 207777, emoji: "💫", hot: false },
+];
+
 const intimacyVideos = [
   { id: "iv1", name: "Moment 1", uri: require("../assets/videos/v1.mp4"), colors: ["#4a1080", "#7c4dff"] },
   { id: "iv2", name: "Moment 2", uri: require("../assets/videos/v2.mp4"), colors: ["#0d2952", "#4a6cf7"] },
@@ -226,6 +268,7 @@ export default function VoiceParty() {
   const params = useLocalSearchParams();
   const roomIdParam = params.roomId ?? params.id ?? null;
   const isCreate = params.create === "true";
+  const isRandomParty = params.party === "true";
 
   const [roomLoading, setRoomLoading] = useState(true);
   const [roomId, setRoomId] = useState(roomIdParam);
@@ -243,6 +286,9 @@ export default function VoiceParty() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
+  const exitedRef = useRef(false);
+  const roomIdRef = useRef(roomIdParam);
+  const { composerBottom } = useKeyboardInset();
   const [showPlayCenter, setShowPlayCenter] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGiftPanel, setShowGiftPanel] = useState(false);
@@ -267,12 +313,35 @@ export default function VoiceParty() {
   }, [showVideoModal, currentVideo?.id]);
   const [emojiTab, setEmojiTab] = useState("😊");
   const [showChatInput, setShowChatInput] = useState(false);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [myUserId, setMyUserId] = useState(null);
+  const hostId = roomInfo?.hostId ?? null;
+  const isHostSelf = isSameUser(hostId, myUserId);
+
+  useEffect(() => {
+    getAppUserId()
+      .then((id) => setMyUserId(id))
+      .catch(() => setMyUserId(null));
+  }, []);
+
+  useEffect(() => {
+    if (!hostId || isSameUser(hostId, myUserId)) {
+      setIsFollowing(false);
+      return;
+    }
+    let cancelled = false;
+    loadRelationshipStatus(hostId)
+      .then((status) => {
+        if (!cancelled) setIsFollowing(status.following);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [hostId, myUserId]);
 
   const handleFollowToggle = async () => {
-    const hostId = roomInfo?.hostId;
-    if (!hostId) return;
+    if (!hostId || isHostSelf) return;
     setFollowLoading(true);
     try {
       if (isFollowing) {
@@ -291,31 +360,66 @@ export default function VoiceParty() {
     }
   };
 
+  const handleBlockHost = async () => {
+    if (!hostId || isHostSelf) return;
+    setShowMoreMenu(false);
+    try {
+      await blockUser(hostId);
+      Alert.alert("Blocked", "User has been blocked.");
+    } catch (err) {
+      Alert.alert("Block failed", err.message || "Please try again.");
+    }
+  };
+
+  useEffect(() => {
+    roomIdRef.current = roomId;
+  }, [roomId]);
+
   useEffect(() => {
     let cancelled = false;
     const initRoom = async () => {
       setRoomLoading(true);
+      exitedRef.current = false;
       await refreshTokenCache();
       try {
         let session;
         if (isCreate) {
-          session = await createAndJoinRoom();
+          const user = await getUser();
+          session = await createAndJoinRoom({
+            name: user?.name ?? user?.username ?? "My Room",
+            ...(user?.profilePicUrl || user?.avatarUrl
+              ? { profileImageUrl: user.profilePicUrl ?? user.avatarUrl }
+              : {}),
+          });
+        } else if (isRandomParty) {
+          session = await enterRandomPartySession();
         } else if (roomIdParam) {
           session = await enterRoomSession(String(roomIdParam));
         } else {
-          session = await enterRoomSession("seed-room-music");
+          throw new Error("Room id is required.");
         }
         if (cancelled) return;
         setRoomId(session.roomId);
+        roomIdRef.current = session.roomId;
         setRoomInfo(session.room);
         setSeats(session.seats);
         setOnlineUsers(session.onlineUsers);
         setOnlineCount(session.onlineCount);
         setMessages(session.messages);
-        console.log("[VoiceParty] room loaded:", session.roomId, session.room?.name);
+        if (session.reservedSeatNumber) {
+          setMySeatNumber(session.reservedSeatNumber);
+        }
       } catch (err) {
         if (!cancelled) {
-          Alert.alert("Could not join room", err?.message || "Please try again.");
+          Alert.alert(
+            isCreate
+              ? "Could not create room"
+              : isRandomParty
+                ? "Could not join party room"
+                : "Could not join room",
+            err?.message || "Please try again."
+          );
+          router.back();
         }
       } finally {
         if (!cancelled) setRoomLoading(false);
@@ -325,12 +429,34 @@ export default function VoiceParty() {
     return () => {
       cancelled = true;
       partyVoice.teardownVoice();
+      const activeRoomId = roomIdRef.current;
+      if (activeRoomId && !exitedRef.current) {
+        exitedRef.current = true;
+        exitRoomSession(String(activeRoomId)).catch(() => {});
+      }
     };
-  }, [roomIdParam, isCreate]);
+  }, [roomIdParam, isCreate, isRandomParty, router]);
 
   useEffect(() => {
     messageCountRef.current = messages.length;
   }, [messages]);
+
+  useEffect(() => {
+    loadConversations()
+      .then((conversations) => {
+        const unread = conversations.reduce((sum, chat) => sum + (chat.unread || 0), 0);
+        setChatUnreadCount(unread);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!messages.length) return;
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: false });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [roomId, messages.length]);
 
   useEffect(() => {
     if (!roomId) return undefined;
@@ -358,7 +484,14 @@ export default function VoiceParty() {
       }
     });
     const unsubUi = wsService.onRoomUiState(String(roomId), (payload) => {
-      if (payload?.seats) setSeats(parseSeats(payload.seats, payload));
+      if (payload?.seats) {
+        const nextSeats = parseSeats(payload.seats, payload);
+        if (mySeatNumber) {
+          enrichSeatsWithMyProfile(nextSeats, mySeatNumber).then(setSeats);
+        } else {
+          setSeats(nextSeats);
+        }
+      }
       const users = parseOnlineUsers(payload, null);
       if (users.length) {
         setOnlineUsers(users);
@@ -381,19 +514,21 @@ export default function VoiceParty() {
       unsubUi();
       unsubSpeaking();
     };
-  }, [roomId]);
+  }, [roomId, mySeatNumber]);
 
   const handleExitRoom = async () => {
     setShowPowerMenu(false);
+    if (!roomId || exitedRef.current) {
+      router.back();
+      return;
+    }
+    exitedRef.current = true;
     try {
-      if (onMic && roomId && mySeatNumber) {
+      if (onMic && mySeatNumber) {
         await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => {});
-      } else {
-        await partyVoice.teardownVoice();
       }
-      if (roomId) {
-        await exitRoomSession(String(roomId));
-      }
+      await partyVoice.teardownVoice();
+      await exitRoomSession(String(roomId));
     } catch {
       // APIs logged in partyApi
     }
@@ -422,28 +557,37 @@ export default function VoiceParty() {
       return;
     }
 
-    const emptySeat = seats.find((seat) => !seat.user && !seat.locked);
-    if (!emptySeat) {
+    const targetSeat =
+      mySeatNumber ??
+      seats.find((seat) => !seat.user && !seat.locked)?.id;
+    if (!targetSeat) {
       Alert.alert("No seats available", "All microphone seats are currently full.");
       return;
     }
 
     setVoiceConnecting(true);
     try {
-      await partyVoice.takeMic(String(roomId), emptySeat.id);
+      if (mySeatNumber) {
+        await partyVoice.activateMicOnSeat(String(roomId), mySeatNumber);
+      } else {
+        await partyVoice.takeMic(String(roomId), targetSeat);
+      }
       setOnMic(true);
-      setMySeatNumber(emptySeat.id);
+      setMySeatNumber(targetSeat);
       setIsMicMuted(false);
       if (isSpeakerMuted) {
         agoraVoice.toggleRemoteMute(true);
       }
 
       const state = await getRoomState(String(roomId));
-      setSeats(parseSeats(state?.seats, state));
+      const nextSeats = await enrichSeatsWithMyProfile(
+        parseSeats(state?.seats, state),
+        targetSeat
+      );
+      setSeats(nextSeats);
       setOnlineCount(state?.onlineCount ?? onlineCount);
     } catch (err) {
       const msg = err?.message ?? "Could not start voice.";
-      console.log("[VoiceParty] take mic failed:", msg);
       if (msg.toLowerCase().includes("auth token") || msg.toLowerCase().includes("authentication token")) {
         Alert.alert("Login required", "Please log in again to use voice chat.");
       } else if (msg.includes("permission")) {
@@ -517,14 +661,13 @@ export default function VoiceParty() {
         Alert.alert("Report", "Room has been reported.");
       },
     },
-    {
-      icon: <Ban size={22} color="#a78bfa" />,
-      label: "Block",
-      onPress: () => {
-        setShowMoreMenu(false);
-        Alert.alert("Block", "User has been blocked.");
-      },
-    },
+    ...(!isHostSelf
+      ? [{
+          icon: <Ban size={22} color="#a78bfa" />,
+          label: "Block",
+          onPress: handleBlockHost,
+        }]
+      : []),
     {
       icon: <Crown size={22} color="#a78bfa" />,
       label: "Room Premium",
@@ -542,6 +685,14 @@ export default function VoiceParty() {
       },
     },
   ];
+
+  const handleOpenChatTab = () => {
+    router.push("/(tabs)/chat");
+  };
+
+  const handleOpenPartyChat = () => {
+    setShowChatInput(true);
+  };
 
   const sendMessage = () => {
     const text = inputText.trim();
@@ -657,7 +808,7 @@ export default function VoiceParty() {
               style={styles.bpMainTabScroll}
               contentContainerStyle={styles.bpMainTabContent}
             >
-              {["Backpack", "Gift", "Activity", "Relationship", "Special", "VIP", "Rank"].map((tab) => (
+              {["Backpack", "Gift", "Activity", "Relationship", "PK", "Special", "VIP", "Rank"].map((tab) => (
                 <TouchableOpacity
                   key={tab}
                   style={styles.bpMainTabItem}
@@ -968,6 +1119,75 @@ export default function VoiceParty() {
               </View>
             )}
 
+            {/* ── PK TAB ── */}
+            {backpackMainTab === "PK" && (
+              <View style={{ flex: 1 }}>
+                <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                  <View style={styles.bpGiftGrid}>
+                    {pkGifts.map((gift) => (
+                      <TouchableOpacity
+                        key={gift.id}
+                        style={[styles.bpGiftCard, selectedGift?.id === gift.id && styles.bpGiftCardSelected]}
+                        activeOpacity={0.8}
+                        onPress={() => setSelectedGift(gift)}
+                      >
+                        {gift.hot && (
+                          <View style={styles.bpHotBadge}>
+                            <Text style={styles.bpHotText}>HOT</Text>
+                          </View>
+                        )}
+                        <View style={styles.bpGiftSendBtn}>
+                          <Text style={{ fontSize: 9 }}>🎁</Text>
+                        </View>
+                        <LinearGradient colors={["#2a0d50", "#4a1d80"]} style={styles.bpGiftEmojiWrap}>
+                          <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                        </LinearGradient>
+                        <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
+                        <View style={styles.bpGiftPriceRow}>
+                          <Text style={styles.bpGiftPriceText}>💎 {gift.price.toLocaleString()}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+
+                {/* Send bar */}
+                <View style={styles.bpSendBar}>
+                  <Image
+                    source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
+                    style={styles.bpSendAvatar}
+                  />
+                  <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
+                    <Text style={styles.bpSendHeart}>❤️ </Text>
+                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
+                    <Text style={styles.bpSendChev}> ▼</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.bpSendQtyBtn}
+                    activeOpacity={0.8}
+                    onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
+                  >
+                    <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.bpSendBtn}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      if (selectedGift) {
+                        Alert.alert("PK Gift Sent! ⚔️", `You sent ${giftQty}x ${selectedGift.name}!`);
+                        setSelectedGift(null);
+                        setGiftQty(1);
+                      } else {
+                        Alert.alert("Select a gift", "Tap any PK gift to select it first.");
+                      }
+                    }}
+                  >
+                    <Text style={styles.bpSendBtnText}>Send</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             {/* ── SPECIAL TAB ── */}
             {backpackMainTab === "Special" && (
               <View style={{ flex: 1 }}>
@@ -1087,7 +1307,7 @@ export default function VoiceParty() {
             )}
 
             {/* ── OTHER TABS EMPTY STATE ── */}
-            {!["Gift", "Backpack", "Activity", "Relationship", "Special", "VIP"].includes(backpackMainTab) && (
+            {!["Gift", "Backpack", "Activity", "Relationship", "PK", "Special", "VIP"].includes(backpackMainTab) && (
               <View style={styles.bpEmptyState}>
                 <Text style={styles.bpEmptyEmoji}>✨</Text>
                 <Text style={styles.bpEmptyText}>Coming soon</Text>
@@ -1426,10 +1646,7 @@ export default function VoiceParty() {
       />
       <View style={styles.bgOverlay} />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <View style={{ flex: 1, position: "relative" }}>
         {/* ── HEADER ── */}
         <View style={styles.header}>
           {/* Room info + follow button */}
@@ -1448,17 +1665,19 @@ export default function VoiceParty() {
               </Text>
               <Text style={styles.ownerId}>ID:{roomId ?? "—"}</Text>
             </View>
-            <TouchableOpacity
-              style={[styles.plusBtn, isFollowing && styles.plusBtnFollowing]}
-              onPress={handleFollowToggle}
-              disabled={followLoading}
-              activeOpacity={0.8}
-            >
-              {followLoading
-                ? <ActivityIndicator size="small" color="white" />
-                : <Plus size={20} color="white" />
-              }
-            </TouchableOpacity>
+            {!isHostSelf && (
+              <TouchableOpacity
+                style={[styles.plusBtn, isFollowing && styles.plusBtnFollowing]}
+                onPress={handleFollowToggle}
+                disabled={followLoading}
+                activeOpacity={0.8}
+              >
+                {followLoading
+                  ? <ActivityIndicator size="small" color="white" />
+                  : <Plus size={20} color="white" />
+                }
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.headerRight}>
@@ -1479,38 +1698,47 @@ export default function VoiceParty() {
           <View style={styles.trophyBadge}>
             <Text style={styles.trophyText}>👥 {onlineCount}</Text>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-            <View style={styles.audienceRow}>
-              {onlineUsers.slice(0, 6).map((user, index) => (
-                <View key={user.id ?? `user-${index}`} style={styles.audienceItem}>
-                  {user.avatar ? (
-                    <Image
-                      source={{ uri: user.avatar }}
-                      style={[styles.audienceAvatar, index > 0 && { marginLeft: -8 }]}
-                    />
-                  ) : (
-                    <View style={[styles.audienceAvatar, styles.audienceAvatarPlaceholder, index > 0 && { marginLeft: -8 }]}>
-                      <Text style={styles.audienceInitial}>{user.name?.[0] ?? "?"}</Text>
-                    </View>
-                  )}
-                  <View style={styles.micStatusDot}>
-                    {user.muted ? (
-                      <MicOff size={9} color="#f87171" />
-                    ) : user.isSpeaking ? (
-                      <Mic size={9} color="#4ade80" />
-                    ) : (
-                      <Mic size={9} color="rgba(255,255,255,0.5)" />
-                    )}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.audienceScroll}
+            contentContainerStyle={styles.audienceScrollContent}
+          >
+            {onlineUsers.slice(0, 6).map((user, index) => (
+              <View key={user.id ?? `user-${index}`} style={styles.audienceItem}>
+                {user.avatar ? (
+                  <Image
+                    source={{ uri: user.avatar }}
+                    style={[styles.audienceAvatar, index > 0 && styles.audienceAvatarOverlap]}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.audienceAvatar,
+                      styles.audienceAvatarPlaceholder,
+                      index > 0 && styles.audienceAvatarOverlap,
+                    ]}
+                  >
+                    <Text style={styles.audienceInitial}>{user.name?.[0] ?? "?"}</Text>
                   </View>
+                )}
+                <View style={styles.micStatusDot}>
+                  {user.muted ? (
+                    <MicOff size={9} color="#f87171" />
+                  ) : user.isSpeaking ? (
+                    <Mic size={9} color="#4ade80" />
+                  ) : (
+                    <Mic size={9} color="rgba(255,255,255,0.5)" />
+                  )}
                 </View>
-              ))}
-              {onlineCount > 6 && (
-                <View style={styles.audienceCount}>
-                  <Text style={styles.audienceCountText}>+{onlineCount - 6}</Text>
-                </View>
-              )}
-            </View>
+              </View>
+            ))}
           </ScrollView>
+          {onlineCount > 6 && (
+            <View style={styles.audienceCount}>
+              <Text style={styles.audienceCountText}>+{onlineCount - 6}</Text>
+            </View>
+          )}
         </View>
 
         {/* ── MIC SEATS GRID ── */}
@@ -1519,21 +1747,27 @@ export default function VoiceParty() {
             <TouchableOpacity key={seat.id} style={styles.seatItem} activeOpacity={0.8}>
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
-                  {seat.user.active && (
-                    <LinearGradient
-                      colors={["#4ade80", "#22c55e"]}
-                      style={styles.activeRing}
-                    />
-                  )}
+                  {seat.user.active && <View style={styles.activeRing} />}
                   {seat.user.avatar ? (
                     <Image source={{ uri: seat.user.avatar }} style={styles.seatAvatar} />
                   ) : (
-                    <View style={[styles.seatEmpty, seat.user.active && { borderColor: "#4ade80" }]}>
-                      {seat.user.muted ? (
-                        <MicOff size={18} color="#f87171" />
-                      ) : (
-                        <Mic size={18} color={seat.user.active ? "#4ade80" : "rgba(255,255,255,0.8)"} />
-                      )}
+                    <View
+                      style={[
+                        styles.seatEmpty,
+                        styles.seatAvatarPlaceholder,
+                        seat.user.active && styles.seatActiveBorder,
+                      ]}
+                    >
+                      <Text style={styles.seatInitial}>
+                        {seat.user.name?.[0]?.toUpperCase() ?? "?"}
+                      </Text>
+                      <View style={styles.seatMicIcon}>
+                        {seat.user.muted ? (
+                          <MicOff size={12} color="#f87171" />
+                        ) : (
+                          <Mic size={12} color={seat.user.active ? "#4ade80" : "rgba(255,255,255,0.8)"} />
+                        )}
+                      </View>
                     </View>
                   )}
                 </View>
@@ -1561,8 +1795,10 @@ export default function VoiceParty() {
           <View style={styles.chatLeft}>
             <ScrollView
               ref={scrollRef}
+              style={styles.chatScroll}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.chatScrollContent}
             >
               {messages.map((msg) =>
                 msg.system ? (
@@ -1604,12 +1840,16 @@ export default function VoiceParty() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.rightIconBtn}
-              onPress={() => setShowChatInput((v) => !v)}
+              onPress={handleOpenChatTab}
             >
               <MessageSquare size={22} color="white" />
-              <View style={styles.chatBadge}>
-                <Text style={styles.chatBadgeText}>{messages.length}</Text>
-              </View>
+              {chatUnreadCount > 0 && (
+                <View style={styles.chatBadge}>
+                  <Text style={styles.chatBadgeText}>
+                    {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.takeMicBtn}
@@ -1643,8 +1883,8 @@ export default function VoiceParty() {
           <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setShowEmojiPicker(true)}>
             <Smile size={24} color="white" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setShowChatInput((v) => !v)}>
-            <MessageSquare size={24} color="white" />
+          <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenPartyChat}>
+            <MessageSquare size={24} color={showChatInput ? "#4dc8ff" : "white"} />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.bottomIconBtn, styles.giftShortcutHighlight]} onPress={() => setShowBackpack(true)}>
             <Text style={styles.giftShortcutEmoji}>💰</Text>
@@ -1657,7 +1897,7 @@ export default function VoiceParty() {
 
         {/* ── CHAT INPUT ── */}
         {showChatInput && (
-        <View style={styles.inputRow}>
+        <View style={[styles.inputRow, styles.inputRowFloating, { bottom: composerBottom }]}>
           <TextInput
             style={styles.input}
             placeholder="Say something..."
@@ -1673,7 +1913,7 @@ export default function VoiceParty() {
           </TouchableOpacity>
         </View>
         )}
-      </KeyboardAvoidingView>
+      </View>
     </View>
   );
 }
@@ -1760,8 +2000,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  audienceRow: { flexDirection: "row", alignItems: "center", paddingRight: 8 },
+  audienceScroll: { flex: 1, minWidth: 0 },
+  audienceScrollContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 4,
+  },
   audienceItem: { position: "relative" },
+  audienceAvatarOverlap: { marginLeft: -8 },
   micStatusDot: {
     position: "absolute",
     right: -2,
@@ -1793,13 +2039,15 @@ const styles = StyleSheet.create({
     borderColor: "#1a0a2e",
   },
   audienceCount: {
-    width: 28,
+    minWidth: 32,
     height: 28,
     borderRadius: 14,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: -10,
+    paddingHorizontal: 8,
+    marginLeft: 4,
+    flexShrink: 0,
   },
   audienceCountText: { color: "white", fontSize: 11, fontWeight: "700" },
   headerRight: { flexDirection: "row", gap: 6 },
@@ -1809,6 +2057,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     gap: 8,
     marginBottom: 10,
+    overflow: "visible",
   },
   trophyBadge: {
     backgroundColor: "rgba(255,215,0,0.2)",
@@ -1841,6 +2090,9 @@ const styles = StyleSheet.create({
     width: SEAT_SIZE - 2,
     height: SEAT_SIZE - 2,
     borderRadius: (SEAT_SIZE - 2) / 2,
+    borderWidth: 3,
+    borderColor: "#4ade80",
+    backgroundColor: "transparent",
   },
   seatAvatar: {
     width: SEAT_SIZE - 10,
@@ -1848,6 +2100,31 @@ const styles = StyleSheet.create({
     borderRadius: (SEAT_SIZE - 10) / 2,
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.3)",
+    zIndex: 1,
+  },
+  seatAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.45)",
+    zIndex: 1,
+  },
+  seatActiveBorder: {
+    borderColor: "#4ade80",
+    borderWidth: 2,
+  },
+  seatInitial: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  seatMicIcon: {
+    position: "absolute",
+    right: 2,
+    bottom: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(15,7,32,0.85)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   rankBadge: {
     position: "absolute",
@@ -1879,8 +2156,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
     maxWidth: SEAT_SIZE,
   },
-  chatArea: { flex: 1, flexDirection: "row", paddingHorizontal: 12, gap: 8 },
-  chatLeft: { flex: 1, maxHeight: 200 },
+  chatArea: {
+    flex: 1,
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    gap: 8,
+    minHeight: 0,
+  },
+  chatLeft: { flex: 1, minHeight: 0 },
+  chatScroll: { flex: 1 },
+  chatScrollContent: {
+    gap: 8,
+    paddingTop: 4,
+    paddingBottom: 12,
+  },
   systemMsg: {
     backgroundColor: "rgba(0,0,0,0.35)",
     borderRadius: 12,
@@ -2050,10 +2339,17 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: "row",
     paddingHorizontal: 12,
-    paddingBottom: 20,
+    paddingBottom: 12,
     paddingTop: 10,
     gap: 10,
     backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  inputRowFloating: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 30,
+    elevation: 30,
   },
   input: {
     flex: 1,

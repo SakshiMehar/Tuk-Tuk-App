@@ -109,7 +109,7 @@
 // - recommendedUsers: max 20 users, sorted by activity
 // ============================================================
 
-import API from "./axios";
+import API, { authRequestConfig } from "./axios";
 import mockData from "../data/homeData.json";
 
 const USE_MOCK = false; // Flip to true to use local mock data
@@ -126,7 +126,7 @@ export const getHomeInit = async () => {
       trendingTags: mockData.trendingTags,
     };
   }
-  const response = await API.get("/api/home/init");
+  const response = await API.get("/api/home/init", await authRequestConfig());
   return response.data;
 };
 

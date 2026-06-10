@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Stack } from "expo-router";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { initFirebase } from "../src/lib/firebase";
 
 
@@ -12,6 +13,7 @@ export default function RootLayout() {
     initFirebase();
   }, []);
   return (
+    <SafeAreaProvider>
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="login" />
@@ -26,5 +28,6 @@ export default function RootLayout() {
       <Stack.Screen name="find-friends" />
       <Stack.Screen name="nearby" />
     </Stack>
+    </SafeAreaProvider>
   );
 }

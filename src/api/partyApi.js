@@ -15,19 +15,77 @@
 
 import API, { authRequestConfig } from "./axios";
 
-const log = (label, data) => {
-  console.log(label, JSON.stringify(data, null, 2));
+export const getRoomRecommendations = async () => {
+  const response = await API.get(
+    "/api/v1/tuktuk/rooms/recommendations",
+    await authRequestConfig()
+  );
+  console.log(
+    "[partyApi] GET /api/v1/tuktuk/rooms/recommendations:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
 };
 
-export const getRoomRecommendations = async () => {
-  const response = await API.get("/api/v1/tuktuk/rooms/recommendations");
-  log("[partyApi] GET /api/v1/tuktuk/rooms/recommendations:", response.data);
+export const getRecentlyRooms = async () => {
+  const response = await API.get(
+    "/api/v1/tuktuk/rooms/recently",
+    await authRequestConfig()
+  );
+  console.log(
+    "[partyApi] GET /api/v1/tuktuk/rooms/recently:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
+export const getFollowingRooms = async () => {
+  const response = await API.get(
+    "/api/v1/tuktuk/rooms/following",
+    await authRequestConfig()
+  );
+  console.log(
+    "[partyApi] GET /api/v1/tuktuk/rooms/following:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
+export const getManagedRooms = async () => {
+  const response = await API.get(
+    "/api/v1/tuktuk/rooms/managed",
+    await authRequestConfig()
+  );
+  console.log(
+    "[partyApi] GET /api/v1/tuktuk/rooms/managed:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
+export const joinRandomParty = async (body = {}) => {
+  const response = await API.post(
+    "/api/v1/tuktuk/rooms/party",
+    body,
+    await authRequestConfig()
+  );
+  console.log(
+    "[partyApi] POST /api/v1/tuktuk/rooms/party:",
+    JSON.stringify(response.data, null, 2)
+  );
   return response.data;
 };
 
 export const createRoom = async (body = {}) => {
-  const response = await API.post("/api/v1/tuktuk/rooms/create", body);
-  log("[partyApi] POST /api/v1/tuktuk/rooms/create:", response.data);
+  const response = await API.post(
+    "/api/v1/tuktuk/rooms/create",
+    body,
+    await authRequestConfig()
+  );
+  console.log(
+    "[partyApi] POST /api/v1/tuktuk/rooms/create:",
+    JSON.stringify(response.data, null, 2)
+  );
   return response.data;
 };
 
@@ -37,7 +95,10 @@ export const joinRoom = async (roomId) => {
     {},
     await authRequestConfig()
   );
-  log(`[partyApi] POST /api/v1/tuktuk/rooms/${roomId}/join:`, response.data);
+  console.log(
+    `[partyApi] POST /api/v1/tuktuk/rooms/${roomId}/join:`,
+    JSON.stringify(response.data, null, 2)
+  );
   return response.data;
 };
 
@@ -47,7 +108,10 @@ export const exitRoom = async (roomId) => {
     {},
     await authRequestConfig()
   );
-  log(`[partyApi] POST /api/v1/tuktuk/rooms/${roomId}/exit:`, response.data);
+  console.log(
+    `[partyApi] POST /api/v1/tuktuk/rooms/${roomId}/exit:`,
+    JSON.stringify(response.data, null, 2)
+  );
   return response.data;
 };
 
@@ -56,7 +120,6 @@ export const getRoomState = async (roomId) => {
     `/api/v1/tuktuk/rooms/${roomId}/state`,
     await authRequestConfig()
   );
-  log(`[partyApi] GET /api/v1/tuktuk/rooms/${roomId}/state:`, response.data);
   return response.data;
 };
 
@@ -65,19 +128,20 @@ export const getRoomChatMessages = async (roomId) => {
     `/api/v1/tuktuk/rooms/${roomId}/chat/messages`,
     await authRequestConfig()
   );
-  log(`[partyApi] GET /api/v1/tuktuk/rooms/${roomId}/chat/messages:`, response.data);
   return response.data;
 };
 
 export const claimSeat = async (roomId, seatNumber, profile) => {
   const body = { profile };
-  log(`[partyApi] POST .../seat/${seatNumber}/claim body:`, body);
   const response = await API.post(
     `/api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/claim`,
     body,
     await authRequestConfig()
   );
-  log(`[partyApi] POST .../seat/${seatNumber}/claim:`, response.data);
+  console.log(
+    `[partyApi] POST /api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/claim:`,
+    JSON.stringify(response.data, null, 2)
+  );
   return response.data;
 };
 
@@ -87,7 +151,6 @@ export const leaveSeat = async (roomId, seatNumber) => {
     {},
     await authRequestConfig()
   );
-  log(`[partyApi] POST .../seat/${seatNumber}/leave:`, response.data);
   return response.data;
 };
 
@@ -99,10 +162,6 @@ export const toggleSeatMute = async (roomId, seatNumber, isMuted) => {
     {},
     await authRequestConfig()
   );
-  log(
-    `[partyApi] POST /api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/toggle-mute?isMuted=${muted}:`,
-    response.data
-  );
   return response.data;
 };
 
@@ -113,15 +172,18 @@ export const getVoiceToken = async (roomId, uid, isSpeaker = true) => {
     `/api/v1/tuktuk/rooms/${roomId}/voice-token?uid=${uid}&isSpeaker=${speaker}`,
     await authRequestConfig()
   );
-  log(
-    `[partyApi] GET /api/v1/tuktuk/rooms/${roomId}/voice-token?uid=${uid}&isSpeaker=${speaker}:`,
-    response.data
-  );
   return response.data;
 };
 
 export const sendRoomGift = async (roomId, body) => {
-  const response = await API.post(`/api/v1/tuktuk/rooms/${roomId}/gift`, body);
-  log(`[partyApi] POST /api/v1/tuktuk/rooms/${roomId}/gift:`, response.data);
+  const response = await API.post(
+    `/api/v1/tuktuk/rooms/${roomId}/gift`,
+    body,
+    await authRequestConfig()
+  );
+  console.log(
+    `[partyApi] POST /api/v1/tuktuk/rooms/${roomId}/gift:`,
+    JSON.stringify(response.data, null, 2)
+  );
   return response.data;
 };

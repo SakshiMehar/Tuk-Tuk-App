@@ -216,9 +216,10 @@ class WebSocketService {
       if (this.subscriptions.has(key)) return;
 
       const destination = `/topic/users/${userId}/chats`;
+      console.log(`[chatWs] subscribed: ${destination}`);
       const sub = this.client.subscribe(destination, (frame: IMessage) => {
         const payload: ChatMessage = JSON.parse(frame.body);
-        console.log(`[wsService] ${destination}:`, JSON.stringify(payload, null, 2));
+        console.log(`[chatWs] ${destination}:`, JSON.stringify(payload, null, 2));
         this.messageHandlers.forEach((h) => h(payload));
       });
       this.subscriptions.set(key, sub);
@@ -257,7 +258,6 @@ class WebSocketService {
 
       const sub = this.client!.subscribe(destination, (frame: IMessage) => {
         const payload = JSON.parse(frame.body);
-        console.log(`[wsService] ${destination}:`, JSON.stringify(payload, null, 2));
         handlers.forEach((h) => h(payload));
       });
       this.subscriptions.set(key, sub);
@@ -302,7 +302,6 @@ class WebSocketService {
     this.joinedRooms.add(id);
     if (this.connected) {
       this._subscribeRoomTopics(id);
-      console.log(`[wsService] joined room subscriptions: ${id}`);
     }
   }
 
@@ -316,7 +315,6 @@ class WebSocketService {
     const destination = `/app/room/${roomId}/chat`;
     const body = JSON.stringify({ message });
     this.client!.publish({ destination, body });
-    console.log(`[wsService] ${destination}:`, body);
   }
 
   sendSpeakingStatus(roomId: string, isSpeaking: boolean): void {
@@ -324,7 +322,6 @@ class WebSocketService {
     const destination = `/app/room/${roomId}/speaking`;
     const body = JSON.stringify({ isSpeaking });
     this.client!.publish({ destination, body });
-    console.log(`[wsService] ${destination}:`, body);
   }
 
   onRoomChat(roomId: string, handler: Handler<RoomChatPayload>): () => void {
@@ -380,7 +377,7 @@ class WebSocketService {
     const destination = `/app/users/${recipientId}/chat`;
     const body = JSON.stringify({ message: content });
     this.client!.publish({ destination, body });
-    console.log(`[wsService] ${destination}:`, body);
+    console.log(`[chatWs] ${destination}:`, body);
   }
 
   notifyTyping(receiverId: string): void {

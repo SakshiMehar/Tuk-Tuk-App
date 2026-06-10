@@ -22,7 +22,13 @@ import {
   Mic,
 } from "lucide-react-native";
 import { getRecommendedUsers } from "../src/services/homeService";
-import { loadRoomRecommendations } from "../src/services/partyService";
+import {
+  loadRoomRecommendations,
+  loadRecentlyRooms,
+  loadFollowingRooms,
+  loadManagedRooms,
+} from "../src/services/partyService";
+import { openUserChat } from "../src/utils/chatNavigation";
 import exploreData from "../src/data/partyExploreData.json";
 
 const { width: W } = Dimensions.get("window");
@@ -45,9 +51,11 @@ const TOP_TABS = exploreData.topTabs;
 const RELATED_SUB_TABS = exploreData.relatedSubTabs;
 const FILTER_CHIPS = exploreData.filterChips;
 const FEATURE_CARDS = exploreData.featureCards;
-const MOCK_ROOMS = exploreData.rooms;
-const RECENTLY_ROOMS = exploreData.recentlyRooms;
-const FOLLOWING_SUGGESTIONS = exploreData.followingSuggestions;
+const RELATED_TAB_LOADERS = {
+  Recently: loadRecentlyRooms,
+  Following: loadFollowingRooms,
+  Managed: loadManagedRooms,
+};
 
 const FILTER_CATEGORY_MAP = {
   Recommend: null,
@@ -173,27 +181,51 @@ export default function PartyExplore() {
   const [activeTopTab, setActiveTopTab] = useState("Explore");
   const [activeRelatedTab, setActiveRelatedTab] = useState("Recently");
   const [activeFilter, setActiveFilter] = useState("Recommend");
-  const [rooms, setRooms] = useState(MOCK_ROOMS);
+  const [rooms, setRooms] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
+  const [relatedRooms, setRelatedRooms] = useState([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
   const [recommendedUsers, setRecommendedUsers] = useState([]);
 
   useEffect(() => {
+    if (activeTopTab !== "Explore") return;
     let cancelled = false;
+    setRoomsLoading(true);
     loadRoomRecommendations()
       .then((apiRooms) => {
-        if (cancelled) return;
-        if (apiRooms.length > 0) {
-          setRooms(apiRooms);
-        }
+        if (!cancelled) setRooms(apiRooms);
       })
       .catch(() => {
-        if (!cancelled) setRooms(MOCK_ROOMS);
+        if (!cancelled) setRooms([]);
       })
       .finally(() => {
         if (!cancelled) setRoomsLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [activeTopTab]);
+
+  useEffect(() => {
+    if (activeTopTab !== "Related") return;
+    const loader = RELATED_TAB_LOADERS[activeRelatedTab];
+    if (!loader) {
+      setRelatedRooms([]);
+      return;
+    }
+
+    let cancelled = false;
+    setRelatedLoading(true);
+    loader()
+      .then((apiRooms) => {
+        if (!cancelled) setRelatedRooms(apiRooms);
+      })
+      .catch(() => {
+        if (!cancelled) setRelatedRooms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRelatedLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeTopTab, activeRelatedTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -219,33 +251,26 @@ export default function PartyExplore() {
   };
 
   const renderRelatedContent = () => {
-    if (activeRelatedTab === "Recently") {
-      return RECENTLY_ROOMS.map((room) => (
-        <RelatedRoomItem
-          key={room.id}
-          room={room}
-          onPress={() => openRoom(room.id)}
-        />
-      ));
+    if (relatedLoading) {
+      return <ActivityIndicator color={THEME.purple} style={{ marginVertical: 24 }} />;
     }
 
-    if (activeRelatedTab === "Following") {
-      return (
-        <>
-          <EmptyState message="You have not followed any rooms." />
-          {FOLLOWING_SUGGESTIONS.map((room) => (
-            <RelatedRoomItem
-              key={room.id}
-              room={room}
-              showFollow
-              onPress={() => openRoom(room.id)}
-            />
-          ))}
-        </>
-      );
+    if (relatedRooms.length === 0) {
+      const emptyMessages = {
+        Recently: "No recently visited rooms.",
+        Following: "You have not followed any rooms.",
+        Managed: "No managed rooms yet.",
+      };
+      return <EmptyState message={emptyMessages[activeRelatedTab] ?? "No rooms found."} />;
     }
 
-    return <EmptyState message="No more rooms" />;
+    return relatedRooms.map((room) => (
+      <RelatedRoomItem
+        key={String(room.id)}
+        room={room}
+        onPress={() => openRoom(room.id)}
+      />
+    ));
   };
 
   return (
@@ -401,14 +426,27 @@ export default function PartyExplore() {
                   contentContainerStyle={styles.recommendContent}
                 >
                   {recommendedUsers.map((user) => (
-                    <TouchableOpacity key={user.id} style={styles.recommendItem} activeOpacity={0.8}>
+                    <TouchableOpacity
+                      key={user.id}
+                      style={styles.recommendItem}
+                      activeOpacity={0.8}
+                      onPress={() => openUserChat(router, user)}
+                    >
                       <LinearGradient
                         colors={THEME.recommendRing}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         style={styles.recommendRing}
                       >
-                        <Image source={{ uri: user.avatar }} style={styles.recommendAvatar} />
+                        {user.avatar ? (
+                          <Image source={{ uri: user.avatar }} style={styles.recommendAvatar} />
+                        ) : (
+                          <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
+                            <Text style={styles.recommendInitial}>
+                              {user.name?.[0]?.toUpperCase() ?? "?"}
+                            </Text>
+                          </View>
+                        )}
                       </LinearGradient>
                       <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
                     </TouchableOpacity>
@@ -926,6 +964,16 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     borderWidth: 2,
     borderColor: THEME.bg,
+  },
+  recommendAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recommendInitial: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "800",
   },
   recommendName: {
     marginTop: 6,

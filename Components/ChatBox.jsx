@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { loadChatHistory, markChatAsRead } from "../src/services/chatService";
+import { Alert } from "react-native";
+import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services/chatService";
+import { wsService } from "../src/services/websocket";
+import { getAppUserId } from "../src/utils/sessionUser";
 import {
   View,
   Text,
@@ -9,10 +12,9 @@ import {
   StyleSheet,
   Dimensions,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
   StatusBar,
 } from "react-native";
+import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   ArrowLeft,
@@ -26,68 +28,126 @@ import {
   HelpCircle,
   Gift,
   Phone,
-  Lock,
-  MapPin,
   Shield,
   ChevronRight,
-  Heart,
 } from "lucide-react-native";
 
 const { width: W } = Dimensions.get("window");
-
-const LOCKED_PHOTO_W = (W - 80) / 3 - 6;
 
 export default function ChatBox({ user = {}, onBack }) {
   const {
     userId = null,
     name = "User",
-    avatar = "https://randomuser.me/api/portraits/men/34.jpg",
-    matchPercent = 95,
-    interests = ["TV shows"],
-    location = "Indore",
-    likeCount = 0,
+    avatar = null,
+    lastMsg = "",
   } = user;
 
   const [showBanner, setShowBanner] = useState(true);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
-  const [liked, setLiked] = useState(false);
-  const [likedCount, setLikedCount] = useState(likeCount);
+  const [myUserId, setMyUserId] = useState(null);
+  const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom } = useKeyboardInset();
   const scrollRef = useRef(null);
+  const [composerHeight, setComposerHeight] = useState(136);
+
+  const mapApiMessage = (m, currentUserId) => ({
+    id: String(m.messageId ?? m.id ?? Date.now()),
+    text: m.content ?? m.message ?? m.text ?? "",
+    fromMe: String(m.senderId) === String(currentUserId),
+    time: m.timestamp ? new Date(m.timestamp) : new Date(),
+  });
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) return undefined;
     let cancelled = false;
-    loadChatHistory(userId)
-      .then(({ messages: apiMessages }) => {
-        if (cancelled || !apiMessages?.length) return;
-        setMessages(
-          apiMessages.map((m) => ({
-            id: m.messageId,
-            text: m.content,
-            fromMe: false,
-            time: m.timestamp ? new Date(m.timestamp) : new Date(),
-          }))
-        );
-      })
-      .catch(() => {});
-    markChatAsRead(userId).catch(() => {});
+
+    const initChat = async () => {
+      try {
+        console.log("[ChatBox] init personal chat:", { userId, name, avatar });
+        await wsService.connect();
+        const currentUserId = await getAppUserId();
+        if (cancelled) return;
+        setMyUserId(currentUserId);
+
+        const { messages: apiMessages } = await loadChatHistory(userId);
+        if (cancelled) return;
+        setMessages(apiMessages.map((m) => mapApiMessage(m, currentUserId)));
+        console.log("[ChatBox] messages loaded:", apiMessages.length);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
+
+        await markChatAsRead(userId);
+      } catch {
+        // APIs logged in chatApi
+      }
+    };
+
+    initChat();
     return () => { cancelled = true; };
   }, [userId]);
 
+  useEffect(() => {
+    if (!userId || !myUserId) return undefined;
+
+    const unsub = wsService.onMessage((payload) => {
+      const senderId = payload?.senderId;
+      const receiverId = payload?.receiverId;
+      const peerId = String(userId);
+      const isThisChat =
+        String(senderId) === peerId ||
+        String(receiverId) === peerId;
+
+      if (!isThisChat) return;
+
+      const text = payload?.content ?? payload?.message ?? "";
+      if (!text) return;
+
+      setMessages((prev) => {
+        const id = String(payload?.messageId ?? payload?.id ?? `ws-${Date.now()}`);
+        if (prev.some((m) => String(m.id) === id)) return prev;
+        return [
+          ...prev,
+          {
+            id,
+            text,
+            fromMe: String(senderId) === String(myUserId),
+            time: payload?.timestamp ? new Date(payload.timestamp) : new Date(),
+          },
+        ];
+      });
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+
+      if (String(senderId) === peerId) {
+        markChatAsRead(userId).catch(() => {});
+      }
+    });
+
+    return unsub;
+  }, [userId, myUserId]);
+
   const sendMessage = () => {
     const text = message.trim();
-    if (!text) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now().toString(), text, fromMe: true, time: new Date() },
-    ]);
+    if (!text || !userId) return;
+
+    try {
+      wsService.sendMessage(String(userId), text);
+    } catch (err) {
+      Alert.alert("Send failed", err?.message || "WebSocket not connected.");
+      return;
+    }
+
     setMessage("");
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
-  const formatTime = (date) =>
-    date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const formatTime = (date) => formatChatTime(date) || date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  useEffect(() => {
+    if (!isKeyboardVisible) return;
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [isKeyboardVisible, message]);
 
   return (
     <View style={styles.root}>
@@ -109,16 +169,15 @@ export default function ChatBox({ user = {}, onBack }) {
         </View>
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
-      >
+      <View style={styles.bodyWrap}>
         <ScrollView
           ref={scrollRef}
           style={styles.body}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 12 }}
+          contentContainerStyle={{
+            paddingBottom: composerHeight + keyboardHeight + safeBottom + 12,
+          }}
+          keyboardShouldPersistTaps="handled"
         >
           {/* ── NOTIFICATION BANNER ── */}
           {showBanner && (
@@ -149,7 +208,7 @@ export default function ChatBox({ user = {}, onBack }) {
             </View>
           )}
 
-          {/* ── MATCH CARD ── */}
+          {/* ── USER PROFILE CARD ── */}
           <View style={styles.matchCardWrap}>
             <LinearGradient
               colors={["#1a0a3e", "#2d1065", "#1a0a3e"]}
@@ -157,73 +216,25 @@ export default function ChatBox({ user = {}, onBack }) {
               end={{ x: 1, y: 1 }}
               style={styles.matchCard}
             >
-              {/* Top row: avatar + match % */}
               <View style={styles.matchTopRow}>
                 <LinearGradient
                   colors={["#7c4dff", "#4a6cf7"]}
                   style={styles.matchAvatarRing}
                 >
-                  <Image source={{ uri: avatar }} style={styles.matchAvatar} />
-                </LinearGradient>
-                <View style={styles.matchPercWrap}>
-                  <Text style={styles.matchPercNum}>{matchPercent}%</Text>
-                  <Text style={styles.matchPercLabel}> Match</Text>
-                </View>
-                {/* Heart */}
-                <TouchableOpacity
-                  style={styles.matchHeart}
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    setLiked((v) => !v);
-                    setLikedCount((c) => (liked ? c - 1 : c + 1));
-                  }}
-                >
-                  <Heart
-                    size={22}
-                    color={liked ? "#ff4ea3" : "rgba(255,255,255,0.35)"}
-                    fill={liked ? "#ff4ea3" : "none"}
-                  />
-                  <Text style={[styles.matchHeartCount, liked && { color: "#ff4ea3" }]}>
-                    {likedCount}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Tags row */}
-              <View style={styles.matchTagsRow}>
-                <View style={styles.matchTagItem}>
-                  <Shield size={13} color="#a78bfa" />
-                  {interests.map((t) => (
-                    <View key={t} style={styles.matchTag}>
-                      <Text style={styles.matchTagText}>{t}</Text>
+                  {avatar ? (
+                    <Image source={{ uri: avatar }} style={styles.matchAvatar} />
+                  ) : (
+                    <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
+                      <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
                     </View>
-                  ))}
+                  )}
+                </LinearGradient>
+                <View style={styles.matchUserInfo}>
+                  <Text style={styles.matchUserName}>{name}</Text>
+                  {lastMsg ? (
+                    <Text style={styles.matchLastMsg} numberOfLines={2}>{lastMsg}</Text>
+                  ) : null}
                 </View>
-                <View style={styles.matchTagItem}>
-                  <MapPin size={13} color="#a78bfa" />
-                  <View style={styles.matchTag}>
-                    <Text style={styles.matchTagText}>
-                      Living in <Text style={{ color: "white", fontWeight: "700" }}>{location}</Text>
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Locked photos row */}
-              <View style={styles.matchPhotosRow}>
-                {[0, 1, 2].map((i) => (
-                  <TouchableOpacity key={i} activeOpacity={0.8} style={styles.matchPhotoCard}>
-                    <LinearGradient
-                      colors={["#1e0a3c", "#3a1575"]}
-                      style={styles.matchPhotoGrad}
-                    >
-                      <View style={styles.matchLockCircle}>
-                        <Lock size={16} color="#a78bfa" />
-                      </View>
-                      <Text style={styles.matchUnlockText}>Unlock Pass</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                ))}
               </View>
             </LinearGradient>
           </View>
@@ -261,7 +272,13 @@ export default function ChatBox({ user = {}, onBack }) {
                   ]}
                 >
                   {!msg.fromMe && (
-                    <Image source={{ uri: avatar }} style={styles.msgAvatar} />
+                    avatar ? (
+                      <Image source={{ uri: avatar }} style={styles.msgAvatar} />
+                    ) : (
+                      <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
+                        <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                      </View>
+                    )
                   )}
                   <View
                     style={[
@@ -294,61 +311,80 @@ export default function ChatBox({ user = {}, onBack }) {
           )}
         </ScrollView>
 
-        {/* ── INPUT BAR ── */}
-        <View style={styles.inputArea}>
-          <TouchableOpacity style={styles.safeInputIcon} activeOpacity={0.8}>
-            <Shield size={20} color="#7c4dff" />
-          </TouchableOpacity>
+        {/* ── COMPOSER (floats above keyboard) ── */}
+        <View
+          style={[styles.composer, styles.composerFloating, { bottom: composerBottom }]}
+          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+        >
+          <View style={styles.inputArea}>
+            <TouchableOpacity style={styles.safeInputIcon} activeOpacity={0.8}>
+              <Shield size={20} color="#7c4dff" />
+            </TouchableOpacity>
 
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              placeholder="Type a message"
-              placeholderTextColor="rgba(167,139,250,0.4)"
-              value={message}
-              onChangeText={setMessage}
-              multiline
-            />
-            <TouchableOpacity style={styles.emojiBtn} activeOpacity={0.8}>
-              <Smile size={22} color="rgba(167,139,250,0.55)" />
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input}
+                placeholder="Type a message"
+                placeholderTextColor="rgba(167,139,250,0.4)"
+                value={message}
+                onChangeText={setMessage}
+                multiline
+              />
+              <TouchableOpacity style={styles.emojiBtn} activeOpacity={0.8}>
+                <Smile size={22} color="rgba(167,139,250,0.55)" />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.sendBtn, message.trim() && styles.sendBtnActive]}
+              activeOpacity={0.8}
+              onPress={sendMessage}
+            >
+              <LinearGradient
+                colors={message.trim() ? ["#7c4dff", "#4a6cf7"] : ["rgba(124,77,255,0.25)", "rgba(74,108,247,0.25)"]}
+                style={styles.sendBtnGrad}
+              >
+                <Send size={18} color="white" />
+              </LinearGradient>
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={[styles.sendBtn, message.trim() && styles.sendBtnActive]}
-            activeOpacity={0.8}
-            onPress={sendMessage}
-          >
-            <LinearGradient
-              colors={message.trim() ? ["#7c4dff", "#4a6cf7"] : ["rgba(124,77,255,0.25)", "rgba(74,108,247,0.25)"]}
-              style={styles.sendBtnGrad}
-            >
-              <Send size={18} color="white" />
-            </LinearGradient>
-          </TouchableOpacity>
+          {!isKeyboardVisible && (
+            <View style={styles.actionBar}>
+              {[
+                { icon: <Mic size={22} color="rgba(167,139,250,0.55)" />, label: "" },
+                { icon: <ImageIcon size={22} color="rgba(167,139,250,0.55)" />, label: "" },
+                { icon: <HelpCircle size={22} color="#7c4dff" />, label: "" },
+                { icon: <Gift size={22} color="#ff7043" />, label: "" },
+                { icon: <Phone size={22} color="rgba(167,139,250,0.55)" />, label: "" },
+              ].map((item, idx) => (
+                <TouchableOpacity key={idx} style={styles.actionBtn} activeOpacity={0.8}>
+                  {item.icon}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
-
-        {/* ── BOTTOM ACTION BAR ── */}
-        <View style={styles.actionBar}>
-          {[
-            { icon: <Mic size={22} color="rgba(167,139,250,0.55)" />, label: "" },
-            { icon: <ImageIcon size={22} color="rgba(167,139,250,0.55)" />, label: "" },
-            { icon: <HelpCircle size={22} color="#7c4dff" />, label: "" },
-            { icon: <Gift size={22} color="#ff7043" />, label: "" },
-            { icon: <Phone size={22} color="rgba(167,139,250,0.55)" />, label: "" },
-          ].map((item, idx) => (
-            <TouchableOpacity key={idx} style={styles.actionBtn} activeOpacity={0.8}>
-              {item.icon}
-            </TouchableOpacity>
-          ))}
-        </View>
-      </KeyboardAvoidingView>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#0f0720" },
+  bodyWrap: { flex: 1, position: "relative" },
+  composer: {
+    backgroundColor: "#0f0720",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(167,139,250,0.06)",
+  },
+  composerFloating: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    elevation: 20,
+  },
 
   // Header
   header: {
@@ -447,84 +483,29 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#0f0720",
   },
-  matchPercWrap: {
+  matchAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  matchInitial: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  matchUserInfo: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "baseline",
+    gap: 4,
   },
-  matchPercNum: {
-    color: "#a78bfa",
-    fontSize: 28,
-    fontWeight: "900",
-    letterSpacing: -0.5,
+  matchUserName: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "800",
   },
-  matchPercLabel: {
+  matchLastMsg: {
     color: "rgba(255,255,255,0.55)",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  matchHeart: {
-    alignItems: "center",
-    gap: 2,
-  },
-  matchHeartCount: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-
-  // Tags
-  matchTagsRow: { gap: 7 },
-  matchTagItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-  matchTag: {
-    backgroundColor: "rgba(124,77,255,0.18)",
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
-  },
-  matchTagText: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "500" },
-
-  // Locked photos
-  matchPhotosRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 2,
-  },
-  matchPhotoCard: {
-    flex: 1,
-    borderRadius: 12,
-    overflow: "hidden",
-    height: 80,
-  },
-  matchPhotoGrad: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
-  },
-  matchLockCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "rgba(124,77,255,0.25)",
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.4)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  matchUnlockText: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 10,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "500",
   },
 
   // Safe mode banner
@@ -564,6 +545,16 @@ const styles = StyleSheet.create({
   msgRowMe: { justifyContent: "flex-end" },
   msgRowThem: { justifyContent: "flex-start" },
   msgAvatar: { width: 32, height: 32, borderRadius: 16 },
+  msgAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  msgInitial: {
+    color: "white",
+    fontSize: 13,
+    fontWeight: "700",
+  },
   msgBubble: { maxWidth: W * 0.68 },
   msgBubbleMe: {},
   msgBubbleThem: {},
@@ -645,10 +636,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-around",
     paddingHorizontal: 20,
     paddingVertical: 10,
-    paddingBottom: 24,
-    backgroundColor: "#0f0720",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(167,139,250,0.06)",
   },
   actionBtn: {
     width: 44,

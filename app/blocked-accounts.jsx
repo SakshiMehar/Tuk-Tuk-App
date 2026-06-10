@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,14 +8,65 @@ import {
   ScrollView,
   SafeAreaView,
   FlatList,
+  Image,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
+import { loadBlocked, unblockUser } from "../src/services/relationshipService";
 
 export default function BlockedAccounts() {
   const router = useRouter();
-  const [blockedAccounts] = useState([]);
+  const [blockedAccounts, setBlockedAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [unblockingId, setUnblockingId] = useState(null);
+
+  const fetchBlockedAccounts = useCallback(async () => {
+    setLoading(true);
+    console.log("[BlockedAccounts] loading blocked users...");
+    try {
+      const list = await loadBlocked();
+      setBlockedAccounts(list);
+      console.log("[BlockedAccounts] blocked users count:", list.length);
+    } catch (err) {
+      console.log("[BlockedAccounts] load failed:", err?.message);
+      setBlockedAccounts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchBlockedAccounts();
+    }, [fetchBlockedAccounts])
+  );
+
+  const handleUnblock = async (user) => {
+    const targetId = user?.userId ?? user?.id;
+    if (!targetId || unblockingId) return;
+
+    setUnblockingId(String(targetId));
+    console.log("[BlockedAccounts] unblock request:", String(targetId));
+    try {
+      const response = await unblockUser(targetId);
+      console.log(
+        "[BlockedAccounts] unblock success:",
+        JSON.stringify(response, null, 2)
+      );
+      setBlockedAccounts((prev) =>
+        prev.filter((item) => String(item.userId ?? item.id) !== String(targetId))
+      );
+    } catch (err) {
+      console.log("[BlockedAccounts] unblock failed:", err?.message);
+      Alert.alert("Unblock failed", err?.message || "Please try again.");
+    } finally {
+      setUnblockingId(null);
+    }
+  };
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
@@ -29,28 +80,42 @@ export default function BlockedAccounts() {
     </View>
   );
 
-  const renderBlockedAccount = ({ item }) => (
-    <View style={styles.accountCard}>
-      <View style={styles.accountLeft}>
-        <View style={styles.avatarWrapper}>
-          <View style={styles.avatar} />
+  const renderBlockedAccount = ({ item }) => {
+    const targetId = item.userId ?? item.id;
+    const isUnblocking = unblockingId === String(targetId);
+
+    return (
+      <View style={styles.accountCard}>
+        <View style={styles.accountLeft}>
+          <View style={styles.avatarWrapper}>
+            {item.avatar ? (
+              <Image source={{ uri: item.avatar }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatar}>
+                <Ionicons name="person" size={24} color="#a78bfa" />
+              </View>
+            )}
+          </View>
+          <View style={styles.accountInfo}>
+            <Text style={styles.accountName}>{item.name}</Text>
+            <Text style={styles.accountId}>ID: {targetId}</Text>
+          </View>
         </View>
-        <View style={styles.accountInfo}>
-          <Text style={styles.accountName}>{item.name}</Text>
-          <Text style={styles.accountId}>ID: {item.id}</Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.unblockBtn, isUnblocking && styles.unblockBtnDisabled]}
+          activeOpacity={0.8}
+          disabled={isUnblocking}
+          onPress={() => handleUnblock(item)}
+        >
+          {isUnblocking ? (
+            <ActivityIndicator size="small" color="#a78bfa" />
+          ) : (
+            <Text style={styles.unblockText}>Unblock</Text>
+          )}
+        </TouchableOpacity>
       </View>
-      <TouchableOpacity
-        style={styles.unblockBtn}
-        activeOpacity={0.8}
-        onPress={() => {
-          // Handle unblock
-        }}
-      >
-        <Text style={styles.unblockText}>Unblock</Text>
-      </TouchableOpacity>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -82,12 +147,16 @@ export default function BlockedAccounts() {
       >
         <Text style={styles.subtitle}>Manage your blocked users list</Text>
 
-        {blockedAccounts.length === 0 ? (
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color="#a78bfa" />
+          </View>
+        ) : blockedAccounts.length === 0 ? (
           renderEmptyState()
         ) : (
           <FlatList
             data={blockedAccounts}
-            keyExtractor={(item, index) => index.toString()}
+            keyExtractor={(item) => String(item.userId ?? item.id)}
             renderItem={renderBlockedAccount}
             scrollEnabled={false}
           />
@@ -138,6 +207,11 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.65)",
     fontSize: 14,
     marginBottom: 24,
+  },
+  loadingWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 80,
   },
   emptyState: {
     alignItems: "center",
@@ -198,6 +272,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+  },
   accountInfo: {
     flex: 1,
   },
@@ -218,6 +296,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderWidth: 1,
     borderColor: "rgba(167, 139, 250, 0.3)",
+    minWidth: 72,
+    alignItems: "center",
+  },
+  unblockBtnDisabled: {
+    opacity: 0.6,
   },
   unblockText: {
     color: "#a78bfa",

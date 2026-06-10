@@ -29,14 +29,6 @@ export const getVoiceUid = async () => {
     throw new Error("User id missing — log in again before using voice.");
   }
 
-  console.log(
-    "[voiceUid] Agora uid:",
-    cachedUid,
-    "user:",
-    user?.name ?? user?.username ?? user?.nickname ?? "unknown",
-    "appUserId:",
-    raw ?? "none"
-  );
   return cachedUid;
 };
 

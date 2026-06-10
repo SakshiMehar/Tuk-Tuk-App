@@ -1,88 +1,76 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
+import {
+  followUser as apiFollow,
+  unfollowUser as apiUnfollow,
+  blockUser as apiBlock,
+  unblockUser as apiUnblock,
+  getRelationshipStatus,
+  getFollowing,
+  getFollowers,
+  getBlockedUsers,
+} from "../api/relationshipApi";
 
-const BASE_URL = "https://neatly-twisted-agile.ngrok-free.dev";
+const firstText = (...values) =>
+  values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
 
-// ── Build a one-off axios instance with the stored JWT ──────
-const getAuthHeaders = async () => {
-  const token = await AsyncStorage.getItem("@auth_token");
+const firstValue = (...values) =>
+  values.find((value) => value !== undefined && value !== null) ?? null;
+
+const listFrom = (value) => {
+  if (Array.isArray(value)) return value;
+  return value?.content ?? value?.data ?? value?.users ?? value?.items ?? [];
+};
+
+export const isSameUser = (a, b) => {
+  if (a == null || b == null) return false;
+  return String(a) === String(b);
+};
+
+export const normalizeRelationshipUser = (user) => {
+  const userId = firstValue(user?.userId, user?.id, user?._id);
+  const username = firstText(user?.username, user?.handle);
+
   return {
-    "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...user,
+    id: userId,
+    userId,
+    name: firstText(user?.name, user?.username, user?.displayName, user?.fullName) ?? "User",
+    avatar: firstText(
+      user?.avatar,
+      user?.avatarUrl,
+      user?.profilePicUrl,
+      user?.profileImageUrl,
+      user?.profileImage,
+      user?.photoUrl
+    ),
+    handle: username ? (username.startsWith("@") ? username : `@${username}`) : "",
+    verified: Boolean(user?.verified ?? user?.vip),
+    online: Boolean(user?.isOnline ?? user?.online),
   };
 };
 
-// ── Follow a user ───────────────────────────────────────────
-export const followUser = async (targetId) => {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${BASE_URL}/api/relationships/follow/${targetId}`,
-    {},
-    { headers }
-  );
-  return response.data;
+export const parseRelationshipList = (data) =>
+  listFrom(data).map(normalizeRelationshipUser).filter((u) => u.userId != null);
+
+export const parseRelationshipStatus = (data) => ({
+  following: Boolean(
+    data?.following ?? data?.isFollowing ?? data?.followed ?? data?.status === "FOLLOWING"
+  ),
+  followedBy: Boolean(data?.followedBy ?? data?.follower ?? data?.isFollower),
+  blocked: Boolean(data?.blocked ?? data?.isBlocked ?? data?.status === "BLOCKED"),
+});
+
+export const loadFollowing = async () => parseRelationshipList(await getFollowing());
+
+export const loadFollowers = async () => parseRelationshipList(await getFollowers());
+
+export const loadBlocked = async () => parseRelationshipList(await getBlockedUsers());
+
+export const loadRelationshipStatus = async (targetId) => {
+  const data = await getRelationshipStatus(targetId);
+  return parseRelationshipStatus(data);
 };
 
-// ── Unfollow a user ─────────────────────────────────────────
-export const unfollowUser = async (targetId) => {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${BASE_URL}/api/relationships/unfollow/${targetId}`,
-    {},
-    { headers }
-  );
-  return response.data;
-};
-
-// ── Block a user ────────────────────────────────────────────
-export const blockUser = async (targetId) => {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${BASE_URL}/api/relationships/block/${targetId}`,
-    {},
-    { headers }
-  );
-  return response.data;
-};
-
-// ── Unblock a user ──────────────────────────────────────────
-export const unblockUser = async (targetId) => {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${BASE_URL}/api/relationships/unblock/${targetId}`,
-    {},
-    { headers }
-  );
-  return response.data;
-};
-
-// ── Get relationship status with a user ─────────────────────
-export const getRelationshipStatus = async (targetId) => {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${BASE_URL}/api/relationships/status/${targetId}`,
-    { headers }
-  );
-  return response.data;
-};
-
-// ── Get list of users the current user follows ──────────────
-export const getFollowing = async () => {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${BASE_URL}/api/relationships/following`,
-    { headers }
-  );
-  return response.data;
-};
-
-// ── Get list of followers ───────────────────────────────────
-export const getFollowers = async () => {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${BASE_URL}/api/relationships/followers`,
-    { headers }
-  );
-  return response.data;
-};
+export const followUser = (targetId) => apiFollow(targetId);
+export const unfollowUser = (targetId) => apiUnfollow(targetId);
+export const blockUser = (targetId) => apiBlock(targetId);
+export const unblockUser = (targetId) => apiUnblock(targetId);

@@ -8,12 +8,11 @@ export default function ChatBoxScreen() {
   const user = {
     userId: params.userId ?? params.id ?? null,
     name: params.name ?? "User",
-    avatar: params.avatar ?? "https://randomuser.me/api/portraits/men/34.jpg",
-    matchPercent: Number(params.matchPercent ?? 95),
-    interests: params.interests ? params.interests.split(",") : ["TV shows"],
-    location: params.location ?? "Indore",
-    likeCount: Number(params.likeCount ?? 0),
+    avatar: params.avatar ?? null,
+    lastMsg: params.lastMsg ?? "",
   };
+
+  console.log("[ChatBox] personal chat user:", JSON.stringify(user, null, 2));
 
   return <ChatBox user={user} onBack={() => router.back()} />;
 }

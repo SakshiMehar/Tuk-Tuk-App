@@ -8,6 +8,8 @@ import {
   searchUsers,
   markNotificationsRead,
 } from "../api/homeApi";
+import { getToken } from "../store/authStore";
+import { resolveAppUserId } from "../utils/sessionUser";
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
@@ -21,11 +23,16 @@ const listFrom = (value, key) => {
   return target?.content ?? target?.data ?? target?.items ?? [];
 };
 
-const normalizeUserProfile = (profile) => {
+const normalizeUserProfile = (profile, token = null) => {
   if (!profile) return null;
+  const userId =
+    resolveAppUserId(profile, token) ??
+    firstValue(profile?.userId, profile?.id, profile?.user_id, profile?._id);
 
   return {
     ...profile,
+    id: userId,
+    userId,
     avatarUrl: firstText(
       profile.avatarUrl,
       profile.avatar,
@@ -37,21 +44,47 @@ const normalizeUserProfile = (profile) => {
   };
 };
 
-const normalizeRecommendedUser = (user) => ({
-  ...user,
-  id: firstValue(user?.id, user?.userId, user?._id),
-  name: firstText(user?.name, user?.username, user?.displayName, user?.fullName) ?? "Guest",
-  avatar: firstText(
-    user?.avatar,
-    user?.avatarUrl,
-    user?.profileImage,
-    user?.profilePic,
-    user?.photoUrl,
-    user?.imageUrl,
-    user?.user?.avatar,
-    user?.user?.avatarUrl
-  ),
-});
+export const RECOMMEND_AVATAR_FALLBACK =
+  "https://randomuser.me/api/portraits/men/34.jpg";
+
+const profileFrom = (user) => user?.profile ?? user?.userProfile ?? user?.user ?? null;
+
+const normalizeRecommendedUser = (user) => {
+  const profile = profileFrom(user);
+  return {
+    ...user,
+    id: firstValue(user?.id, user?.userId, user?._id, profile?.id, profile?.userId),
+    userId: firstValue(user?.userId, user?.id, user?._id, profile?.userId, profile?.id),
+    name:
+      firstText(
+        user?.name,
+        user?.username,
+        user?.displayName,
+        user?.fullName,
+        user?.nickname,
+        profile?.name,
+        profile?.username
+      ) ?? "Guest",
+    avatar:
+      firstText(
+        user?.avatar,
+        user?.avatarUrl,
+        user?.profileImageUrl,
+        user?.profileImage,
+        user?.profilePic,
+        user?.profilePicUrl,
+        user?.photoUrl,
+        user?.imageUrl,
+        user?.picture,
+        profile?.avatar,
+        profile?.avatarUrl,
+        profile?.profileImageUrl,
+        profile?.profileImage,
+        profile?.photoUrl
+      ) ?? null,
+    isOnline: Boolean(user?.isOnline ?? user?.online ?? profile?.isOnline),
+  };
+};
 
 const normalizePost = (post) => {
   const author = post?.user ?? post?.author ?? post?.createdBy ?? {};
@@ -72,7 +105,18 @@ const normalizePost = (post) => {
   return {
     ...post,
     id: firstValue(post?.id, post?.postId, post?._id),
-    userId: firstValue(post?.userId, post?.authorId, author?.id, author?.userId),
+    userId: firstValue(
+      post?.userId,
+      post?.authorId,
+      post?.ownerId,
+      post?.createdBy,
+      post?.createdByUserId,
+      post?.postedBy,
+      post?.memberId,
+      author?.id,
+      author?.userId,
+      typeof author === "string" || typeof author === "number" ? author : null
+    ),
     name: firstText(post?.name, post?.username, post?.authorName, author?.name, author?.username) ?? "User",
     avatar: firstText(
       post?.avatar,
@@ -118,7 +162,8 @@ export const getHomeData = async () => {
   const gifts = Array.isArray(giftsData) ? giftsData : (giftsData?.gifts ?? []);
   const notifList = notifData?.notifications?.content
     ?? (Array.isArray(notifData?.notifications) ? notifData.notifications : []);
-  const userProfile = normalizeUserProfile(initData?.userProfile);
+  const token = await getToken();
+  const userProfile = normalizeUserProfile(initData?.userProfile, token);
   const recommendedUsers = listFrom(initData, "recommendedUsers").map(normalizeRecommendedUser);
   const feedPosts = listFrom(feedData, "posts").map(normalizePost);
 
@@ -169,7 +214,20 @@ export const markAllNotificationsRead = () =>
   markNotificationsRead("all");
 
 // Shared by Home and Chat tabs — same API source as home init.
+const extractRecommendedUsers = (initData) => {
+  const candidates = [
+    initData?.recommendedUsers,
+    initData?.data?.recommendedUsers,
+    initData?.recommended_users,
+    initData?.users,
+    listFrom(initData, "recommendedUsers"),
+  ];
+  const list = candidates.find((item) => Array.isArray(item) && item.length > 0);
+  return list ?? (Array.isArray(candidates[0]) ? candidates[0] : []);
+};
+
 export const getRecommendedUsers = async () => {
   const initData = await getHomeInit();
-  return listFrom(initData, "recommendedUsers").map(normalizeRecommendedUser);
+  const raw = extractRecommendedUsers(initData);
+  return raw.map(normalizeRecommendedUser);
 };

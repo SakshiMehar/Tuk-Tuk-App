@@ -58,6 +58,28 @@ const pickAppUserId = (...candidates) => {
   return null;
 };
 
+export const resolveContentUserId = (entity) => {
+  const author = entity?.user ?? entity?.author ?? entity?.createdBy ?? null;
+  return firstValue(
+    entity?.userId,
+    entity?.authorId,
+    entity?.ownerId,
+    entity?.createdBy,
+    entity?.createdByUserId,
+    entity?.postedBy,
+    entity?.memberId,
+    author?.id,
+    author?.userId,
+    typeof author === "string" || typeof author === "number" ? author : null
+  );
+};
+
+export const isOwnContent = (entity, currentUserId) => {
+  const authorId = resolveContentUserId(entity);
+  if (authorId == null || currentUserId == null) return false;
+  return String(authorId) === String(currentUserId);
+};
+
 /** Backend app user id (e.g. "38"), not Firebase sub. */
 export const resolveAppUserId = (user, token) => {
   const claims = decodeJwtPayload(token);
