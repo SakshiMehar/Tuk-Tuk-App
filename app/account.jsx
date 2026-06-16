@@ -9,21 +9,26 @@ import {
   StatusBar,
   Modal,
   TextInput,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
-import { getUser, updateUser } from "../src/store/authStore";
-
-const avatarMap = {
-  avatar1: require("../assets/Avatar/avatar1.webp"),
-  avatar2: require("../assets/Avatar/avatar2.webp"),
-  avatar3: require("../assets/Avatar/avatar3.webp"),
-  avatar4: require("../assets/Avatar/avatar4.webp"),
-  avatar5: require("../assets/Avatar/avatar5.webp"),
-};
-const avatarOptions = Object.keys(avatarMap);
+import { getUser, getToken, updateUser } from "../src/store/authStore";
+import { refreshTokenCache } from "../src/api/axios";
+import {
+  loadUserProfile,
+  mergeProfileState,
+  updateUserProfile,
+} from "../src/services/userProfileService";
+import {
+  avatarMap,
+  avatarOptions,
+  getAvatarSource,
+  DEFAULT_AVATAR_ID,
+} from "../src/data/avatarOptions";
+import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 
 const accountFields = [
   { key: "avatar", label: "Avatar", type: "avatar", note: "New" },
@@ -49,12 +54,15 @@ const answerFields = [
 export default function Account() {
   const router = useRouter();
   const [profile, setProfile] = useState({
-    avatarId: "avatar1",
-    name: "sakku",
-    gender: "Female",
-    birthday: "2002-02-01",
+    avatarId: DEFAULT_AVATAR_ID,
+    useLocalAvatar: false,
+    profilePicUrl: null,
+    displayName: "",
+    name: "",
+    gender: "",
+    birthday: "",
     interests: "",
-    education: "Post Graduation",
+    education: "",
     school: "",
     occupation: "",
     language: "",
@@ -67,8 +75,14 @@ export default function Account() {
   });
   const [editingField, setEditingField] = useState(null);
   const [editorValue, setEditorValue] = useState("");
-  const [selectedAvatar, setSelectedAvatar] = useState(profile.avatarId);
-  const currentAvatar = avatarMap[profile.avatarId] || avatarMap.avatar1;
+  const [selectedAvatar, setSelectedAvatar] = useState(DEFAULT_AVATAR_ID);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const currentAvatar = resolveProfileAvatarSource({
+    avatarId: profile.avatarId,
+    useLocalAvatar: profile.useLocalAvatar,
+    profilePicUrl: profile.profilePicUrl,
+  });
 
   const filledFields = useMemo(() => {
     const keys = [
@@ -95,18 +109,85 @@ export default function Account() {
   };
 
   const saveField = async () => {
-    if (!editingField) {
+    if (!editingField || profileSaving) {
       return;
     }
-    const fieldValue = editingField === "avatar" ? selectedAvatar : editorValue;
-    setProfile((prev) => ({
-      ...prev,
-      [editingField]: fieldValue,
-    }));
-    await updateUser({
-      [editingField === "avatar" ? "avatarId" : editingField]: fieldValue,
-    });
-    setEditingField(null);
+
+    const isAvatarSave = editingField === "avatar";
+    const fieldKey = isAvatarSave ? "avatarId" : editingField;
+    const fieldValue = isAvatarSave ? selectedAvatar : editorValue;
+    const localUpdates = isAvatarSave
+      ? { avatarId: selectedAvatar, useLocalAvatar: true }
+      : { [fieldKey]: fieldValue };
+
+    setProfileSaving(true);
+    try {
+      await refreshTokenCache();
+      const token = await getToken();
+      if (!token) {
+        throw new Error("Please log in again to save your profile.");
+      }
+
+      let savedProfile = null;
+      if (!isAvatarSave && editingField !== "food") {
+        console.log(
+          "[Account] save -> PATCH /api/app/users/me/settings",
+          JSON.stringify({ [fieldKey]: fieldValue }, null, 2)
+        );
+        savedProfile = await updateUserProfile({ [fieldKey]: fieldValue });
+      }
+
+      setProfile((prev) =>
+        mergeProfileState(
+          prev,
+          savedProfile && !isAvatarSave ? savedProfile : {},
+          localUpdates
+        )
+      );
+
+      const mergedProfile = mergeProfileState(
+        profile,
+        savedProfile && !isAvatarSave ? savedProfile : {},
+        localUpdates
+      );
+
+      await updateUser({
+        ...(savedProfile && !isAvatarSave
+          ? {
+              nickname: mergedProfile.name,
+              aboutMe: mergedProfile.about,
+              favoriteMoviesAndTvShows: mergedProfile.movies,
+              spokenLanguage: mergedProfile.language,
+              profilePicUrl: mergedProfile.profilePicUrl,
+              name: mergedProfile.displayName || undefined,
+              gender: mergedProfile.gender,
+              birthday: mergedProfile.birthday,
+              interests: mergedProfile.interests,
+              education: mergedProfile.education,
+              school: mergedProfile.school,
+              occupation: mergedProfile.occupation,
+              sports: mergedProfile.sports,
+              music: mergedProfile.music,
+              books: mergedProfile.books,
+            }
+          : {}),
+        ...localUpdates,
+        ...(localUpdates.language
+          ? { spokenLanguage: localUpdates.language, language: localUpdates.language }
+          : {}),
+        ...(localUpdates.birthday ? { birthday: localUpdates.birthday } : {}),
+      });
+      setEditingField(null);
+    } catch (err) {
+      console.log("[Account] profile save failed:", err?.message);
+      const message = err?.message || "Could not save profile. Please try again.";
+      Alert.alert("Save failed", message);
+      if (/log in|authentication token/i.test(message)) {
+        router.replace("/login");
+      }
+    } finally {
+      setProfileSaving(false);
+    }
   };
 
   const currentField =
@@ -115,19 +196,67 @@ export default function Account() {
 
   useFocusEffect(
     useCallback(() => {
-      const loadUserProfile = async () => {
-        const user = await getUser();
-        if (user) {
-          setProfile((prev) => ({
-            ...prev,
-            ...user,
-          }));
-          if (user.avatarId) {
+      let cancelled = false;
+
+      const hydrateProfile = async () => {
+        setProfileLoading(true);
+        try {
+          const [user, apiProfile] = await Promise.all([
+            getUser(),
+            loadUserProfile().catch((err) => {
+              console.log("[Account] load profile failed:", err?.message);
+              return null;
+            }),
+          ]);
+
+          if (cancelled) return;
+
+          const useLocalAvatar = Boolean(user?.useLocalAvatar);
+          const storedProfile = {
+            name: user?.nickname ?? user?.name ?? "",
+            gender: user?.gender ?? "",
+            birthday: user?.birthday ?? "",
+            interests: user?.interests ?? "",
+            education: user?.education ?? "",
+            school: user?.school ?? "",
+            occupation: user?.occupation ?? "",
+            language: user?.spokenLanguage ?? user?.language ?? "",
+            about: user?.aboutMe ?? user?.about ?? "",
+            sports: user?.sports ?? "",
+            music: user?.music ?? "",
+            movies: user?.favoriteMoviesAndTvShows ?? user?.movies ?? "",
+            books: user?.books ?? "",
+            displayName: user?.name ?? "",
+            profilePicUrl: user?.profilePicUrl ?? null,
+          };
+
+          setProfile((prev) => {
+            const merged = mergeProfileState(prev, apiProfile ?? {}, storedProfile);
+            return {
+              ...merged,
+              avatarId: user?.avatarId ?? prev.avatarId,
+              useLocalAvatar,
+              food: user?.food ?? prev.food,
+              profilePicUrl: useLocalAvatar
+                ? null
+                : apiProfile?.profilePicUrl ??
+                  user?.profilePicUrl ??
+                  prev.profilePicUrl,
+            };
+          });
+
+          if (user?.avatarId) {
             setSelectedAvatar(user.avatarId);
           }
+        } finally {
+          if (!cancelled) setProfileLoading(false);
         }
       };
-      loadUserProfile();
+
+      hydrateProfile();
+      return () => {
+        cancelled = true;
+      };
     }, [])
   );
 
@@ -228,7 +357,12 @@ export default function Account() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{editingTitle}</Text>
             {isAvatarField ? (
-              <View style={styles.avatarSelectionRow}>
+              <ScrollView
+                style={styles.avatarPickerScroll}
+                contentContainerStyle={styles.avatarSelectionRow}
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+              >
                 {avatarOptions.map((id) => (
                   <TouchableOpacity
                     key={id}
@@ -242,7 +376,7 @@ export default function Account() {
                     <Image source={avatarMap[id]} style={styles.avatarOptionImage} />
                   </TouchableOpacity>
                 ))}
-              </View>
+              </ScrollView>
             ) : isGenderField ? (
               <View style={styles.selectRow}>
                 {accountFields
@@ -282,8 +416,14 @@ export default function Account() {
               <TouchableOpacity style={styles.modalButton} onPress={() => setEditingField(null)}>
                 <Text style={styles.modalButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalButton, styles.modalButtonPrimary]} onPress={saveField}>
-                <Text style={[styles.modalButtonText, styles.modalButtonPrimaryText]}>Save</Text>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={saveField}
+                disabled={profileSaving}
+              >
+                <Text style={[styles.modalButtonText, styles.modalButtonPrimaryText]}>
+                  {profileSaving ? "Saving..." : "Save"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -515,7 +655,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
+    paddingBottom: 8,
+  },
+  avatarPickerScroll: {
+    maxHeight: 280,
     marginBottom: 20,
   },
   avatarOption: {

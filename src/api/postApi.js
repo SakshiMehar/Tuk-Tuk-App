@@ -1,5 +1,4 @@
-import API from "./axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
 import { API_BASE_URL, isNgrokBaseUrl } from "../config/env";
 
 // ── Create a post (text only or with media) ──────────────────
@@ -65,11 +64,48 @@ const parseCreatePostResponse = async (response) => {
   return data;
 };
 
+const normalizeApiMediaType = (mediaType) => {
+  const value = String(mediaType ?? "image").toLowerCase();
+  if (value === "photo" || value === "image") return "image";
+  if (value === "video") return "video";
+  return value;
+};
+
+const buildAuthHeaders = async (contentType) => {
+  await refreshTokenCache();
+  const token = await getBearerToken();
+  if (!token) {
+    throw new Error("Please log in again to create a post.");
+  }
+
+  const authConfig = await authRequestConfig();
+  const headers = {
+    ...authConfig.headers,
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json",
+    ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
+  };
+
+  if (contentType) {
+    headers["Content-Type"] = contentType;
+  } else {
+    delete headers["Content-Type"];
+  }
+
+  return { token, headers };
+};
+
 export const createPost = async ({ caption, mediaUri, mediaType, media }) => {
+  console.log("[postApi] POST /api/posts", {
+    hasCaption: Boolean(String(caption ?? "").trim()),
+    hasMedia: Boolean(mediaUri),
+    mediaType,
+  });
+
   if (mediaUri) {
-    const resolvedMediaType = mediaType ?? media?.type ?? "photo";
-    const mimeType = media?.mimeType ?? fallbackMimeType(mediaUri, resolvedMediaType);
-    const fileName = media?.fileName ?? fallbackFileName(mediaUri, resolvedMediaType);
+    const resolvedMediaType = normalizeApiMediaType(mediaType ?? media?.type ?? "image");
+    const mimeType = media?.mimeType ?? fallbackMimeType(mediaUri, resolvedMediaType === "video" ? "video" : "photo");
+    const fileName = media?.fileName ?? fallbackFileName(mediaUri, resolvedMediaType === "video" ? "video" : "photo");
 
     const form = new FormData();
     form.append("caption", caption ?? "");
@@ -84,13 +120,8 @@ export const createPost = async ({ caption, mediaUri, mediaType, media }) => {
       name: fileName,
     });
 
-    const token = await AsyncStorage.getItem("@auth_token");
-    const headers = {
-      Accept: "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
-    };
-
+    const { token, headers } = await buildAuthHeaders(null);
+    form.append("token", token);
     const response = await fetch(`${API_BASE_URL}/api/posts`, {
       method: "POST",
       headers,
@@ -98,10 +129,17 @@ export const createPost = async ({ caption, mediaUri, mediaType, media }) => {
     });
 
     const data = await parseCreatePostResponse(response);
+    console.log("[postApi] POST /api/posts (multipart) response:", JSON.stringify(data, null, 2));
     return data;
   }
 
-  const response = await API.post("/api/posts", { caption });
+  const { token, headers } = await buildAuthHeaders("application/json");
+  const response = await API.post(
+    "/api/posts",
+    { caption: caption ?? "", token },
+    { headers }
+  );
+  console.log("[postApi] POST /api/posts response:", JSON.stringify(response.data, null, 2));
   return response.data;
 };
 

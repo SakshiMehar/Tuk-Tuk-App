@@ -6,36 +6,56 @@
     "owner": "sakshil13",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/splash-icon.png",
     "scheme": "tuktuk",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Tuk-Tuk needs microphone access so you can speak in voice party rooms."
+        "NSMicrophoneUsageDescription": "Tuk-Tuk needs microphone access so you can speak in voice party rooms.",
+        "NSLocationWhenInUseUsageDescription": "Tuk-Tuk uses your location to show people nearby."
       }
     },
     "android": {
+      "package": "tuk.tuk.app",
+      "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.INTERNET"
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/splash-icon.png",
+        "backgroundImage": "./assets/images/splash-icon.png",
+        "monochromeImage": "./assets/images/splash-icon.png"
+   
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "data": [
+            {
+              "scheme": "tuktuk",
+              "host": "oauth",
+              "pathPrefix": "/facebook"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/splash-icon.png"
      
     },
     "plugins": [
@@ -61,13 +81,19 @@
       [
         "react-native-fbsdk-next",
         {
-          "appID": "999372849281178",
+          "appID": "978713374875936",
           "displayName": "Tuk-Tuk",
-          "scheme": "fb999372849281178",
+          "scheme": "fb978713374875936",
           "clientToken": "YOUR_FACEBOOK_CLIENT_TOKEN",
           "advertiserIDCollectionEnabled": false,
           "autoLogAppEventsEnabled": false,
           "isAutoInitEnabled": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Tuk-Tuk uses your location to show people nearby."
         }
       ]
     ],

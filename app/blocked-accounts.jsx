@@ -22,17 +22,26 @@ export default function BlockedAccounts() {
   const router = useRouter();
   const [blockedAccounts, setBlockedAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [unblockingId, setUnblockingId] = useState(null);
 
   const fetchBlockedAccounts = useCallback(async () => {
     setLoading(true);
-    console.log("[BlockedAccounts] loading blocked users...");
+    console.log(
+      "[BlockedAccounts] loading block-users -> GET /api/relationships/block-users"
+    );
     try {
+      setLoadError(null);
       const list = await loadBlocked();
       setBlockedAccounts(list);
-      console.log("[BlockedAccounts] blocked users count:", list.length);
+      console.log(
+        "[BlockedAccounts] block-users count:",
+        list.length,
+        JSON.stringify(list, null, 2)
+      );
     } catch (err) {
       console.log("[BlockedAccounts] load failed:", err?.message);
+      setLoadError(err?.message || "Could not load blocked users.");
       setBlockedAccounts([]);
     } finally {
       setLoading(false);
@@ -151,6 +160,18 @@ export default function BlockedAccounts() {
           <View style={styles.loadingWrap}>
             <ActivityIndicator size="large" color="#a78bfa" />
           </View>
+        ) : loadError ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Could not load block list</Text>
+            <Text style={styles.emptyText}>{loadError}</Text>
+            <TouchableOpacity
+              style={styles.retryBtn}
+              onPress={fetchBlockedAccounts}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
         ) : blockedAccounts.length === 0 ? (
           renderEmptyState()
         ) : (
@@ -239,6 +260,20 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.6)",
     textAlign: "center",
     lineHeight: 20,
+  },
+  retryBtn: {
+    marginTop: 16,
+    backgroundColor: "rgba(167, 139, 250, 0.15)",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "rgba(167, 139, 250, 0.3)",
+  },
+  retryText: {
+    color: "#a78bfa",
+    fontSize: 14,
+    fontWeight: "700",
   },
   accountCard: {
     backgroundColor: "rgba(255,255,255,0.06)",

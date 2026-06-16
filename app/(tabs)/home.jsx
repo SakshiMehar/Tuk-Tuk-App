@@ -18,10 +18,12 @@ import {
   ActivityIndicator,
   Share,
   Linking,
+  Alert,
 } from "react-native";
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { ChevronRight } from "lucide-react-native";
 import * as homeService from "../../src/services/homeService";
@@ -34,6 +36,8 @@ import {
   isSameUser,
 } from "../../src/services/relationshipService";
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
+import { getUser } from "../../src/store/authStore";
+import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 import {
   createPost,
   deletePost,
@@ -47,6 +51,8 @@ import {
   shareUser,
 } from "../../src/api/postApi";
 import * as ImagePicker from "expo-image-picker";
+import Toast from "../../Components/Toast";
+import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const H_PAD = 14;
@@ -545,7 +551,10 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
 
   const pickMedia = useCallback(async (type) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") return;
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Gallery access is required to attach a photo or video.");
+      return;
+    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: type === "photo"
         ? ["images"]
@@ -557,13 +566,16 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
     if (!result.canceled && result.assets?.[0]) {
       setMedia(result.assets[0]);
       setMediaType(type);
-      setConfirmed(false);
+      setConfirmed(true);
     }
   }, []);
 
   const openCamera = useCallback(async (type) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") return;
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Camera access is required to take a photo or video.");
+      return;
+    }
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: type === "photo"
         ? ["images"]
@@ -574,7 +586,7 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
     if (!result.canceled && result.assets?.[0]) {
       setMedia(result.assets[0]);
       setMediaType(type);
-      setConfirmed(false);
+      setConfirmed(true);
     }
   }, []);
 
@@ -595,23 +607,28 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
     });
     if (!result.canceled && result.assets?.[0]) {
       setMedia(result.assets[0]);
-      setConfirmed(false);
+      setConfirmed(true);
     }
   }, [media]);
 
   const handlePost = useCallback(async () => {
-    if (!caption.trim() && !media) return;
+    if (!caption.trim() && !media?.uri) return;
     setLoading(true);
     try {
       await onPost({ caption, media, mediaUri: media?.uri, mediaType });
       onClose();
     } catch (e) {
+      Alert.alert(
+        "Post failed",
+        e?.message || "Could not create your post. Please try again."
+      );
     } finally {
       setLoading(false);
     }
   }, [caption, media, mediaType, onPost, onClose]);
 
-  const canPost = caption.trim().length > 0 || (media !== null && confirmed);
+  const canPost = caption.trim().length > 0 || Boolean(media?.uri);
+  const showComposer = !media || confirmed;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -750,8 +767,8 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                 </View>
               )}
 
-              {/* ── CAPTION INPUT (only after confirm or no media) ── */}
-              {(confirmed || !media) && (
+              {/* ── CAPTION + POST (text-only, or after media is confirmed) ── */}
+              {showComposer && (
                 <View style={postCreateStyles.inputWrapper}>
                   <TextInput
                     ref={captionRef}
@@ -767,8 +784,7 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                 </View>
               )}
 
-              {/* ── POST BUTTON (only after confirm or text-only) ── */}
-              {(confirmed || (!media && caption.trim().length > 0)) && (
+              {showComposer && (
                 <TouchableOpacity
                   onPress={handlePost}
                   disabled={!canPost || loading}
@@ -1361,8 +1377,14 @@ const cs = StyleSheet.create({
   sendIcon: { color: "#fff", fontSize: 15 },
 });
 
-const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, currentUserId }) => {
+const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, currentUserId, currentUserAvatarSource }) => {
   const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
+  const postAvatarSource =
+    isOwnPost && currentUserAvatarSource
+      ? currentUserAvatarSource
+      : post.avatar
+        ? { uri: post.avatar }
+        : null;
   // Resolve media — prefer CDN URL, fall back to local URI picked from device
   const imageUri  = post.imageUrl      ?? post._localMediaUri ?? null;
   const hasImage  = imageUri && (post._mediaType !== "video" && !post.hasVideo);
@@ -1373,8 +1395,8 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
   <View style={styles.postOuter}>
     <View style={styles.postCard}>
       <View style={styles.postHeader}>
-        {post.avatar
-          ? <Image source={{ uri: post.avatar }} style={styles.postAvatar} transition={200} cachePolicy="memory-disk" />
+        {postAvatarSource
+          ? <Image source={postAvatarSource} style={styles.postAvatar} transition={200} cachePolicy="memory-disk" />
           : <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
               <Text style={{ color: "white", fontSize: 16, fontWeight: "700" }}>
                 {(post.name ?? "?")[0].toUpperCase()}
@@ -1544,6 +1566,7 @@ const BannerSlider = memo(({ slides, activeBanner, onBannerChange }) => {
 // its specific props change (e.g. diamonds update, tab switch)
 const HomeHeader = memo(({
   userProfile,
+  sessionAvatarSource,
   stats,
   unreadNotifications,
   recommendedUsers,
@@ -1554,6 +1577,7 @@ const HomeHeader = memo(({
   onSearchOpen,
   onNotifOpen,
   onGiftsOpen,
+  onNearbyPress,
   router,
 }) => (
   <>
@@ -1563,9 +1587,10 @@ const HomeHeader = memo(({
         <View style={styles.avatarWrapper}>
           <Image
             source={
-              userProfile?.avatarUrl
+              sessionAvatarSource ??
+              (userProfile?.avatarUrl
                 ? { uri: userProfile.avatarUrl }
-                : require("../../assets/images/android-icon-background.png")
+                : require("../../assets/images/splash-icon.png"))
             }
             style={styles.headerAvatar}
             cachePolicy="memory-disk"
@@ -1648,6 +1673,8 @@ const HomeHeader = memo(({
           onPress={() => {
             if (card.partyRandom) {
               router.push({ pathname: "/voice-party", params: { party: "true" } });
+            } else if (card.title === "Nearby" && onNearbyPress) {
+              onNearbyPress();
             } else if (card.route) {
               router.push(card.route);
             }
@@ -1796,6 +1823,38 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [unreadNotifications, setUnreadNotifications] = useState([]);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastVisible, setToastVisible] = useState(false);
+  const [sessionAvatarSource, setSessionAvatarSource] = useState(null);
+
+  const syncSessionAvatar = useCallback(async () => {
+    try {
+      const user = await getUser();
+      setSessionAvatarSource(resolveProfileAvatarSource(user));
+    } catch {
+      setSessionAvatarSource(null);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      syncSessionAvatar();
+    }, [syncSessionAvatar])
+  );
+
+  const handleNearbyPress = useCallback(async () => {
+    const coords = await getDeviceCoordinates();
+    if (!coords.ok) {
+      if (coords.reason === "module_unavailable") {
+        setToastMessage("Location unavailable. Rebuild the app: npx expo run:android");
+      } else {
+        setToastMessage("Please turn on location on your device");
+      }
+      setToastVisible(true);
+      return;
+    }
+    router.push("/nearby");
+  }, [router]);
 
   // Tab animation values — stable Animated refs, never recreated
   const tabScales = useRef(
@@ -1816,6 +1875,8 @@ export default function Home() {
     getAppUserId()
       .then((id) => setCurrentUserId(String(id)))
       .catch(() => {});
+
+    syncSessionAvatar();
 
     const task = InteractionManager.runAfterInteractions(() => {
       homeService.getHomeData()
@@ -2051,9 +2112,9 @@ export default function Home() {
     try {
       newPost = await createPost({ caption, media, mediaUri, mediaType });
     } catch (e) {
-      // Post creation failed — still refresh the feed so the UI is in sync
+      console.log("[Home] create post failed:", e?.message);
       await refreshFeed().catch(() => {});
-      throw e; // re-throw so PostCreateSheet can surface the error to the user
+      throw e;
     }
 
     // Normalize backend response so the optimistic item matches our feed shape
@@ -2090,10 +2151,17 @@ export default function Home() {
   const handleBlockUser = useCallback(async (userId, userName) => {
     if (!userId) return;
     if (isSameUser(userId, currentUserId)) return;
+    console.log("[Home] block user:", String(userId), userName ?? "");
     try {
-      await blockUser(userId);
+      const response = await blockUser(userId);
+      console.log(
+        "[Home] block success:",
+        JSON.stringify(response, null, 2)
+      );
       setFeedPosts((prev) => prev.filter((p) => p.userId !== userId));
     } catch (e) {
+      console.log("[Home] block failed:", e?.message);
+      Alert.alert("Block failed", e?.message || "Please try again.");
     }
   }, [currentUserId]);
 
@@ -2149,9 +2217,10 @@ export default function Home() {
         onLikeToggle={handleLikeToggle}
         onCommentPress={handleCommentPress}
         currentUserId={currentUserId}
+        currentUserAvatarSource={sessionAvatarSource}
       />
     );
-  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, currentUserId]);
+  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, currentUserId, sessionAvatarSource]);
 
   const keyExtractor = useCallback((item) => String(item.id), []);
 
@@ -2160,6 +2229,7 @@ export default function Home() {
   const listHeader = useMemo(() => (
     <HomeHeader
       userProfile={userProfile}
+      sessionAvatarSource={sessionAvatarSource}
       stats={stats}
       unreadNotifications={unreadNotifications}
       recommendedUsers={recommendedUsers}
@@ -2170,10 +2240,11 @@ export default function Home() {
       onSearchOpen={openSearch}
       onNotifOpen={openNotif}
       onGiftsOpen={openGifts}
+      onNearbyPress={handleNearbyPress}
       router={router}
     />
-  ), [userProfile, stats, unreadNotifications, recommendedUsers, selectedTab,
-      handleTabPress, openSearch, openNotif, openGifts, router]);
+  ), [userProfile, sessionAvatarSource, stats, unreadNotifications, recommendedUsers, selectedTab,
+      handleTabPress, openSearch, openNotif, openGifts, handleNearbyPress, router]);
 
   return (
     <View style={styles.container}>
@@ -2507,6 +2578,15 @@ export default function Home() {
         onBlock={handleBlockUser}
         onDelete={handleDeletePost}
         currentUserId={currentUserId}
+      />
+
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => {
+          setToastVisible(false);
+          setToastMessage("");
+        }}
       />
 
     </View>

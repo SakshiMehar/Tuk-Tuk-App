@@ -12,7 +12,7 @@ export const GOOGLE_WEB_CLIENT_ID =
   "969637468541-g2tea78vrhg915eklstvv4q612223129.apps.googleusercontent.com";
 
 export const FACEBOOK_APP_ID =
-  process.env.EXPO_PUBLIC_FACEBOOK_APP_ID ?? "999372849281178";
+  process.env.EXPO_PUBLIC_FACEBOOK_APP_ID ?? "978713374875936";
 
 /**
  * Paste Firebase web config here during development (Firebase Console → Project settings → Your apps → Web).

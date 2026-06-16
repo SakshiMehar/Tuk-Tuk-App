@@ -15,9 +15,49 @@ const firstText = (...values) =>
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
 
+const mapObjectToUserList = (map) =>
+  Object.entries(map).map(([key, val]) => {
+    if (val && typeof val === "object") {
+      return {
+        ...val,
+        userId: firstValue(val.userId, val.id, val._id, key),
+        id: firstValue(val.userId, val.id, val._id, key),
+      };
+    }
+    return { userId: key, id: key, name: String(val) };
+  });
+
 const listFrom = (value) => {
   if (Array.isArray(value)) return value;
-  return value?.content ?? value?.data ?? value?.users ?? value?.items ?? [];
+  if (!value || typeof value !== "object") return [];
+
+  for (const key of ["blockUsers", "blockedUsers", "blocked", "users", "items"]) {
+    const bucket = value[key];
+    if (bucket && typeof bucket === "object" && !Array.isArray(bucket)) {
+      return mapObjectToUserList(bucket);
+    }
+  }
+
+  const nested =
+    value.content ??
+    value.data ??
+    value.users ??
+    value.items ??
+    value.blockedUsers ??
+    value.blockUsers ??
+    value.blocked ??
+    value.results ??
+    null;
+
+  if (Array.isArray(nested)) return nested;
+  if (nested && typeof nested === "object") return listFrom(nested);
+
+  return [];
+};
+
+const unwrapBlockedEntry = (entry) => {
+  if (!entry || typeof entry !== "object") return entry;
+  return entry.user ?? entry.targetUser ?? entry.blockedUser ?? entry.profile ?? entry;
 };
 
 export const isSameUser = (a, b) => {
@@ -51,6 +91,49 @@ export const normalizeRelationshipUser = (user) => {
 export const parseRelationshipList = (data) =>
   listFrom(data).map(normalizeRelationshipUser).filter((u) => u.userId != null);
 
+export const parseBlockedUsers = (data) => {
+  const rawList = listFrom(data);
+  if (rawList.length === 0 && data && typeof data === "object") {
+    console.log(
+      "[relationshipService] block-users raw keys:",
+      Object.keys(data)
+    );
+  }
+
+  const parsed = rawList
+    .map((entry) => {
+      const raw = unwrapBlockedEntry(entry);
+      const userId = firstValue(
+        entry?.targetUserId,
+        entry?.targetId,
+        entry?.blockedUserId,
+        entry?.blockedId,
+        entry?.userId,
+        entry?.id,
+        raw?.userId,
+        raw?.id,
+        raw?._id,
+        typeof entry === "string" || typeof entry === "number" ? entry : null
+      );
+      return normalizeRelationshipUser({
+        ...(typeof entry === "object" ? entry : {}),
+        ...(typeof raw === "object" ? raw : {}),
+        userId,
+        id: userId,
+      });
+    })
+    .filter((u) => u.userId != null);
+
+  if (rawList.length > 0 && parsed.length === 0) {
+    console.log(
+      "[relationshipService] block-users parse dropped entries:",
+      JSON.stringify(rawList, null, 2)
+    );
+  }
+
+  return parsed;
+};
+
 export const parseRelationshipStatus = (data) => ({
   following: Boolean(
     data?.following ?? data?.isFollowing ?? data?.followed ?? data?.status === "FOLLOWING"
@@ -63,7 +146,15 @@ export const loadFollowing = async () => parseRelationshipList(await getFollowin
 
 export const loadFollowers = async () => parseRelationshipList(await getFollowers());
 
-export const loadBlocked = async () => parseRelationshipList(await getBlockedUsers());
+export const loadBlocked = async () => {
+  const data = await getBlockedUsers();
+  const list = parseBlockedUsers(data);
+  console.log(
+    "[relationshipService] block-users parsed:",
+    JSON.stringify(list, null, 2)
+  );
+  return list;
+};
 
 export const loadRelationshipStatus = async (targetId) => {
   const data = await getRelationshipStatus(targetId);

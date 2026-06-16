@@ -14,10 +14,15 @@ import { FontAwesome, FontAwesome5, AntDesign } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import { guestLogin, googleLogin } from "../src/api/authApi";
-import { saveSession } from "../src/store/authStore";
+import { saveSession, hasAcceptedTerms, setTermsAccepted } from "../src/store/authStore";
+import { refreshTokenCache } from "../src/api/axios";
 import { normalizeAuthResponse } from "../src/utils/authResponse";
 import { establishSessionFromApi } from "../src/services/authSessionService";
-import { signInWithFacebook } from "../src/services/facebookAuthService";
+import {
+  configureFacebookSdk,
+  signInWithFacebook,
+} from "../src/services/facebookAuthService";
+import FacebookLoginWebViewModal from "../Components/FacebookLoginWebViewModal";
 import {
   configureGoogleSignIn,
   signInWithGoogle,
@@ -33,17 +38,34 @@ export default function Login() {
   const [guestLoading, setGuestLoading]   = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [facebookLoading, setFacebookLoading] = useState(false);
+  const [facebookWebView, setFacebookWebView] = useState(null);
 
   useEffect(() => {
     configureGoogleSignIn();
+    configureFacebookSdk();
+    hasAcceptedTerms().then(setAccepted).catch(() => setAccepted(false));
   }, []);
 
   const requireAccepted = () => {
     if (!accepted) {
-      Alert.alert("Required", "Please accept Terms and Privacy Policy first.");
+      Alert.alert(
+        "Terms required",
+        "Please agree to the Terms and Conditions and Privacy Policy before continuing."
+      );
       return false;
     }
     return true;
+  };
+
+  const toggleAccepted = async () => {
+    const next = !accepted;
+    setAccepted(next);
+    await setTermsAccepted(next);
+  };
+
+  const finishLogin = async () => {
+    await setTermsAccepted(true);
+    router.replace("/(tabs)/home");
   };
 
   const handleGoogleLogin = async () => {
@@ -53,7 +75,7 @@ export default function Login() {
       const idToken = await signInWithGoogle();
       if (!idToken) throw new Error("Google sign-in did not return an ID token.");
       await establishSessionFromApi(googleLogin, idToken);
-      router.replace("/(tabs)/home");
+      await finishLogin();
     } catch (err) {
       const msg = getGoogleAuthErrorMessage(err);
       if (msg && msg !== "cancelled") {
@@ -68,9 +90,22 @@ export default function Login() {
     if (!requireAccepted()) return;
     setFacebookLoading(true);
     try {
-      await signInWithFacebook();
-      router.replace("/(tabs)/home");
+      await signInWithFacebook({
+        openWebView: (config) => {
+          setFacebookWebView({
+            ...config,
+            onClose: () => setFacebookWebView(null),
+          });
+        },
+      });
+      await finishLogin();
     } catch (err) {
+      console.error("[login] Facebook sign-in failed:", {
+        message: err?.message,
+        status: err?.status,
+        requestUrl: err?.requestUrl,
+        responseData: err?.responseData,
+      });
       const msg = err?.message ?? "Facebook sign-in failed.";
       if (!msg.toLowerCase().includes("cancelled")) {
         Alert.alert("Facebook Sign-In", msg);
@@ -86,16 +121,24 @@ export default function Login() {
   };
 
   const handleGuestLogin = async () => {
+    if (!requireAccepted()) return;
     setGuestLoading(true);
     try {
       const data = await guestLogin();
       const { token, user } = normalizeAuthResponse(data);
-      if (token) await saveSession(token, user);
-    } catch (_) {
-      // Guest endpoint not available — continue as unauthenticated guest
+      if (!token) {
+        throw new Error("Guest login did not return a token.");
+      }
+      await saveSession(token, user);
+      await refreshTokenCache();
+      await finishLogin();
+    } catch (err) {
+      Alert.alert(
+        "Guest Login",
+        err?.message || "Could not continue as guest. Please try again."
+      );
     } finally {
       setGuestLoading(false);
-      router.replace("/(tabs)/home");
     }
   };
 
@@ -229,19 +272,10 @@ export default function Login() {
             <View style={{ flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" }} />
           </View>
 
-          {/* Circle Options */}
-          <View style={{ flexDirection: "row", gap: 24, marginBottom: 40 }}>
-            {/* Phone */}
+          {/* Phone login */}
+          <View style={{ alignItems: "center", width: "100%", marginBottom: 40 }}>
             <TouchableOpacity onPress={handlePhoneLogin} activeOpacity={0.8} style={circleBtn}>
               <FontAwesome5 name="phone-alt" size={24} color="white" />
-            </TouchableOpacity>
-            {/* Apple */}
-            <TouchableOpacity onPress={() => Alert.alert("Apple Login", "Apple login requires iOS native SDK.")} activeOpacity={0.8} style={circleBtn}>
-              <FontAwesome name="apple" size={26} color="white" />
-            </TouchableOpacity>
-            {/* WeChat */}
-            <TouchableOpacity onPress={() => Alert.alert("WeChat Login", "WeChat login coming soon.")} activeOpacity={0.8} style={circleBtn}>
-              <FontAwesome5 name="weixin" size={24} color="white" />
             </TouchableOpacity>
           </View>
 
@@ -275,7 +309,7 @@ export default function Login() {
             paddingVertical: 16, paddingHorizontal: 16,
           }}>
             <TouchableOpacity
-              onPress={() => setAccepted(!accepted)}
+              onPress={toggleAccepted}
               activeOpacity={0.8}
               style={{
                 width: 22, height: 22, borderRadius: 5, borderWidth: 2,
@@ -302,6 +336,10 @@ export default function Login() {
 
         </View>
       </ScrollView>
+
+      {facebookWebView ? (
+        <FacebookLoginWebViewModal {...facebookWebView} />
+      ) : null}
     </View>
   );
 }

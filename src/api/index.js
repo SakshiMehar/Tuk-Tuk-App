@@ -7,3 +7,5 @@ export * from "./relationshipApi";
 export * from "./homeApi";
 export * from "./chatApi";
 export * from "./partyApi";
+export * from "./userSettingsApi";
+export * from "./userApi";

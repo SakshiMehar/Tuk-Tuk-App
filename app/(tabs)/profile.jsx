@@ -15,23 +15,23 @@ import { LinearGradient } from "expo-linear-gradient";
 import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getUser, updateUser } from "../../src/store/authStore";
+import { loadProfileStats } from "../../src/services/profileStatsService";
+import { loadMyDiamondCredits } from "../../src/services/diamondCreditService";
+import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
+import {
+  avatarMap,
+  avatarOptions,
+  getAvatarSource,
+  DEFAULT_AVATAR_ID,
+} from "../../src/data/avatarOptions";
+import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const screen = Dimensions.get("window");
 
 const meImg = require("../../assets/images/me.png");
-const profileImg = require("../../assets/images/android-icon-background.png");
-const frameImg = require("../../assets/images/new-user-frame.png");
-
-const avatarMap = {
-  avatar1: require("../../assets/Avatar/avatar1.webp"),
-  avatar2: require("../../assets/Avatar/avatar2.webp"),
-  avatar3: require("../../assets/Avatar/avatar3.webp"),
-  avatar4: require("../../assets/Avatar/avatar4.webp"),
-  avatar5: require("../../assets/Avatar/avatar5.webp"),
-};
-
-// Menu pages — 8 items per page (4×2 grid)
+const frameImg = require("../../assets/images/splash-icon.png");
 const menuPages = [
   [
     { icon: "gift",         label: "Get Rewards",  badge: true  },
@@ -69,21 +69,29 @@ const BOTTOM_TABS = ["Moment", "Profile", "Honor", "Gift"];
 
 export default function Profile() {
   const router = useRouter();
-  const [following] = useState(128);
-  const [followers] = useState(3402);
-  const [Visitor] = useState(12800);
+  const insets = useSafeAreaInsets();
+  const scrollBottomPad = 24 + Math.max(insets.bottom, 8) + 64;
+  const [following, setFollowing] = useState(0);
+  const [followers, setFollowers] = useState(0);
+  const [visitorCount, setVisitorCount] = useState(0);
+  const [diamondCount, setDiamondCount] = useState(0);
+  const [connectionsListType, setConnectionsListType] = useState(null);
   const [menuPage, setMenuPage] = useState(0);
   const [activeTab, setActiveTab] = useState("Moment");
   const menuRef = useRef(null);
 
   // Editable profile state
   const [name, setName] = useState("Tuk Tuk User");
-  const [avatarId, setAvatarId] = useState("avatar1");
-  const [editAvatarId, setEditAvatarId] = useState("avatar1");
+  const [avatarId, setAvatarId] = useState(DEFAULT_AVATAR_ID);
+  const [editAvatarId, setEditAvatarId] = useState(DEFAULT_AVATAR_ID);
+  const [useLocalAvatar, setUseLocalAvatar] = useState(true);
+  const [profilePicUrl, setProfilePicUrl] = useState(null);
   const [editVisible, setEditVisible] = useState(false);
-  const avatarSource = avatarMap[avatarId] || avatarMap.avatar1;
-
-  const avatarOptions = Object.keys(avatarMap);
+  const avatarSource = resolveProfileAvatarSource({
+    avatarId,
+    useLocalAvatar,
+    profilePicUrl,
+  });
 
   // Menu modal state
   const [activeMenu, setActiveMenu] = useState(null);
@@ -101,16 +109,42 @@ export default function Profile() {
             setAvatarId(user.avatarId);
             setEditAvatarId(user.avatarId);
           }
+          setUseLocalAvatar(user.useLocalAvatar !== false);
+          setProfilePicUrl(user.profilePicUrl ?? user.avatarUrl ?? null);
         }
       };
+
+      const loadStats = async () => {
+        try {
+          const stats = await loadProfileStats();
+          setFollowing(stats.followingCount);
+          setFollowers(stats.followersCount);
+          setVisitorCount(stats.visitorCount);
+        } catch (err) {
+          console.warn("[Profile] failed to load stats:", err?.message ?? err);
+        }
+      };
+
+      const loadDiamonds = async () => {
+        try {
+          const { diamonds } = await loadMyDiamondCredits();
+          setDiamondCount(diamonds);
+        } catch (err) {
+          console.warn("[Profile] failed to load diamonds:", err?.message ?? err);
+        }
+      };
+
       loadProfile();
+      loadStats();
+      loadDiamonds();
     }, [])
   );
 
   const handleSaveProfile = async () => {
     setEditVisible(false);
-    await updateUser({ name, avatarId: editAvatarId });
+    await updateUser({ name, avatarId: editAvatarId, useLocalAvatar: true });
     setAvatarId(editAvatarId);
+    setUseLocalAvatar(true);
   };
 
   const renderMenuContent = () => {
@@ -821,7 +855,7 @@ export default function Profile() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPad }]}
         showsVerticalScrollIndicator={false}
       >
         {/* ── TOP BAR ── */}
@@ -831,7 +865,7 @@ export default function Profile() {
             <View style={styles.counterIconWrap}>
               <Text style={styles.counterEmoji}>💎</Text>
             </View>
-            <Text style={styles.counterValue}>2</Text>
+            <Text style={styles.counterValue}>{diamondCount.toLocaleString()}</Text>
             <View style={styles.plusBtn}>
               <FontAwesome name="plus" size={10} color="white" />
             </View>
@@ -939,20 +973,32 @@ export default function Profile() {
 
           {/* Stats row */}
           <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{following}</Text>
+            <TouchableOpacity
+              style={styles.statItem}
+              activeOpacity={0.75}
+              onPress={() => setConnectionsListType("following")}
+            >
+              <Text style={styles.statValue}>{following.toLocaleString()}</Text>
               <Text style={styles.statLabel}>Following</Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.statDivider} />
-            <View style={styles.statItem}>
+            <TouchableOpacity
+              style={styles.statItem}
+              activeOpacity={0.75}
+              onPress={() => setConnectionsListType("followers")}
+            >
               <Text style={styles.statValue}>{followers.toLocaleString()}</Text>
               <Text style={styles.statLabel}>Followers</Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{Visitor.toLocaleString()}</Text>
+            <TouchableOpacity
+              style={styles.statItem}
+              activeOpacity={0.75}
+              onPress={() => setConnectionsListType("visitors")}
+            >
+              <Text style={styles.statValue}>{visitorCount.toLocaleString()}</Text>
               <Text style={styles.statLabel}>Visitor</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -964,7 +1010,7 @@ export default function Profile() {
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(e) => {
-              const page = Math.round(e.nativeEvent.contentOffset.x / (SCREEN_WIDTH - 32));
+              const page = Math.round(e.nativeEvent.contentOffset.x / (screen.width - 32));
               setMenuPage(page);
             }}
           >
@@ -1058,6 +1104,12 @@ export default function Profile() {
         </View>
       </Modal>
 
+      <ProfileConnectionsModal
+        visible={connectionsListType !== null}
+        type={connectionsListType}
+        onClose={() => setConnectionsListType(null)}
+      />
+
       {/* Edit modal */}
       <Modal visible={editVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -1073,7 +1125,12 @@ export default function Profile() {
             />
 
             <Text style={styles.sectionSmall}>Choose avatar</Text>
-            <View style={styles.avatarRow}>
+            <ScrollView
+              style={styles.avatarPickerScroll}
+              contentContainerStyle={styles.avatarRow}
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+            >
               {avatarOptions.map((id) => (
                 <TouchableOpacity
                   key={id}
@@ -1086,7 +1143,7 @@ export default function Profile() {
                   <Image source={avatarMap[id]} style={styles.avatarThumb} />
                 </TouchableOpacity>
               ))}
-            </View>
+            </ScrollView>
 
             <View style={styles.modalButtonsRow}>
               <TouchableOpacity style={styles.modalBtn} onPress={() => setEditVisible(false)}>
@@ -1117,7 +1174,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#0d0618",
   },
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 100 },
+  scrollContent: { paddingBottom: 24 },
 
   // Background orbs
   orbPink: {
@@ -1209,13 +1266,13 @@ const styles = StyleSheet.create({
   // Character
   characterWrapper: {
     width: "100%",
-    height: SCREEN_HEIGHT * 0.42,
+    height: screen.height * 0.42,
     overflow: "hidden",
     position: "relative",
   },
   characterImg: {
-    width: SCREEN_WIDTH * 0.85,
-    height: SCREEN_WIDTH * 0.85,
+    width: screen.width * 0.85,
+    height: screen.width * 0.85,
     alignSelf: "center",
     marginTop: -36,
   },
@@ -1433,7 +1490,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   menuPage: {
-    width: SCREEN_WIDTH - 32,
+    width: screen.width - 32,
     paddingHorizontal: 4,
   },
   menuRow: {
@@ -1442,7 +1499,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   menuGridItem: {
-    width: (SCREEN_WIDTH - 32) / 4,
+    width: (screen.width - 32) / 4,
     alignItems: "center",
     paddingVertical: 8,
   },
@@ -1606,7 +1663,12 @@ const styles = StyleSheet.create({
   },
   avatarRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
+    paddingBottom: 8,
+  },
+  avatarPickerScroll: {
+    maxHeight: 240,
     marginBottom: 14,
   },
   avatarOption: {

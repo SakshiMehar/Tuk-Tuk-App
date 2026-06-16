@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Image as ExpoImage } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import {
@@ -39,6 +40,15 @@ import { wsService } from "../src/services/websocket";
 import { getRoomState, getRoomChatMessages } from "../src/api/partyApi";
 import { refreshTokenCache } from "../src/api/axios";
 import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
+import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
+import TreasureBoxModal from "./TreasureBoxModal";
+import {
+  MEDIA_SECTIONS,
+  emojiCategories,
+  stickerPacks,
+  gifCategories,
+  isChatMediaUrl,
+} from "../src/data/voicePartyMediaPicker";
 import { loadConversations } from "../src/services/chatService";
 import { getUser } from "../src/store/authStore";
 import * as partyVoice from "../src/services/partyVoiceService";
@@ -65,6 +75,8 @@ import {
 } from "lucide-react-native";
 
 const { width: W, height: H } = Dimensions.get("window");
+
+const TREASURE_BOX_GIF = require("../assets/Gift/tresurebox.gif");
 
 const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
   if (!seatNumber) return parsedSeats;
@@ -288,10 +300,11 @@ export default function VoiceParty() {
   const [showPowerMenu, setShowPowerMenu] = useState(false);
   const exitedRef = useRef(false);
   const roomIdRef = useRef(roomIdParam);
-  const { composerBottom } = useKeyboardInset();
+  const { keyboardHeight, safeBottom } = useKeyboardInset();
   const [showPlayCenter, setShowPlayCenter] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGiftPanel, setShowGiftPanel] = useState(false);
+  const [showTreasureBox, setShowTreasureBox] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
@@ -311,7 +324,10 @@ export default function VoiceParty() {
       videoPlayer.pause();
     }
   }, [showVideoModal, currentVideo?.id]);
-  const [emojiTab, setEmojiTab] = useState("😊");
+  const [mediaSection, setMediaSection] = useState("emoji");
+  const [emojiTab, setEmojiTab] = useState("smileys");
+  const [stickerTab, setStickerTab] = useState("reactions");
+  const [gifTab, setGifTab] = useState("trending");
   const [showChatInput, setShowChatInput] = useState(false);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -319,6 +335,7 @@ export default function VoiceParty() {
   const [myUserId, setMyUserId] = useState(null);
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
+  const { treasureState, selectChest } = useTreasureBoxProgress(!roomLoading && Boolean(roomId));
 
   useEffect(() => {
     getAppUserId()
@@ -619,31 +636,6 @@ export default function VoiceParty() {
     { label: "WhatsApp",  bg: "#25d366", icon: "💬" },
   ];
 
-  const emojiCategories = [
-    {
-      tab: "😊",
-      emojis: ["😊","😂","🤣","😍","🥰","😘","😎","🤩","😜","🤪","😏","🥳","😇","🤗","😴","🥺","😭","😤","🤬","😱","🤯","🥶","🤮","😵","🤠","👻","💀","🤡","👽","🤖"],
-    },
-    {
-      tab: "❤️",
-      emojis: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","💔","❣️","💕","💞","💓","💗","💖","💘","💝","💟","♥️","🔥","✨","💫","⭐","🌟","💥","🎉","🎊","🎈","🎁","🏆"],
-    },
-    {
-      tab: "👋",
-      emojis: ["👋","🤚","🖐️","✋","🖖","👌","🤌","🤏","✌️","🤞","🤟","🤘","🤙","👈","👉","👆","👇","☝️","👍","👎","✊","👊","🤛","🤜","👏","🙌","🫶","🤲","🙏","💪"],
-    },
-    {
-      tab: "🌹",
-      emojis: ["🌹","🌸","🌺","🌻","🌼","💐","🌷","🍀","🌿","🍃","🌱","🌲","🌳","🌴","🍁","🍂","🍄","🌾","🌵","🎋","🎍","🍇","🍓","🍒","🍑","🥭","🍍","🥥","🍌","🍋"],
-    },
-    {
-      tab: "🎵",
-      emojis: ["🎵","🎶","🎸","🎹","🎺","🎻","🥁","🎷","🎤","🎧","🎼","🎙️","📻","🎮","🕹️","🎲","🎯","🎳","🎰","🃏","🀄","🎭","🎨","🖼️","🎬","🎥","📽️","🎞️","📺","📷"],
-    },
-  ];
-
-
-
   const moreMenuItems = [
     {
       icon: <MessageCircle size={22} color="#a78bfa" />,
@@ -692,6 +684,43 @@ export default function VoiceParty() {
 
   const handleOpenPartyChat = () => {
     setShowChatInput(true);
+  };
+
+  const handleOpenMediaPicker = () => {
+    setShowChatInput(true);
+    setShowEmojiPicker(true);
+  };
+
+  const sendPickerMessage = (content) => {
+    const text = String(content ?? "").trim();
+    if (!text || !roomId) return;
+    try {
+      wsService.sendRoomMessage(String(roomId), text);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    } catch (err) {
+      Alert.alert("Send failed", err?.message || "WebSocket not connected.");
+    }
+  };
+
+  const handleEmojiPick = (emoji) => {
+    setShowChatInput(true);
+    setInputText((prev) => prev + emoji);
+  };
+
+  const handleStickerPick = (sticker) => {
+    setShowChatInput(true);
+    if (sticker.image) {
+      sendPickerMessage(sticker.image);
+      setShowEmojiPicker(false);
+    } else if (sticker.emoji) {
+      setInputText((prev) => prev + sticker.emoji);
+    }
+  };
+
+  const handleGifPick = (gif) => {
+    setShowChatInput(true);
+    sendPickerMessage(gif.url);
+    setShowEmojiPicker(false);
   };
 
   const sendMessage = () => {
@@ -1389,6 +1418,13 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
+      <TreasureBoxModal
+        visible={showTreasureBox}
+        onClose={() => setShowTreasureBox(false)}
+        treasureState={treasureState}
+        onSelectChest={selectChest}
+      />
+
       {/* ── EMOJI PICKER MODAL ── */}
       <Modal
         visible={showEmojiPicker}
@@ -1401,45 +1437,201 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowEmojiPicker(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.emojiBox}>
-            {/* Handle */}
+          <View style={styles.emojiBox} onStartShouldSetResponder={() => true}>
             <View style={styles.shareHandle} />
 
-            {/* Category tabs */}
-            <View style={styles.emojiTabRow}>
-              {emojiCategories.map((cat) => (
+            <View style={styles.emojiBoxBody}>
+            <View style={styles.mediaSectionRow}>
+              {MEDIA_SECTIONS.map((section) => (
                 <TouchableOpacity
-                  key={cat.tab}
-                  style={[styles.emojiTabItem, emojiTab === cat.tab && styles.emojiTabItemActive]}
-                  onPress={() => setEmojiTab(cat.tab)}
+                  key={section.id}
+                  style={[
+                    styles.mediaSectionTab,
+                    mediaSection === section.id && styles.mediaSectionTabActive,
+                  ]}
+                  onPress={() => setMediaSection(section.id)}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.emojiTabIcon}>{cat.tab}</Text>
+                  <Text
+                    style={[
+                      styles.mediaSectionTabText,
+                      mediaSection === section.id && styles.mediaSectionTabTextActive,
+                    ]}
+                  >
+                    {section.label}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            {/* Emoji grid */}
-            <ScrollView showsVerticalScrollIndicator={false} style={styles.emojiGrid}>
-              <View style={styles.emojiGridInner}>
-                {emojiCategories
-                  .find((c) => c.tab === emojiTab)
-                  ?.emojis.map((emoji, i) => (
-                    <TouchableOpacity
-                      key={i}
-                      style={styles.emojiCell}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        setInputText((prev) => prev + emoji);
-                        setShowEmojiPicker(false);
-                      }}
+            {mediaSection === "emoji" && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.mediaSubTabScroll}
+                contentContainerStyle={styles.mediaSubTabContent}
+              >
+                {emojiCategories.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.mediaSubTabItem,
+                      emojiTab === cat.id && styles.mediaSubTabItemActive,
+                    ]}
+                    onPress={() => setEmojiTab(cat.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
+                    <Text
+                      style={[
+                        styles.mediaSubTabLabel,
+                        emojiTab === cat.id && styles.mediaSubTabLabelActive,
+                      ]}
+                      numberOfLines={1}
                     >
-                      <Text style={styles.emojiCellText}>{emoji}</Text>
-                    </TouchableOpacity>
-                  ))}
-              </View>
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            {mediaSection === "stickers" && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.mediaSubTabScroll}
+                contentContainerStyle={styles.mediaSubTabContent}
+              >
+                {stickerPacks.map((pack) => (
+                  <TouchableOpacity
+                    key={pack.id}
+                    style={[
+                      styles.mediaSubTabItem,
+                      stickerTab === pack.id && styles.mediaSubTabItemActive,
+                    ]}
+                    onPress={() => setStickerTab(pack.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.mediaSubTabIcon}>{pack.tab}</Text>
+                    <Text
+                      style={[
+                        styles.mediaSubTabLabel,
+                        stickerTab === pack.id && styles.mediaSubTabLabelActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {pack.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            {mediaSection === "gif" && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.mediaSubTabScroll}
+                contentContainerStyle={styles.mediaSubTabContent}
+              >
+                {gifCategories.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.mediaSubTabItem,
+                      gifTab === cat.id && styles.mediaSubTabItemActive,
+                    ]}
+                    onPress={() => setGifTab(cat.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
+                    <Text
+                      style={[
+                        styles.mediaSubTabLabel,
+                        gifTab === cat.id && styles.mediaSubTabLabelActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={styles.emojiGrid}
+              contentContainerStyle={styles.emojiGridContent}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+            >
+              {mediaSection === "emoji" && (
+                <View style={styles.emojiGridInner}>
+                  {emojiCategories
+                    .find((c) => c.id === emojiTab)
+                    ?.emojis.map((emoji, i) => (
+                      <TouchableOpacity
+                        key={`${emoji}-${i}`}
+                        style={styles.emojiCell}
+                        activeOpacity={0.7}
+                        onPress={() => handleEmojiPick(emoji)}
+                      >
+                        <Text style={styles.emojiCellText}>{emoji}</Text>
+                      </TouchableOpacity>
+                    ))}
+                </View>
+              )}
+
+              {mediaSection === "stickers" && (
+                <View style={styles.stickerGridInner}>
+                  {stickerPacks
+                    .find((p) => p.id === stickerTab)
+                    ?.stickers.map((sticker) => (
+                      <TouchableOpacity
+                        key={sticker.id}
+                        style={styles.stickerCell}
+                        activeOpacity={0.7}
+                        onPress={() => handleStickerPick(sticker)}
+                      >
+                        {sticker.image ? (
+                          <Image
+                            source={{ uri: sticker.image }}
+                            style={styles.stickerCellImg}
+                            resizeMode="contain"
+                          />
+                        ) : (
+                          <Text style={styles.stickerCellEmoji}>{sticker.emoji}</Text>
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                </View>
+              )}
+
+              {mediaSection === "gif" && (
+                <View style={styles.gifGridInner}>
+                  {gifCategories
+                    .find((c) => c.id === gifTab)
+                    ?.gifs.map((gif) => (
+                      <TouchableOpacity
+                        key={gif.id}
+                        style={styles.gifCell}
+                        activeOpacity={0.7}
+                        onPress={() => handleGifPick(gif)}
+                      >
+                        <Image
+                          source={{ uri: gif.url }}
+                          style={styles.gifCellImg}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                    ))}
+                </View>
+              )}
             </ScrollView>
-          </TouchableOpacity>
+            </View>
+          </View>
         </TouchableOpacity>
       </Modal>
 
@@ -1825,7 +2017,15 @@ export default function VoiceParty() {
                         {msg.coins > 0 && <Text style={styles.chatCoin}>🪙 {msg.coins}</Text>}
                         {msg.diamonds > 0 && <Text style={styles.chatDiamond}>💎 {msg.diamonds}</Text>}
                       </View>
-                      <Text style={styles.chatText}>{msg.text}</Text>
+                      {isChatMediaUrl(msg.text) ? (
+                        <Image
+                          source={{ uri: msg.text.trim() }}
+                          style={styles.chatMediaImg}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <Text style={styles.chatText}>{msg.text}</Text>
+                      )}
                     </View>
                   </View>
                 )
@@ -1835,6 +2035,17 @@ export default function VoiceParty() {
 
           {/* Right panel */}
           <View style={styles.chatRight}>
+            <TouchableOpacity
+              style={styles.treasureBoxBtn}
+              activeOpacity={0.85}
+              onPress={() => setShowTreasureBox(true)}
+            >
+              <ExpoImage
+                source={TREASURE_BOX_GIF}
+                style={styles.treasureBoxGif}
+                contentFit="contain"
+              />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.rightIconBtn} onPress={() => setShowGiftPanel(true)}>
               <Text style={styles.rightIconEmoji}>🎁</Text>
             </TouchableOpacity>
@@ -1868,51 +2079,63 @@ export default function VoiceParty() {
           </View>
         </View>
 
-        {/* ── BOTTOM BAR ── */}
-        <View style={styles.bottomBar}>
-          <TouchableOpacity
-            style={styles.bottomIconBtn}
-            onPress={handleToggleSpeaker}
-          >
-            {isSpeakerMuted ? (
-              <MicOff size={24} color="white" />
-            ) : (
-              <Volume2 size={24} color="white" />
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setShowEmojiPicker(true)}>
-            <Smile size={24} color="white" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenPartyChat}>
-            <MessageSquare size={24} color={showChatInput ? "#4dc8ff" : "white"} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.bottomIconBtn, styles.giftShortcutHighlight]} onPress={() => setShowBackpack(true)}>
-            <Text style={styles.giftShortcutEmoji}>💰</Text>
-            <Text style={styles.giftShortcutLabel}>Recharge{"\n"}Bonus</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setShowPlayCenter(true)}>
-            <LayoutGrid size={24} color="white" />
-          </TouchableOpacity>
-        </View>
+        {/* ── BOTTOM DOCK: buttons above chat input ── */}
+        <View
+          style={[
+            styles.bottomDock,
+            {
+              marginBottom: keyboardHeight,
+              paddingBottom: keyboardHeight > 0 ? 6 : safeBottom,
+            },
+          ]}
+        >
+          <View style={styles.bottomBar}>
+            <TouchableOpacity
+              style={styles.bottomIconBtn}
+              onPress={handleToggleSpeaker}
+            >
+              {isSpeakerMuted ? (
+                <MicOff size={20} color="white" />
+              ) : (
+                <Volume2 size={20} color="white" />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenMediaPicker}>
+              <Smile size={20} color="white" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenPartyChat}>
+              <MessageSquare size={20} color={showChatInput ? "#4dc8ff" : "white"} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.bottomIconBtn, styles.giftShortcutHighlight]}
+              onPress={() => setShowBackpack(true)}
+            >
+              <Text style={styles.giftShortcutEmoji}>💰</Text>
+              <Text style={styles.giftShortcutLabel}>Recharge{"\n"}Bonus</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setShowPlayCenter(true)}>
+              <LayoutGrid size={20} color="white" />
+            </TouchableOpacity>
+          </View>
 
-        {/* ── CHAT INPUT ── */}
-        {showChatInput && (
-        <View style={[styles.inputRow, styles.inputRowFloating, { bottom: composerBottom }]}>
-          <TextInput
-            style={styles.input}
-            placeholder="Say something..."
-            placeholderTextColor="rgba(255,255,255,0.4)"
-            value={inputText}
-            onChangeText={setInputText}
-            onSubmitEditing={sendMessage}
-            returnKeyType="send"
-            autoFocus
-          />
-          <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
-            <Text style={styles.sendBtnText}>Send</Text>
-          </TouchableOpacity>
+          {showChatInput && (
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input}
+                placeholder="Say something..."
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                value={inputText}
+                onChangeText={setInputText}
+                onSubmitEditing={sendMessage}
+                returnKeyType="send"
+                autoFocus
+              />
+              <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
+                <Text style={styles.sendBtnText}>Send</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
-        )}
       </View>
     </View>
   );
@@ -2246,6 +2469,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  treasureBoxBtn: {
+    width: 74,
+    height: 74,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: -6,
+  },
+  treasureBoxGif: {
+    width: 72,
+    height: 72,
+  },
   rightIconEmoji: { fontSize: 22 },
   rightBannerBtn: {
     width: 44,
@@ -2295,21 +2529,23 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 2,
   },
-  bottomBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingBottom: 20,
+  bottomDock: {
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
     backgroundColor: "rgba(0,0,0,0.3)",
   },
+  bottomBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingTop: 6,
+    paddingBottom: 6,
+  },
   bottomIconBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "rgba(255,255,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
@@ -2325,51 +2561,50 @@ const styles = StyleSheet.create({
   },
   giftShortcutHighlight: {
     backgroundColor: "rgba(255,255,255,0.1)",
-    width: 64,
-    borderRadius: 24,
-    paddingHorizontal: 4,
+    width: 52,
+    height: 40,
+    borderRadius: 20,
+    paddingHorizontal: 2,
   },
-  giftShortcutEmoji: { fontSize: 18 },
+  giftShortcutEmoji: { fontSize: 14 },
   giftShortcutLabel: {
     color: "#ffd700",
-    fontSize: 8,
+    fontSize: 7,
     fontWeight: "700",
     textAlign: "center",
+    lineHeight: 8,
   },
   inputRow: {
     flexDirection: "row",
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-    paddingTop: 10,
-    gap: 10,
-    backgroundColor: "rgba(0,0,0,0.3)",
-  },
-  inputRowFloating: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    zIndex: 30,
-    elevation: 30,
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingBottom: 6,
+    paddingTop: 6,
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
   },
   input: {
     flex: 1,
+    height: 36,
     backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 26,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 0,
     color: "white",
-    fontSize: 16,
+    fontSize: 14,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
   },
   sendBtn: {
     backgroundColor: "#7c4dff",
-    borderRadius: 26,
-    paddingHorizontal: 24,
+    borderRadius: 18,
+    height: 36,
+    paddingHorizontal: 14,
     justifyContent: "center",
     alignItems: "center",
   },
-  sendBtnText: { color: "white", fontWeight: "700", fontSize: 16 },
+  sendBtnText: { color: "white", fontWeight: "700", fontSize: 13 },
 
   // More menu modal
   modalOverlay: {
@@ -2692,53 +2927,158 @@ const styles = StyleSheet.create({
     color: "white",
   },
 
-  // ── Emoji picker ──
+  // ── Emoji / Stickers / GIF picker ──
   emojiBox: {
+    height: H * 0.52,
     backgroundColor: "#1a0a2e",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     paddingHorizontal: 12,
-    paddingBottom: 24,
-    maxHeight: "55%",
+    paddingTop: 8,
+    paddingBottom: Platform.OS === "ios" ? 28 : 20,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 10,
+    overflow: "hidden",
   },
-  emojiTabRow: {
+  emojiBoxBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  mediaSectionRow: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(167,139,250,0.15)",
+    backgroundColor: "rgba(124,77,255,0.12)",
+    borderRadius: 14,
+    padding: 4,
     marginBottom: 10,
-    paddingBottom: 4,
+    gap: 4,
+    flexShrink: 0,
   },
-  emojiTabItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+  mediaSectionTab: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 10,
     borderRadius: 10,
   },
-  emojiTabItemActive: {
-    backgroundColor: "rgba(124,77,255,0.25)",
+  mediaSectionTabActive: {
+    backgroundColor: "rgba(124,77,255,0.45)",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.35)",
+    borderColor: "rgba(167,139,250,0.45)",
   },
-  emojiTabIcon: { fontSize: 22 },
-  emojiGrid: { flex: 1 },
+  mediaSectionTabText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  mediaSectionTabTextActive: {
+    color: "white",
+  },
+  mediaSubTabScroll: {
+    height: 50,
+    maxHeight: 50,
+    marginBottom: 8,
+    flexShrink: 0,
+    flexGrow: 0,
+  },
+  mediaSubTabContent: {
+    gap: 8,
+    paddingHorizontal: 2,
+    alignItems: "center",
+  },
+  mediaSubTabItem: {
+    width: 46,
+    height: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.12)",
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  mediaSubTabItemActive: {
+    backgroundColor: "rgba(124,77,255,0.35)",
+    borderColor: "rgba(167,139,250,0.5)",
+  },
+  mediaSubTabIcon: { fontSize: 20, lineHeight: 22 },
+  mediaSubTabLabel: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 7,
+    fontWeight: "600",
+    marginTop: 1,
+    textAlign: "center",
+    maxWidth: 42,
+  },
+  mediaSubTabLabelActive: {
+    color: "#e9d5ff",
+  },
+  emojiGrid: {
+    flex: 1,
+  },
+  emojiGridContent: {
+    flexGrow: 1,
+    paddingBottom: 8,
+  },
   emojiGridInner: {
     flexDirection: "row",
     flexWrap: "wrap",
+    paddingBottom: 12,
   },
   emojiCell: {
-    width: "14.28%",
+    width: "12.5%",
     aspectRatio: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  emojiCellText: { fontSize: 26 },
+  emojiCellText: { fontSize: 24 },
+  stickerGridInner: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingBottom: 12,
+  },
+  stickerCell: {
+    width: "25%",
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 6,
+  },
+  stickerCellEmoji: { fontSize: 44 },
+  stickerCellImg: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
+  },
+  gifGridInner: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingBottom: 12,
+    gap: 8,
+  },
+  gifCell: {
+    width: (W - 48) / 3,
+    height: (W - 48) / 3,
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.15)",
+  },
+  gifCellImg: {
+    width: "100%",
+    height: "100%",
+  },
+  chatMediaImg: {
+    width: 140,
+    height: 140,
+    borderRadius: 10,
+    marginTop: 4,
+  },
 
   // ── Backpack modal ──
   backpackBox: {

@@ -11,6 +11,7 @@ const resetVoiceUid = () => {
 
 const TOKEN_KEY = "@auth_token";
 const USER_KEY  = "@auth_user";
+const TERMS_ACCEPTED_KEY = "@terms_accepted";
 
 // ── Save token + user after any successful login ────────────
 export const saveSession = async (token, user) => {
@@ -42,6 +43,19 @@ export const getToken = async () => {
   return AsyncStorage.getItem(TOKEN_KEY);
 };
 
+export const setTermsAccepted = async (accepted = true) => {
+  await AsyncStorage.setItem(TERMS_ACCEPTED_KEY, accepted ? "1" : "0");
+};
+
+export const hasAcceptedTerms = async () => {
+  const value = await AsyncStorage.getItem(TERMS_ACCEPTED_KEY);
+  return value === "1";
+};
+
+export const clearTermsAccepted = async () => {
+  await AsyncStorage.removeItem(TERMS_ACCEPTED_KEY);
+};
+
 // ── Read stored user object ─────────────────────────────────
 export const getUser = async () => {
   const raw = await AsyncStorage.getItem(USER_KEY);
@@ -61,6 +75,6 @@ export const updateUser = async (updates) => {
 
 // ── Clear session on logout ─────────────────────────────────
 export const clearSession = async () => {
-  await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+  await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, TERMS_ACCEPTED_KEY]);
   resetVoiceUid();
 };

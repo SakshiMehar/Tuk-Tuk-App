@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -17,6 +17,27 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import {
+  logoutSession,
+  deleteAccountSession,
+} from "../src/services/authSessionService";
+import {
+  loadUserSettings,
+  updateUserSettings,
+  clearAppCache,
+  checkForUpdate,
+  submitFeedback,
+} from "../src/services/userSettingsService";
+import ClearChatCacheModal from "../Components/ClearChatCacheModal";
+
+const DELETE_ACCOUNT_REASONS = [
+  "Privacy concerns",
+  "Not using the app anymore",
+  "Found another app",
+  "Too many notifications",
+  "Technical issues / bugs",
+  "Other",
+];
 
 const settingSections = [
   {
@@ -87,7 +108,82 @@ export default function Settings() {
   const [aboutVisible, setAboutVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [expandedFaq, setExpandedFaq] = useState(null);
+
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteComment, setDeleteComment] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
+  const [clearChatCacheVisible, setClearChatCacheVisible] = useState(false);
+  const [settingsSnapshot, setSettingsSnapshot] = useState({
+    matchSwitchEnabled: false,
+    notificationOption: "All notifications",
+    preventFollowing: false,
+    chatPermission: "Everyone",
+    mysteriousVisitor: false,
+    systemLanguage: "English",
+    contentLanguage: "English",
+  });
+
+  const applySettingsState = useCallback((settings) => {
+    setMatchSwitchEnabled(settings.matchSwitchEnabled);
+    setNotificationOption(settings.notificationOption);
+    setPreventFollowing(settings.preventFollowing);
+    setChatPermission(settings.chatPermission);
+    setMysteriousVisitor(settings.mysteriousVisitor);
+    setSystemLanguage(settings.systemLanguage);
+    setContentLanguage(settings.contentLanguage);
+    setSettingsSnapshot(settings);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    console.log("[Settings] loading -> GET /api/app/users/me/settings");
+    loadUserSettings()
+      .then((settings) => {
+        if (!cancelled) applySettingsState(settings);
+      })
+      .catch((err) => {
+        console.log("[Settings] load settings failed:", err?.message);
+      })
+      .finally(() => {
+        if (!cancelled) setSettingsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applySettingsState]);
+
+  const persistSettings = async (updates, applyLocal) => {
+    if (settingsSaving) return;
+    applyLocal?.();
+    setSettingsSaving(true);
+    console.log(
+      "[Settings] save -> PATCH /api/app/users/me/settings",
+      JSON.stringify(updates, null, 2)
+    );
+    try {
+      const saved = await updateUserSettings(updates, settingsSnapshot);
+      applySettingsState(saved);
+      console.log(
+        "[Settings] settings saved:",
+        JSON.stringify(saved, null, 2)
+      );
+    } catch (err) {
+      console.log("[Settings] settings save failed:", err?.message);
+      Alert.alert(
+        "Settings",
+        err?.message || "Could not save your settings. Please try again."
+      );
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const faqs = [
     { id: 1, q: "How do I match with someone?", a: "Enable your Match switch in Settings and browse nearby profiles. Tap the heart icon to send a match request!" },
@@ -96,20 +192,154 @@ export default function Settings() {
     { id: 4, q: "Can I use Tuk-Tuk without sharing my location?", a: "Location is required for the matching and nearby features. You can set your profile to private mode to limit visibility." },
   ];
 
-  const handleCheckUpdate = () => {
+  const handleCheckUpdate = async () => {
     setUpdateChecking(true);
     setUpdateChecked(false);
-    setTimeout(() => {
-      setUpdateChecking(false);
+    console.log(
+      "[Settings] check-update -> GET /api/app/check-update?currentVersion=...&platform=..."
+    );
+    try {
+      const data = await checkForUpdate();
+      console.log(
+        "[Settings] check-update response:",
+        JSON.stringify(data, null, 2)
+      );
       setUpdateChecked(true);
-    }, 2200);
+    } catch (err) {
+      console.log("[Settings] check-update error:", err?.message);
+      Alert.alert(
+        "Check failed",
+        err?.message || "Could not check for updates. Please try again."
+      );
+    } finally {
+      setUpdateChecking(false);
+    }
   };
 
-  const handleSendFeedback = () => {
-    if (!feedbackText.trim()) return;
-    setFeedbackSent(true);
-    setFeedbackText("");
-    setTimeout(() => setFeedbackSent(false), 3000);
+  const handleSendFeedback = async () => {
+    const text = feedbackText.trim();
+    if (!text || feedbackSubmitting) return;
+    setFeedbackSubmitting(true);
+    console.log("[Settings] feedback -> POST /api/app/help/feedback");
+    try {
+      const data = await submitFeedback(text);
+      console.log(
+        "[Settings] feedback response:",
+        JSON.stringify(data, null, 2)
+      );
+      setFeedbackSent(true);
+      setFeedbackText("");
+      setTimeout(() => setFeedbackSent(false), 3000);
+    } catch (err) {
+      console.log("[Settings] feedback error:", err?.message);
+      Alert.alert(
+        "Send failed",
+        err?.message || "Could not send feedback. Please try again."
+      );
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
+  const resetDeleteAccountForm = () => {
+    setDeleteReason("");
+    setDeleteComment("");
+    setDeletingAccount(false);
+  };
+
+  const closeDeleteAccountModal = () => {
+    setDeleteAccountVisible(false);
+    resetDeleteAccountForm();
+  };
+
+  const handleLogout = () => {
+    Alert.alert("Log out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Log out",
+        style: "destructive",
+        onPress: async () => {
+          setLoggingOut(true);
+          console.log("[Settings] logout -> POST /api/auth/logout");
+          try {
+            await logoutSession();
+            router.replace("/login");
+          } catch (err) {
+            console.log("[Settings] logout error:", err?.message);
+            Alert.alert(
+              "Logout",
+              err?.message || "Could not reach server. You have been signed out locally."
+            );
+            router.replace("/login");
+          } finally {
+            setLoggingOut(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    const reason = deleteReason.trim();
+    const additionalComment = deleteComment.trim();
+    if (!reason || !additionalComment) {
+      Alert.alert(
+        "Required fields",
+        "Please select a reason and add an additional comment before deleting your account."
+      );
+      return;
+    }
+
+    setDeletingAccount(true);
+    console.log("[Settings] delete account -> DELETE /api/auth/account", {
+      reason,
+      additionalComment,
+    });
+    try {
+      await deleteAccountSession({ reason, additionalComment });
+      closeDeleteAccountModal();
+      Alert.alert("Account deleted", "Your account has been deleted.");
+      router.replace("/login");
+    } catch (err) {
+      console.log("[Settings] delete account error:", err?.message);
+      Alert.alert(
+        "Delete failed",
+        err?.message || "Could not delete your account. Please try again."
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const canSubmitDeleteAccount =
+    deleteReason.trim().length > 0 && deleteComment.trim().length > 0;
+
+  const handleClearCache = () => {
+    Alert.alert("Clear cache", "Clear all app cache?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Clear",
+        style: "destructive",
+        onPress: async () => {
+          if (clearingCache) return;
+          setClearingCache(true);
+          console.log("[Settings] clear cache -> POST /api/app/users/me/settings/clear-cache");
+          try {
+            await clearAppCache();
+            Alert.alert("Clear cache", "Cache cleared successfully.");
+          } catch (err) {
+            console.log("[Settings] clear cache failed:", err?.message);
+            Alert.alert("Clear cache", err?.message || "Could not clear cache. Please try again.");
+          } finally {
+            setClearingCache(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleClearChatCache = () => {
+    setClearChatCacheVisible(true);
   };
 
   const handleItemPress = (item) => {
@@ -134,6 +364,9 @@ export default function Settings() {
         router.push("/message-notification");
         break;
       case "Blocked list":
+        console.log(
+          "[Settings] Block List opened -> GET /api/relationships/block-users"
+        );
         router.push("/blocked-accounts");
         break;
       case "System language":
@@ -157,10 +390,10 @@ export default function Settings() {
         setAboutVisible(true);
         break;
       case "Clear cache":
-        Alert.alert("Clear cache", "Cache cleared successfully.");
+        handleClearCache();
         break;
       case "Clear chat cache":
-        Alert.alert("Clear chat cache", "Chat cache cleared successfully.");
+        handleClearChatCache();
         break;
       default:
         break;
@@ -195,6 +428,12 @@ export default function Settings() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.subtitle}>Customize your app preferences.</Text>
+        {settingsLoading ? (
+          <View style={styles.settingsLoadingRow}>
+            <ActivityIndicator size="small" color="#a78bfa" />
+            <Text style={styles.settingsLoadingText}>Loading settings...</Text>
+          </View>
+        ) : null}
 
         {settingSections.map((section) => (
           <View key={section.id} style={styles.sectionCard}>
@@ -226,18 +465,20 @@ export default function Settings() {
         <TouchableOpacity
           style={[styles.sectionCard, styles.dangerButton]}
           activeOpacity={0.8}
-          onPress={() => Alert.alert("Log out", "Are you sure you want to log out?", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Log out", style: "destructive", onPress: () => router.replace("/login") },
-          ])}
+          onPress={handleLogout}
+          disabled={loggingOut}
         >
-          <Text style={styles.dangerText}>Log out</Text>
+          {loggingOut ? (
+            <ActivityIndicator size="small" color="#ff8a8a" />
+          ) : (
+            <Text style={styles.dangerText}>Log out</Text>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.sectionCard, styles.deleteButton]}
           activeOpacity={0.8}
-          onPress={() => Alert.alert("Delete account", "This action cannot be undone.")}
+          onPress={() => setDeleteAccountVisible(true)}
         >
           <Text style={styles.deleteText}>Delete account</Text>
         </TouchableOpacity>
@@ -304,7 +545,13 @@ export default function Settings() {
                 <Switch
                   style={styles.toggleSwitch}
                   value={matchSwitchEnabled}
-                  onValueChange={setMatchSwitchEnabled}
+                  onValueChange={(value) =>
+                    persistSettings(
+                      { matchSwitchEnabled: value },
+                      () => setMatchSwitchEnabled(value)
+                    )
+                  }
+                  disabled={settingsSaving}
                   trackColor={{ false: "#ccc", true: "#7c4dff" }}
                   thumbColor={matchSwitchEnabled ? "#fff" : "#f4f3f4"}
                 />
@@ -335,8 +582,11 @@ export default function Settings() {
                 key={opt}
                 style={[styles.optionRow, notificationOption === opt && styles.optionSelected]}
                 onPress={() => {
-                  setNotificationOption(opt);
                   setNotificationsVisible(false);
+                  persistSettings(
+                    { notificationOption: opt },
+                    () => setNotificationOption(opt)
+                  );
                 }}
                 activeOpacity={0.8}
               >
@@ -395,7 +645,13 @@ export default function Settings() {
                 </View>
                 <Switch
                   value={preventFollowing}
-                  onValueChange={setPreventFollowing}
+                  onValueChange={(value) =>
+                    persistSettings(
+                      { preventFollowing: value },
+                      () => setPreventFollowing(value)
+                    )
+                  }
+                  disabled={settingsSaving}
                   trackColor={{ false: "#ccc", true: "#7c4dff" }}
                   thumbColor={preventFollowing ? "#fff" : "#f4f3f4"}
                 />
@@ -412,15 +668,27 @@ export default function Settings() {
                     [
                       {
                         text: "Everyone",
-                        onPress: () => setChatPermission("Everyone"),
+                        onPress: () =>
+                          persistSettings(
+                            { chatPermission: "Everyone" },
+                            () => setChatPermission("Everyone")
+                          ),
                       },
                       {
                         text: "Friends only",
-                        onPress: () => setChatPermission("Friends only"),
+                        onPress: () =>
+                          persistSettings(
+                            { chatPermission: "Friends only" },
+                            () => setChatPermission("Friends only")
+                          ),
                       },
                       {
                         text: "Nobody",
-                        onPress: () => setChatPermission("Nobody"),
+                        onPress: () =>
+                          persistSettings(
+                            { chatPermission: "Nobody" },
+                            () => setChatPermission("Nobody")
+                          ),
                       },
                       { text: "Cancel", style: "cancel" },
                     ]
@@ -448,7 +716,13 @@ export default function Settings() {
                 </View>
                 <Switch
                   value={mysteriousVisitor}
-                  onValueChange={setMysteriousVisitor}
+                  onValueChange={(value) =>
+                    persistSettings(
+                      { mysteriousVisitor: value },
+                      () => setMysteriousVisitor(value)
+                    )
+                  }
+                  disabled={settingsSaving}
                   trackColor={{ false: "#ccc", true: "#7c4dff" }}
                   thumbColor={mysteriousVisitor ? "#fff" : "#f4f3f4"}
                 />
@@ -475,8 +749,11 @@ export default function Settings() {
                 key={lang}
                 style={[styles.languageOption, systemLanguage === lang && styles.languageOptionSelected]}
                 onPress={() => {
-                  setSystemLanguage(lang);
                   setSystemLanguageVisible(false);
+                  persistSettings(
+                    { systemLanguage: lang },
+                    () => setSystemLanguage(lang)
+                  );
                 }}
                 activeOpacity={0.8}
               >
@@ -508,8 +785,11 @@ export default function Settings() {
                 key={lang}
                 style={[styles.languageOption, contentLanguage === lang && styles.languageOptionSelected]}
                 onPress={() => {
-                  setContentLanguage(lang);
                   setContentLanguageVisible(false);
+                  persistSettings(
+                    { contentLanguage: lang },
+                    () => setContentLanguage(lang)
+                  );
                 }}
                 activeOpacity={0.8}
               >
@@ -594,6 +874,115 @@ export default function Settings() {
               </TouchableOpacity>
             </LinearGradient>
           </View>
+        </View>
+      </Modal>
+
+      {/* ── DELETE ACCOUNT MODAL ── */}
+      <Modal
+        visible={deleteAccountVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeDeleteAccountModal}
+      >
+        <View style={styles.helpOverlay}>
+          <TouchableOpacity
+            style={styles.helpBackdrop}
+            activeOpacity={1}
+            onPress={closeDeleteAccountModal}
+          />
+          <SafeAreaView style={styles.deleteAccountPanel}>
+            <LinearGradient
+              colors={["#1a0a2e", "#16082a", "#0d0618"]}
+              style={StyleSheet.absoluteFill}
+            />
+
+            <View style={styles.helpHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.deleteAccountTitle}>Delete account</Text>
+                <Text style={styles.deleteAccountSubtitle}>
+                  This action cannot be undone
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={closeDeleteAccountModal}
+                style={styles.helpCloseBtn}
+              >
+                <Ionicons name="close" size={22} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.deleteAccountContent}
+            >
+              <Text style={styles.deleteAccountLabel}>Reason for leaving</Text>
+              <View style={styles.deleteReasonList}>
+                {DELETE_ACCOUNT_REASONS.map((reason) => {
+                  const selected = deleteReason === reason;
+                  return (
+                    <TouchableOpacity
+                      key={reason}
+                      style={[
+                        styles.deleteReasonItem,
+                        selected && styles.deleteReasonItemActive,
+                      ]}
+                      activeOpacity={0.8}
+                      onPress={() => setDeleteReason(reason)}
+                    >
+                      <Text
+                        style={[
+                          styles.deleteReasonText,
+                          selected && styles.deleteReasonTextActive,
+                        ]}
+                      >
+                        {reason}
+                      </Text>
+                      {selected ? (
+                        <Ionicons name="checkmark-circle" size={18} color="#f87171" />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.deleteAccountLabel}>Additional comment</Text>
+              <TextInput
+                style={styles.deleteCommentInput}
+                placeholder="Tell us more about why you are leaving..."
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                multiline
+                numberOfLines={4}
+                value={deleteComment}
+                onChangeText={setDeleteComment}
+                textAlignVertical="top"
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.deleteConfirmBtn,
+                  (!canSubmitDeleteAccount || deletingAccount) && { opacity: 0.45 },
+                ]}
+                activeOpacity={0.8}
+                disabled={!canSubmitDeleteAccount || deletingAccount}
+                onPress={handleConfirmDeleteAccount}
+              >
+                {deletingAccount ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.deleteConfirmBtnText}>Delete my account</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.deleteCancelBtn}
+                activeOpacity={0.8}
+                onPress={closeDeleteAccountModal}
+                disabled={deletingAccount}
+              >
+                <Text style={styles.deleteCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -692,14 +1081,23 @@ export default function Settings() {
                       textAlignVertical="top"
                     />
                     <TouchableOpacity
-                      style={[styles.feedbackSendBtn, !feedbackText.trim() && { opacity: 0.45 }]}
+                      style={[
+                        styles.feedbackSendBtn,
+                        (!feedbackText.trim() || feedbackSubmitting) && { opacity: 0.45 },
+                      ]}
                       onPress={handleSendFeedback}
                       activeOpacity={0.8}
-                      disabled={!feedbackText.trim()}
+                      disabled={!feedbackText.trim() || feedbackSubmitting}
                     >
                       <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.feedbackSendBtnGradient}>
-                        <Ionicons name="send" size={16} color="white" />
-                        <Text style={styles.feedbackSendBtnText}>Send Feedback</Text>
+                        {feedbackSubmitting ? (
+                          <ActivityIndicator size="small" color="white" />
+                        ) : (
+                          <>
+                            <Ionicons name="send" size={16} color="white" />
+                            <Text style={styles.feedbackSendBtnText}>Send Feedback</Text>
+                          </>
+                        )}
                       </LinearGradient>
                     </TouchableOpacity>
                   </>
@@ -733,7 +1131,7 @@ export default function Settings() {
 
               {/* App icon */}
               <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.aboutIconCircle}>
-                <Image source={require("../assets/images/android-icon-monochrome.png")} style={styles.aboutIconImage} resizeMode="contain" />
+                <Image source={require("../assets/images/splash-icon.png")} style={styles.aboutIconImage} resizeMode="contain" />
               </LinearGradient>
 
               <Text style={styles.aboutAppName}>Tuk-Tuk</Text>
@@ -853,6 +1251,12 @@ export default function Settings() {
           </View>
         </View>
       </Modal>
+
+      <ClearChatCacheModal
+        visible={clearChatCacheVisible}
+        onClose={() => setClearChatCacheVisible(false)}
+      />
+
     </View>
   );
 }
@@ -896,6 +1300,16 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.65)",
     fontSize: 14,
     marginBottom: 14,
+  },
+  settingsLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 16,
+  },
+  settingsLoadingText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
   },
   sectionCard: {
     backgroundColor: "rgba(255,255,255,0.06)",
@@ -1766,5 +2180,98 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.3)",
     fontSize: 11,
     textAlign: "center",
+  },
+
+  // ── DELETE ACCOUNT ──
+  deleteAccountPanel: {
+    maxHeight: "82%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: "hidden",
+    borderTopWidth: 1,
+    borderColor: "rgba(248,113,113,0.35)",
+  },
+  deleteAccountContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+  },
+  deleteAccountTitle: {
+    color: "#f87171",
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  deleteAccountSubtitle: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    marginTop: 4,
+  },
+  deleteAccountLabel: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 10,
+    marginTop: 8,
+  },
+  deleteReasonList: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  deleteReasonItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  deleteReasonItemActive: {
+    backgroundColor: "rgba(248,113,113,0.12)",
+    borderColor: "rgba(248,113,113,0.35)",
+  },
+  deleteReasonText: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+    paddingRight: 8,
+  },
+  deleteReasonTextActive: {
+    color: "#fecaca",
+  },
+  deleteCommentInput: {
+    minHeight: 110,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: "white",
+    fontSize: 14,
+    marginBottom: 20,
+  },
+  deleteConfirmBtn: {
+    backgroundColor: "#dc2626",
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  deleteConfirmBtnText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  deleteCancelBtn: {
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  deleteCancelBtnText: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

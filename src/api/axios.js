@@ -106,7 +106,7 @@ API.interceptors.request.use(
 
 
 
-    const token = _cachedToken || (await AsyncStorage.getItem("@auth_token"));
+    const token = await getBearerToken();
 
     _cachedToken = token;
 
@@ -142,17 +142,38 @@ API.interceptors.response.use(
 
   (error) => {
 
-    const message =
+    const status = error?.response?.status;
 
+    const requestUrl = `${error?.config?.baseURL ?? ""}${error?.config?.url ?? ""}`;
+
+    console.error("[axios] request failed:", status, requestUrl, error?.response?.data);
+
+    const responseData = error?.response?.data;
+    const responseText =
+      typeof responseData === "string" ? responseData : JSON.stringify(responseData ?? "");
+
+    let message =
       error?.response?.data?.message ||
-
       error?.response?.data?.error ||
-
       error?.message ||
-
       "Something went wrong";
 
-    return Promise.reject(new Error(message));
+    if (
+      /ERR_NGROK_3200|endpoint.*is offline|ngrok-free\.dev is offline/i.test(responseText)
+    ) {
+      message =
+        "Backend is offline. Start your server and ngrok tunnel, then update EXPO_PUBLIC_API_BASE_URL in .env if the ngrok URL changed.";
+    }
+
+    const err = new Error(message);
+
+    err.status = status;
+
+    err.responseData = error?.response?.data;
+
+    err.requestUrl = requestUrl;
+
+    return Promise.reject(err);
 
   }
 

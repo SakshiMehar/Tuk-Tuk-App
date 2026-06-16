@@ -2,7 +2,7 @@
 import { LoginManager, AccessToken, Settings } from "react-native-fbsdk-next";
 import auth from "@react-native-firebase/auth";
 import { FACEBOOK_APP_ID } from "../config/auth";
-import { facebookFirebaseLogin } from "../api/authApi";
+import { firebaseFacebookAuth } from "../api/authApi";
 import { establishSessionFromApi } from "./authSessionService";
 
 let sdkInitialized = false;
@@ -17,20 +17,19 @@ export const configureFacebookSdk = () => {
 export const signInWithFacebook = async () => {
   configureFacebookSdk();
 
+  // Prefer the installed Facebook app over Chrome/custom tabs.
+  LoginManager.setLoginBehavior("native_with_fallback");
 
   let result;
   try {
-    result = await LoginManager.logInWithPermissions([
-      "public_profile",
-      "email",
-    ]);
+    result = await LoginManager.logInWithPermissions(["public_profile"]);
   } catch (err) {
     if (
       err?.message?.toLowerCase().includes("app not active") ||
       err?.message?.toLowerCase().includes("not accessible")
     ) {
       throw new Error(
-        "Facebook app is in Development mode. Add your account as a Tester in the Facebook Developer Console (App ID: 999372849281178 → Roles → Testers)."
+        `Facebook app is in Development mode. Add your account as a Tester in the Facebook Developer Console (App ID: ${FACEBOOK_APP_ID} → Roles → Testers).`
       );
     }
     throw err;
@@ -51,13 +50,17 @@ export const signInWithFacebook = async () => {
   const userCredential = await auth().signInWithCredential(facebookCredential);
 
   const idToken = await userCredential.user.getIdToken();
-  const { displayName, email, uid } = userCredential.user;
-
+  const { displayName, phoneNumber } = userCredential.user;
 
   if (!idToken) throw new Error("Firebase did not return a token.");
 
   return establishSessionFromApi(
-    (credential) => facebookFirebaseLogin(credential.idToken, credential.name),
-    { idToken, name: displayName }
+    (credential) =>
+      firebaseFacebookAuth(
+        credential.idToken,
+        credential.phoneNumber,
+        credential.name
+      ),
+    { idToken, phoneNumber: phoneNumber ?? null, name: displayName }
   );
 };
