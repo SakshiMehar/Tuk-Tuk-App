@@ -441,7 +441,25 @@ export default function Nearby() {
   const [gender,          setGender]          = useState("All");
   const [location,        setLocation]        = useState({ country: "India", city: "Pune" });
 
+  // Gender / city filters applied from the 3-dot menu. These hit the
+  // dedicated GET /api/app/users/nearby/new endpoint.
+  const [appliedGender, setAppliedGender] = useState(null);
+  const [appliedCity,   setAppliedCity]   = useState(null);
+
   const FILTERS = ["All", "Online", "Saved", "New"];
+
+  // Each filter chip maps to a backend nearby variant.
+  const FILTER_VARIANT = { All: "all", Online: "online", Saved: "saved", New: "new" };
+
+  // Keep the latest filter + applied gender/city in refs so the fetch
+  // callback stays stable and never closes over a stale value.
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
+  const appliedGenderRef = useRef(appliedGender);
+  appliedGenderRef.current = appliedGender;
+  const appliedCityRef = useRef(appliedCity);
+  appliedCityRef.current = appliedCity;
+  const didMountRef = useRef(false);
 
   const showToast = useCallback((message) => {
     setToastMessage(message);
@@ -452,8 +470,13 @@ export default function Nearby() {
     if (fetchInFlightRef.current) return;
     fetchInFlightRef.current = true;
     setLoadingNearby(true);
+    const gender = appliedGenderRef.current;
+    const city = appliedCityRef.current;
+    // gender / city filters are only served by the "new" endpoint, so
+    // applying either forces that variant regardless of the active chip.
+    const variant = gender || city ? "new" : (FILTER_VARIANT[filterRef.current] ?? "all");
     try {
-      const result = await loadNearbyWithLocation({ radiusKm: 25, page: 0, limit: 20 });
+      const result = await loadNearbyWithLocation({ radiusKm: 25, page: 0, limit: 20, variant, gender, city });
       if (!result.ok) {
         setNearbyUsers([]);
         setNearbyFetched(false);
@@ -484,13 +507,43 @@ export default function Nearby() {
     }, [fetchNearbyUsers])
   );
 
-  const visible = nearbyUsers.filter((u) => {
-    if (passed.has(u.id)) return false;
-    if (filter === "Online") return u.online;
-    if (filter === "Saved") return liked.has(u.id);
-    if (filter === "New") return !liked.has(u.id);
-    return true;
-  });
+  // Refetch from the matching endpoint whenever the filter changes
+  // (skips the very first render, which useFocusEffect already covers).
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    fetchNearbyUsers();
+  }, [filter, fetchNearbyUsers]);
+
+  // Refetch when gender / city are applied from the 3-dot menu.
+  const appliedMountRef = useRef(false);
+  useEffect(() => {
+    if (!appliedMountRef.current) {
+      appliedMountRef.current = true;
+      return;
+    }
+    fetchNearbyUsers();
+  }, [appliedGender, appliedCity, fetchNearbyUsers]);
+
+  // Apply gender + city from the filter sheet → GET /nearby/new.
+  const handleApplyFilters = useCallback(() => {
+    setShowFilter(false);
+    setAppliedGender(gender !== "All" ? gender : null);
+    setAppliedCity(location.city || null);
+  }, [gender, location]);
+
+  // Tapping a top chip clears any applied gender/city filter.
+  const handleChipPress = useCallback((f) => {
+    setAppliedGender(null);
+    setAppliedCity(null);
+    setFilter(f);
+  }, []);
+
+  // All variants (all/online/saved/new + gender/city) are filtered
+  // server-side, so we only drop users the person already passed on.
+  const visible = nearbyUsers.filter((u) => !passed.has(u.id));
 
   const openChatWithUser = useCallback(async (user) => {
     if (!user?.id) return;
@@ -543,7 +596,7 @@ export default function Nearby() {
       <FilterModal
         visible={showFilter}
         onClose={() => setShowFilter(false)}
-        onDone={() => setShowFilter(false)}
+        onDone={handleApplyFilters}
         gender={gender}
         setGender={setGender}
         location={location}
@@ -603,7 +656,7 @@ export default function Nearby() {
             <TouchableOpacity
               key={f}
               style={[styles.filterBtn, filter === f && styles.filterBtnActive]}
-              onPress={() => setFilter(f)}
+              onPress={() => handleChipPress(f)}
               activeOpacity={0.8}
             >
               <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>{f}</Text>

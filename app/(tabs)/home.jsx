@@ -52,7 +52,9 @@ import {
 } from "../../src/api/postApi";
 import * as ImagePicker from "expo-image-picker";
 import Toast from "../../Components/Toast";
+import ComingSoonModal from "../../Components/ComingSoonModal";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
+import { openUserChat } from "../../src/utils/chatNavigation";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const H_PAD = 14;
@@ -122,6 +124,7 @@ const iconItems = [
     img: require("../../assets/images/truthdare.png"),
     colors: ["#15072dff", "#486ba8ff"],
     imgSize: 150,
+    comingSoon: true,
   },
   {
     label: "Invitation\nRewards",
@@ -134,22 +137,33 @@ const iconItems = [
     img: require("../../assets/images/ludo.jpg"),
     colors: ["#041e04ff", "#175726ff"],
     imgSize: 70,
+    comingSoon: true,
   },
   {
     label: "Snakes & ladders",
     img: require("../../assets/images/SnakesAndLadders.jpg"),
     colors: ["#0c250cff", "#d2ec23cf"],
     imgSize: 50,
+    comingSoon: true,
   },
   {
     label: "Draw & Guess",
     img: require("../../assets/images/draw n guess.jpg"),
     colors: ["#5f0909ff", "#9e4c3eff"],
     imgSize: 50,
+    comingSoon: true,
   },
 ];
 
-const TABS = ["For You", "Selfie", "Online", "Following", "New"];
+const TABS = ["For You", "Online", "Following", "New"];
+
+// Per-tab empty-state copy shown when a tab has no content yet.
+const TAB_EMPTY_COPY = {
+  "For You":   { emoji: "✨", title: "Nothing here yet",        subtitle: "Posts picked for you will show up here." },
+  "Online":    { emoji: "🟢", title: "No one's online",          subtitle: "Active people will appear here when they come online." },
+  "Following": { emoji: "👥", title: "No posts from following",  subtitle: "Follow people to see their latest posts here." },
+  "New":       { emoji: "🆕", title: "No new posts",             subtitle: "Fresh posts will appear here as they're shared." },
+};
 
 // Local fallback images for banner slides.
 // When the API provides imageUrl, that CDN URL is used instead.
@@ -1578,6 +1592,7 @@ const HomeHeader = memo(({
   onNotifOpen,
   onGiftsOpen,
   onNearbyPress,
+  onComingSoon,
   router,
 }) => (
   <>
@@ -1714,7 +1729,12 @@ const HomeHeader = memo(({
       style={styles.iconContainer}
     >
       {iconItems.map((item) => (
-        <TouchableOpacity key={item.label} style={styles.iconItem} activeOpacity={0.8}>
+        <TouchableOpacity
+          key={item.label}
+          style={styles.iconItem}
+          activeOpacity={0.8}
+          onPress={item.comingSoon ? () => onComingSoon?.(item.label.replace(/\n/g, " ")) : undefined}
+        >
           <LinearGradient
             colors={item.colors}
             style={styles.iconBox}
@@ -1822,10 +1842,15 @@ export default function Home() {
   const likedPostIdsRef = useRef([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
+  const searchDebounceRef = useRef(null);
+  const searchSeqRef = useRef(0);
+  const [searchProfile, setSearchProfile] = useState(null);
+  const [searchProfileLoading, setSearchProfileLoading] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState([]);
   const [toastMessage, setToastMessage] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   const [sessionAvatarSource, setSessionAvatarSource] = useState(null);
+  const [comingSoonFeature, setComingSoonFeature] = useState(null);
 
   const syncSessionAvatar = useCallback(async () => {
     try {
@@ -1867,6 +1892,10 @@ export default function Home() {
   // Ref for selectedTab — avoids stale closure in handleTabPress without adding it to deps
   const selectedTabRef = useRef(selectedTab);
   selectedTabRef.current = selectedTab;
+
+  // Ref for currentUserId — lets the tab feed loader stay a stable callback
+  const currentUserIdRef = useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
 
   // ── Data loading ──────────────────────────────────────────
   // Deferred until after navigation animations finish so the first
@@ -1935,8 +1964,38 @@ export default function Home() {
 
   // ── Stable callbacks ──────────────────────────────────────
 
+  // Loads the feed for a given tab (For You / Online / Following / New).
+  // homeService.refreshFeed maps the tab label to the API param, so this is
+  // ready to work as soon as the backend returns data per tab.
+  const loadTabFeed = useCallback(async (tab) => {
+    setFeedLoading(true);
+    setFeedPosts([]);
+    setFeedPage(1);
+    setFeedHasMore(false);
+    console.log(`[Home] loading feed for tab: ${tab}`);
+    try {
+      const res = await homeService.refreshFeed(tab);
+      const uid = currentUserIdRef.current;
+      setFeedPosts(
+        (res.posts ?? []).map((post) => ({
+          ...post,
+          _isOwn: uid ? isOwnContent(post, uid) : false,
+        }))
+      );
+      setFeedHasMore(res.hasMore ?? false);
+      console.log(`[Home] tab "${tab}" loaded ${res.posts?.length ?? 0} posts`);
+    } catch (err) {
+      console.log(`[Home] tab "${tab}" feed load failed:`, err?.message);
+      setFeedPosts([]);
+      setFeedHasMore(false);
+    } finally {
+      setFeedLoading(false);
+    }
+  }, []);
+
   const handleTabPress = useCallback((tab) => {
     const prev = selectedTabRef.current;
+    if (tab === prev) return;
     Animated.timing(tabUnderlineScales[prev], { toValue: 0, duration: 150, useNativeDriver: true }).start();
     Animated.sequence([
       Animated.timing(tabScales[tab], { toValue: 0.82, duration: 80, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
@@ -1944,7 +2003,8 @@ export default function Home() {
     ]).start();
     Animated.timing(tabUnderlineScales[tab], { toValue: 1, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.back(1.5)) }).start();
     setSelectedTab(tab);
-  }, [tabScales, tabUnderlineScales]);
+    loadTabFeed(tab);
+  }, [tabScales, tabUnderlineScales, loadTabFeed]);
 
   const handleMarkAllRead = useCallback(async () => {
     setUnreadNotifications([]);
@@ -1953,7 +2013,13 @@ export default function Home() {
 
   const handleSearchQuery = useCallback((text) => {
     setSearchQuery(text);
-    if (text.trim().length === 0) { setSearchResults([]); return; }
+    const trimmed = text.trim();
+    if (trimmed.length === 0) {
+      setSearchResults([]);
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchSeqRef.current += 1; // cancel any in-flight people search
+      return;
+    }
     const query = text.toLowerCase();
     const results = [];
     actionCards.forEach((card) => {
@@ -1980,7 +2046,79 @@ export default function Home() {
       }
     });
     setSearchResults(results);
+
+    // Debounced people search against the backend.
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    const seq = ++searchSeqRef.current;
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const people = await homeService.searchPeople(trimmed);
+        if (seq !== searchSeqRef.current) return; // a newer query superseded this
+        const userResults = people
+          .filter((u) => u.userId ?? u.id)
+          .map((u) => ({
+            id: `user-${u.userId ?? u.id}`,
+            userId: String(u.userId ?? u.id),
+            title: u.name ?? "User",
+            subtitle: u.isOnline ? "🟢 Online" : "Tap to view profile",
+            type: "user",
+            avatar: u.avatar ?? null,
+            level: u.level ?? null,
+            vip: Boolean(u.vip),
+            status: u.status ?? null,
+            colors: ["#3d1a6e", "#5b2d8e"],
+          }));
+        // Keep feature matches, replace any previous user rows.
+        setSearchResults((prev) => [...prev.filter((r) => r.type !== "user"), ...userResults]);
+      } catch (err) {
+        console.log("[Home] people search failed:", err?.message);
+      }
+    }, 350);
   }, [searchSuggestions]);
+
+  const handleOpenSearchUser = useCallback(async (result) => {
+    // Show the profile immediately with the data we already have, then
+    // enrich it with the full GET /api/app/users/{userId} response.
+    setSearchProfile({
+      userId: result.userId,
+      name: result.title,
+      avatar: result.avatar,
+      level: result.level,
+      vip: result.vip,
+      status: result.status,
+      isOnline: Boolean(result.subtitle && result.subtitle.includes("Online")),
+    });
+    setSearchProfileLoading(true);
+    try {
+      const detail = await homeService.getUserDetailById(result.userId);
+      setSearchProfile((prev) => ({
+        ...prev,
+        ...detail,
+        userId: result.userId,
+        name: detail?.name ?? prev?.name,
+        avatar: detail?.avatar ?? prev?.avatar,
+      }));
+    } catch (err) {
+      console.log("[Home] load search profile failed:", err?.message);
+    } finally {
+      setSearchProfileLoading(false);
+    }
+  }, []);
+
+  const handleMessageSearchProfile = useCallback(async () => {
+    const profile = searchProfile;
+    if (!profile?.userId) return;
+    setSearchProfile(null);
+    closeSearch();
+    setSearchResults([]);
+    await openUserChat(router, {
+      userId: profile.userId,
+      id: profile.userId,
+      name: profile.name,
+      avatarUrl: profile.avatar,
+      profilePicUrl: profile.avatar,
+    });
+  }, [searchProfile, router]);
 
   const handleLoadMore = useCallback(async () => {
     if (!feedHasMore || feedLoading) return;
@@ -2224,6 +2362,26 @@ export default function Home() {
 
   const keyExtractor = useCallback((item) => String(item.id), []);
 
+  // Per-tab loading / empty UI shown when the feed has no items.
+  const listEmpty = useMemo(() => {
+    if (feedLoading) {
+      return (
+        <View style={styles.feedStateBox}>
+          <ActivityIndicator color="#7c4dff" size="large" />
+          <Text style={styles.feedStateTitle}>Loading {selectedTab}…</Text>
+        </View>
+      );
+    }
+    const copy = TAB_EMPTY_COPY[selectedTab] ?? TAB_EMPTY_COPY["For You"];
+    return (
+      <View style={styles.feedStateBox}>
+        <Text style={styles.feedStateEmoji}>{copy.emoji}</Text>
+        <Text style={styles.feedStateTitle}>{copy.title}</Text>
+        <Text style={styles.feedStateSubtitle}>{copy.subtitle}</Text>
+      </View>
+    );
+  }, [feedLoading, selectedTab]);
+
   // ListHeaderComponent memoized — only re-creates when its specific
   // props change, not on every unrelated state update
   const listHeader = useMemo(() => (
@@ -2241,6 +2399,7 @@ export default function Home() {
       onNotifOpen={openNotif}
       onGiftsOpen={openGifts}
       onNearbyPress={handleNearbyPress}
+      onComingSoon={setComingSoonFeature}
       router={router}
     />
   ), [userProfile, sessionAvatarSource, stats, unreadNotifications, recommendedUsers, selectedTab,
@@ -2267,6 +2426,7 @@ export default function Home() {
         renderItem={renderFeedItem}
         keyExtractor={keyExtractor}
         ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         style={styles.scroll}
@@ -2335,7 +2495,9 @@ export default function Home() {
                       style={styles.searchResultItem}
                       activeOpacity={0.7}
                       onPress={() => {
-                        if (result.partyRandom) {
+                        if (result.type === "user") {
+                          handleOpenSearchUser(result);
+                        } else if (result.partyRandom) {
                           router.push({ pathname: "/voice-party", params: { party: "true" } });
                           closeSearch();
                           setSearchResults([]);
@@ -2346,16 +2508,20 @@ export default function Home() {
                         }
                       }}
                     >
-                      <LinearGradient
-                        colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
-                        style={styles.resultIconBox}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                      >
-                        <Text style={styles.resultIcon}>
-                          {result.type === "action" ? "🎮" : "✨"}
-                        </Text>
-                      </LinearGradient>
+                      {result.type === "user" && result.avatar ? (
+                        <Image source={{ uri: result.avatar }} style={styles.resultIconBox} contentFit="cover" />
+                      ) : (
+                        <LinearGradient
+                          colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
+                          style={styles.resultIconBox}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                        >
+                          <Text style={styles.resultIcon}>
+                            {result.type === "action" ? "🎮" : result.type === "user" ? "👤" : "✨"}
+                          </Text>
+                        </LinearGradient>
+                      )}
                       <View style={styles.resultTextCol}>
                         <Text style={styles.resultTitle}>{result.title}</Text>
                         {result.subtitle && <Text style={styles.resultSubtitle}>{result.subtitle}</Text>}
@@ -2589,6 +2755,84 @@ export default function Home() {
         }}
       />
 
+      <ComingSoonModal
+        feature={comingSoonFeature}
+        onClose={() => setComingSoonFeature(null)}
+      />
+
+      {/* ── Searched user profile ── */}
+      <Modal
+        visible={Boolean(searchProfile)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSearchProfile(null)}
+      >
+        <View style={styles.searchProfileWrap}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setSearchProfile(null)}
+          />
+          <View style={styles.searchProfileCard}>
+            <LinearGradient
+              colors={["#3d1a6e", "#7c4dff"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.searchProfileHero}
+            >
+              {searchProfile?.avatar ? (
+                <Image source={{ uri: searchProfile.avatar }} style={styles.searchProfileAvatar} contentFit="cover" />
+              ) : (
+                <Text style={styles.searchProfileEmoji}>👤</Text>
+              )}
+              {searchProfile?.isOnline && <View style={styles.searchProfileOnlineDot} />}
+            </LinearGradient>
+
+            <TouchableOpacity style={styles.searchProfileClose} onPress={() => setSearchProfile(null)}>
+              <Text style={styles.searchProfileCloseTxt}>✕</Text>
+            </TouchableOpacity>
+
+            <View style={styles.searchProfileBody}>
+              <View style={styles.searchProfileNameRow}>
+                <Text style={styles.searchProfileName} numberOfLines={1}>
+                  {searchProfile?.name ?? "User"}
+                </Text>
+                {searchProfile?.vip && <Text style={styles.searchProfileVip}>👑 VIP</Text>}
+              </View>
+
+              <View style={styles.searchProfileMetaRow}>
+                {searchProfile?.level != null && (
+                  <View style={styles.searchProfileBadge}>
+                    <Text style={styles.searchProfileBadgeTxt}>Lv {searchProfile.level}</Text>
+                  </View>
+                )}
+                {searchProfile?.status && (
+                  <View style={styles.searchProfileBadge}>
+                    <Text style={styles.searchProfileBadgeTxt}>{searchProfile.status}</Text>
+                  </View>
+                )}
+                {searchProfileLoading && <ActivityIndicator size="small" color="#a78bfa" />}
+              </View>
+
+              {searchProfile?.bio ? (
+                <Text style={styles.searchProfileBio} numberOfLines={3}>{searchProfile.bio}</Text>
+              ) : null}
+
+              <TouchableOpacity style={styles.searchProfileMsgBtn} onPress={handleMessageSearchProfile} activeOpacity={0.85}>
+                <LinearGradient
+                  colors={["#7c4dff", "#a855f7"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.searchProfileMsgGradient}
+                >
+                  <Text style={styles.searchProfileMsgTxt}>Send Message</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -2598,6 +2842,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#0d0618",
   },
+
+  // ── Searched user profile modal ──
+  searchProfileWrap: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 28 },
+  searchProfileCard: { width: "100%", maxWidth: 360, backgroundColor: "#1a0a2e", borderRadius: 24, overflow: "hidden", borderWidth: 1, borderColor: "rgba(167,139,250,0.3)" },
+  searchProfileHero: { width: "100%", height: 170, alignItems: "center", justifyContent: "center" },
+  searchProfileAvatar: { width: 110, height: 110, borderRadius: 55, borderWidth: 3, borderColor: "rgba(255,255,255,0.25)" },
+  searchProfileEmoji: { fontSize: 70 },
+  searchProfileOnlineDot: { position: "absolute", bottom: 20, right: "37%", width: 16, height: 16, borderRadius: 8, backgroundColor: "#00e676", borderWidth: 3, borderColor: "#1a0a2e" },
+  searchProfileClose: { position: "absolute", top: 12, right: 12, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
+  searchProfileCloseTxt: { color: "white", fontSize: 15, fontWeight: "700" },
+  searchProfileBody: { padding: 18, gap: 10 },
+  searchProfileNameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  searchProfileName: { color: "white", fontSize: 20, fontWeight: "900", flexShrink: 1 },
+  searchProfileVip: { color: "#ffd700", fontSize: 13, fontWeight: "800" },
+  searchProfileMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  searchProfileBadge: { backgroundColor: "rgba(124,77,255,0.3)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(167,139,250,0.4)" },
+  searchProfileBadgeTxt: { color: "#c4b5fd", fontSize: 11, fontWeight: "700" },
+  searchProfileBio: { color: "rgba(255,255,255,0.7)", fontSize: 13, lineHeight: 19 },
+  searchProfileMsgBtn: { borderRadius: 14, overflow: "hidden", marginTop: 4 },
+  searchProfileMsgGradient: { paddingVertical: 13, alignItems: "center" },
+  searchProfileMsgTxt: { color: "white", fontSize: 15, fontWeight: "800" },
 
   // Background orbs (same as login)
   orbPink: {
@@ -2814,6 +3079,29 @@ const styles = StyleSheet.create({
 
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
+
+  // Per-tab loading / empty state
+  feedStateBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 56,
+    paddingHorizontal: 32,
+  },
+  feedStateEmoji: { fontSize: 44, marginBottom: 14 },
+  feedStateTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  feedStateSubtitle: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    marginTop: 6,
+    textAlign: "center",
+    lineHeight: 18,
+  },
 
   // 2×2 Action grid — all equal size
   actionGrid: {

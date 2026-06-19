@@ -175,6 +175,30 @@ export const getVoiceToken = async (roomId, uid, isSpeaker = true) => {
   return response.data;
 };
 
+/** GET /api/app/party/ranking?period=daily|weekly|monthly — leaderboard. */
+export const getPartyRanking = async (period = "daily") => {
+  const url = `/api/app/party/ranking?period=${encodeURIComponent(period)}`;
+  console.log("[partyApi] GET", url);
+  const response = await API.get(url, await authRequestConfig());
+  console.log(
+    `[partyApi] GET ${url} response:`,
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
+/** GET /api/app/party/families — list of families. */
+export const getFamilies = async () => {
+  const url = "/api/app/party/families";
+  console.log("[partyApi] GET", url);
+  const response = await API.get(url, await authRequestConfig());
+  console.log(
+    `[partyApi] GET ${url} response:`,
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
 export const sendRoomGift = async (roomId, body) => {
   const response = await API.post(
     `/api/v1/tuktuk/rooms/${roomId}/gift`,

@@ -21,6 +21,7 @@ import { getRecommendedUsers } from "../src/services/homeService";
 import { loadConversations } from "../src/services/chatService";
 import { wsService } from "../src/services/websocket";
 import { openUserChat } from "../src/utils/chatNavigation";
+import ComingSoonModal from "./ComingSoonModal";
 import {
   loadFollowing,
   loadFollowers,
@@ -144,6 +145,7 @@ export default function ChatTab() {
   const [recommendedUsers, setRecommendedUsers] = useState([]);
   const [conversations, setConversations] = useState([]);
   const [chatsLoading, setChatsLoading] = useState(true);
+  const [comingSoonFeature, setComingSoonFeature] = useState(null);
 
   const fetchChats = useCallback(() => {
     setChatsLoading(true);
@@ -609,7 +611,12 @@ export default function ChatTab() {
           contentContainerStyle={styles.featureContent}
         >
           {featureCards.map((card) => (
-            <TouchableOpacity key={card.id} style={styles.featureCard} activeOpacity={0.8}>
+            <TouchableOpacity
+              key={card.id}
+              style={styles.featureCard}
+              activeOpacity={0.8}
+              onPress={card.label === "Game" ? () => setComingSoonFeature("Game") : undefined}
+            >
               {/* Gradient border ring */}
               <LinearGradient
                 colors={card.borderColors}
@@ -707,6 +714,11 @@ export default function ChatTab() {
         )}
 
       </ScrollView>
+
+      <ComingSoonModal
+        feature={comingSoonFeature}
+        onClose={() => setComingSoonFeature(null)}
+      />
     </View>
   );
 }

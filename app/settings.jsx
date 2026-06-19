@@ -24,6 +24,8 @@ import {
 import {
   loadUserSettings,
   updateUserSettings,
+  loadMatchSwitch,
+  updateMatchSwitch,
   clearAppCache,
   checkForUpdate,
   submitFeedback,
@@ -179,6 +181,43 @@ export default function Settings() {
       Alert.alert(
         "Settings",
         err?.message || "Could not save your settings. Please try again."
+      );
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const refreshMatchSwitch = async () => {
+    console.log("[Settings] match-switch -> GET /api/app/users/match-switch");
+    try {
+      const enabled = await loadMatchSwitch();
+      setMatchSwitchEnabled(enabled);
+      setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: enabled }));
+      console.log("[Settings] match-switch status:", enabled);
+    } catch (err) {
+      console.log("[Settings] match-switch load failed:", err?.message);
+    }
+  };
+
+  const handleToggleMatchSwitch = async (value) => {
+    if (settingsSaving) return;
+    setMatchSwitchEnabled(value);
+    setSettingsSaving(true);
+    console.log(
+      "[Settings] match-switch -> PATCH /api/app/users/me/match-switch",
+      JSON.stringify({ matchSwitchEnabled: value }, null, 2)
+    );
+    try {
+      const resolved = await updateMatchSwitch(value);
+      setMatchSwitchEnabled(resolved);
+      setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: resolved }));
+      console.log("[Settings] match-switch saved:", resolved);
+    } catch (err) {
+      console.log("[Settings] match-switch save failed:", err?.message);
+      setMatchSwitchEnabled(!value);
+      Alert.alert(
+        "Match switch",
+        err?.message || "Could not update Match switch. Please try again."
       );
     } finally {
       setSettingsSaving(false);
@@ -353,6 +392,7 @@ export default function Settings() {
     switch (item.label) {
       case "Match switch":
         setMatchSwitchVisible(true);
+        refreshMatchSwitch();
         break;
       case "Privacy":
         setPrivacyVisible(true);
@@ -545,12 +585,7 @@ export default function Settings() {
                 <Switch
                   style={styles.toggleSwitch}
                   value={matchSwitchEnabled}
-                  onValueChange={(value) =>
-                    persistSettings(
-                      { matchSwitchEnabled: value },
-                      () => setMatchSwitchEnabled(value)
-                    )
-                  }
+                  onValueChange={handleToggleMatchSwitch}
                   disabled={settingsSaving}
                   trackColor={{ false: "#ccc", true: "#7c4dff" }}
                   thumbColor={matchSwitchEnabled ? "#fff" : "#f4f3f4"}

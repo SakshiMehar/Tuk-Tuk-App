@@ -184,10 +184,41 @@ export const getWalletTransactions = async (page = 0, size = 20) => {
   return response.data;
 };
 
-// ── 7. User Search ────────────────────────────────────────────
+// ── 7. User Search (query param) ──────────────────────────────
+// GET /api/app/users/search?q=<query>&page=&limit=
 export const searchUsers = async (q, page = 0, limit = 20) => {
-  const response = await API.get(
-    `/api/app/users/search?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`
+  const url = `/api/app/users/search?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`;
+  console.log("[homeApi] GET", url);
+  const response = await API.get(url, await authRequestConfig());
+  console.log(
+    "[homeApi] GET /api/app/users/search response:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
+// ── 7b. User Search (path param) ──────────────────────────────
+// GET /api/app/users/search/{query}
+export const searchUsersByPath = async (query) => {
+  const url = `/api/app/users/search/${encodeURIComponent(query)}`;
+  console.log("[homeApi] GET", url);
+  const response = await API.get(url, await authRequestConfig());
+  console.log(
+    "[homeApi] GET /api/app/users/search/{query} response:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
+// ── 7c. User by ID ────────────────────────────────────────────
+// GET /api/app/users/{userId}
+export const getUserById = async (userId) => {
+  const url = `/api/app/users/${encodeURIComponent(userId)}`;
+  console.log("[homeApi] GET", url);
+  const response = await API.get(url, await authRequestConfig());
+  console.log(
+    "[homeApi] GET /api/app/users/{userId} response:",
+    JSON.stringify(response.data, null, 2)
   );
   return response.data;
 };

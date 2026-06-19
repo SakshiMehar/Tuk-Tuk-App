@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Dimensions,
   Modal,
   TextInput,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
@@ -19,6 +20,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getUser, updateUser } from "../../src/store/authStore";
 import { loadProfileStats } from "../../src/services/profileStatsService";
 import { loadMyDiamondCredits } from "../../src/services/diamondCreditService";
+import {
+  REWARD_TASKS,
+  TASKS_TOTAL_REWARD,
+  loadClaimedTasks,
+  saveClaimedTasks,
+  claimedBonusTotal,
+  claimRewardTask,
+} from "../../src/services/rewardTaskService";
 import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
 import {
   avatarMap,
@@ -31,7 +40,6 @@ import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 const screen = Dimensions.get("window");
 
 const meImg = require("../../assets/images/me.png");
-const frameImg = require("../../assets/images/splash-icon.png");
 const menuPages = [
   [
     { icon: "gift",         label: "Get Rewards",  badge: true  },
@@ -75,6 +83,8 @@ export default function Profile() {
   const [followers, setFollowers] = useState(0);
   const [visitorCount, setVisitorCount] = useState(0);
   const [diamondCount, setDiamondCount] = useState(0);
+  const [serverDiamonds, setServerDiamonds] = useState(0);
+  const [claimedTasks, setClaimedTasks] = useState([]);
   const [connectionsListType, setConnectionsListType] = useState(null);
   const [menuPage, setMenuPage] = useState(0);
   const [activeTab, setActiveTab] = useState("Moment");
@@ -128,17 +138,60 @@ export default function Profile() {
       const loadDiamonds = async () => {
         try {
           const { diamonds } = await loadMyDiamondCredits();
-          setDiamondCount(diamonds);
+          setServerDiamonds(diamonds);
         } catch (err) {
           console.warn("[Profile] failed to load diamonds:", err?.message ?? err);
         }
       };
 
+      const loadTasks = async () => {
+        const claimed = await loadClaimedTasks();
+        setClaimedTasks(claimed);
+        console.log(
+          "[Profile] reward tasks claimed:",
+          JSON.stringify(claimed)
+        );
+      };
+
       loadProfile();
       loadStats();
       loadDiamonds();
+      loadTasks();
     }, [])
   );
+
+  useEffect(() => {
+    setDiamondCount(serverDiamonds + claimedBonusTotal(claimedTasks));
+  }, [serverDiamonds, claimedTasks]);
+
+  const [claimingTask, setClaimingTask] = useState(null);
+
+  const handleClaimTask = async (task) => {
+    if (claimedTasks.includes(task.id) || claimingTask) return;
+    setClaimingTask(task.id);
+    console.log(
+      `[Profile] claiming task -> POST /api/daily-tasks/${task.taskType}/claim`
+    );
+    try {
+      await claimRewardTask(task);
+      const next = [...claimedTasks, task.id];
+      setClaimedTasks(next);
+      saveClaimedTasks(next);
+      console.log(`[Profile] task claimed: ${task.id} (+${task.reward}💎)`);
+      Alert.alert(
+        "Reward claimed!",
+        `You earned ${task.reward}💎 for "${task.label}".`
+      );
+    } catch (err) {
+      console.log("[Profile] task claim failed:", err?.message);
+      Alert.alert(
+        "Could not claim",
+        err?.message || "This task can't be claimed yet. Please try again."
+      );
+    } finally {
+      setClaimingTask(null);
+    }
+  };
 
   const handleSaveProfile = async () => {
     setEditVisible(false);
@@ -196,46 +249,73 @@ export default function Profile() {
 
     // ── TASK ──────────────────────────────────────────────────────────────────
     if (label === "Task") {
-      const daily = [
-        { label: "Log in today", xp: "10💎", done: true },
-        { label: "Send 5 messages", xp: "20💎", done: true },
-        { label: "Join a voice room", xp: "15🪙", done: false },
-        { label: "Follow 2 new people", xp: "10💎", done: false },
-      ];
-      const weekly = [
-        { label: "Reach Level 5", xp: "200💎", done: false },
-        { label: "Match 3 people", xp: "100💎", done: false },
-        { label: "Post a moment", xp: "50🪙", done: false },
-      ];
+      const claimedCount = claimedTasks.length;
+      const totalCount = REWARD_TASKS.length;
+      const claimedDiamonds = claimedBonusTotal(claimedTasks);
+      const progressPct = totalCount
+        ? Math.round((claimedCount / totalCount) * 100)
+        : 0;
       return (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <LinearGradient
+            colors={["rgba(124,77,255,0.2)", "rgba(168,85,247,0.1)"]}
+            style={styles.mmHeroBox}
+          >
+            <Text style={{ fontSize: 40 }}>💎</Text>
+            <Text style={styles.mmHeroTitle}>{claimedDiamonds}💎 earned</Text>
+            <Text style={styles.mmHeroSub}>
+              Finish tasks to earn up to {TASKS_TOTAL_REWARD}💎
+            </Text>
+          </LinearGradient>
+
           <View style={styles.mmProgressCard}>
             <View style={styles.mmProgressLabelRow}>
-              <Text style={styles.mmProgressTitle}>Daily Progress</Text>
-              <Text style={styles.mmProgressVal}>2 / 4</Text>
+              <Text style={styles.mmProgressTitle}>Tasks Completed</Text>
+              <Text style={styles.mmProgressVal}>{claimedCount} / {totalCount}</Text>
             </View>
-            <View style={styles.mmProgressBar}><View style={[styles.mmProgressFill, { width: "50%" }]} /></View>
+            <View style={styles.mmProgressBar}>
+              <View style={[styles.mmProgressFill, { width: `${progressPct}%` }]} />
+            </View>
           </View>
-          <Text style={styles.mmSectionLabel}>Daily Tasks</Text>
-          {daily.map((t) => (
-            <View key={t.label} style={styles.mmTaskRow}>
-              <View style={[styles.mmTaskCheck, t.done && styles.mmTaskCheckDone]}>
-                {t.done && <Ionicons name="checkmark" size={13} color="white" />}
+
+          <Text style={styles.mmSectionLabel}>Reward Tasks</Text>
+          {REWARD_TASKS.map((t) => {
+            const claimed = claimedTasks.includes(t.id);
+            const claiming = claimingTask === t.id;
+            return (
+              <View key={t.id} style={styles.mmTaskRow}>
+                <Text style={{ fontSize: 18, marginRight: 10 }}>{t.emoji}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone]}>
+                    {t.label}
+                  </Text>
+                  <Text style={styles.mmTaskReward}>+{t.reward}💎</Text>
+                </View>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  disabled={claimed || claiming}
+                  onPress={() => handleClaimTask(t)}
+                  style={[styles.mmClaimBtn, claimed && styles.mmClaimBtnDone]}
+                >
+                  <Text
+                    style={[
+                      styles.mmClaimBtnText,
+                      claimed && styles.mmClaimBtnTextDone,
+                    ]}
+                  >
+                    {claimed ? "Claimed" : claiming ? "..." : "Claim"}
+                  </Text>
+                </TouchableOpacity>
               </View>
-              <Text style={[styles.mmTaskText, t.done && styles.mmTaskTextDone]}>{t.label}</Text>
-              <Text style={styles.mmTaskReward}>{t.xp}</Text>
-            </View>
-          ))}
-          <Text style={styles.mmSectionLabel}>Weekly Tasks</Text>
-          {weekly.map((t) => (
-            <View key={t.label} style={styles.mmTaskRow}>
-              <View style={[styles.mmTaskCheck, t.done && styles.mmTaskCheckDone]}>
-                {t.done && <Ionicons name="checkmark" size={13} color="white" />}
-              </View>
-              <Text style={[styles.mmTaskText, t.done && styles.mmTaskTextDone]}>{t.label}</Text>
-              <Text style={styles.mmTaskReward}>{t.xp}</Text>
-            </View>
-          ))}
+            );
+          })}
+
+          <View style={styles.mmInfoRow}>
+            <Ionicons name="information-circle-outline" size={16} color="#a78bfa" />
+            <Text style={styles.mmInfoText}>
+              Claimed diamonds are added to your balance instantly.
+            </Text>
+          </View>
         </ScrollView>
       );
     }
@@ -936,7 +1016,6 @@ export default function Profile() {
             {/* Avatar with frame */}
             <View style={styles.profilePicWrapper}>
               <Image source={avatarSource} style={styles.profilePic} />
-              <Image source={frameImg} style={styles.profileFrame} resizeMode="contain" />
             </View>
 
             {/* Name + ID + badges */}
@@ -1339,24 +1418,18 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   profilePicWrapper: {
-    width: 90,
-    height: 90,
+    width: 72,
+    height: 72,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
   profilePic: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    position: "absolute",
-    zIndex: 1,
-  },
-  profileFrame: {
-    width: 100,
-    height: 90,
-    position: "absolute",
-    zIndex: 2,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.35)",
   },
   profileInfoCol: {
     flex: 1,
@@ -1926,6 +1999,24 @@ const styles = StyleSheet.create({
     color: "#a78bfa",
     fontSize: 13,
     fontWeight: "700",
+  },
+  mmClaimBtn: {
+    backgroundColor: "#7c4dff",
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 18,
+    marginLeft: 10,
+  },
+  mmClaimBtnDone: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  mmClaimBtnText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  mmClaimBtnTextDone: {
+    color: "rgba(255,255,255,0.4)",
   },
   mmEmptyCenter: {
     flex: 1,

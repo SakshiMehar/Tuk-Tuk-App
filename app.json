@@ -1,6 +1,5 @@
 {
   "expo": {
-    
     "name": "Tuk-Tuk",
     "slug": "Tuk-Tuk",
     "owner": "sakshil13",
@@ -14,7 +13,15 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Tuk-Tuk needs microphone access so you can speak in voice party rooms.",
-        "NSLocationWhenInUseUsageDescription": "Tuk-Tuk uses your location to show people nearby."
+        "NSLocationWhenInUseUsageDescription": "Tuk-Tuk uses your location to show people nearby.",
+        "SKAdNetworkItems": [
+          {
+            "SKAdNetworkIdentifier": "v9wttpbfk9.skadnetwork"
+          },
+          {
+            "SKAdNetworkIdentifier": "n38lu8286q.skadnetwork"
+          }
+        ]
       }
     },
     "android": {
@@ -33,7 +40,6 @@
         "foregroundImage": "./assets/images/splash-icon.png",
         "backgroundImage": "./assets/images/splash-icon.png",
         "monochromeImage": "./assets/images/splash-icon.png"
-   
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
@@ -48,7 +54,10 @@
               "pathPrefix": "/facebook"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -56,7 +65,6 @@
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/splash-icon.png"
-     
     },
     "plugins": [
       "expo-router",
@@ -100,6 +108,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "169d4774-2501-4d44-bdb8-88676b309e7f"
+      }
     }
   }
 }

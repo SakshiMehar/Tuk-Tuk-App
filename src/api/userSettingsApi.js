@@ -77,6 +77,44 @@ export const patchUserSettings = async (settings = {}) => {
   return response.data;
 };
 
+/** GET /api/app/users/match-switch — read current match switch status. */
+export const getMatchSwitch = async () => {
+  const { headers } = await buildAuthedConfig("get-match-switch");
+  console.log("[userSettingsApi] GET /api/app/users/match-switch");
+  const response = await API.get("/api/app/users/match-switch", { headers });
+  console.log(
+    "[userSettingsApi] GET /api/app/users/match-switch response:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
+/** PATCH /api/app/users/me/match-switch — toggle the match switch only. */
+export const patchMatchSwitch = async (enabled) => {
+  const { token, headers } = await buildAuthedConfig("patch-match-switch");
+  const matchEnable = Boolean(enabled);
+  const body = {
+    matchSwitchEnabled: matchEnable,
+    matchEnable,
+    enabled: matchEnable,
+    token,
+  };
+  console.log(
+    "[userSettingsApi] PATCH /api/app/users/me/match-switch body:",
+    JSON.stringify(body, null, 2)
+  );
+  const response = await API.patch(
+    "/api/app/users/me/match-switch",
+    body,
+    { headers }
+  );
+  console.log(
+    "[userSettingsApi] PATCH /api/app/users/me/match-switch response:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
 export const clearAppCache = async () => {
   return postWithAuth(
     "/api/app/users/me/settings/clear-cache",

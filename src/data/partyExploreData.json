@@ -1,7 +1,7 @@
 {
   "topTabs": ["Related", "Explore"],
   "relatedSubTabs": ["Recently", "Following", "Managed"],
-  "filterChips": ["Recommend", "New", "Game", "Blind date"],
+  "filterChips": ["Recommend", "New", "Blind date"],
   "featureCards": [
     {
       "id": "ranking",

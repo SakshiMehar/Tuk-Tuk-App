@@ -112,8 +112,11 @@ export const loadNearbyWithLocation = async ({
   radiusKm = 25,
   page = 0,
   limit = 20,
+  variant = "all",
+  gender,
+  city,
 } = {}) => {
-  console.log("[nearbyService] loadNearbyWithLocation start", { radiusKm, page, limit });
+  console.log("[nearbyService] loadNearbyWithLocation start", { radiusKm, page, limit, variant, gender, city });
   const coords = await getDeviceCoordinates();
   if (!coords.ok) {
     console.log("[nearbyService] location unavailable:", coords.reason);
@@ -124,18 +127,21 @@ export const loadNearbyWithLocation = async ({
   console.log("[nearbyService] updating my location", { latitude, longitude });
   await updateMyLocation({ latitude, longitude });
 
-  console.log("[nearbyService] fetching nearby users", { latitude, longitude, radiusKm, page, limit });
+  console.log("[nearbyService] fetching nearby users", { latitude, longitude, radiusKm, page, limit, variant, gender, city });
   const data = await getNearbyUsers({
     lat: latitude,
     lng: longitude,
     radiusKm,
     page,
     limit,
+    variant,
+    gender,
+    city,
   });
 
   const rawList = listFrom(data);
   const users = rawList.map((entry, index) => normalizeNearbyUser(entry, index));
-  console.log("[nearbyService] nearby users loaded:", users.length, users.map((u) => ({
+  console.log("[nearbyService] nearby users loaded:", users.length, "variant:", variant, users.map((u) => ({
     id: u.id,
     name: u.name,
     distanceKm: u.distanceKm,

@@ -73,10 +73,18 @@ export const leaveMic = async (roomId, seatNumber) => {
   await agoraVoice.toggleLocalMute(true);
   await toggleSeatMute(roomId, seatNumber, true);
   await leaveSeat(roomId, seatNumber);
-  await agoraVoice.leaveVoiceChannel();
   wsService.sendSpeakingStatus(String(roomId), false);
 
-  return { uid: await getVoiceUid() };
+  const uid = await getVoiceUid();
+  const tokenData = await getVoiceToken(roomId, uid, false);
+  await agoraVoice.joinVoiceChannel({
+    roomId: String(roomId),
+    uid,
+    tokenData,
+    isSpeaker: false,
+  });
+
+  return { uid };
 };
 
 export const toggleMicMute = async (roomId, seatNumber, muted) => {

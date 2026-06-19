@@ -234,3 +234,39 @@ export const shareUser = async (targetUserId) => {
   const response = await API.post(`/api/home/users/${targetUserId}/share`);
   return response.data;
 };
+
+// ── Home tab feeds (Online / Following / New) ─────────────────
+// These power the Home screen tabs. page is 0-based.
+
+// API 1 — Online users
+// GET /api/posts/online?page=0&size=10
+export const getOnlinePosts = async (page = 0, size = 10) => {
+  const response = await API.get(`/api/posts/online?page=${page}&size=${size}`);
+  console.log(
+    "[postApi] GET /api/posts/online response:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
+// API 2 — Following
+// GET /api/posts/following?page=0&size=10
+export const getFollowingPosts = async (page = 0, size = 10) => {
+  const response = await API.get(`/api/posts/following?page=${page}&size=${size}`);
+  console.log(
+    "[postApi] GET /api/posts/following response:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};
+
+// API 3 — Discover / New users
+// GET /api/posts/discover?page=0&size=10
+export const getDiscoverPosts = async (page = 0, size = 10) => {
+  const response = await API.get(`/api/posts/discover?page=${page}&size=${size}`);
+  console.log(
+    "[postApi] GET /api/posts/discover response:",
+    JSON.stringify(response.data, null, 2)
+  );
+  return response.data;
+};

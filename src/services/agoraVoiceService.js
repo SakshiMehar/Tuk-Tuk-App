@@ -9,6 +9,7 @@ import { AGORA_APP_ID } from "../config/env";
 let engine = null;
 let joined = false;
 let currentChannel = null;
+let currentIsSpeaker = false;
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
@@ -34,6 +35,20 @@ export const requestMicPermission = async () => {
   return status === "granted";
 };
 
+const configureAudioSession = async (isSpeaker) => {
+  try {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: isSpeaker,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+  } catch {
+    // Non-fatal — Agora may still work with default audio routing.
+  }
+};
+
 const ensureEngine = (appId) => {
   if (engine) return engine;
   if (!appId) throw new Error("Agora appId missing from voice-token response.");
@@ -52,12 +67,29 @@ const ensureEngine = (appId) => {
     onLeaveChannel: () => {
       joined = false;
       currentChannel = null;
+      currentIsSpeaker = false;
     },
-    onError: () => {},
+    onError: (err) => {
+      console.warn("[agoraVoice] RTC error:", err);
+    },
   });
 
   engine.enableAudio();
+  engine.setDefaultAudioRouteToSpeakerphone(true);
   return engine;
+};
+
+const applyClientRole = (rtc, isSpeaker, token) => {
+  if (token && joined && currentIsSpeaker !== isSpeaker) {
+    rtc.renewToken(token);
+  }
+
+  rtc.setClientRole(
+    isSpeaker ? ClientRoleType.ClientRoleBroadcaster : ClientRoleType.ClientRoleAudience
+  );
+  rtc.enableLocalAudio(isSpeaker);
+  rtc.muteLocalAudioStream(!isSpeaker);
+  currentIsSpeaker = isSpeaker;
 };
 
 export const joinVoiceChannel = async ({ roomId, uid, tokenData, isSpeaker = true }) => {
@@ -65,20 +97,16 @@ export const joinVoiceChannel = async ({ roomId, uid, tokenData, isSpeaker = tru
 
   if (!payload.token) throw new Error("Voice token missing from backend response.");
 
+  await configureAudioSession(isSpeaker);
+
   const rtc = ensureEngine(payload.appId);
 
   if (joined && currentChannel === payload.channel) {
-    rtc.setClientRole(
-      isSpeaker ? ClientRoleType.ClientRoleBroadcaster : ClientRoleType.ClientRoleAudience
-    );
-    rtc.muteLocalAudioStream(!isSpeaker);
+    applyClientRole(rtc, isSpeaker, payload.token);
     return payload;
   }
 
-  rtc.setClientRole(
-    isSpeaker ? ClientRoleType.ClientRoleBroadcaster : ClientRoleType.ClientRoleAudience
-  );
-  rtc.muteLocalAudioStream(!isSpeaker);
+  applyClientRole(rtc, isSpeaker, null);
 
   rtc.joinChannel(payload.token, payload.channel, payload.uid, {
     clientRoleType: isSpeaker
@@ -98,6 +126,7 @@ export const leaveVoiceChannel = async () => {
   }
   joined = false;
   currentChannel = null;
+  currentIsSpeaker = false;
 };
 
 export const toggleLocalMute = async (muted) => {
@@ -122,4 +151,5 @@ export const destroyVoiceEngine = () => {
   engine = null;
   joined = false;
   currentChannel = null;
+  currentIsSpeaker = false;
 };

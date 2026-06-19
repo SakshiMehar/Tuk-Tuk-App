@@ -9,6 +9,8 @@ import {
   getRoomState,
   getRoomChatMessages,
   createRoom as createRoomApi,
+  getPartyRanking as getPartyRankingApi,
+  getFamilies as getFamiliesApi,
 } from "../api/partyApi";
 import { wsService } from "./websocket";
 import { reserveSeat } from "./partyVoiceService";
@@ -264,6 +266,78 @@ export const enterRoomSession = async (roomId) => {
     joinData,
     stateData,
   };
+};
+
+const normalizeRankingEntry = (entry, index = 0) => {
+  const profile = entry?.profile ?? entry?.user ?? {};
+  return {
+    id: firstValue(entry?.id, entry?.userId, entry?.uid, profile?.id, `rank-${index}`),
+    rank: firstValue(entry?.rank, entry?.position, index + 1),
+    name:
+      firstText(entry?.name, entry?.username, entry?.displayName, profile?.name) ??
+      "User",
+    avatar: firstText(
+      entry?.avatar,
+      entry?.avatarUrl,
+      entry?.profileImageUrl,
+      entry?.profileImage,
+      profile?.avatarUrl,
+      profile?.profileImageUrl
+    ),
+    score: firstValue(entry?.score, entry?.points, entry?.diamonds, entry?.value, 0),
+    level: firstValue(entry?.level, entry?.lv, profile?.level, null),
+  };
+};
+
+const normalizeFamily = (family, index = 0) => ({
+  id: firstValue(family?.id, family?.familyId, family?._id, `family-${index}`),
+  rank: firstValue(family?.rank, family?.position, index + 1),
+  name: firstText(family?.name, family?.familyName, family?.title) ?? "Family",
+  emoji: firstText(family?.emoji, family?.icon, family?.badge) ?? "👪",
+  avatar: firstText(family?.avatar, family?.avatarUrl, family?.logoUrl, family?.coverImage),
+  memberCount: firstValue(
+    family?.memberCount,
+    family?.members,
+    family?.totalMembers,
+    family?.size,
+    0
+  ),
+  level: firstValue(family?.level, family?.lv, 0),
+  score: firstValue(family?.score, family?.points, family?.prosperity, 0),
+});
+
+// ── Feature flags ─────────────────────────────────────────────
+// Flip these to `true` once the backend endpoints below are live.
+// While false, the loaders skip the network call (so they don't spam
+// 401 "Authentication token is required" for routes that don't exist yet)
+// and just return an empty list, which the UI renders as an empty state.
+const PARTY_RANKING_API_READY = false; // GET /api/app/party/ranking
+const PARTY_FAMILY_API_READY = false;  // GET /api/app/party/families
+
+// Party ranking leaderboard. period: "daily" | "weekly" | "monthly".
+export const loadPartyRanking = async (period = "daily") => {
+  if (!PARTY_RANKING_API_READY) {
+    console.log("[partyService] ranking API not enabled yet — skipping call");
+    return [];
+  }
+  const data = await getPartyRankingApi(period);
+  const list = listFrom(data, "ranking") ?? [];
+  const entries = (Array.isArray(list) ? list : []).map(normalizeRankingEntry);
+  console.log(`[partyService] ranking (${period}):`, entries.length, "entries");
+  return entries;
+};
+
+// List of families for the Family feature card.
+export const loadFamilies = async () => {
+  if (!PARTY_FAMILY_API_READY) {
+    console.log("[partyService] families API not enabled yet — skipping call");
+    return [];
+  }
+  const data = await getFamiliesApi();
+  const list = listFrom(data, "families") ?? [];
+  const families = (Array.isArray(list) ? list : []).map(normalizeFamily);
+  console.log("[partyService] families:", families.length);
+  return families;
 };
 
 export const exitRoomSession = async (roomId) => {

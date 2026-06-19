@@ -6,8 +6,15 @@ import {
   getWallet,
   getWalletTransactions,
   searchUsers,
+  searchUsersByPath,
+  getUserById,
   markNotificationsRead,
 } from "../api/homeApi";
+import {
+  getOnlinePosts,
+  getFollowingPosts,
+  getDiscoverPosts,
+} from "../api/postApi";
 import { getToken } from "../store/authStore";
 import { resolveAppUserId } from "../utils/sessionUser";
 
@@ -149,6 +156,22 @@ const TAB_API_MAP = {
 const toApiTab = (tab) =>
   TAB_API_MAP[String(tab).toLowerCase().trim()] ?? "for_you";
 
+// Online / Following / New tabs use dedicated /api/posts/* endpoints.
+// (page is 0-based for these loaders.)
+const TAB_FEED_LOADER = {
+  online:    getOnlinePosts,
+  following: getFollowingPosts,
+  new:       getDiscoverPosts,
+};
+
+// Works across array, { posts }, { content } (Spring page) and { data } shapes.
+const hasMoreFrom = (data) => {
+  if (data?.hasMore != null) return Boolean(data.hasMore);
+  if (data?.hasNext != null) return Boolean(data.hasNext);
+  if (data?.last != null) return !data.last;
+  return false;
+};
+
 // Loads all data the Home screen needs in a single call.
 export const getHomeData = async () => {
   const [initData, feedData, notifData, giftsData, walletData] = await Promise.all([
@@ -183,8 +206,18 @@ export const getHomeData = async () => {
   };
 };
 
-// Refresh the feed back to page 1 — call this after creating a post.
+// Refresh the feed back to page 1 — call this after creating a post or
+// switching tabs. Online/Following/New route to their dedicated endpoints.
 export const refreshFeed = async (tab = "for_you") => {
+  const key = String(tab).toLowerCase().trim();
+  const loader = TAB_FEED_LOADER[key];
+
+  if (loader) {
+    const data = await loader(0, 10);
+    const posts = listFrom(data, "posts").map(normalizePost);
+    return { posts, hasMore: hasMoreFrom(data) };
+  }
+
   const apiTab = toApiTab(tab);
   const data = await getFeedPosts(apiTab, 1, 10);
   const posts = listFrom(data, "posts").map(normalizePost);
@@ -195,8 +228,18 @@ export const refreshFeed = async (tab = "for_you") => {
   };
 };
 
-// Load next page of feed posts.
+// Load next page of feed posts. `page` is 1-based from the Home screen.
 export const loadMoreFeed = async (tab, page) => {
+  const key = String(tab).toLowerCase().trim();
+  const loader = TAB_FEED_LOADER[key];
+
+  if (loader) {
+    // Dedicated endpoints are 0-based, so page 2 (UI) → page 1 (API).
+    const data = await loader(Math.max(0, page - 1), 10);
+    const posts = listFrom(data, "posts").map(normalizePost);
+    return { ...data, posts, hasMore: hasMoreFrom(data) };
+  }
+
   const apiTab = toApiTab(tab);
   const data = await getFeedPosts(apiTab, page, 10);
   const posts = listFrom(data, "posts").map(normalizePost);
@@ -209,6 +252,34 @@ export const loadWalletTransactions = (page = 0, size = 20) =>
 
 export const searchUsersByQuery = (q, page = 0, limit = 20) =>
   searchUsers(q, page, limit);
+
+// People search for the Home search box.
+// Tries the query-param endpoint first, falls back to the path-param
+// endpoint if the backend only exposes that one. Returns normalized users.
+export const searchPeople = async (query, page = 0, limit = 20) => {
+  const trimmed = String(query ?? "").trim();
+  if (!trimmed) return [];
+
+  let data;
+  try {
+    data = await searchUsers(trimmed, page, limit);
+  } catch (err) {
+    if (err?.status === 404) {
+      data = await searchUsersByPath(trimmed);
+    } else {
+      throw err;
+    }
+  }
+
+  return listFrom(data, "users").map(normalizeRecommendedUser);
+};
+
+// Full profile for a single user (used when opening a search result).
+export const getUserDetailById = async (userId) => {
+  const data = await getUserById(userId);
+  const user = data?.user ?? data?.data ?? data ?? {};
+  return normalizeRecommendedUser(user);
+};
 
 export const markAllNotificationsRead = () =>
   markNotificationsRead("all");

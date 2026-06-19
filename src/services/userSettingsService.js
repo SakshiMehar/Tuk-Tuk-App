@@ -3,6 +3,8 @@ import { Platform } from "react-native";
 import {
   getUserSettings as apiGetUserSettings,
   patchUserSettings as apiPatchUserSettings,
+  getMatchSwitch as apiGetMatchSwitch,
+  patchMatchSwitch as apiPatchMatchSwitch,
   clearAppCache as apiClearAppCache,
   clearChatCache as apiClearChatCache,
   checkForUpdate as apiCheckForUpdate,
@@ -134,6 +136,42 @@ export const updateUserSettings = async (updates = {}, previous = {}) => {
     JSON.stringify(parsed, null, 2)
   );
   return parsed;
+};
+
+export const loadMatchSwitch = async () => {
+  const data = await apiGetMatchSwitch();
+  const raw = unwrapSettings(data);
+  const resolved = Boolean(
+    raw.matchSwitchEnabled ??
+      raw.matchSwitch ??
+      raw.matchEnable ??
+      raw.matchEnabled ??
+      raw.enabled ??
+      false
+  );
+  console.log(
+    "[userSettingsService] match-switch loaded:",
+    JSON.stringify({ matchSwitchEnabled: resolved, response: data }, null, 2)
+  );
+  return resolved;
+};
+
+export const updateMatchSwitch = async (enabled) => {
+  const data = await apiPatchMatchSwitch(enabled);
+  const raw = unwrapSettings(data);
+  const resolved = Boolean(
+    raw.matchSwitchEnabled ??
+      raw.matchSwitch ??
+      raw.matchEnable ??
+      raw.matchEnabled ??
+      raw.enabled ??
+      enabled
+  );
+  console.log(
+    "[userSettingsService] match-switch updated:",
+    JSON.stringify({ matchSwitchEnabled: resolved, response: data }, null, 2)
+  );
+  return resolved;
 };
 
 export const clearAppCache = () => apiClearAppCache();

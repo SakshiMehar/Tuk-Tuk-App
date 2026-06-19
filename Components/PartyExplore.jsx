@@ -9,6 +9,7 @@ import {
   Dimensions,
   StatusBar,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -27,12 +28,27 @@ import {
   loadRecentlyRooms,
   loadFollowingRooms,
   loadManagedRooms,
+  loadPartyRanking,
+  loadFamilies,
 } from "../src/services/partyService";
 import { openUserChat } from "../src/utils/chatNavigation";
+import ComingSoonModal from "./ComingSoonModal";
 import exploreData from "../src/data/partyExploreData.json";
 
 const { width: W } = Dimensions.get("window");
 const FEATURE_CARD_W = (W - 32 - 16) / 3;
+
+const RANKING_PERIODS = [
+  { id: "daily", label: "Daily" },
+  { id: "weekly", label: "Weekly" },
+  { id: "monthly", label: "Monthly" },
+];
+
+const PODIUM_STYLE = {
+  1: { ring: ["#ffd700", "#ffaa00"], medal: "🥇", size: 84 },
+  2: { ring: ["#c0c0c0", "#9aa0a6"], medal: "🥈", size: 72 },
+  3: { ring: ["#cd7f32", "#a0522d"], medal: "🥉", size: 72 },
+};
 
 const THEME = {
   bg: "#0f0720",
@@ -187,6 +203,20 @@ export default function PartyExplore() {
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [recommendedUsers, setRecommendedUsers] = useState([]);
 
+  // ── Ranking modal ──
+  const [rankingVisible, setRankingVisible] = useState(false);
+  const [rankingPeriod, setRankingPeriod] = useState("daily");
+  const [rankingList, setRankingList] = useState([]);
+  const [rankingLoading, setRankingLoading] = useState(false);
+
+  // ── Family modal ──
+  const [familyVisible, setFamilyVisible] = useState(false);
+  const [familyList, setFamilyList] = useState([]);
+  const [familyLoading, setFamilyLoading] = useState(false);
+
+  // ── Coming soon modal ──
+  const [comingSoonFeature, setComingSoonFeature] = useState(null);
+
   useEffect(() => {
     if (activeTopTab !== "Explore") return;
     let cancelled = false;
@@ -237,10 +267,61 @@ export default function PartyExplore() {
     return () => { cancelled = true; };
   }, []);
 
+  // Load ranking whenever the modal opens or the period changes.
+  useEffect(() => {
+    if (!rankingVisible) return;
+    let cancelled = false;
+    setRankingLoading(true);
+    loadPartyRanking(rankingPeriod)
+      .then((list) => {
+        if (!cancelled) setRankingList(list);
+      })
+      .catch(() => {
+        if (!cancelled) setRankingList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRankingLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [rankingVisible, rankingPeriod]);
+
+  // Load families when the family modal opens.
+  useEffect(() => {
+    if (!familyVisible) return;
+    let cancelled = false;
+    setFamilyLoading(true);
+    loadFamilies()
+      .then((list) => {
+        if (!cancelled) setFamilyList(list);
+      })
+      .catch(() => {
+        if (!cancelled) setFamilyList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFamilyLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [familyVisible]);
+
+  const handleFeatureCardPress = (card) => {
+    if (card.id === "ranking") {
+      setRankingVisible(true);
+    } else if (card.id === "family") {
+      setFamilyVisible(true);
+    } else if (card.id === "game") {
+      setComingSoonFeature("Game");
+    } else {
+      setComingSoonFeature(card.label);
+    }
+  };
+
   const filteredRooms = useMemo(
     () => rooms.filter((room) => matchesFilter(room, activeFilter)),
     [rooms, activeFilter]
   );
+
+  const podium = useMemo(() => rankingList.slice(0, 3), [rankingList]);
+  const restRanking = useMemo(() => rankingList.slice(3), [rankingList]);
 
   const openRoom = (roomId) => {
     router.push({ pathname: "/voice-party", params: { roomId } });
@@ -369,7 +450,12 @@ export default function PartyExplore() {
             <>
               <View style={styles.featureRow}>
                 {FEATURE_CARDS.map((card) => (
-                  <TouchableOpacity key={card.id} style={styles.featureCard} activeOpacity={0.85}>
+                  <TouchableOpacity
+                    key={card.id}
+                    style={styles.featureCard}
+                    activeOpacity={0.85}
+                    onPress={() => handleFeatureCardPress(card)}
+                  >
                     <LinearGradient colors={card.colors} style={styles.featureGrad}>
                       <Text style={styles.featureEmoji}>{card.emoji}</Text>
                     </LinearGradient>
@@ -459,6 +545,166 @@ export default function PartyExplore() {
           <View style={{ height: 24 }} />
         </ScrollView>
       </SafeAreaView>
+
+      {/* ══════════ RANKING MODAL ══════════ */}
+      <Modal
+        visible={rankingVisible}
+        animationType="slide"
+        onRequestClose={() => setRankingVisible(false)}
+      >
+        <View style={styles.modalRoot}>
+          <SafeAreaView style={styles.safe} edges={["top"]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🏆 Ranking</Text>
+              <TouchableOpacity
+                style={styles.modalClose}
+                onPress={() => setRankingVisible(false)}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Period tabs */}
+            <View style={styles.periodRow}>
+              {RANKING_PERIODS.map((p) => {
+                const active = rankingPeriod === p.id;
+                return (
+                  <TouchableOpacity
+                    key={p.id}
+                    activeOpacity={0.8}
+                    onPress={() => setRankingPeriod(p.id)}
+                    style={styles.periodBtnWrap}
+                  >
+                    {active ? (
+                      <LinearGradient colors={["#7c4dff", "#4a6cf7"]} style={styles.periodBtnActive}>
+                        <Text style={styles.periodTextActive}>{p.label}</Text>
+                      </LinearGradient>
+                    ) : (
+                      <View style={styles.periodBtn}>
+                        <Text style={styles.periodText}>{p.label}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {rankingLoading ? (
+              <ActivityIndicator color={THEME.purple} style={{ marginTop: 40 }} />
+            ) : rankingList.length === 0 ? (
+              <EmptyState message="No ranking data yet." />
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+                {/* Podium top 3 */}
+                <View style={styles.podiumRow}>
+                  {podium.map((entry) => {
+                    const cfg = PODIUM_STYLE[entry.rank] ?? PODIUM_STYLE[3];
+                    return (
+                      <View
+                        key={String(entry.id)}
+                        style={[styles.podiumItem, entry.rank === 1 && styles.podiumFirst]}
+                      >
+                        <Text style={styles.podiumMedal}>{cfg.medal}</Text>
+                        <LinearGradient colors={cfg.ring} style={[styles.podiumRing, { width: cfg.size, height: cfg.size, borderRadius: cfg.size / 2 }]}>
+                          {entry.avatar ? (
+                            <Image source={{ uri: entry.avatar }} style={styles.podiumAvatar} />
+                          ) : (
+                            <View style={[styles.podiumAvatar, styles.avatarPlaceholder]}>
+                              <Text style={styles.avatarInitial}>{entry.name?.[0]?.toUpperCase() ?? "?"}</Text>
+                            </View>
+                          )}
+                        </LinearGradient>
+                        <Text style={styles.podiumName} numberOfLines={1}>{entry.name}</Text>
+                        <Text style={styles.podiumScore}>{entry.score} 💎</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* Rest of the list */}
+                {restRanking.map((entry) => (
+                  <View key={String(entry.id)} style={styles.rankRow}>
+                    <Text style={styles.rankNumber}>{entry.rank}</Text>
+                    {entry.avatar ? (
+                      <Image source={{ uri: entry.avatar }} style={styles.rankAvatar} />
+                    ) : (
+                      <View style={[styles.rankAvatar, styles.avatarPlaceholder]}>
+                        <Text style={styles.avatarInitial}>{entry.name?.[0]?.toUpperCase() ?? "?"}</Text>
+                      </View>
+                    )}
+                    <View style={styles.rankInfo}>
+                      <Text style={styles.rankName} numberOfLines={1}>{entry.name}</Text>
+                      {entry.level != null && (
+                        <Text style={styles.rankLevel}>Lv {entry.level}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.rankScore}>{entry.score} 💎</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ══════════ FAMILY MODAL ══════════ */}
+      <Modal
+        visible={familyVisible}
+        animationType="slide"
+        onRequestClose={() => setFamilyVisible(false)}
+      >
+        <View style={styles.modalRoot}>
+          <SafeAreaView style={styles.safe} edges={["top"]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>👪 Family</Text>
+              <TouchableOpacity
+                style={styles.modalClose}
+                onPress={() => setFamilyVisible(false)}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {familyLoading ? (
+              <ActivityIndicator color={THEME.purple} style={{ marginTop: 40 }} />
+            ) : familyList.length === 0 ? (
+              <EmptyState message="No families yet. Be the first to create one!" />
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32, paddingHorizontal: 16 }}>
+                {familyList.map((family) => (
+                  <View key={String(family.id)} style={styles.familyCard}>
+                    <Text style={styles.familyRank}>#{family.rank}</Text>
+                    {family.avatar ? (
+                      <Image source={{ uri: family.avatar }} style={styles.familyAvatar} />
+                    ) : (
+                      <View style={[styles.familyAvatar, styles.familyEmojiWrap]}>
+                        <Text style={styles.familyEmoji}>{family.emoji}</Text>
+                      </View>
+                    )}
+                    <View style={styles.familyInfo}>
+                      <Text style={styles.familyName} numberOfLines={1}>{family.name}</Text>
+                      <View style={styles.familyMetaRow}>
+                        <Text style={styles.familyMeta}>Lv {family.level}</Text>
+                        <Text style={styles.familyMetaDot}>·</Text>
+                        <Text style={styles.familyMeta}>{family.memberCount} members</Text>
+                      </View>
+                    </View>
+                    <View style={styles.familyScoreWrap}>
+                      <Text style={styles.familyScore}>{family.score}</Text>
+                      <Text style={styles.familyScoreLabel}>prosperity</Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      <ComingSoonModal
+        feature={comingSoonFeature}
+        onClose={() => setComingSoonFeature(null)}
+      />
     </View>
   );
 }
@@ -982,5 +1228,243 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.75)",
     textAlign: "center",
     maxWidth: 72,
+  },
+
+  // ── Ranking / Family modals ──
+  modalRoot: {
+    flex: 1,
+    backgroundColor: THEME.bg,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(167,139,250,0.12)",
+  },
+  modalTitle: {
+    color: THEME.text,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  modalClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(124,77,255,0.12)",
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+  modalCloseText: {
+    color: THEME.purpleLight,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  avatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitial: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+
+  // Ranking period tabs
+  periodRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 14,
+  },
+  periodBtnWrap: {},
+  periodBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(124,77,255,0.12)",
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+  periodBtnActive: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  periodText: {
+    color: THEME.textMuted,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  periodTextActive: {
+    color: THEME.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  // Podium
+  podiumRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "flex-end",
+    gap: 14,
+    paddingTop: 18,
+    paddingBottom: 24,
+  },
+  podiumItem: {
+    alignItems: "center",
+    width: 96,
+  },
+  podiumFirst: {
+    marginBottom: 16,
+  },
+  podiumMedal: {
+    fontSize: 22,
+    marginBottom: 6,
+  },
+  podiumRing: {
+    padding: 3,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  podiumAvatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: THEME.bg,
+  },
+  podiumName: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 8,
+    maxWidth: 90,
+  },
+  podiumScore: {
+    color: THEME.purpleLight,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+
+  // Ranking list rows
+  rankRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: THEME.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    gap: 12,
+  },
+  rankNumber: {
+    width: 24,
+    textAlign: "center",
+    color: THEME.purpleLight,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  rankAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(124,77,255,0.15)",
+  },
+  rankInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  rankName: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  rankLevel: {
+    color: THEME.textMuted,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  rankScore: {
+    color: THEME.purpleLight,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+
+  // Family cards
+  familyCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: THEME.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    gap: 12,
+  },
+  familyRank: {
+    width: 32,
+    textAlign: "center",
+    color: THEME.purpleLight,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  familyAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: "rgba(124,77,255,0.15)",
+  },
+  familyEmojiWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  familyEmoji: {
+    fontSize: 26,
+  },
+  familyInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  familyName: {
+    color: THEME.text,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  familyMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  familyMeta: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  familyMetaDot: {
+    color: THEME.textMuted,
+    fontSize: 12,
+  },
+  familyScoreWrap: {
+    alignItems: "flex-end",
+  },
+  familyScore: {
+    color: THEME.purpleLight,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  familyScoreLabel: {
+    color: THEME.textDim,
+    fontSize: 9,
+    fontWeight: "600",
   },
 });
