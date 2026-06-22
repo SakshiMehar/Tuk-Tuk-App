@@ -27,20 +27,14 @@ export default function BlockedAccounts() {
 
   const fetchBlockedAccounts = useCallback(async () => {
     setLoading(true);
-    console.log(
-      "[BlockedAccounts] loading block-users -> GET /api/relationships/block-users"
-    );
+    
     try {
       setLoadError(null);
       const list = await loadBlocked();
       setBlockedAccounts(list);
-      console.log(
-        "[BlockedAccounts] block-users count:",
-        list.length,
-        JSON.stringify(list, null, 2)
-      );
+      
     } catch (err) {
-      console.log("[BlockedAccounts] load failed:", err?.message);
+      
       setLoadError(err?.message || "Could not load blocked users.");
       setBlockedAccounts([]);
     } finally {
@@ -59,18 +53,15 @@ export default function BlockedAccounts() {
     if (!targetId || unblockingId) return;
 
     setUnblockingId(String(targetId));
-    console.log("[BlockedAccounts] unblock request:", String(targetId));
+    
     try {
       const response = await unblockUser(targetId);
-      console.log(
-        "[BlockedAccounts] unblock success:",
-        JSON.stringify(response, null, 2)
-      );
+      
       setBlockedAccounts((prev) =>
         prev.filter((item) => String(item.userId ?? item.id) !== String(targetId))
       );
     } catch (err) {
-      console.log("[BlockedAccounts] unblock failed:", err?.message);
+      
       Alert.alert("Unblock failed", err?.message || "Please try again.");
     } finally {
       setUnblockingId(null);

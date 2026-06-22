@@ -94,10 +94,7 @@ export const parseRelationshipList = (data) =>
 export const parseBlockedUsers = (data) => {
   const rawList = listFrom(data);
   if (rawList.length === 0 && data && typeof data === "object") {
-    console.log(
-      "[relationshipService] block-users raw keys:",
-      Object.keys(data)
-    );
+    
   }
 
   const parsed = rawList
@@ -125,10 +122,7 @@ export const parseBlockedUsers = (data) => {
     .filter((u) => u.userId != null);
 
   if (rawList.length > 0 && parsed.length === 0) {
-    console.log(
-      "[relationshipService] block-users parse dropped entries:",
-      JSON.stringify(rawList, null, 2)
-    );
+    
   }
 
   return parsed;
@@ -149,10 +143,7 @@ export const loadFollowers = async () => parseRelationshipList(await getFollower
 export const loadBlocked = async () => {
   const data = await getBlockedUsers();
   const list = parseBlockedUsers(data);
-  console.log(
-    "[relationshipService] block-users parsed:",
-    JSON.stringify(list, null, 2)
-  );
+  
   return list;
 };
 

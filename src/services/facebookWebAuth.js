@@ -53,15 +53,9 @@ const exchangeTokenForSession = async (accessToken) => {
 
   if (!idToken) throw new Error("Firebase did not return a token.");
 
-  console.log(
-    "[facebookWebAuth] Firebase idToken:",
-    `${idToken.slice(0, 12)}… (len=${idToken.length})`
-  );
-  console.log("[facebookWebAuth] Firebase user:", {
-    displayName,
-    phoneNumber: phoneNumber ?? null,
-  });
-  console.log("[facebookWebAuth] calling backend auth API…");
+  
+  
+  
 
   return establishSessionFromApi(
     (credential) =>
@@ -99,8 +93,8 @@ export const signInWithFacebookWeb = async (options = {}) => {
   const { request, redirectUri } = buildAuthRequest();
   const authUrl = await request.makeAuthUrlAsync(FB_DISCOVERY);
 
-  console.log("[facebookWebAuth] redirectUri:", redirectUri);
-  console.log("[facebookWebAuth] authUrl:", authUrl);
+  
+  
 
   if (!authUrl.includes("redirect_uri=")) {
     throw new Error("Facebook auth URL is missing redirect_uri.");

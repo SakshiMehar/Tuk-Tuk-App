@@ -33,9 +33,9 @@ export default function ClearChatCacheModal({ visible, onClose }) {
       const list = await loadConversations();
       const withIds = list.filter((c) => c.userId != null);
       setConversations(withIds);
-      console.log("[ClearChatCache] conversations loaded:", withIds.length);
+      
     } catch (err) {
-      console.warn("[ClearChatCache] load failed:", err?.message ?? err);
+      
       setError(err?.message || "Could not load conversations.");
       setConversations([]);
     } finally {
@@ -91,17 +91,14 @@ export default function ClearChatCacheModal({ visible, onClose }) {
           onPress: async () => {
             setClearing(true);
             await refreshTokenCache();
-            console.log(
-              "[ClearChatCache] clearing cache for userIds:",
-              userIds.join(", ")
-            );
+            
             try {
               await clearChatCache(userIds);
               Alert.alert("Clear chat cache", "Chat cache cleared successfully.");
               setSelectedIds(new Set());
               onClose?.();
             } catch (err) {
-              console.warn("[ClearChatCache] clear failed:", err?.message ?? err);
+              
               Alert.alert(
                 "Clear chat cache",
                 err?.message || "Could not clear chat cache. Please try again."

@@ -171,29 +171,15 @@ export const getDailyGifts = async () => {
 };
 
 // ── 5. Wallet Balance ─────────────────────────────────────────
-export const getWallet = async () => {
-  const response = await API.get("/api/app/wallet/me");
-  return response.data;
-};
-
-// ── 6. Wallet Transactions ────────────────────────────────────
-export const getWalletTransactions = async (page = 0, size = 20) => {
-  const response = await API.get(
-    `/api/app/wallet/transactions?page=${page}&size=${size}`
-  );
-  return response.data;
-};
+export { getWalletMe as getWallet, getWalletTransactions } from "./walletApi";
 
 // ── 7. User Search (query param) ──────────────────────────────
 // GET /api/app/users/search?q=<query>&page=&limit=
 export const searchUsers = async (q, page = 0, limit = 20) => {
   const url = `/api/app/users/search?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`;
-  console.log("[homeApi] GET", url);
+  
   const response = await API.get(url, await authRequestConfig());
-  console.log(
-    "[homeApi] GET /api/app/users/search response:",
-    JSON.stringify(response.data, null, 2)
-  );
+  
   return response.data;
 };
 
@@ -201,12 +187,9 @@ export const searchUsers = async (q, page = 0, limit = 20) => {
 // GET /api/app/users/search/{query}
 export const searchUsersByPath = async (query) => {
   const url = `/api/app/users/search/${encodeURIComponent(query)}`;
-  console.log("[homeApi] GET", url);
+  
   const response = await API.get(url, await authRequestConfig());
-  console.log(
-    "[homeApi] GET /api/app/users/search/{query} response:",
-    JSON.stringify(response.data, null, 2)
-  );
+  
   return response.data;
 };
 
@@ -214,12 +197,9 @@ export const searchUsersByPath = async (query) => {
 // GET /api/app/users/{userId}
 export const getUserById = async (userId) => {
   const url = `/api/app/users/${encodeURIComponent(userId)}`;
-  console.log("[homeApi] GET", url);
+  
   const response = await API.get(url, await authRequestConfig());
-  console.log(
-    "[homeApi] GET /api/app/users/{userId} response:",
-    JSON.stringify(response.data, null, 2)
-  );
+  
   return response.data;
 };
 

@@ -1867,6 +1867,16 @@ export default function Home() {
     }, [syncSessionAvatar])
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      homeService.refreshActiveUsersCount()
+        .then((activeUsers) => {
+          setStats((prev) => ({ ...(prev ?? {}), activeUsers }));
+        })
+        .catch(() => {});
+    }, [])
+  );
+
   const handleNearbyPress = useCallback(async () => {
     const coords = await getDeviceCoordinates();
     if (!coords.ok) {
@@ -1972,7 +1982,7 @@ export default function Home() {
     setFeedPosts([]);
     setFeedPage(1);
     setFeedHasMore(false);
-    console.log(`[Home] loading feed for tab: ${tab}`);
+    
     try {
       const res = await homeService.refreshFeed(tab);
       const uid = currentUserIdRef.current;
@@ -1983,9 +1993,9 @@ export default function Home() {
         }))
       );
       setFeedHasMore(res.hasMore ?? false);
-      console.log(`[Home] tab "${tab}" loaded ${res.posts?.length ?? 0} posts`);
+      
     } catch (err) {
-      console.log(`[Home] tab "${tab}" feed load failed:`, err?.message);
+      
       setFeedPosts([]);
       setFeedHasMore(false);
     } finally {
@@ -2071,7 +2081,7 @@ export default function Home() {
         // Keep feature matches, replace any previous user rows.
         setSearchResults((prev) => [...prev.filter((r) => r.type !== "user"), ...userResults]);
       } catch (err) {
-        console.log("[Home] people search failed:", err?.message);
+        
       }
     }, 350);
   }, [searchSuggestions]);
@@ -2099,7 +2109,7 @@ export default function Home() {
         avatar: detail?.avatar ?? prev?.avatar,
       }));
     } catch (err) {
-      console.log("[Home] load search profile failed:", err?.message);
+      
     } finally {
       setSearchProfileLoading(false);
     }
@@ -2151,9 +2161,7 @@ export default function Home() {
 
     const targetId = String(userId);
     const wasFollowing = followingIdsRef.current.some((id) => isSameUser(id, targetId));
-    console.log(
-      `[Home] follow toggle userId=${targetId} wasFollowing=${wasFollowing}`
-    );
+    
     const updated = wasFollowing
       ? followingIdsRef.current.filter((id) => !isSameUser(id, targetId))
       : [...followingIdsRef.current, targetId];
@@ -2166,9 +2174,9 @@ export default function Home() {
       } else {
         await followUser(targetId);
       }
-      console.log(`[Home] follow toggle success userId=${targetId}`);
+      
     } catch (e) {
-      console.log(`[Home] follow toggle failed userId=${targetId}:`, e?.message);
+      
       const msg = e?.message?.toLowerCase() ?? "";
 
       // "not following" on unfollow → backend agrees, keep UI as not-following (already reverted)
@@ -2250,7 +2258,7 @@ export default function Home() {
     try {
       newPost = await createPost({ caption, media, mediaUri, mediaType });
     } catch (e) {
-      console.log("[Home] create post failed:", e?.message);
+      
       await refreshFeed().catch(() => {});
       throw e;
     }
@@ -2289,16 +2297,13 @@ export default function Home() {
   const handleBlockUser = useCallback(async (userId, userName) => {
     if (!userId) return;
     if (isSameUser(userId, currentUserId)) return;
-    console.log("[Home] block user:", String(userId), userName ?? "");
+    
     try {
       const response = await blockUser(userId);
-      console.log(
-        "[Home] block success:",
-        JSON.stringify(response, null, 2)
-      );
+      
       setFeedPosts((prev) => prev.filter((p) => p.userId !== userId));
     } catch (e) {
-      console.log("[Home] block failed:", e?.message);
+      
       Alert.alert("Block failed", e?.message || "Please try again.");
     }
   }, [currentUserId]);

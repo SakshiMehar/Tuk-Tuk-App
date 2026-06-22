@@ -14,13 +14,10 @@ export const endLocalSession = async () => {
 export const logoutSession = async () => {
   try {
     const data = await apiLogout();
-    console.log(
-      "[authSession] logout response:",
-      JSON.stringify(data, null, 2)
-    );
+    
     return data;
   } catch (err) {
-    console.log("[authSession] logout failed:", err?.message);
+    
     throw err;
   } finally {
     await endLocalSession();
@@ -29,10 +26,7 @@ export const logoutSession = async () => {
 
 export const deleteAccountSession = async ({ reason, additionalComment }) => {
   const data = await apiDeleteAccount({ reason, additionalComment });
-  console.log(
-    "[authSession] delete account response:",
-    JSON.stringify(data, null, 2)
-  );
+  
   await endLocalSession();
   return data;
 };
@@ -42,20 +36,7 @@ export const establishSessionFromApi = async (apiCall, credential) => {
   const data = await apiCall(credential);
   const { token, user } = normalizeAuthResponse(data);
   const resolvedUserId = resolveAppUserId(user, token);
-  console.log(
-    "[authLogin] session:",
-    JSON.stringify(
-      {
-        userId: resolvedUserId,
-        name: user?.name ?? user?.username ?? null,
-        profilePicUrl: user?.profilePicUrl ?? user?.avatarUrl ?? null,
-        hasToken: Boolean(token),
-        user,
-      },
-      null,
-      2
-    )
-  );
+  
   if (!token) {
     throw new Error("Authentication succeeded but no token was returned.");
   }

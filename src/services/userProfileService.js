@@ -138,25 +138,19 @@ export const mergeProfileState = (previous = {}, apiParsed = {}, localUpdates = 
 export const loadUserProfile = async () => {
   const data = await apiGetUserProfile();
   const parsed = parseUserProfile(data);
-  console.log(
-    "[userProfileService] loaded profile:",
-    JSON.stringify(parsed, null, 2)
-  );
+  
   return parsed;
 };
 
 export const updateUserProfile = async (updates = {}) => {
   const payload = buildProfilePatchPayload(updates);
   if (!Object.keys(payload).length) {
-    console.log("[userProfileService] no profile fields to patch");
+    
     return null;
   }
 
   const data = await apiPatchUserProfile(payload);
   const parsed = parseUserProfile(data);
-  console.log(
-    "[userProfileService] updated profile:",
-    JSON.stringify(parsed, null, 2)
-  );
+  
   return parsed;
 };

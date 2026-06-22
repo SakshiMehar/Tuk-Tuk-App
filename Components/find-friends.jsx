@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,10 +10,15 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { ArrowLeft, X, Heart, Star } from "lucide-react-native";
+import { ArrowLeft, X, Star, UserPlus, MessageCircle } from "lucide-react-native";
+import { getNextFriend, sendFriendAction, updateFindFriendsProfile } from "../src/api/findFriendsApi";
+import { openUserChat } from "../src/utils/chatNavigation";
+import { saveFavoriteUser } from "../src/services/favoritesService";
+import { followUser } from "../src/services/relationshipService";
 
 const { width: W, height: H } = Dimensions.get("window");
 
@@ -141,6 +146,142 @@ export default function FindFriends() {
   const [education, setEducation]   = useState("");
   const [occupation, setOccupation] = useState("");
   const [bio, setBio]               = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const handleSaveFindFriendsProfile = useCallback(async () => {
+    if (savingProfile) return;
+    setSavingProfile(true);
+    const payload = {
+      interests,
+      music,
+      books,
+      food,
+      language,
+      bio,
+      education,
+      occupation,
+    };
+    
+    try {
+      const res = await updateFindFriendsProfile(payload);
+      
+      Alert.alert("Profile saved!", "Now let's find you some friends 🎉", [
+        { text: "Let's go!", onPress: () => setStep(9) },
+      ]);
+    } catch (err) {
+      
+      if (err?.responseData) {
+        
+      }
+      Alert.alert("Save failed", err?.message || "Could not save your profile. Please try again.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }, [savingProfile, interests, music, books, food, language, bio, education, occupation]);
+
+  // ── Find Friends match screen (step 9) ──
+  const [card,        setCard]        = useState(null);
+  const [cardLoading, setCardLoading] = useState(false);
+  const [actionBusy,  setActionBusy]  = useState(false);
+  const [noMore,      setNoMore]      = useState(false);
+
+  const loadNextFriend = useCallback(async () => {
+    setCardLoading(true);
+    setNoMore(false);
+    try {
+      const data = await getNextFriend();
+      if (data && data.id != null) {
+        setCard(data);
+      } else {
+        setCard(null);
+        setNoMore(true);
+      }
+    } catch (err) {
+      
+      setCard(null);
+      setNoMore(true);
+    } finally {
+      setCardLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (step === 9) loadNextFriend();
+  }, [step, loadNextFriend]);
+
+  // Show server-provided next card, or fetch a fresh one.
+  const applyNextOrFetch = useCallback((nextUser) => {
+    if (nextUser && nextUser.id != null) {
+      setCard(nextUser);
+    } else {
+      loadNextFriend();
+    }
+  }, [loadNextFriend]);
+
+  const [followedThisCard, setFollowedThisCard] = useState(false);
+
+  const handleFollow = useCallback(async () => {
+    if (!card?.id || actionBusy || followedThisCard) return;
+    setActionBusy(true);
+    try {
+      await followUser(card.id);
+      setFollowedThisCard(true);
+      
+    } catch (err) {
+      
+      Alert.alert("Follow failed", err?.message || "Please try again.");
+    } finally {
+      setActionBusy(false);
+    }
+  }, [card, actionBusy, followedThisCard]);
+
+  const handleChat = useCallback(async () => {
+    if (!card?.id) return;
+    await openUserChat(router, {
+      userId: String(card.id),
+      id: String(card.id),
+      name: card.name,
+      avatarUrl: card.profilePicUrl,
+      profilePicUrl: card.profilePicUrl,
+    });
+  }, [card, router]);
+
+  const handleReject = useCallback(async () => {
+    if (!card?.id || actionBusy) return;
+    setActionBusy(true);
+    try {
+      const res = await sendFriendAction(card.id, "REJECT");
+      applyNextOrFetch(res?.nextUser);
+    } catch (err) {
+      
+    } finally {
+      setActionBusy(false);
+    }
+  }, [card, actionBusy, applyNextOrFetch]);
+
+  // ⭐ Save / favourite → shows up under Profile → Menu → Saved.
+  const [savedThisCard, setSavedThisCard] = useState(false);
+  const handleSaveFavorite = useCallback(async () => {
+    if (!card?.id) return;
+    try {
+      await saveFavoriteUser({
+        userId: card.id,
+        name: card.name,
+        avatarUrl: card.profilePicUrl,
+        occupation: card.occupation,
+      });
+      setSavedThisCard(true);
+      Alert.alert("Saved ⭐", `${card.name ?? "User"} added to your Saved list (Profile → Menu → Saved).`);
+    } catch (err) {
+      
+      Alert.alert("Save failed", err?.message || "Could not save this user.");
+    }
+  }, [card]);
+
+  useEffect(() => {
+    setSavedThisCard(false);
+    setFollowedThisCard(false);
+  }, [card?.id]);
 
   const toggle = (setter, arr, val) =>
     setter(arr.includes(val) ? arr.filter((v) => v !== val) : [...arr, val]);
@@ -307,11 +448,10 @@ export default function FindFriends() {
       <ScrollView contentContainerStyle={styles.scrollPad} showsVerticalScrollIndicator={false}>
         <ListSelect items={OCCUPATION} selected={occupation} onSelect={setOccupation} />
       </ScrollView>
-      <SaveBtn onPress={() => {
-        Alert.alert("Profile saved!", "Now let's find you some friends 🎉", [
-          { text: "Let's go!", onPress: () => setStep(9) },
-        ]);
-      }} />
+      <SaveBtn
+        label={savingProfile ? "Saving..." : "Save"}
+        onPress={handleSaveFindFriendsProfile}
+      />
     </View>
   );
 
@@ -328,39 +468,109 @@ export default function FindFriends() {
       </View>
       <ScrollView contentContainerStyle={[styles.scrollPad, { alignItems: "center" }]} showsVerticalScrollIndicator={false}>
         <Text style={[styles.stepTitle, { alignSelf: "flex-start" }]}>People you may like</Text>
-        <View style={styles.matchCard}>
-          <Image
-            source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
-            style={styles.matchImg}
-            resizeMode="cover"
-          />
-          <LinearGradient
-            colors={["transparent", "rgba(13,6,24,0.95)"]}
-            style={styles.matchOverlay}
-          />
-          <View style={styles.matchInfo}>
-            <Text style={styles.matchName}>Priya, 21</Text>
-            <Text style={styles.matchBio}>Love music and long walks 🎵</Text>
-            <View style={styles.matchTags}>
-              {["Music 🎵", "Travel ✈️", "Movies 🎬"].map((t) => (
-                <View key={t} style={styles.matchTag}>
-                  <Text style={styles.matchTagText}>{t}</Text>
-                </View>
-              ))}
-            </View>
+
+        {cardLoading && !card ? (
+          <View style={styles.ffStateBox}>
+            <ActivityIndicator size="large" color="#a78bfa" />
+            <Text style={styles.ffStateText}>Finding people for you…</Text>
           </View>
-        </View>
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={[styles.actionBtn, styles.actionSkip]} activeOpacity={0.8}>
-            <X size={28} color="#ff6b6b" />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.actionStar]} activeOpacity={0.8}>
-            <Star size={22} color="#ffd700" />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.actionLike]} activeOpacity={0.8}>
-            <Heart size={28} color="white" fill="white" />
-          </TouchableOpacity>
-        </View>
+        ) : !card ? (
+          <View style={styles.ffStateBox}>
+            <Text style={styles.ffStateEmoji}>🪄</Text>
+            <Text style={styles.ffStateTitle}>{noMore ? "No more people right now" : "Nothing to show"}</Text>
+            <Text style={styles.ffStateText}>Check back later for new matches.</Text>
+            <TouchableOpacity style={styles.ffRetryBtn} onPress={loadNextFriend} activeOpacity={0.85}>
+              <Text style={styles.ffRetryText}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <View style={styles.matchCard}>
+              {card.profilePicUrl ? (
+                <Image source={{ uri: card.profilePicUrl }} style={styles.matchImg} resizeMode="cover" />
+              ) : (
+                <View style={[styles.matchImg, styles.matchImgFallback]}>
+                  <Text style={styles.matchImgFallbackEmoji}>👤</Text>
+                </View>
+              )}
+              <LinearGradient
+                colors={["transparent", "rgba(13,6,24,0.95)"]}
+                style={styles.matchOverlay}
+              />
+              {card.isOnline && (
+                <View style={styles.matchOnlinePill}>
+                  <View style={styles.matchOnlineDot} />
+                  <Text style={styles.matchOnlineText}>Online</Text>
+                </View>
+              )}
+              {typeof card.matchScore === "number" && card.matchScore > 0 && (
+                <View style={styles.matchScorePill}>
+                  <Text style={styles.matchScoreText}>✨ {card.matchScore} match{card.matchScore > 1 ? "es" : ""}</Text>
+                </View>
+              )}
+              <View style={styles.matchInfo}>
+                <Text style={styles.matchName}>{card.name ?? "User"}</Text>
+                {card.occupation ? <Text style={styles.matchBio}>💼 {card.occupation}</Text> : null}
+                {Array.isArray(card.matchedFields) && card.matchedFields.length > 0 && (
+                  <View style={styles.matchTags}>
+                    {card.matchedFields.map((t) => (
+                      <View key={t} style={styles.matchTag}>
+                        <Text style={styles.matchTagText}>{t}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </View>
+            <View style={styles.actionWrap}>
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.actionBtn,
+                    styles.actionFollow,
+                    followedThisCard && styles.actionFollowDone,
+                    actionBusy && { opacity: 0.5 },
+                  ]}
+                  onPress={handleFollow}
+                  disabled={actionBusy || followedThisCard}
+                  activeOpacity={0.8}
+                >
+                  <UserPlus size={26} color={followedThisCard ? "white" : "#7c4dff"} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.actionStar, savedThisCard && styles.actionStarSaved]}
+                  onPress={handleSaveFavorite}
+                  activeOpacity={0.8}
+                >
+                  <Star size={22} color="#ffd700" fill={savedThisCard ? "#ffd700" : "none"} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.actionSkip, actionBusy && { opacity: 0.5 }]}
+                  onPress={handleReject}
+                  disabled={actionBusy}
+                  activeOpacity={0.8}
+                >
+                  <X size={28} color="#ff6b6b" />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={styles.chatBtn}
+                onPress={handleChat}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={["#7c4dff", "#a855f7"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.chatBtnGradient}
+                >
+                  <MessageCircle size={20} color="white" />
+                  <Text style={styles.chatBtnText}>Chat</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -524,9 +734,34 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   matchImg: { width: "100%", height: "100%" },
+  matchImgFallback: { backgroundColor: "#2d1b4e", alignItems: "center", justifyContent: "center" },
+  matchImgFallbackEmoji: { fontSize: 90 },
   matchOverlay: {
     position: "absolute", bottom: 0, left: 0, right: 0, height: "55%",
   },
+  matchOnlinePill: {
+    position: "absolute", top: 14, left: 14, flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5,
+  },
+  matchOnlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#00e676" },
+  matchOnlineText: { color: "white", fontSize: 11, fontWeight: "700" },
+  matchScorePill: {
+    position: "absolute", top: 14, right: 14,
+    backgroundColor: "rgba(124,77,255,0.65)", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: "rgba(167,139,250,0.5)",
+  },
+  matchScoreText: { color: "white", fontSize: 11, fontWeight: "800" },
+
+  // Loading / empty states
+  ffStateBox: { alignItems: "center", justifyContent: "center", paddingTop: 70, gap: 12, width: "100%" },
+  ffStateEmoji: { fontSize: 56 },
+  ffStateTitle: { color: "white", fontSize: 18, fontWeight: "800" },
+  ffStateText: { color: "rgba(255,255,255,0.5)", fontSize: 13, textAlign: "center" },
+  ffRetryBtn: {
+    marginTop: 8, paddingHorizontal: 24, paddingVertical: 11, borderRadius: 22,
+    backgroundColor: "rgba(124,77,255,0.4)", borderWidth: 1, borderColor: "#a78bfa",
+  },
+  ffRetryText: { color: "white", fontSize: 14, fontWeight: "700" },
   matchInfo: {
     position: "absolute", bottom: 20, left: 20, right: 20, gap: 6,
   },
@@ -540,13 +775,22 @@ const styles = StyleSheet.create({
   },
   matchTagText: { color: "white", fontSize: 12, fontWeight: "600" },
 
-  actionRow: { flexDirection: "row", alignItems: "center", gap: 24 },
+  actionWrap: { alignItems: "center", width: "100%", gap: 18 },
+  actionRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 24 },
   actionBtn: {
     width: 60, height: 60, borderRadius: 30,
     alignItems: "center", justifyContent: "center",
     borderWidth: 1,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 10, elevation: 8,
+  },
+  actionFollow: {
+    backgroundColor: "rgba(124,77,255,0.18)",
+    borderColor: "rgba(167,139,250,0.5)", shadowColor: "#7c4dff",
+  },
+  actionFollowDone: {
+    backgroundColor: "#7c4dff",
+    borderColor: "rgba(167,139,250,0.5)",
   },
   actionSkip: {
     backgroundColor: "rgba(255,107,107,0.15)",
@@ -557,8 +801,27 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,215,0,0.15)",
     borderColor: "rgba(255,215,0,0.4)", shadowColor: "#ffd700",
   },
-  actionLike: {
-    backgroundColor: "#7c4dff",
-    borderColor: "rgba(167,139,250,0.5)", shadowColor: "#7c3aed",
+  actionStarSaved: {
+    backgroundColor: "rgba(255,215,0,0.35)",
+    borderColor: "#ffd700",
   },
+  chatBtn: {
+    width: W - 64,
+    maxWidth: 320,
+    borderRadius: 28,
+    overflow: "hidden",
+    shadowColor: "#7c3aed",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  chatBtnGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 14,
+  },
+  chatBtnText: { color: "white", fontSize: 16, fontWeight: "800" },
 });

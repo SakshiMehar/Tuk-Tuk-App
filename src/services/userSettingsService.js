@@ -118,10 +118,7 @@ export const parseUserSettings = (data) => {
 export const loadUserSettings = async () => {
   const data = await apiGetUserSettings();
   const parsed = parseUserSettings(data);
-  console.log(
-    "[userSettingsService] loaded settings:",
-    JSON.stringify(parsed, null, 2)
-  );
+  
   return parsed;
 };
 
@@ -131,10 +128,7 @@ export const updateUserSettings = async (updates = {}, previous = {}) => {
   const parsed = responseHasSettings(data)
     ? parseUserSettings(data)
     : { ...previous, ...updates };
-  console.log(
-    "[userSettingsService] updated settings:",
-    JSON.stringify(parsed, null, 2)
-  );
+  
   return parsed;
 };
 
@@ -149,10 +143,7 @@ export const loadMatchSwitch = async () => {
       raw.enabled ??
       false
   );
-  console.log(
-    "[userSettingsService] match-switch loaded:",
-    JSON.stringify({ matchSwitchEnabled: resolved, response: data }, null, 2)
-  );
+  
   return resolved;
 };
 
@@ -167,10 +158,7 @@ export const updateMatchSwitch = async (enabled) => {
       raw.enabled ??
       enabled
   );
-  console.log(
-    "[userSettingsService] match-switch updated:",
-    JSON.stringify({ matchSwitchEnabled: resolved, response: data }, null, 2)
-  );
+  
   return resolved;
 };
 
@@ -187,18 +175,12 @@ export const checkForUpdate = async () => {
       "1.0.0",
   };
   const data = await apiCheckForUpdate(params);
-  console.log(
-    "[userSettingsService] check-update:",
-    JSON.stringify(data, null, 2)
-  );
+  
   return data;
 };
 
 export const submitFeedback = async (message) => {
   const data = await apiSubmitFeedback(message);
-  console.log(
-    "[userSettingsService] feedback:",
-    JSON.stringify(data, null, 2)
-  );
+  
   return data;
 };

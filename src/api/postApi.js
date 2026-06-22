@@ -96,11 +96,7 @@ const buildAuthHeaders = async (contentType) => {
 };
 
 export const createPost = async ({ caption, mediaUri, mediaType, media }) => {
-  console.log("[postApi] POST /api/posts", {
-    hasCaption: Boolean(String(caption ?? "").trim()),
-    hasMedia: Boolean(mediaUri),
-    mediaType,
-  });
+  
 
   if (mediaUri) {
     const resolvedMediaType = normalizeApiMediaType(mediaType ?? media?.type ?? "image");
@@ -129,7 +125,7 @@ export const createPost = async ({ caption, mediaUri, mediaType, media }) => {
     });
 
     const data = await parseCreatePostResponse(response);
-    console.log("[postApi] POST /api/posts (multipart) response:", JSON.stringify(data, null, 2));
+    
     return data;
   }
 
@@ -139,7 +135,7 @@ export const createPost = async ({ caption, mediaUri, mediaType, media }) => {
     { caption: caption ?? "", token },
     { headers }
   );
-  console.log("[postApi] POST /api/posts response:", JSON.stringify(response.data, null, 2));
+  
   return response.data;
 };
 
@@ -242,10 +238,7 @@ export const shareUser = async (targetUserId) => {
 // GET /api/posts/online?page=0&size=10
 export const getOnlinePosts = async (page = 0, size = 10) => {
   const response = await API.get(`/api/posts/online?page=${page}&size=${size}`);
-  console.log(
-    "[postApi] GET /api/posts/online response:",
-    JSON.stringify(response.data, null, 2)
-  );
+  
   return response.data;
 };
 
@@ -253,10 +246,7 @@ export const getOnlinePosts = async (page = 0, size = 10) => {
 // GET /api/posts/following?page=0&size=10
 export const getFollowingPosts = async (page = 0, size = 10) => {
   const response = await API.get(`/api/posts/following?page=${page}&size=${size}`);
-  console.log(
-    "[postApi] GET /api/posts/following response:",
-    JSON.stringify(response.data, null, 2)
-  );
+  
   return response.data;
 };
 
@@ -264,9 +254,30 @@ export const getFollowingPosts = async (page = 0, size = 10) => {
 // GET /api/posts/discover?page=0&size=10
 export const getDiscoverPosts = async (page = 0, size = 10) => {
   const response = await API.get(`/api/posts/discover?page=${page}&size=${size}`);
-  console.log(
-    "[postApi] GET /api/posts/discover response:",
-    JSON.stringify(response.data, null, 2)
-  );
+  
+  return response.data;
+};
+
+// GET /api/posts/me/profile — current user's posts (Profile → Moment tab)
+export const getMyProfilePosts = async (page = 1, limit = 20) => {
+  const url = `/api/posts/me/profile?page=${page}&limit=${limit}`;
+  
+  const response = await API.get(url, await authRequestConfig());
+  
+  
+  return response.data;
+};
+
+// PATCH /api/posts/{postId}
+// Content-Type: application/json
+// Body: { "text": "Updated caption" } — "description" field also accepted
+// Media posts: { "text": "" } clears caption
+export const updatePostCaption = async (postId, text) => {
+  const { token, headers } = await buildAuthHeaders("application/json");
+  const body = { text, description: text, token };
+  
+  const response = await API.patch(`/api/posts/${postId}`, body, { headers });
+  
+  
   return response.data;
 };

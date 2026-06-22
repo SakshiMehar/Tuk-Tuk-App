@@ -22,7 +22,7 @@ export const openUserChat = async (router, user) => {
   if (!userId) return false;
 
   const params = buildChatBoxParams({ ...user, userId });
-  console.log("[ChatTab] open personal chat:", JSON.stringify(params, null, 2));
+  
 
   try {
     await wsService.connect();

@@ -11,6 +11,7 @@ import {
   Modal,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
@@ -18,14 +19,13 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getUser, updateUser } from "../../src/store/authStore";
+import { loadMyProfile, saveMyProfile } from "../../src/services/meProfileService";
 import { loadProfileStats } from "../../src/services/profileStatsService";
 import { loadMyDiamondCredits } from "../../src/services/diamondCreditService";
 import {
-  REWARD_TASKS,
-  TASKS_TOTAL_REWARD,
-  loadClaimedTasks,
-  saveClaimedTasks,
-  claimedBonusTotal,
+  loadDailyTasks,
+  tasksTotalReward,
+  claimedTasksDiamondTotal,
   claimRewardTask,
 } from "../../src/services/rewardTaskService";
 import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
@@ -36,6 +36,10 @@ import {
   DEFAULT_AVATAR_ID,
 } from "../../src/data/avatarOptions";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
+import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
+import { loadWalletData } from "../../src/services/walletService";
+import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
+import { openUserChat } from "../../src/utils/chatNavigation";
 
 const screen = Dimensions.get("window");
 
@@ -49,9 +53,10 @@ const menuPages = [
     { icon: "users",        label: "Relationship", badge: true  },
     { icon: "wallet",       label: "Wallet",       badge: false },
     { icon: "shield-alt",   label: "Premium",      badge: true  },
-    { icon: "gem",          label: "VIP",          badge: false },
+    { icon: "bookmark",     label: "Saved",        badge: false },
   ],
   [
+    { icon: "gem",          label: "VIP",          badge: false },
     { icon: "ticket-alt",   label: "Coupon",       badge: false },
     { icon: "star",         label: "Honor Level",  badge: false },
     { icon: "home",         label: "Family",       badge: false },
@@ -59,9 +64,9 @@ const menuPages = [
     { icon: "briefcase",    label: "Backpack",     badge: false },
     { icon: "crown",        label: "Room Premium", badge: true  },
     { icon: "id-badge",     label: "TukTuk Pass",   badge: true  },
-    { icon: "level-up-alt", label: "Level",        badge: true  },
   ],
   [
+    { icon: "level-up-alt", label: "Level",        badge: true  },
     { icon: "instagram",    label: "Instagram",    badge: false },
     { icon: "share-alt",    label: "Share",        badge: false },
     { icon: "headset",      label: "Help",         badge: true  },
@@ -69,7 +74,6 @@ const menuPages = [
     { icon: "certificate",  label: "Badge",        badge: true  },
     { icon: "house-user",   label: "Room Title",   badge: false },
     { icon: "comment-dots", label: "Feedback",     badge: false },
-    { icon: "facebook",     label: "Facebook",     badge: false },
   ],
 ];
 
@@ -84,7 +88,8 @@ export default function Profile() {
   const [visitorCount, setVisitorCount] = useState(0);
   const [diamondCount, setDiamondCount] = useState(0);
   const [serverDiamonds, setServerDiamonds] = useState(0);
-  const [claimedTasks, setClaimedTasks] = useState([]);
+  const [dailyTasks, setDailyTasks] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
   const [connectionsListType, setConnectionsListType] = useState(null);
   const [menuPage, setMenuPage] = useState(0);
   const [activeTab, setActiveTab] = useState("Moment");
@@ -97,9 +102,10 @@ export default function Profile() {
   const [useLocalAvatar, setUseLocalAvatar] = useState(true);
   const [profilePicUrl, setProfilePicUrl] = useState(null);
   const [editVisible, setEditVisible] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
   const avatarSource = resolveProfileAvatarSource({
     avatarId,
-    useLocalAvatar,
     profilePicUrl,
   });
 
@@ -109,81 +115,245 @@ export default function Profile() {
   const [profileFeedback, setProfileFeedback] = useState("");
   const [feedbackSentMM, setFeedbackSentMM] = useState(false);
 
+  // Saved / favourite users
+  const [savedUsers, setSavedUsers] = useState([]);
+  const [savedUsersLoading, setSavedUsersLoading] = useState(false);
+  const [removingSavedUserId, setRemovingSavedUserId] = useState(null);
+  const [walletBalance, setWalletBalance] = useState({ diamonds: 0, coins: 0 });
+  const [walletTransactions, setWalletTransactions] = useState([]);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [myPosts, setMyPosts] = useState([]);
+  const [myPostsLoading, setMyPostsLoading] = useState(false);
+  const [editingPost, setEditingPost] = useState(null);
+  const [editPostText, setEditPostText] = useState("");
+  const [postSaving, setPostSaving] = useState(false);
+  const [profileTabLoading, setProfileTabLoading] = useState(false);
+  const tabDataLoadedRef = useRef({ Moment: false, Profile: false });
+  const refreshSavedUsers = useCallback(async () => {
+    setSavedUsersLoading(true);
+    try {
+      const list = await fetchSavedUsersFromServer();
+      setSavedUsers(list);
+      
+    } catch (err) {
+      
+      setSavedUsers([]);
+    } finally {
+      setSavedUsersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeMenu?.label === "Saved") refreshSavedUsers();
+  }, [activeMenu, refreshSavedUsers]);
+
+  useEffect(() => {
+    if (activeMenu?.label !== "Wallet") return;
+
+    let cancelled = false;
+    setWalletLoading(true);
+    loadWalletData()
+      .then((data) => {
+        if (cancelled) return;
+        setWalletBalance(data.balance);
+        setWalletTransactions(data.transactions);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        
+        setWalletBalance({ diamonds: 0, coins: 0 });
+        setWalletTransactions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setWalletLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMenu]);
+
+  const loadMyPosts = useCallback(async () => {
+    setMyPostsLoading(true);
+    try {
+      const data = await loadMyProfilePosts(1, 20);
+      setMyPosts(data.posts ?? []);
+    } catch {
+      setMyPosts([]);
+    } finally {
+      setMyPostsLoading(false);
+    }
+  }, []);
+
+  const hydrateFromLocalUser = useCallback(async () => {
+    const user = await getUser();
+    if (!user) return;
+    if (user.name) setName(user.name);
+    if (user.avatarId) {
+      setAvatarId(user.avatarId);
+      setEditAvatarId(user.avatarId);
+    }
+    setUseLocalAvatar(user.useLocalAvatar !== false);
+    setProfilePicUrl(user.profilePicUrl ?? user.avatarUrl ?? null);
+  }, []);
+
+  const loadProfileTabData = useCallback(async () => {
+    setProfileTabLoading(true);
+    try {
+      const user = await getUser();
+      const serverProfile = await loadMyProfile();
+      if (serverProfile.name) setName(serverProfile.name);
+      if (serverProfile.avatarId) {
+        setAvatarId(serverProfile.avatarId);
+        setEditAvatarId(serverProfile.avatarId);
+        setUseLocalAvatar(true);
+        setProfilePicUrl(null);
+      } else if (serverProfile.profilePicUrl) {
+        setProfilePicUrl(serverProfile.profilePicUrl);
+        setUseLocalAvatar(false);
+      }
+      await updateUser({
+        name: serverProfile.name || user?.name,
+        avatarId: serverProfile.avatarId ?? user?.avatarId,
+        profilePicUrl: serverProfile.profilePicUrl ?? null,
+        useLocalAvatar: Boolean(serverProfile.avatarId) || !serverProfile.profilePicUrl,
+      });
+
+      const [stats, { diamonds }] = await Promise.all([
+        loadProfileStats(),
+        loadMyDiamondCredits(),
+      ]);
+      setFollowing(stats.followingCount);
+      setFollowers(stats.followersCount);
+      setVisitorCount(stats.visitorCount);
+      setServerDiamonds(diamonds);
+    } catch {
+      // Keep cached local values if the profile tab fetch fails.
+    } finally {
+      setProfileTabLoading(false);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      const loadProfile = async () => {
-        const user = await getUser();
-        if (user) {
-          if (user.name) setName(user.name);
-          if (user.avatarId) {
-            setAvatarId(user.avatarId);
-            setEditAvatarId(user.avatarId);
-          }
-          setUseLocalAvatar(user.useLocalAvatar !== false);
-          setProfilePicUrl(user.profilePicUrl ?? user.avatarUrl ?? null);
-        }
-      };
-
-      const loadStats = async () => {
-        try {
-          const stats = await loadProfileStats();
-          setFollowing(stats.followingCount);
-          setFollowers(stats.followersCount);
-          setVisitorCount(stats.visitorCount);
-        } catch (err) {
-          console.warn("[Profile] failed to load stats:", err?.message ?? err);
-        }
-      };
-
-      const loadDiamonds = async () => {
-        try {
-          const { diamonds } = await loadMyDiamondCredits();
-          setServerDiamonds(diamonds);
-        } catch (err) {
-          console.warn("[Profile] failed to load diamonds:", err?.message ?? err);
-        }
-      };
-
-      const loadTasks = async () => {
-        const claimed = await loadClaimedTasks();
-        setClaimedTasks(claimed);
-        console.log(
-          "[Profile] reward tasks claimed:",
-          JSON.stringify(claimed)
-        );
-      };
-
-      loadProfile();
-      loadStats();
-      loadDiamonds();
-      loadTasks();
-    }, [])
+      hydrateFromLocalUser();
+    }, [hydrateFromLocalUser])
   );
 
   useEffect(() => {
-    setDiamondCount(serverDiamonds + claimedBonusTotal(claimedTasks));
-  }, [serverDiamonds, claimedTasks]);
+    if (activeTab === "Moment") {
+      if (tabDataLoadedRef.current.Moment) return;
+      tabDataLoadedRef.current.Moment = true;
+      loadMyPosts();
+      return;
+    }
+    if (activeTab === "Profile") {
+      if (tabDataLoadedRef.current.Profile) return;
+      tabDataLoadedRef.current.Profile = true;
+      loadProfileTabData();
+    }
+  }, [activeTab, loadMyPosts, loadProfileTabData]);
+
+  const handleOpenEditPost = useCallback((post) => {
+    setEditingPost(post);
+    setEditPostText(post?.text ?? "");
+  }, []);
+
+  const handleSavePostDescription = useCallback(async () => {
+    if (!editingPost?.id || postSaving) return;
+    setPostSaving(true);
+    try {
+      const updated = await updateMyPostDescription(editingPost.id, editPostText);
+      setMyPosts((prev) =>
+        prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p))
+      );
+      setEditingPost(null);
+      setEditPostText("");
+    } catch (err) {
+      Alert.alert("Update failed", err?.message || "Could not update this post.");
+    } finally {
+      setPostSaving(false);
+    }
+  }, [editingPost, editPostText, postSaving]);
+
+  const handleOpenSavedUser = useCallback(async (user) => {
+    setActiveMenu(null);
+    await openUserChat(router, {
+      userId: user.userId,
+      id: user.userId,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      profilePicUrl: user.avatarUrl,
+    });
+  }, [router]);
+
+  const handleRemoveSavedUser = useCallback(async (userId) => {
+    if (removingSavedUserId) return;
+    setRemovingSavedUserId(String(userId));
+    
+    try {
+      await removeFavoriteUser(userId);
+      setSavedUsers((prev) => prev.filter((u) => u.userId !== String(userId)));
+    } catch (err) {
+      
+      Alert.alert(
+        "Remove failed",
+        err?.message || "Could not remove this user from Saved."
+      );
+    } finally {
+      setRemovingSavedUserId(null);
+    }
+  }, [removingSavedUserId]);
+
+  useEffect(() => {
+    setDiamondCount(serverDiamonds);
+  }, [serverDiamonds]);
+
+  useEffect(() => {
+    if (activeMenu?.label !== "Task") return;
+
+    let cancelled = false;
+    setTasksLoading(true);
+    loadDailyTasks()
+      .then((tasks) => {
+        if (!cancelled) setDailyTasks(tasks);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          
+          setDailyTasks([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTasksLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMenu]);
 
   const [claimingTask, setClaimingTask] = useState(null);
 
   const handleClaimTask = async (task) => {
-    if (claimedTasks.includes(task.id) || claimingTask) return;
-    setClaimingTask(task.id);
-    console.log(
-      `[Profile] claiming task -> POST /api/daily-tasks/${task.taskType}/claim`
-    );
+    if (task.claimed || !task.completed || claimingTask) return;
+    setClaimingTask(task.taskType);
+    
     try {
       await claimRewardTask(task);
-      const next = [...claimedTasks, task.id];
-      setClaimedTasks(next);
-      saveClaimedTasks(next);
-      console.log(`[Profile] task claimed: ${task.id} (+${task.reward}💎)`);
+      const [tasks, { diamonds }] = await Promise.all([
+        loadDailyTasks(),
+        loadMyDiamondCredits(),
+      ]);
+      setDailyTasks(tasks);
+      setServerDiamonds(diamonds);
+      
       Alert.alert(
         "Reward claimed!",
         `You earned ${task.reward}💎 for "${task.label}".`
       );
     } catch (err) {
-      console.log("[Profile] task claim failed:", err?.message);
+      
       Alert.alert(
         "Could not claim",
         err?.message || "This task can't be claimed yet. Please try again."
@@ -193,16 +363,121 @@ export default function Profile() {
     }
   };
 
-  const handleSaveProfile = async () => {
-    setEditVisible(false);
-    await updateUser({ name, avatarId: editAvatarId, useLocalAvatar: true });
-    setAvatarId(editAvatarId);
-    setUseLocalAvatar(true);
+  const handleOpenEditProfile = () => {
+    setEditName(name);
+    setEditAvatarId(avatarId);
+    setEditVisible(true);
   };
+
+  const handleSaveProfile = async () => {
+    if (profileSaving) return;
+
+    const trimmedName = editName.trim();
+    if (!trimmedName) {
+      Alert.alert("Name required", "Please enter a display name.");
+      return;
+    }
+
+    setProfileSaving(true);
+    try {
+      const saved = await saveMyProfile({
+        name: trimmedName,
+        avatarId: editAvatarId,
+      });
+
+      const nextName = saved?.name ?? trimmedName;
+      const nextAvatarId = saved?.avatarId ?? editAvatarId;
+      const nextProfilePicUrl = saved?.profilePicUrl ?? null;
+
+      setName(nextName);
+      setAvatarId(nextAvatarId);
+      setProfilePicUrl(nextProfilePicUrl);
+      setUseLocalAvatar(Boolean(nextAvatarId) || !nextProfilePicUrl);
+
+      await updateUser({
+        name: nextName,
+        avatarId: nextAvatarId,
+        profilePicUrl: nextProfilePicUrl,
+        useLocalAvatar: Boolean(nextAvatarId) || !nextProfilePicUrl,
+      });
+
+      setEditVisible(false);
+      
+    } catch (err) {
+      
+      Alert.alert("Save failed", err?.message || "Could not save your profile. Please try again.");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const editPreviewSource = getAvatarSource(editAvatarId);
 
   const renderMenuContent = () => {
     if (!activeMenu) return null;
     const { label } = activeMenu;
+
+    // ── SAVED / FAVOURITE USERS ───────────────────────────────────────────────
+    if (label === "Saved") {
+      return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(168,85,247,0.1)"]} style={styles.mmHeroBox}>
+            <Text style={{ fontSize: 40 }}>⭐</Text>
+            <Text style={styles.mmHeroTitle}>{savedUsers.length} Saved</Text>
+            <Text style={styles.mmHeroSub}>People you saved on Tuk Tuk</Text>
+          </LinearGradient>
+
+          {savedUsersLoading ? (
+            <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
+          ) : savedUsers.length === 0 ? (
+            <View style={styles.savedEmptyBox}>
+              <Text style={styles.savedEmptyEmoji}>🔖</Text>
+              <Text style={styles.savedEmptyTitle}>No saved users yet</Text>
+              <Text style={styles.savedEmptyText}>
+                Save people from Nearby or Find Friends and they will appear here.
+              </Text>
+            </View>
+          ) : (
+            savedUsers.map((u) => (
+              <TouchableOpacity
+                key={u.userId}
+                style={styles.savedRow}
+                activeOpacity={0.8}
+                onPress={() => handleOpenSavedUser(u)}
+              >
+                {u.avatarUrl ? (
+                  <Image source={{ uri: u.avatarUrl }} style={styles.savedAvatar} />
+                ) : (
+                  <View style={[styles.savedAvatar, styles.savedAvatarFallback]}>
+                    <FontAwesome5 name="user" size={18} color="#a78bfa" solid />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.savedName} numberOfLines={1}>{u.name}</Text>
+                  {u.occupation ? (
+                    <Text style={styles.savedSub} numberOfLines={1}>💼 {u.occupation}</Text>
+                  ) : (
+                    <Text style={styles.savedSub}>Tap to message</Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.savedRemoveBtn}
+                  onPress={() => handleRemoveSavedUser(u.userId)}
+                  disabled={removingSavedUserId === u.userId}
+                  activeOpacity={0.8}
+                >
+                  {removingSavedUserId === u.userId ? (
+                    <ActivityIndicator color="#ff6b6b" size="small" />
+                  ) : (
+                    <Ionicons name="close" size={16} color="#ff6b6b" />
+                  )}
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
+      );
+    }
 
     // ── MENU UI COMMENTED OUT ─────────────────────────────────────────────────
    
@@ -249,9 +524,10 @@ export default function Profile() {
 
     // ── TASK ──────────────────────────────────────────────────────────────────
     if (label === "Task") {
-      const claimedCount = claimedTasks.length;
-      const totalCount = REWARD_TASKS.length;
-      const claimedDiamonds = claimedBonusTotal(claimedTasks);
+      const claimedCount = dailyTasks.filter((t) => t.claimed).length;
+      const totalCount = dailyTasks.length;
+      const claimedDiamonds = claimedTasksDiamondTotal(dailyTasks);
+      const totalReward = tasksTotalReward(dailyTasks);
       const progressPct = totalCount
         ? Math.round((claimedCount / totalCount) * 100)
         : 0;
@@ -264,7 +540,7 @@ export default function Profile() {
             <Text style={{ fontSize: 40 }}>💎</Text>
             <Text style={styles.mmHeroTitle}>{claimedDiamonds}💎 earned</Text>
             <Text style={styles.mmHeroSub}>
-              Finish tasks to earn up to {TASKS_TOTAL_REWARD}💎
+              Finish tasks to earn up to {totalReward}💎
             </Text>
           </LinearGradient>
 
@@ -279,36 +555,54 @@ export default function Profile() {
           </View>
 
           <Text style={styles.mmSectionLabel}>Reward Tasks</Text>
-          {REWARD_TASKS.map((t) => {
-            const claimed = claimedTasks.includes(t.id);
-            const claiming = claimingTask === t.id;
-            return (
-              <View key={t.id} style={styles.mmTaskRow}>
-                <Text style={{ fontSize: 18, marginRight: 10 }}>{t.emoji}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone]}>
-                    {t.label}
-                  </Text>
-                  <Text style={styles.mmTaskReward}>+{t.reward}💎</Text>
-                </View>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  disabled={claimed || claiming}
-                  onPress={() => handleClaimTask(t)}
-                  style={[styles.mmClaimBtn, claimed && styles.mmClaimBtnDone]}
-                >
-                  <Text
+          {tasksLoading && dailyTasks.length === 0 ? (
+            <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
+          ) : dailyTasks.length === 0 ? (
+            <Text style={styles.mmInfoText}>No tasks available right now.</Text>
+          ) : (
+            dailyTasks.map((t) => {
+              const claimed = t.claimed;
+              const claiming = claimingTask === t.taskType;
+              const canClaim = t.completed && !claimed;
+              const showProgress = t.targetCount > 1;
+              return (
+                <View key={t.taskType} style={styles.mmTaskRow}>
+                  <Text style={{ fontSize: 18, marginRight: 10 }}>{t.emoji}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone]}>
+                      {t.label}
+                    </Text>
+                    <Text style={styles.mmTaskReward}>+{t.reward}💎</Text>
+                    {showProgress ? (
+                      <Text style={styles.mmTaskProgress}>
+                        {t.progressCount}/{t.targetCount}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    disabled={claimed || !canClaim || claiming}
+                    onPress={() => handleClaimTask(t)}
                     style={[
-                      styles.mmClaimBtnText,
-                      claimed && styles.mmClaimBtnTextDone,
+                      styles.mmClaimBtn,
+                      claimed && styles.mmClaimBtnDone,
+                      !canClaim && !claimed && styles.mmClaimBtnDisabled,
                     ]}
                   >
-                    {claimed ? "Claimed" : claiming ? "..." : "Claim"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            );
-          })}
+                    <Text
+                      style={[
+                        styles.mmClaimBtnText,
+                        claimed && styles.mmClaimBtnTextDone,
+                        !canClaim && !claimed && styles.mmClaimBtnTextDisabled,
+                      ]}
+                    >
+                      {claimed ? "Claimed" : claiming ? "..." : canClaim ? "Claim" : "In progress"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })
+          )}
 
           <View style={styles.mmInfoRow}>
             <Ionicons name="information-circle-outline" size={16} color="#a78bfa" />
@@ -405,37 +699,56 @@ export default function Profile() {
 
     // ── WALLET ────────────────────────────────────────────────────────────────
     if (label === "Wallet") {
-      const txns = [
-        { label: "Daily reward", amount: "+10💎", date: "Today", color: "#4ade80" },
-        { label: "Daily reward", amount: "+10💎", date: "Yesterday", color: "#4ade80" },
-        { label: "Store purchase", amount: "-60💎", date: "May 28", color: "#f87171" },
-      ];
       return (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
           <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmWalletCard}>
             <Text style={styles.mmWalletLabel}>Total Balance</Text>
-            <View style={styles.mmWalletBalRow}>
-              <Text style={{ fontSize: 26 }}>💎</Text>
-              <Text style={styles.mmWalletAmount}>  2 Diamonds</Text>
-            </View>
-            <View style={styles.mmWalletBalRow}>
-              <Text style={{ fontSize: 20 }}>🪙</Text>
-              <Text style={[styles.mmWalletAmount, { fontSize: 18 }]}>  0 Coins</Text>
-            </View>
+            {walletLoading ? (
+              <ActivityIndicator color="#fff" style={{ marginVertical: 16 }} />
+            ) : (
+              <>
+                <View style={styles.mmWalletBalRow}>
+                  <Text style={{ fontSize: 26 }}>💎</Text>
+                  <Text style={styles.mmWalletAmount}>
+                    {"  "}
+                    {walletBalance.diamonds.toLocaleString()} Diamonds
+                  </Text>
+                </View>
+                <View style={styles.mmWalletBalRow}>
+                  <Text style={{ fontSize: 20 }}>🪙</Text>
+                  <Text style={[styles.mmWalletAmount, { fontSize: 18 }]}>
+                    {"  "}
+                    {walletBalance.coins.toLocaleString()} Coins
+                  </Text>
+                </View>
+              </>
+            )}
             <TouchableOpacity style={styles.mmWalletTopUp} activeOpacity={0.8}>
               <Text style={styles.mmWalletTopUpText}>+ Top Up</Text>
             </TouchableOpacity>
           </LinearGradient>
           <Text style={styles.mmSectionLabel}>Recent Transactions</Text>
-          {txns.map((t, i) => (
-            <View key={i} style={styles.mmTxnRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.mmTxnLabel}>{t.label}</Text>
-                <Text style={styles.mmTxnDate}>{t.date}</Text>
-              </View>
-              <Text style={[styles.mmTxnAmount, { color: t.color }]}>{t.amount}</Text>
+          {walletLoading ? (
+            <ActivityIndicator color="#a78bfa" style={{ marginTop: 20 }} />
+          ) : walletTransactions.length === 0 ? (
+            <View style={styles.savedEmptyBox}>
+              <Text style={styles.savedEmptyEmoji}>💳</Text>
+              <Text style={styles.savedEmptyTitle}>No transactions yet</Text>
+              <Text style={styles.savedEmptyText}>
+                Your diamond and coin activity will show up here.
+              </Text>
             </View>
-          ))}
+          ) : (
+            walletTransactions.map((t) => (
+              <View key={t.id} style={styles.mmTxnRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.mmTxnLabel}>{t.label}</Text>
+                  <Text style={styles.mmTxnDate}>{t.date}</Text>
+                </View>
+                <Text style={[styles.mmTxnAmount, { color: t.color }]}>{t.amount}</Text>
+              </View>
+            ))
+          )}
         </ScrollView>
       );
     }
@@ -1015,14 +1328,14 @@ export default function Profile() {
 
             {/* Avatar with frame */}
             <View style={styles.profilePicWrapper}>
-              <Image source={avatarSource} style={styles.profilePic} />
+              <Image source={avatarSource} style={styles.profilePic} resizeMode="cover" />
             </View>
 
             {/* Name + ID + badges */}
             <View style={styles.profileInfoCol}>
               <View style={styles.nameRow}>
                 <Text style={styles.userName} numberOfLines={1}>{name}</Text>
-                <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={() => setEditVisible(true)}>
+                <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={handleOpenEditProfile}>
                   <FontAwesome name="pencil" size={13} color="#7c3aed" />
                   <Text style={styles.editText}>Edit</Text>
                 </TouchableOpacity>
@@ -1052,6 +1365,10 @@ export default function Profile() {
 
           {/* Stats row */}
           <View style={styles.statsRow}>
+            {profileTabLoading ? (
+              <ActivityIndicator color="#a78bfa" style={{ paddingVertical: 8 }} />
+            ) : (
+              <>
             <TouchableOpacity
               style={styles.statItem}
               activeOpacity={0.75}
@@ -1078,6 +1395,8 @@ export default function Profile() {
               <Text style={styles.statValue}>{visitorCount.toLocaleString()}</Text>
               <Text style={styles.statLabel}>Visitor</Text>
             </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
 
@@ -1150,9 +1469,81 @@ export default function Profile() {
                 <FontAwesome name="send" size={20} color="white" />
               </View>
             </TouchableOpacity>
+
+            {myPostsLoading ? (
+              <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
+            ) : myPosts.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>📦</Text>
+                <Text style={styles.emptyText}>No moments yet</Text>
+              </View>
+            ) : (
+              myPosts.map((post) => (
+                <View key={String(post.id)} style={styles.momentPostCard}>
+                  <View style={styles.momentPostHeader}>
+                    <Text style={styles.momentPostTitle}>My post #{post.id}</Text>
+                    <TouchableOpacity
+                      style={styles.momentPostEditBtn}
+                      onPress={() => handleOpenEditPost(post)}
+                      activeOpacity={0.8}
+                    >
+                      <FontAwesome name="pencil" size={12} color="#c4b5fd" />
+                      <Text style={styles.momentPostEditText}>Edit</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {post.text ? (
+                    <Text style={styles.momentPostText}>{post.text}</Text>
+                  ) : (
+                    <Text style={styles.momentPostTextMuted}>No caption</Text>
+                  )}
+
+                  {post.imageUrl && !post.hasVideo ? (
+                    <Image source={{ uri: post.imageUrl }} style={styles.momentPostImage} />
+                  ) : null}
+
+                  {post.hasVideo ? (
+                    <View style={styles.momentPostVideoBox}>
+                      <Text style={styles.momentPostVideoLabel}>🎬 Video post</Text>
+                    </View>
+                  ) : null}
+
+                  {(post.likeCount ?? 0) > 0 && (
+                    <Text style={styles.momentPostMeta}>❤️ {post.likeCount}</Text>
+                  )}
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {activeTab === "Profile" && (
+          <View style={styles.momentSection}>
+            {profileTabLoading ? (
+              <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
+            ) : (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>👤</Text>
+                <Text style={styles.emptyText}>Your profile stats are shown above</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {activeTab === "Honor" && (
+          <View style={styles.momentSection}>
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>📦</Text>
-              <Text style={styles.emptyText}>No moments yet</Text>
+              <Text style={styles.emptyEmoji}>🏅</Text>
+              <Text style={styles.emptyText}>Honor coming soon</Text>
+            </View>
+          </View>
+        )}
+
+        {activeTab === "Gift" && (
+          <View style={styles.momentSection}>
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>🎁</Text>
+              <Text style={styles.emptyText}>Gifts coming soon</Text>
             </View>
           </View>
         )}
@@ -1192,47 +1583,112 @@ export default function Profile() {
       {/* Edit modal */}
       <Modal visible={editVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Edit profile</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Display name"
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              style={styles.nameInput}
-              maxLength={24}
-            />
-
-            <Text style={styles.sectionSmall}>Choose avatar</Text>
+          <View style={[styles.modalCard, { maxHeight: screen.height * 0.88 }]}>
             <ScrollView
-              style={styles.avatarPickerScroll}
-              contentContainerStyle={styles.avatarRow}
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.modalCardScroll}
             >
-              {avatarOptions.map((id) => (
-                <TouchableOpacity
-                  key={id}
-                  onPress={() => setEditAvatarId(id)}
-                  style={[
-                    styles.avatarOption,
-                    editAvatarId === id && styles.avatarSelected,
-                  ]}
-                >
-                  <Image source={avatarMap[id]} style={styles.avatarThumb} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+              <Text style={styles.modalTitle}>Edit profile</Text>
 
+              <View style={styles.editAvatarPreviewWrap}>
+                <Image source={editPreviewSource} style={styles.editPhotoPreview} />
+              </View>
+
+              <TextInput
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Display name"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                style={styles.nameInput}
+                maxLength={24}
+                editable={!profileSaving}
+              />
+
+              <Text style={styles.sectionSmall}>Choose avatar</Text>
+              <View style={styles.avatarRow}>
+                {avatarOptions.map((id) => (
+                  <TouchableOpacity
+                    key={id}
+                    onPress={() => setEditAvatarId(id)}
+                    style={[
+                      styles.avatarOption,
+                      editAvatarId === id && styles.avatarSelected,
+                    ]}
+                    activeOpacity={0.85}
+                  >
+                    <Image
+                      source={avatarMap[id]}
+                      style={styles.avatarThumb}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={styles.modalBtn}
+                  onPress={() => setEditVisible(false)}
+                  disabled={profileSaving}
+                >
+                  <Text style={styles.modalBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.saveBtn, profileSaving && { opacity: 0.6 }]}
+                  onPress={handleSaveProfile}
+                  disabled={profileSaving}
+                >
+                  {profileSaving ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={[styles.modalBtnText, styles.saveBtnText]}>Save</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!editingPost} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Edit description</Text>
+            <Text style={styles.sectionSmall}>
+              Post #{editingPost?.id} — leave empty to clear caption on media posts
+            </Text>
+            <TextInput
+              value={editPostText}
+              onChangeText={setEditPostText}
+              placeholder="Write a caption..."
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              style={[styles.nameInput, styles.postEditInput]}
+              multiline
+              maxLength={500}
+              editable={!postSaving}
+            />
             <View style={styles.modalButtonsRow}>
-              <TouchableOpacity style={styles.modalBtn} onPress={() => setEditVisible(false)}>
+              <TouchableOpacity
+                style={styles.modalBtn}
+                onPress={() => {
+                  setEditingPost(null);
+                  setEditPostText("");
+                }}
+                disabled={postSaving}
+              >
                 <Text style={styles.modalBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.saveBtn]}
-                onPress={handleSaveProfile}
+                style={[styles.modalBtn, styles.saveBtn, postSaving && { opacity: 0.6 }]}
+                onPress={handleSavePostDescription}
+                disabled={postSaving}
               >
-                <Text style={[styles.modalBtnText, styles.saveBtnText]}>Save</Text>
+                {postSaving ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={[styles.modalBtnText, styles.saveBtnText]}>Save</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1566,6 +2022,28 @@ const styles = StyleSheet.create({
     width: screen.width - 32,
     paddingHorizontal: 4,
   },
+
+  // Saved users list (menu modal)
+  savedEmptyBox: { alignItems: "center", paddingVertical: 30, paddingHorizontal: 20, gap: 8 },
+  savedEmptyEmoji: { fontSize: 44 },
+  savedEmptyTitle: { color: "white", fontSize: 16, fontWeight: "800" },
+  savedEmptyText: { color: "rgba(255,255,255,0.5)", fontSize: 13, textAlign: "center", lineHeight: 19 },
+  savedRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 14, padding: 10, marginBottom: 10,
+    borderWidth: 1, borderColor: "rgba(167,139,250,0.15)",
+  },
+  savedAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#2d1b4e" },
+  savedAvatarFallback: { alignItems: "center", justifyContent: "center" },
+  savedName: { color: "white", fontSize: 14, fontWeight: "700" },
+  savedSub: { color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 2 },
+  savedRemoveBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: "rgba(255,107,107,0.15)",
+    borderWidth: 1, borderColor: "rgba(255,107,107,0.35)",
+    alignItems: "center", justifyContent: "center",
+  },
   menuRow: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -1696,6 +2174,74 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.35)",
     fontSize: 14,
   },
+  momentPostCard: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    gap: 10,
+  },
+  momentPostHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  momentPostTitle: {
+    color: "#c4b5fd",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  momentPostEditBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "rgba(124,77,255,0.18)",
+  },
+  momentPostEditText: {
+    color: "#c4b5fd",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  momentPostText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  momentPostTextMuted: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 13,
+    fontStyle: "italic",
+  },
+  momentPostImage: {
+    width: "100%",
+    height: 180,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  momentPostVideoBox: {
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: "rgba(124,77,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  momentPostVideoLabel: {
+    color: "#c4b5fd",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  momentPostMeta: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 12,
+  },
+  postEditInput: {
+    minHeight: 100,
+    textAlignVertical: "top",
+  },
   // Edit modal
   modalOverlay: {
     flex: 1,
@@ -1712,11 +2258,41 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
   },
+  modalCardScroll: {
+    paddingBottom: 4,
+  },
   modalTitle: {
     color: "white",
     fontSize: 18,
     fontWeight: "800",
     marginBottom: 12,
+  },
+  editAvatarPreviewWrap: {
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  editPhotoPreview: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderColor: "rgba(124,77,255,0.5)",
+  },
+  editPhotoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(124,77,255,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.45)",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  editPhotoBtnText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
   },
   nameInput: {
     backgroundColor: "rgba(255,255,255,0.03)",
@@ -1738,11 +2314,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
-    paddingBottom: 8,
-  },
-  avatarPickerScroll: {
-    maxHeight: 240,
-    marginBottom: 14,
+    paddingBottom: 16,
   },
   avatarOption: {
     width: 56,
@@ -1753,11 +2325,11 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
   avatarThumb: {
-    width: 52,
-    height: 52,
-    resizeMode: "cover",
+    width: "100%",
+    height: "100%",
   },
   avatarSelected: {
     borderColor: "#7c3aed",
@@ -2000,6 +2572,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  mmTaskProgress: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 11,
+    marginTop: 2,
+  },
   mmClaimBtn: {
     backgroundColor: "#7c4dff",
     paddingHorizontal: 16,
@@ -2010,6 +2587,9 @@ const styles = StyleSheet.create({
   mmClaimBtnDone: {
     backgroundColor: "rgba(255,255,255,0.08)",
   },
+  mmClaimBtnDisabled: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
   mmClaimBtnText: {
     color: "white",
     fontSize: 12,
@@ -2017,6 +2597,9 @@ const styles = StyleSheet.create({
   },
   mmClaimBtnTextDone: {
     color: "rgba(255,255,255,0.4)",
+  },
+  mmClaimBtnTextDisabled: {
+    color: "rgba(255,255,255,0.35)",
   },
   mmEmptyCenter: {
     flex: 1,

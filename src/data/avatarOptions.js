@@ -45,6 +45,13 @@ export const avatarMap = {
 
 export const avatarOptions = Object.keys(avatarMap);
 
+export const isBundledAvatarId = (value) =>
+  typeof value === "string" && Boolean(avatarMap[value]);
+
+/** Resolve bundled avatar id from profile fields (API uses `avatar` key). */
+export const resolveBundledAvatarId = (...values) =>
+  values.find((value) => isBundledAvatarId(value)) ?? null;
+
 export const getAvatarSource = (avatarId) =>
   avatarMap[avatarId] ?? avatarMap.avatar1;
 

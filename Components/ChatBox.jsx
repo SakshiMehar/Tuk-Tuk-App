@@ -63,7 +63,7 @@ export default function ChatBox({ user = {}, onBack }) {
 
     const initChat = async () => {
       try {
-        console.log("[ChatBox] init personal chat:", { userId, name, avatar });
+        
         await wsService.connect();
         const currentUserId = await getAppUserId();
         if (cancelled) return;
@@ -72,7 +72,7 @@ export default function ChatBox({ user = {}, onBack }) {
         const { messages: apiMessages } = await loadChatHistory(userId);
         if (cancelled) return;
         setMessages(apiMessages.map((m) => mapApiMessage(m, currentUserId)));
-        console.log("[ChatBox] messages loaded:", apiMessages.length);
+        
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
 
         await markChatAsRead(userId);

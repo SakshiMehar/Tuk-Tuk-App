@@ -3,10 +3,7 @@ const loadLocationModule = async () => {
   try {
     return await import("expo-location");
   } catch (err) {
-    console.warn(
-      "[deviceLocation] expo-location unavailable — run: npx expo run:android",
-      err?.message ?? err
-    );
+    
     return null;
   }
 };
@@ -24,7 +21,7 @@ export const getDeviceCoordinates = async () => {
   try {
     const servicesEnabled = await Location.hasServicesEnabledAsync();
     if (!servicesEnabled) {
-      console.log("[deviceLocation] location services disabled on device");
+      
       return { ok: false, reason: "services_disabled" };
     }
 
@@ -33,7 +30,7 @@ export const getDeviceCoordinates = async () => {
       permission = await Location.requestForegroundPermissionsAsync();
     }
     if (permission.status !== "granted") {
-      console.log("[deviceLocation] location permission denied:", permission.status);
+      
       return { ok: false, reason: "permission_denied" };
     }
 
@@ -48,14 +45,14 @@ export const getDeviceCoordinates = async () => {
       Number.isNaN(latitude) ||
       Number.isNaN(longitude)
     ) {
-      console.log("[deviceLocation] invalid coordinates:", position.coords);
+      
       return { ok: false, reason: "invalid_coords" };
     }
 
-    console.log("[deviceLocation] coords:", { latitude, longitude });
+    
     return { ok: true, latitude, longitude };
   } catch (err) {
-    console.warn("[deviceLocation] getDeviceCoordinates failed:", err?.message ?? err);
+    
     return { ok: false, reason: "module_unavailable" };
   }
 };

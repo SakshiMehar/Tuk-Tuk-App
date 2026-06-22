@@ -70,7 +70,7 @@ const ensureEngine = (appId) => {
       currentIsSpeaker = false;
     },
     onError: (err) => {
-      console.warn("[agoraVoice] RTC error:", err);
+      
     },
   });
 

@@ -121,7 +121,7 @@ export const loadConversations = async () => {
   const data = await getChats();
   const conversations = Array.isArray(data) ? data : listFrom(data, "chats");
   const list = conversations.map(normalizeConversation);
-  console.log("[chatService] chat list:", JSON.stringify(list, null, 2));
+  
   return list;
 };
 
@@ -129,10 +129,7 @@ export const loadChatHistory = async (userId) => {
   const data = await getUserMessages(userId);
   const messages = Array.isArray(data) ? data : listFrom(data, "messages");
   const list = messages.map(normalizeMessage);
-  console.log(
-    `[chatService] personal chat messages userId=${userId}:`,
-    JSON.stringify(list, null, 2)
-  );
+  
   return {
     messages: list,
     hasMore: data?.hasMore ?? false,

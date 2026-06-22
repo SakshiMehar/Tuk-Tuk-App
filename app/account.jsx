@@ -130,10 +130,7 @@ export default function Account() {
 
       let savedProfile = null;
       if (!isAvatarSave && editingField !== "food") {
-        console.log(
-          "[Account] save -> PATCH /api/app/users/me/settings",
-          JSON.stringify({ [fieldKey]: fieldValue }, null, 2)
-        );
+        
         savedProfile = await updateUserProfile({ [fieldKey]: fieldValue });
       }
 
@@ -179,7 +176,7 @@ export default function Account() {
       });
       setEditingField(null);
     } catch (err) {
-      console.log("[Account] profile save failed:", err?.message);
+      
       const message = err?.message || "Could not save profile. Please try again.";
       Alert.alert("Save failed", message);
       if (/log in|authentication token/i.test(message)) {
@@ -204,7 +201,7 @@ export default function Account() {
           const [user, apiProfile] = await Promise.all([
             getUser(),
             loadUserProfile().catch((err) => {
-              console.log("[Account] load profile failed:", err?.message);
+              
               return null;
             }),
           ]);

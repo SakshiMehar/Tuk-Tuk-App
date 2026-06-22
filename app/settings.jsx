@@ -145,13 +145,13 @@ export default function Settings() {
 
   useEffect(() => {
     let cancelled = false;
-    console.log("[Settings] loading -> GET /api/app/users/me/settings");
+    
     loadUserSettings()
       .then((settings) => {
         if (!cancelled) applySettingsState(settings);
       })
       .catch((err) => {
-        console.log("[Settings] load settings failed:", err?.message);
+        
       })
       .finally(() => {
         if (!cancelled) setSettingsLoading(false);
@@ -165,19 +165,13 @@ export default function Settings() {
     if (settingsSaving) return;
     applyLocal?.();
     setSettingsSaving(true);
-    console.log(
-      "[Settings] save -> PATCH /api/app/users/me/settings",
-      JSON.stringify(updates, null, 2)
-    );
+    
     try {
       const saved = await updateUserSettings(updates, settingsSnapshot);
       applySettingsState(saved);
-      console.log(
-        "[Settings] settings saved:",
-        JSON.stringify(saved, null, 2)
-      );
+      
     } catch (err) {
-      console.log("[Settings] settings save failed:", err?.message);
+      
       Alert.alert(
         "Settings",
         err?.message || "Could not save your settings. Please try again."
@@ -188,14 +182,14 @@ export default function Settings() {
   };
 
   const refreshMatchSwitch = async () => {
-    console.log("[Settings] match-switch -> GET /api/app/users/match-switch");
+    
     try {
       const enabled = await loadMatchSwitch();
       setMatchSwitchEnabled(enabled);
       setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: enabled }));
-      console.log("[Settings] match-switch status:", enabled);
+      
     } catch (err) {
-      console.log("[Settings] match-switch load failed:", err?.message);
+      
     }
   };
 
@@ -203,17 +197,14 @@ export default function Settings() {
     if (settingsSaving) return;
     setMatchSwitchEnabled(value);
     setSettingsSaving(true);
-    console.log(
-      "[Settings] match-switch -> PATCH /api/app/users/me/match-switch",
-      JSON.stringify({ matchSwitchEnabled: value }, null, 2)
-    );
+    
     try {
       const resolved = await updateMatchSwitch(value);
       setMatchSwitchEnabled(resolved);
       setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: resolved }));
-      console.log("[Settings] match-switch saved:", resolved);
+      
     } catch (err) {
-      console.log("[Settings] match-switch save failed:", err?.message);
+      
       setMatchSwitchEnabled(!value);
       Alert.alert(
         "Match switch",
@@ -234,18 +225,13 @@ export default function Settings() {
   const handleCheckUpdate = async () => {
     setUpdateChecking(true);
     setUpdateChecked(false);
-    console.log(
-      "[Settings] check-update -> GET /api/app/check-update?currentVersion=...&platform=..."
-    );
+    
     try {
       const data = await checkForUpdate();
-      console.log(
-        "[Settings] check-update response:",
-        JSON.stringify(data, null, 2)
-      );
+      
       setUpdateChecked(true);
     } catch (err) {
-      console.log("[Settings] check-update error:", err?.message);
+      
       Alert.alert(
         "Check failed",
         err?.message || "Could not check for updates. Please try again."
@@ -259,18 +245,15 @@ export default function Settings() {
     const text = feedbackText.trim();
     if (!text || feedbackSubmitting) return;
     setFeedbackSubmitting(true);
-    console.log("[Settings] feedback -> POST /api/app/help/feedback");
+    
     try {
       const data = await submitFeedback(text);
-      console.log(
-        "[Settings] feedback response:",
-        JSON.stringify(data, null, 2)
-      );
+      
       setFeedbackSent(true);
       setFeedbackText("");
       setTimeout(() => setFeedbackSent(false), 3000);
     } catch (err) {
-      console.log("[Settings] feedback error:", err?.message);
+      
       Alert.alert(
         "Send failed",
         err?.message || "Could not send feedback. Please try again."
@@ -299,12 +282,12 @@ export default function Settings() {
         style: "destructive",
         onPress: async () => {
           setLoggingOut(true);
-          console.log("[Settings] logout -> POST /api/auth/logout");
+          
           try {
             await logoutSession();
             router.replace("/login");
           } catch (err) {
-            console.log("[Settings] logout error:", err?.message);
+            
             Alert.alert(
               "Logout",
               err?.message || "Could not reach server. You have been signed out locally."
@@ -330,17 +313,14 @@ export default function Settings() {
     }
 
     setDeletingAccount(true);
-    console.log("[Settings] delete account -> DELETE /api/auth/account", {
-      reason,
-      additionalComment,
-    });
+    
     try {
       await deleteAccountSession({ reason, additionalComment });
       closeDeleteAccountModal();
       Alert.alert("Account deleted", "Your account has been deleted.");
       router.replace("/login");
     } catch (err) {
-      console.log("[Settings] delete account error:", err?.message);
+      
       Alert.alert(
         "Delete failed",
         err?.message || "Could not delete your account. Please try again."
@@ -362,12 +342,12 @@ export default function Settings() {
         onPress: async () => {
           if (clearingCache) return;
           setClearingCache(true);
-          console.log("[Settings] clear cache -> POST /api/app/users/me/settings/clear-cache");
+          
           try {
             await clearAppCache();
             Alert.alert("Clear cache", "Cache cleared successfully.");
           } catch (err) {
-            console.log("[Settings] clear cache failed:", err?.message);
+            
             Alert.alert("Clear cache", err?.message || "Could not clear cache. Please try again.");
           } finally {
             setClearingCache(false);
@@ -404,9 +384,7 @@ export default function Settings() {
         router.push("/message-notification");
         break;
       case "Blocked list":
-        console.log(
-          "[Settings] Block List opened -> GET /api/relationships/block-users"
-        );
+        
         router.push("/blocked-accounts");
         break;
       case "System language":

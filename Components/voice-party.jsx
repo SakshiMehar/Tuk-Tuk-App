@@ -428,7 +428,7 @@ export default function VoiceParty() {
         }
 
         partyVoice.joinAsListener(String(session.roomId)).catch((voiceErr) => {
-          console.warn("[voice-party] voice listen join failed:", voiceErr?.message);
+          
         });
       } catch (err) {
         if (!cancelled) {

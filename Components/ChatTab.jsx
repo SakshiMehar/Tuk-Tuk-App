@@ -149,11 +149,11 @@ export default function ChatTab() {
 
   const fetchChats = useCallback(() => {
     setChatsLoading(true);
-    console.log("[ChatTab] loading chat list...");
+    
     loadConversations()
       .then((list) => {
         setConversations(list);
-        console.log("[ChatTab] chat list count:", list.length);
+        
       })
       .catch(() => setConversations([]))
       .finally(() => setChatsLoading(false));
@@ -165,7 +165,7 @@ export default function ChatTab() {
       .then((users) => {
         if (!cancelled) {
           setRecommendedUsers(users);
-          console.log("[ChatTab] recommended users:", JSON.stringify(users, null, 2));
+          
         }
       })
       .catch(() => {});

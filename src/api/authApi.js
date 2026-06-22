@@ -11,14 +11,11 @@ const logAuthRequest = (method, path, body) => {
   const safeBody = { ...body };
   if (safeBody.idToken) safeBody.idToken = maskToken(safeBody.idToken);
   if (safeBody.accessToken) safeBody.accessToken = maskToken(safeBody.accessToken);
-  console.log(
-    `[authApi] ${method} ${API_BASE_URL}${path}`,
-    JSON.stringify(safeBody, null, 2)
-  );
+  
 };
 
 const logAuthResponse = (endpoint, data) => {
-  console.log(`[authApi] ${endpoint} response:`, JSON.stringify(data, null, 2));
+  
 };
 
 const logAuthError = (method, path, error) => {
@@ -44,7 +41,7 @@ const postAuthWithFallback = async (paths, body) => {
       const response = await API.post(path, body);
       logAuthResponse(`POST ${path}`, response.data);
       if (path !== paths[0]) {
-        console.warn(`[authApi] Facebook login used fallback endpoint: ${path}`);
+        
       }
       return response.data;
     } catch (error) {
@@ -54,7 +51,7 @@ const postAuthWithFallback = async (paths, body) => {
       if (status !== 404 || path === paths[paths.length - 1]) {
         throw error;
       }
-      console.warn(`[authApi] POST ${path} returned 404, trying next endpoint…`);
+      
     }
   }
   throw lastError;
@@ -117,7 +114,7 @@ export const appleLogin = async (identityToken) => {
 };
 
 export const logout = async () => {
-  console.log("[authApi] POST /api/auth/logout");
+  
   const response = await API.post(
     "/api/auth/logout",
     {},
@@ -132,10 +129,7 @@ export const deleteAccount = async ({ reason, additionalComment } = {}) => {
     reason: String(reason ?? "").trim(),
     additionalComment: String(additionalComment ?? "").trim(),
   };
-  console.log(
-    "[authApi] DELETE /api/auth/account body:",
-    JSON.stringify(body, null, 2)
-  );
+  
   const response = await API.delete("/api/auth/account", {
     ...(await authRequestConfig()),
     data: body,

@@ -4,8 +4,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { API_BASE_URL, API_TIMEOUT_MS, isNgrokBaseUrl } from "../config/env";
 
-
-
 const API = axios.create({
 
   baseURL: API_BASE_URL,
@@ -22,11 +20,7 @@ const API = axios.create({
 
 });
 
-
-
 let _cachedToken = null;
-
-
 
 AsyncStorage.getItem("@auth_token")
 
@@ -34,15 +28,11 @@ AsyncStorage.getItem("@auth_token")
 
   .catch(() => {});
 
-
-
 export const refreshTokenCache = async () => {
 
   _cachedToken = await AsyncStorage.getItem("@auth_token");
 
 };
-
-
 
 export const getBearerToken = async () => {
 
@@ -57,8 +47,6 @@ export const getBearerToken = async () => {
   return _cachedToken;
 
 };
-
-
 
 /** Merge Authorization into axios/fetch config (RN-safe). */
 
@@ -78,11 +66,7 @@ export const authRequestConfig = async (config = {}) => {
 
 };
 
-
-
 export const clearTokenCache = () => { _cachedToken = null; };
-
-
 
 API.interceptors.request.use(
 
@@ -103,8 +87,6 @@ API.interceptors.request.use(
       delete config.headers["content-type"];
 
     }
-
-
 
     const token = await getBearerToken();
 
@@ -133,8 +115,6 @@ API.interceptors.request.use(
   (error) => Promise.reject(error)
 
 );
-
-
 
 API.interceptors.response.use(
 
@@ -178,8 +158,6 @@ API.interceptors.response.use(
   }
 
 );
-
-
 
 export default API;
 

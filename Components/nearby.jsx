@@ -14,6 +14,7 @@ import {
 import Toast from "./Toast";
 import { loadNearbyWithLocation, loadUserDetail } from "../src/services/nearbyService";
 import { openUserChat } from "../src/utils/chatNavigation";
+import { saveFavoriteUser } from "../src/services/favoritesService";
 
 const { width: W, height: H } = Dimensions.get("window");
 const CARD_W = (W - 14 * 2 - 10) / 2;
@@ -134,7 +135,7 @@ function MatchOverlay({ user, onClose, onMessage }) {
 }
 
 // ── Profile modal ────────────────────────────────────────────
-function ProfileModal({ user, loading, onClose, onLike, onPass, onMessage }) {
+function ProfileModal({ user, loading, onClose, onLike, onPass, onMessage, onSave }) {
   if (!user && !loading) return null;
   return (
     <Modal visible={Boolean(user || loading)} transparent animationType="slide" onRequestClose={onClose}>
@@ -199,7 +200,7 @@ function ProfileModal({ user, loading, onClose, onLike, onPass, onMessage }) {
                   <TouchableOpacity style={[styles.profileActionBtn, styles.passBtn]} onPress={onPass} activeOpacity={0.8}>
                     <X size={26} color="#ff6b6b" />
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.profileActionBtn, styles.superBtn]} activeOpacity={0.8}>
+                  <TouchableOpacity style={[styles.profileActionBtn, styles.superBtn]} onPress={onSave} activeOpacity={0.8}>
                     <Star size={20} color="#ffd700" fill="#ffd700" />
                   </TouchableOpacity>
                   <TouchableOpacity style={[styles.profileActionBtn, styles.likeBtn]} onPress={onLike} activeOpacity={0.8}>
@@ -582,6 +583,22 @@ export default function Nearby() {
     setDetailUser(null);
   };
 
+  const handleSaveFavorite = async (user) => {
+    if (!user?.id) return;
+    try {
+      await saveFavoriteUser({
+        userId: user.id,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        occupation: user.occupation,
+      });
+      showToast("Saved to favourites ⭐ — see Profile → Menu → Saved");
+    } catch (err) {
+      
+      showToast(err?.message || "Could not save this user.");
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
@@ -621,6 +638,7 @@ export default function Nearby() {
         onLike={() => handleLike(detailUser)}
         onPass={() => handlePass(detailUser)}
         onMessage={() => openChatWithUser(detailUser)}
+        onSave={() => handleSaveFavorite(detailUser)}
       />
 
       <Toast

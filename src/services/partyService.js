@@ -152,7 +152,7 @@ const loadRoomsFromApi = async (fetcher, label) => {
   const data = await fetcher();
   const rooms = parseRoomsResponse(data);
   const list = rooms.map(normalizeRoom);
-  console.log(`[partyService] ${label}:`, JSON.stringify(list, null, 2));
+  
   return list;
 };
 
@@ -170,7 +170,7 @@ export const loadManagedRooms = () =>
 
 export const enterRandomPartySession = async (payload = {}) => {
   await syncUserFromToken().catch(() => {});
-  console.log("[partyService] enterRandomPartySession: POST /api/v1/tuktuk/rooms/party");
+  
   const data = await joinRandomPartyApi(payload);
   const roomId = firstValue(
     data?.roomId,
@@ -181,7 +181,7 @@ export const enterRandomPartySession = async (payload = {}) => {
     data?.data?.id
   );
   if (!roomId) throw new Error("Random party join did not return a room id.");
-  console.log("[partyService] random party roomId:", String(roomId));
+  
   return enterRoomSession(roomId);
 };
 
@@ -197,7 +197,7 @@ export const createAndJoinRoom = async (payload = {}) => {
     created?.data?.id
   );
   if (!roomId) throw new Error("Create room did not return a room id.");
-  console.log("[partyService] room created, joining:", String(roomId));
+  
   return enterRoomSession(roomId);
 };
 
@@ -231,17 +231,14 @@ export const enterRoomSession = async (roomId) => {
       stateData = (await getRoomState(roomId).catch(() => stateData)) ?? stateData;
       seats = parseSeats(joinData?.seats, stateData);
     } catch (err) {
-      console.log("[partyService] seat reservation skipped:", err?.message);
+      
     }
   }
 
   await wsService.connect();
   wsService.joinRoom(String(roomId));
 
-  console.log(
-    `[partyService] enterRoomSession: ${apiCalls.length} REST call(s) + WebSocket connect/subscribe`,
-    apiCalls
-  );
+  
 
   const room = joinData?.room ?? {};
   const onlineUsers = parseOnlineUsers(stateData, joinData);
@@ -317,26 +314,26 @@ const PARTY_FAMILY_API_READY = false;  // GET /api/app/party/families
 // Party ranking leaderboard. period: "daily" | "weekly" | "monthly".
 export const loadPartyRanking = async (period = "daily") => {
   if (!PARTY_RANKING_API_READY) {
-    console.log("[partyService] ranking API not enabled yet — skipping call");
+    
     return [];
   }
   const data = await getPartyRankingApi(period);
   const list = listFrom(data, "ranking") ?? [];
   const entries = (Array.isArray(list) ? list : []).map(normalizeRankingEntry);
-  console.log(`[partyService] ranking (${period}):`, entries.length, "entries");
+  
   return entries;
 };
 
 // List of families for the Family feature card.
 export const loadFamilies = async () => {
   if (!PARTY_FAMILY_API_READY) {
-    console.log("[partyService] families API not enabled yet — skipping call");
+    
     return [];
   }
   const data = await getFamiliesApi();
   const list = listFrom(data, "families") ?? [];
   const families = (Array.isArray(list) ? list : []).map(normalizeFamily);
-  console.log("[partyService] families:", families.length);
+  
   return families;
 };
 
@@ -344,6 +341,6 @@ export const exitRoomSession = async (roomId) => {
   if (!roomId) return null;
   wsService.leaveRoom(String(roomId));
   const result = await exitRoomApi(roomId);
-  console.log("[partyService] room exited:", String(roomId));
+  
   return result;
 };

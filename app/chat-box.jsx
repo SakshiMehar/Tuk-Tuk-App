@@ -12,7 +12,7 @@ export default function ChatBoxScreen() {
     lastMsg: params.lastMsg ?? "",
   };
 
-  console.log("[ChatBox] personal chat user:", JSON.stringify(user, null, 2));
+  
 
   return <ChatBox user={user} onBack={() => router.back()} />;
 }

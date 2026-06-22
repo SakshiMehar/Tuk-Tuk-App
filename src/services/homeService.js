@@ -15,6 +15,7 @@ import {
   getFollowingPosts,
   getDiscoverPosts,
 } from "../api/postApi";
+import { getActiveUsersCount } from "../api/userApi";
 import { getToken } from "../store/authStore";
 import { resolveAppUserId } from "../utils/sessionUser";
 
@@ -93,7 +94,7 @@ const normalizeRecommendedUser = (user) => {
   };
 };
 
-const normalizePost = (post) => {
+export const normalizePost = (post) => {
   const author = post?.user ?? post?.author ?? post?.createdBy ?? {};
   const media = post?.media ?? post?.attachment ?? {};
   const imageUrl = firstText(
@@ -174,12 +175,17 @@ const hasMoreFrom = (data) => {
 
 // Loads all data the Home screen needs in a single call.
 export const getHomeData = async () => {
-  const [initData, feedData, notifData, giftsData, walletData] = await Promise.all([
+  const [initData, feedData, notifData, giftsData, walletData, activeCountData] =
+    await Promise.all([
     getHomeInit(),
     getFeedPosts("for_you", 1, 10),
     getNotifications(),
     getDailyGifts(),
     getWallet(),
+    getActiveUsersCount().catch((err) => {
+      
+      return null;
+    }),
   ]);
 
   const gifts = Array.isArray(giftsData) ? giftsData : (giftsData?.gifts ?? []);
@@ -189,10 +195,18 @@ export const getHomeData = async () => {
   const userProfile = normalizeUserProfile(initData?.userProfile, token);
   const recommendedUsers = listFrom(initData, "recommendedUsers").map(normalizeRecommendedUser);
   const feedPosts = listFrom(feedData, "posts").map(normalizePost);
+  const activeUsers =
+    activeCountData?.activeUsers ??
+    activeCountData?.count ??
+    initData?.stats?.activeUsers ??
+    0;
 
   return {
     userProfile,
-    stats:             initData?.stats              ?? null,
+    stats: {
+      ...(initData?.stats ?? {}),
+      activeUsers,
+    },
     bannerSlides:      initData?.bannerSlides        ?? [],
     recommendedUsers,
     searchSuggestions: initData?.searchSuggestions   ?? [],
@@ -301,4 +315,11 @@ export const getRecommendedUsers = async () => {
   const initData = await getHomeInit();
   const raw = extractRecommendedUsers(initData);
   return raw.map(normalizeRecommendedUser);
+};
+
+export const refreshActiveUsersCount = async () => {
+  const data = await getActiveUsersCount();
+  const activeUsers = data?.activeUsers ?? data?.count ?? 0;
+  
+  return activeUsers;
 };

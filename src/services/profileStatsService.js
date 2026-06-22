@@ -61,15 +61,15 @@ export const parseProfileVisitsList = (data) =>
     .filter((u) => u.userId != null);
 
 export const loadProfileVisitsList = async () => {
-  console.log("[profileStatsService] loading profile visits list...");
+  
   const data = await getProfileVisits(50);
   const list = parseProfileVisitsList(data);
-  console.log("[profileStatsService] profile visits list:", list.length);
+  
   return list;
 };
 
 export const loadProfileStats = async () => {
-  console.log("[profileStatsService] loading profile stats...");
+  
   const [visitsData, followingData, followersData] = await Promise.all([
     getProfileVisits(50),
     getFollowing(),
@@ -86,6 +86,6 @@ export const loadProfileStats = async () => {
     visitorCount: countFromResponse(visitsData, visitsList),
   };
 
-  console.log("[profileStatsService] profile stats:", JSON.stringify(stats, null, 2));
+  
   return stats;
 };

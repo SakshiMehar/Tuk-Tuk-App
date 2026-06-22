@@ -9,11 +9,11 @@ const buildAuthedConfig = async (label) => {
   await refreshTokenCache();
   const token = await getBearerToken();
   if (!token) {
-    console.warn(`[userApi] ${label} skipped — no auth token in storage`);
+    
     throw new Error("Please log in again to continue.");
   }
   const authConfig = await authRequestConfig();
-  console.log(`[userApi] ${label} auth ok — token length: ${token.length}`);
+  
   return {
     token,
     headers: {
@@ -26,16 +26,13 @@ const buildAuthedConfig = async (label) => {
 
 export const updateMyLocation = async ({ latitude, longitude }) => {
   const body = { latitude, longitude };
-  console.log("[userApi] PATCH /api/app/users/me/location body:", JSON.stringify(body, null, 2));
+  
   const response = await API.patch(
     "/api/app/users/me/location",
     body,
     await authRequestConfig()
   );
-  console.log(
-    "[userApi] PATCH /api/app/users/me/location response:",
-    JSON.stringify(response.data, null, 2)
-  );
+  
   return response.data;
 };
 
@@ -73,48 +70,90 @@ export const getNearbyUsers = async ({
   if (city) params.set("city", city);
   const base = NEARBY_PATHS[variant] ?? NEARBY_PATHS.all;
   const url = `${base}?${params.toString()}`;
-  console.log("[userApi] GET", url);
+  
   const response = await API.get(url, await authRequestConfig());
-  console.log(
-    `[userApi] GET ${base} response:`,
-    JSON.stringify(response.data, null, 2)
-  );
+  
+  return response.data;
+};
+
+// GET /api/app/users/active/count — platform-wide online user count (home header pill)
+export const getActiveUsersCount = async () => {
+  const { headers } = await buildAuthedConfig("active/count");
+  
+  const response = await API.get("/api/app/users/active/count", { headers });
+  
+  
   return response.data;
 };
 
 export const getUserById = async (userId) => {
   const id = String(userId);
-  console.log(`[userApi] GET /api/app/users/${id}`);
+  
   const response = await API.get(
     `/api/app/users/${id}`,
     await authRequestConfig()
   );
-  console.log(
-    `[userApi] GET /api/app/users/${id} response:`,
-    JSON.stringify(response.data, null, 2)
-  );
+  
   return response.data;
 };
 
 export const getProfileVisits = async (limit = 50) => {
   const url = `/api/app/users/me/profile-visits?limit=${limit}`;
-  console.log("[userApi] GET", url);
+  
   const response = await API.get(url, await authRequestConfig());
-  console.log(
-    "[userApi] GET /api/app/users/me/profile-visits response:",
-    JSON.stringify(response.data, null, 2)
+  
+  return response.data;
+};
+
+/** GET /api/app/users/saved — saved users list (no pagination). */
+export const getSavedUsers = async () => {
+  const { headers } = await buildAuthedConfig("get-saved-users");
+  
+  const response = await API.get("/api/app/users/saved", { headers });
+  
+  return response.data;
+};
+
+/** POST /api/app/users/saved/{targetUserId} — save a user. */
+export const saveUserOnServer = async (targetUserId) => {
+  const { token, headers } = await buildAuthedConfig("save-user");
+  const id = encodeURIComponent(String(targetUserId));
+  const url = `/api/app/users/saved/${id}`;
+  
+  const response = await API.post(
+    url,
+    { targetUserId: String(targetUserId), token },
+    { headers }
   );
+  
+  return response.data;
+};
+
+/** DELETE /api/app/users/saved/{targetUserId} — remove a user from saved list. */
+export const removeUserFromServer = async (targetUserId) => {
+  const { headers } = await buildAuthedConfig("remove-saved-user");
+  const id = encodeURIComponent(String(targetUserId));
+  const url = `/api/app/users/saved/${id}`;
+  
+  const response = await API.delete(url, { headers });
+  
   return response.data;
 };
 
 export const getMyDiamondCreditRequests = async () => {
   const url = "/api/app/diamond-credit-requests/me";
-  console.log("[userApi] GET", url);
+  
   const response = await API.get(url, await authRequestConfig());
-  console.log(
-    "[userApi] GET /api/app/diamond-credit-requests/me response:",
-    JSON.stringify(response.data, null, 2)
-  );
+  
+  return response.data;
+};
+
+/** GET /api/app/daily-tasks — today's reward tasks with progress and claim state. */
+export const getDailyTasks = async () => {
+  const { headers } = await buildAuthedConfig("get-daily-tasks");
+  
+  const response = await API.get("/api/app/daily-tasks", { headers });
+  
   return response.data;
 };
 
@@ -122,18 +161,9 @@ export const getMyDiamondCreditRequests = async () => {
 export const claimDailyTask = async (taskType) => {
   const { token, headers } = await buildAuthedConfig("claim-daily-task");
   const type = encodeURIComponent(taskType);
-  // Send token in header (Bearer), body, and query param so the backend can
-  // read it from whichever location it expects.
-  const url = `/api/app/daily-tasks/${type}/claim?token=${encodeURIComponent(token)}`;
-  const body = { taskType, token, accessToken: token, authToken: token };
-  console.log(
-    `[userApi] POST /api/app/daily-tasks/${type}/claim body:`,
-    JSON.stringify({ ...body, token: `(${token.length} chars)` }, null, 2)
-  );
-  const response = await API.post(url, body, { headers });
-  console.log(
-    `[userApi] POST /api/app/daily-tasks/${type}/claim response:`,
-    JSON.stringify(response.data, null, 2)
-  );
+  const url = `/api/app/daily-tasks/${type}/claim`;
+  
+  const response = await API.post(url, { taskType, token }, { headers });
+  
   return response.data;
 };

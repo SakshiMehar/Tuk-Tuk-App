@@ -35,7 +35,7 @@ export const signInWithFacebook = async (options = {}) => {
   } catch (err) {
     const msg = (err?.message ?? "").toLowerCase();
     if (msg.includes("cancelled")) throw err;
-    console.warn("[facebookAuth] native failed, trying web fallback:", err?.message);
+    
     return signInWithFacebookWeb(options);
   }
 };

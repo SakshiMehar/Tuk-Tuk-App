@@ -54,9 +54,9 @@ export const parseDiamondBalance = (data) => {
 };
 
 export const loadMyDiamondCredits = async () => {
-  console.log("[diamondCreditService] loading diamond credits...");
+  
   const data = await getMyDiamondCreditRequests();
   const diamonds = parseDiamondBalance(data);
-  console.log("[diamondCreditService] parsed diamond balance:", diamonds);
+  
   return { diamonds, raw: data };
 };

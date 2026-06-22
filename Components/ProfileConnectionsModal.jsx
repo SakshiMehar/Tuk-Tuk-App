@@ -49,9 +49,9 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
       const loader = LOADERS[type];
       const list = await loader();
       setUsers(list);
-      console.log(`[ProfileConnections] ${type} list:`, list.length, JSON.stringify(list, null, 2));
+      
     } catch (err) {
-      console.warn(`[ProfileConnections] ${type} load failed:`, err?.message ?? err);
+      
       setError(err?.message || "Could not load list.");
       setUsers([]);
     } finally {

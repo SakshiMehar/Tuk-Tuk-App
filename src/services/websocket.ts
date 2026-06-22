@@ -216,10 +216,10 @@ class WebSocketService {
       if (this.subscriptions.has(key)) return;
 
       const destination = `/topic/users/${userId}/chats`;
-      console.log(`[chatWs] subscribed: ${destination}`);
+      
       const sub = this.client.subscribe(destination, (frame: IMessage) => {
         const payload: ChatMessage = JSON.parse(frame.body);
-        console.log(`[chatWs] ${destination}:`, JSON.stringify(payload, null, 2));
+        
         this.messageHandlers.forEach((h) => h(payload));
       });
       this.subscriptions.set(key, sub);
@@ -377,7 +377,7 @@ class WebSocketService {
     const destination = `/app/users/${recipientId}/chat`;
     const body = JSON.stringify({ message: content });
     this.client!.publish({ destination, body });
-    console.log(`[chatWs] ${destination}:`, body);
+    
   }
 
   notifyTyping(receiverId: string): void {

@@ -1,61 +1,60 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { claimDailyTask } from "../api/userApi";
+import { claimDailyTask, getDailyTasks } from "../api/userApi";
 
-const STORAGE_KEY = "@reward_tasks_claimed";
-
-/**
- * Reward tasks shown in Profile → Menu → Task. reward is in diamonds (💎).
- * `taskType` is the path param sent to POST /api/daily-tasks/{taskType}/claim.
- * Adjust these to match your backend's task-type values if they differ.
- */
-export const REWARD_TASKS = [
-  { id: "login_today",      taskType: "LOGIN_TODAY",      label: "Log in today",                 reward: 100,  emoji: "🔓" },
-  { id: "make_friend",      taskType: "MAKE_FRIEND",      label: "Make 1 new friend",            reward: 100,  emoji: "🤝" },
-  { id: "voice_30min",      taskType: "VOICE_ROOM_30MIN", label: "Join a voice room for 30 min", reward: 250,  emoji: "🎙️" },
-  { id: "follow_10",        taskType: "FOLLOW_10",        label: "Follow 10 new users",          reward: 100,  emoji: "➕" },
-  { id: "recharge_once",    taskType: "RECHARGE_ONCE",    label: "Recharge once",                reward: 1500, emoji: "💳" },
-  { id: "post_10",          taskType: "POST_10",          label: "Create 10 posts today",        reward: 1000, emoji: "📝" },
-  { id: "send_gift_300",    taskType: "SEND_GIFT_300",    label: "Send a gift over 300💎",       reward: 100,  emoji: "🎁" },
-  { id: "like_post",        taskType: "LIKE_POST",        label: "Like a post",                  reward: 50,   emoji: "❤️" },
-  { id: "receive_gift_100", taskType: "RECEIVE_GIFT_100", label: "Receive a 100💎 gift",         reward: 50,   emoji: "💝" },
-];
-
-export const TASKS_TOTAL_REWARD = REWARD_TASKS.reduce(
-  (sum, task) => sum + task.reward,
-  0
-);
-
-export const loadClaimedTasks = async () => {
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    const ids = raw ? JSON.parse(raw) : [];
-    return Array.isArray(ids) ? ids : [];
-  } catch {
-    return [];
-  }
+const TASK_EMOJIS = {
+  LOGIN_TODAY: "🔓",
+  MAKE_NEW_FRIEND: "🤝",
+  MAKE_FRIEND: "🤝",
+  JOIN_VOICE_ROOM_30_MIN: "🎙️",
+  VOICE_ROOM_30MIN: "🎙️",
+  FOLLOW_10_NEW_USERS: "➕",
+  FOLLOW_10: "➕",
+  RECHARGE_ONCE: "💳",
+  CREATE_10_POSTS: "📝",
+  POST_10: "📝",
+  SEND_GIFT_OVER_300: "🎁",
+  SEND_GIFT_300: "🎁",
+  LIKE_A_POST: "❤️",
+  LIKE_POST: "❤️",
+  RECEIVE_100_GIFT: "💝",
+  RECEIVE_GIFT_100: "💝",
 };
 
-export const saveClaimedTasks = async (ids) => {
-  try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
-  } catch {
-    // Non-fatal — claim state just won't persist this time.
-  }
+const normalizeDailyTask = (task) => {
+  const taskType = task?.taskType ?? task?.type ?? task?.id ?? "";
+  return {
+    id: taskType,
+    taskType,
+    label: task?.title ?? task?.label ?? taskType,
+    reward: task?.rewardDiamonds ?? task?.reward ?? 0,
+    progressCount: task?.progressCount ?? 0,
+    targetCount: task?.targetCount ?? 1,
+    completed: Boolean(task?.completed),
+    claimed: Boolean(task?.claimed),
+    emoji: TASK_EMOJIS[taskType] ?? "✨",
+  };
 };
 
-/** Sum of diamond rewards for the given claimed task ids. */
-export const claimedBonusTotal = (claimedIds = []) =>
-  REWARD_TASKS.reduce(
-    (sum, task) => (claimedIds.includes(task.id) ? sum + task.reward : sum),
+/** GET /api/app/daily-tasks */
+export const loadDailyTasks = async () => {
+  const data = await getDailyTasks();
+  const tasks = (Array.isArray(data) ? data : data?.tasks ?? []).map(normalizeDailyTask);
+  
+  return tasks;
+};
+
+export const tasksTotalReward = (tasks = []) =>
+  tasks.reduce((sum, task) => sum + (task.reward ?? 0), 0);
+
+export const claimedTasksDiamondTotal = (tasks = []) =>
+  tasks.reduce(
+    (sum, task) => (task.claimed ? sum + (task.reward ?? 0) : sum),
     0
   );
 
-/** Claim a reward task on the backend and log the response in the terminal. */
+/** POST /api/app/daily-tasks/{taskType}/claim */
 export const claimRewardTask = async (task) => {
-  const data = await claimDailyTask(task.taskType ?? task.id);
-  console.log(
-    "[rewardTaskService] claim response:",
-    JSON.stringify({ taskType: task.taskType ?? task.id, response: data }, null, 2)
-  );
+  const taskType = task?.taskType ?? task?.id;
+  const data = await claimDailyTask(taskType);
+  
   return data;
 };
