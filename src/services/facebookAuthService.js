@@ -39,3 +39,14 @@ export const signInWithFacebook = async (options = {}) => {
     return signInWithFacebookWeb(options);
   }
 };
+
+export const isFacebookAuthCancelled = (err) => {
+  const msg = (err?.message ?? "").toLowerCase();
+  return msg.includes("cancelled") || msg.includes("canceled");
+};
+
+export const getFacebookAuthErrorMessage = (err) => {
+  if (!err) return null;
+  if (isFacebookAuthCancelled(err)) return null;
+  return err?.message ?? "Facebook sign-in failed.";
+};

@@ -15,6 +15,23 @@
 
 import API, { authRequestConfig } from "./axios";
 
+const LOG_TAG = "[PartyAPI]";
+
+const logRequest = (method, path, payload) => {
+  console.log(`${LOG_TAG} → ${method} ${path}`, payload ?? "");
+};
+
+const logResponse = (method, path, data) => {
+  console.log(`${LOG_TAG} ← ${method} ${path}`, data);
+};
+
+const logError = (method, path, error) => {
+  console.error(
+    `${LOG_TAG} ✗ ${method} ${path}`,
+    error?.response?.data ?? error?.message ?? error
+  );
+};
+
 export const getRoomRecommendations = async () => {
   const response = await API.get(
     "/api/v1/tuktuk/rooms/recommendations",
@@ -62,13 +79,16 @@ export const joinRandomParty = async (body = {}) => {
 };
 
 export const createRoom = async (body = {}) => {
-  const response = await API.post(
-    "/api/v1/tuktuk/rooms/create",
-    body,
-    await authRequestConfig()
-  );
-  
-  return response.data;
+  const path = "/api/v1/tuktuk/rooms/create";
+  logRequest("POST", path, body);
+  try {
+    const response = await API.post(path, body, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
 };
 
 export const joinRoom = async (roomId) => {
@@ -166,12 +186,24 @@ export const getFamilies = async () => {
   return response.data;
 };
 
+/** POST /api/v1/tuktuk/rooms/{roomId}/sendRoomGift — party room gift (diamond pay / room broadcast) */
 export const sendRoomGift = async (roomId, body) => {
-  const response = await API.post(
-    `/api/v1/tuktuk/rooms/${roomId}/gift`,
-    body,
-    await authRequestConfig()
-  );
-  
-  return response.data;
+  const path = `/api/v1/tuktuk/rooms/${roomId}/sendRoomGift`;
+  const payload = {
+    receiverId: Number(body?.receiverId),
+    giftCode: String(body?.giftCode ?? body?.giftId ?? ""),
+    quantity: Math.max(1, Number(body?.quantity) || 1),
+    ...(body?.diamondValue != null ? { diamondValue: Number(body.diamondValue) } : {}),
+    ...(body?.senderName ? { senderName: String(body.senderName) } : {}),
+    ...(body?.animation ? { animation: String(body.animation) } : {}),
+  };
+  logRequest("POST", path, payload);
+  try {
+    const response = await API.post(path, payload, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
 };

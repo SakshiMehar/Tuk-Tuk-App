@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import {
   Modal,
   View,
@@ -17,14 +18,21 @@ export default function FacebookLoginWebViewModal({
   onCancel,
   onClose,
 }) {
-  const finish = (url) => {
-    onSuccess?.(url);
+  const finishedRef = useRef(false);
+
+  const finishOnce = (action) => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    action();
     onClose?.();
   };
 
+  const finish = (url) => {
+    finishOnce(() => onSuccess?.(url));
+  };
+
   const handleClose = () => {
-    onCancel?.();
-    onClose?.();
+    finishOnce(() => onCancel?.());
   };
 
   const tryCompleteFromUrl = (url) => {

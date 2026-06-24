@@ -16,12 +16,12 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getUser, updateUser } from "../../src/store/authStore";
+import { refreshTokenCache } from "../../src/api/axios";
 import { loadMyProfile, saveMyProfile } from "../../src/services/meProfileService";
 import { loadProfileStats } from "../../src/services/profileStatsService";
-import { loadMyDiamondCredits } from "../../src/services/diamondCreditService";
 import {
   loadDailyTasks,
   tasksTotalReward,
@@ -29,6 +29,7 @@ import {
   claimRewardTask,
 } from "../../src/services/rewardTaskService";
 import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
+import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import {
   avatarMap,
   avatarOptions,
@@ -40,6 +41,8 @@ import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/service
 import { loadWalletData } from "../../src/services/walletService";
 import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
 import { openUserChat } from "../../src/utils/chatNavigation";
+import { useWalletBalance } from "../../src/hooks/useWalletBalance";
+import { refreshWalletBalance } from "../../src/store/walletStore";
 
 const screen = Dimensions.get("window");
 
@@ -81,16 +84,18 @@ const BOTTOM_TABS = ["Moment", "Profile", "Honor", "Gift"];
 
 export default function Profile() {
   const router = useRouter();
+  const scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
   const insets = useSafeAreaInsets();
   const scrollBottomPad = 24 + Math.max(insets.bottom, 8) + 64;
   const [following, setFollowing] = useState(0);
   const [followers, setFollowers] = useState(0);
   const [visitorCount, setVisitorCount] = useState(0);
-  const [diamondCount, setDiamondCount] = useState(0);
-  const [serverDiamonds, setServerDiamonds] = useState(0);
+  const { diamonds: walletDiamonds, coins: walletCoins } = useWalletBalance();
   const [dailyTasks, setDailyTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [connectionsListType, setConnectionsListType] = useState(null);
+  const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
   const [menuPage, setMenuPage] = useState(0);
   const [activeTab, setActiveTab] = useState("Moment");
   const menuRef = useRef(null);
@@ -119,7 +124,6 @@ export default function Profile() {
   const [savedUsers, setSavedUsers] = useState([]);
   const [savedUsersLoading, setSavedUsersLoading] = useState(false);
   const [removingSavedUserId, setRemovingSavedUserId] = useState(null);
-  const [walletBalance, setWalletBalance] = useState({ diamonds: 0, coins: 0 });
   const [walletTransactions, setWalletTransactions] = useState([]);
   const [walletLoading, setWalletLoading] = useState(false);
   const [myPosts, setMyPosts] = useState([]);
@@ -128,6 +132,7 @@ export default function Profile() {
   const [editPostText, setEditPostText] = useState("");
   const [postSaving, setPostSaving] = useState(false);
   const [profileTabLoading, setProfileTabLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(true);
   const tabDataLoadedRef = useRef({ Moment: false, Profile: false });
   const refreshSavedUsers = useCallback(async () => {
     setSavedUsersLoading(true);
@@ -152,16 +157,14 @@ export default function Profile() {
 
     let cancelled = false;
     setWalletLoading(true);
+    refreshWalletBalance();
     loadWalletData()
       .then((data) => {
         if (cancelled) return;
-        setWalletBalance(data.balance);
         setWalletTransactions(data.transactions);
       })
-      .catch((err) => {
+      .catch(() => {
         if (cancelled) return;
-        
-        setWalletBalance({ diamonds: 0, coins: 0 });
         setWalletTransactions([]);
       })
       .finally(() => {
@@ -197,6 +200,21 @@ export default function Profile() {
     setProfilePicUrl(user.profilePicUrl ?? user.avatarUrl ?? null);
   }, []);
 
+  const loadConnectionStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      await refreshTokenCache();
+      const stats = await loadProfileStats();
+      setFollowing(stats.followingCount);
+      setFollowers(stats.followersCount);
+      setVisitorCount(stats.visitorCount);
+    } catch {
+      // Keep the last known counts if the stats request fails.
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
   const loadProfileTabData = useCallback(async () => {
     setProfileTabLoading(true);
     try {
@@ -218,15 +236,6 @@ export default function Profile() {
         profilePicUrl: serverProfile.profilePicUrl ?? null,
         useLocalAvatar: Boolean(serverProfile.avatarId) || !serverProfile.profilePicUrl,
       });
-
-      const [stats, { diamonds }] = await Promise.all([
-        loadProfileStats(),
-        loadMyDiamondCredits(),
-      ]);
-      setFollowing(stats.followingCount);
-      setFollowers(stats.followersCount);
-      setVisitorCount(stats.visitorCount);
-      setServerDiamonds(diamonds);
     } catch {
       // Keep cached local values if the profile tab fetch fails.
     } finally {
@@ -237,7 +246,9 @@ export default function Profile() {
   useFocusEffect(
     useCallback(() => {
       hydrateFromLocalUser();
-    }, [hydrateFromLocalUser])
+      refreshWalletBalance();
+      loadConnectionStats();
+    }, [hydrateFromLocalUser, loadConnectionStats])
   );
 
   useEffect(() => {
@@ -306,10 +317,6 @@ export default function Profile() {
   }, [removingSavedUserId]);
 
   useEffect(() => {
-    setDiamondCount(serverDiamonds);
-  }, [serverDiamonds]);
-
-  useEffect(() => {
     if (activeMenu?.label !== "Task") return;
 
     let cancelled = false;
@@ -341,12 +348,9 @@ export default function Profile() {
     
     try {
       await claimRewardTask(task);
-      const [tasks, { diamonds }] = await Promise.all([
-        loadDailyTasks(),
-        loadMyDiamondCredits(),
-      ]);
+      const tasks = await loadDailyTasks();
       setDailyTasks(tasks);
-      setServerDiamonds(diamonds);
+      await refreshWalletBalance();
       
       Alert.alert(
         "Reward claimed!",
@@ -711,14 +715,14 @@ export default function Profile() {
                   <Text style={{ fontSize: 26 }}>💎</Text>
                   <Text style={styles.mmWalletAmount}>
                     {"  "}
-                    {walletBalance.diamonds.toLocaleString()} Diamonds
+                    {walletDiamonds.toLocaleString()} Diamonds
                   </Text>
                 </View>
                 <View style={styles.mmWalletBalRow}>
                   <Text style={{ fontSize: 20 }}>🪙</Text>
                   <Text style={[styles.mmWalletAmount, { fontSize: 18 }]}>
                     {"  "}
-                    {walletBalance.coins.toLocaleString()} Coins
+                    {walletCoins.toLocaleString()} Coins
                   </Text>
                 </View>
               </>
@@ -1247,6 +1251,7 @@ export default function Profile() {
       <View style={styles.orbPurple} />
 
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPad }]}
         showsVerticalScrollIndicator={false}
@@ -1254,22 +1259,27 @@ export default function Profile() {
         {/* ── TOP BAR ── */}
         <View style={styles.topBar}>
           {/* Diamond counter */}
-          <TouchableOpacity style={styles.counterPill} activeOpacity={0.8}>
+          <View style={styles.counterPill}>
             <View style={styles.counterIconWrap}>
               <Text style={styles.counterEmoji}>💎</Text>
             </View>
-            <Text style={styles.counterValue}>{diamondCount.toLocaleString()}</Text>
-            <View style={styles.plusBtn}>
+            <Text style={styles.counterValue}>{walletDiamonds.toLocaleString("en-IN")}</Text>
+            <TouchableOpacity
+              style={styles.plusBtn}
+              activeOpacity={0.85}
+              onPress={() => setDiamondRechargeVisible(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
               <FontAwesome name="plus" size={10} color="white" />
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
 
           {/* Coin counter */}
           <TouchableOpacity style={styles.counterPill} activeOpacity={0.8}>
             <View style={[styles.counterIconWrap, styles.coinIconWrap]}>
               <Text style={styles.counterEmoji}>🪙</Text>
             </View>
-            <Text style={styles.counterValue}>0</Text>
+            <Text style={styles.counterValue}>{walletCoins.toLocaleString()}</Text>
             <View style={styles.plusBtn}>
               <FontAwesome name="plus" size={10} color="white" />
             </View>
@@ -1365,7 +1375,7 @@ export default function Profile() {
 
           {/* Stats row */}
           <View style={styles.statsRow}>
-            {profileTabLoading ? (
+            {statsLoading ? (
               <ActivityIndicator color="#a78bfa" style={{ paddingVertical: 8 }} />
             ) : (
               <>
@@ -1577,7 +1587,16 @@ export default function Profile() {
       <ProfileConnectionsModal
         visible={connectionsListType !== null}
         type={connectionsListType}
-        onClose={() => setConnectionsListType(null)}
+        onClose={() => {
+          setConnectionsListType(null);
+          loadConnectionStats();
+        }}
+      />
+
+      <DiamondRechargeModal
+        visible={diamondRechargeVisible}
+        onClose={() => setDiamondRechargeVisible(false)}
+        currentDiamonds={walletDiamonds}
       />
 
       {/* Edit modal */}

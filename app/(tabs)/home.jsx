@@ -19,11 +19,12 @@ import {
   Share,
   Linking,
   Alert,
+  BackHandler,
 } from "react-native";
 import { Image } from "expo-image";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { ChevronRight } from "lucide-react-native";
 import * as homeService from "../../src/services/homeService";
@@ -38,6 +39,12 @@ import {
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import { getUser } from "../../src/store/authStore";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
+import { useWalletBalance } from "../../src/hooks/useWalletBalance";
+import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
+import {
+  applyWalletFromSources,
+  refreshWalletBalance,
+} from "../../src/store/walletStore";
 import {
   createPost,
   deletePost,
@@ -53,6 +60,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import Toast from "../../Components/Toast";
 import ComingSoonModal from "../../Components/ComingSoonModal";
+import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
 import { openUserChat } from "../../src/utils/chatNavigation";
 
@@ -112,12 +120,14 @@ const iconItems = [
     img: require("../../assets/images/officialchat.png"),
     colors: ["#cf91b6ff", "#180a31ff"],
     imgSize: 70,
+    comingSoon: true,
   },
   {
     label: "Personality Test",
     img: require("../../assets/images/blindpick.png"),
     colors: ["#080334ff", "#ac4dffff"],
     imgSize: 60,
+    comingSoon: true,
   },
   {
     label: "Truth & Dare",
@@ -131,6 +141,7 @@ const iconItems = [
     img: require("../../assets/images/invitationReward.png"),
     colors: ["#76093fff", "#ba741eff"],
     imgSize: 80,
+    comingSoon: true,
   },
   {
     label: "Ludo",
@@ -1043,12 +1054,44 @@ const QUICK_EMOJIS = ["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", 
 
 // ── Comment Sheet ─────────────────────────────────────────────
 const CommentSheet = memo(({ visible, postId, onClose }) => {
+  const insets = useSafeAreaInsets();
   const [comments, setComments]     = useState([]);
   const [text, setText]             = useState("");
   const [loading, setLoading]       = useState(false);
   const [sending, setSending]       = useState(false);
   const [likedComments, setLiked]   = useState([]);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const [windowHeight, setWindowHeight] = useState(SCREEN_HEIGHT);
+  const baselineWindowHeight = useRef(SCREEN_HEIGHT);
   const inputRef                    = useRef(null);
+  const {
+    keyboardHeight,
+    syncKeyboardHeight,
+  } = useModalKeyboardInset(visible);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const baseline = Dimensions.get("window").height;
+    baselineWindowHeight.current = baseline;
+    setWindowHeight(baseline);
+
+    const sub = Dimensions.addEventListener("change", ({ window }) => {
+      setWindowHeight(window.height);
+    });
+    return () => sub.remove();
+  }, [visible]);
+
+  // Lift only what adjustResize did not already handle — keeps input flush on the keyboard.
+  const resizeLift = keyboardHeight > 0
+    ? Math.max(0, baselineWindowHeight.current - windowHeight)
+    : 0;
+  const keyboardLift = keyboardHeight > 0
+    ? resizeLift >= keyboardHeight * 0.75
+      ? 0
+      : resizeLift <= 0
+        ? keyboardHeight
+        : Math.max(0, keyboardHeight - resizeLift)
+    : 0;
 
   // Load comments whenever sheet opens
   useEffect(() => {
@@ -1073,6 +1116,15 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
       })
       .finally(() => setLoading(false));
   }, [visible, postId]);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
 
   const handleSend = useCallback(async () => {
     if (!text.trim() || sending) return;
@@ -1105,12 +1157,14 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
   const handleQuickEmoji = useCallback((emoji) => {
     setText((prev) => prev + emoji);
     inputRef.current?.focus();
-  }, []);
+    syncKeyboardHeight();
+  }, [syncKeyboardHeight]);
 
   const handleReply = useCallback((userName) => {
     setText(`@${userName} `);
     inputRef.current?.focus();
-  }, []);
+    syncKeyboardHeight();
+  }, [syncKeyboardHeight]);
 
   const toggleCommentLike = useCallback((id) => {
     setLiked((prev) =>
@@ -1159,22 +1213,17 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
     );
   }, [likedComments, handleReply, toggleCommentLike]);
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      {/* Outer container anchors sheet to bottom */}
-      <View style={cs.overlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        <View style={cs.sheet}>
-          <LinearGradient colors={["#1e0a3c", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+    <View style={cs.hostOverlay}>
+      <View style={cs.fullSheet}>
+        <LinearGradient colors={["#1e0a3c", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={["#7c4dff", "#ff4ea3"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={cs.topGlow} />
 
-          {/* Top glow */}
-          <LinearGradient colors={["#7c4dff", "#ff4ea3"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={cs.topGlow} />
-
-          {/* Drag handle */}
+        <View style={[cs.sheetTop, { paddingTop: Math.max(insets.top, 12) }]}>
           <View style={cs.handle} />
 
-          {/* Header */}
           <View style={cs.header}>
             <Text style={cs.title}>
               Comments{comments.length > 0 ? ` (${comments.length})` : ""}
@@ -1186,37 +1235,50 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
 
           <LinearGradient
             colors={["transparent", "rgba(124,77,255,0.35)", "transparent"]}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
             style={cs.divider}
           />
+        </View>
 
-          {/* Comment list — ScrollView avoids FlatList height-collapse on Android */}
-          <ScrollView style={cs.list} showsVerticalScrollIndicator={false} nestedScrollEnabled>
-            {loading ? (
-              <View style={cs.loadingBox}>
-                <ActivityIndicator color="#7c4dff" size="large" />
+        <ScrollView
+          style={[cs.listFill, { marginBottom: composerHeight + keyboardLift }]}
+          contentContainerStyle={cs.listContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
+          {loading ? (
+            <View style={cs.loadingBox}>
+              <ActivityIndicator color="#7c4dff" size="large" />
+            </View>
+          ) : comments.length === 0 ? (
+            <View style={cs.emptyBox}>
+              <Text style={cs.emptyEmoji}>💬</Text>
+              <Text style={cs.emptyTitle}>No comments yet</Text>
+              <Text style={cs.emptySub}>Be the first to comment!</Text>
+            </View>
+          ) : (
+            comments.map((item, i) => (
+              <View key={String(item.id ?? i)}>
+                {renderComment({ item })}
               </View>
-            ) : comments.length === 0 ? (
-              <View style={cs.emptyBox}>
-                <Text style={cs.emptyEmoji}>💬</Text>
-                <Text style={cs.emptyTitle}>No comments yet</Text>
-                <Text style={cs.emptySub}>Be the first to comment!</Text>
-              </View>
-            ) : (
-              comments.map((item, i) => (
-                <View key={String(item.id ?? i)}>
-                  {renderComment({ item })}
-                </View>
-              ))
-            )}
-          </ScrollView>
+            ))
+          )}
+        </ScrollView>
 
-          {/* Quick emoji row */}
+        <View
+          style={[cs.composerDock, cs.composerFloat, { bottom: keyboardLift }]}
+          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+        >
+          <LinearGradient colors={["#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             style={cs.emojiBar}
             contentContainerStyle={cs.emojiBarContent}
+            keyboardShouldPersistTaps="handled"
           >
             {QUICK_EMOJIS.map((e) => (
               <TouchableOpacity key={e} style={cs.emojiBtn} onPress={() => handleQuickEmoji(e)} activeOpacity={0.7}>
@@ -1225,7 +1287,6 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
             ))}
           </ScrollView>
 
-          {/* Input row */}
           <View style={cs.inputRow}>
             <View style={cs.inputAvatar}>
               <Text style={{ fontSize: 14 }}>👤</Text>
@@ -1238,6 +1299,7 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
                 placeholderTextColor="rgba(255,255,255,0.32)"
                 value={text}
                 onChangeText={setText}
+                onFocus={syncKeyboardHeight}
                 multiline
                 maxLength={300}
               />
@@ -1249,7 +1311,8 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
             >
               <LinearGradient
                 colors={text.trim() ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={[cs.sendBtn, (!text.trim() || sending) && cs.sendBtnOff]}
               >
                 {sending
@@ -1259,31 +1322,32 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
               </LinearGradient>
             </TouchableOpacity>
           </View>
-          <View style={{ height: 14 }} />
         </View>
-        </KeyboardAvoidingView>
       </View>
-    </Modal>
+    </View>
   );
 });
 
 const cs = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.55)",
+  hostOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2000,
+    elevation: 2000,
   },
-  sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+  fullSheet: {
+    flex: 1,
+    width: "100%",
     overflow: "hidden",
+    position: "relative",
+  },
+  sheetTop: {
     paddingHorizontal: 16,
   },
   topGlow: { height: 2 },
   handle: {
     width: 44, height: 4, borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.2)",
-    alignSelf: "center", marginTop: 12, marginBottom: 14,
+    alignSelf: "center", marginTop: 8, marginBottom: 14,
   },
   header: {
     flexDirection: "row", alignItems: "center",
@@ -1298,8 +1362,12 @@ const cs = StyleSheet.create({
   closeTxt: { color: "rgba(255,255,255,0.65)", fontSize: 13 },
   divider: { height: 1, marginBottom: 10 },
 
-  loadingBox: { height: 160, alignItems: "center", justifyContent: "center" },
-  list: { height: SCREEN_HEIGHT * 0.38 },
+  loadingBox: { flex: 1, minHeight: 160, alignItems: "center", justifyContent: "center" },
+  listFill: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  listContent: { paddingBottom: 12, flexGrow: 1 },
   emptyWrap: { flexGrow: 1, justifyContent: "center" },
   emptyBox: { alignItems: "center", paddingVertical: 40, gap: 8 },
   emptyEmoji: { fontSize: 40 },
@@ -1334,11 +1402,27 @@ const cs = StyleSheet.create({
   heartIcon: { fontSize: 16 },
   heartIconLiked: { fontSize: 16 },
 
-  // Quick emoji bar
-  emojiBar: {
+  // Quick emoji bar + composer (pinned above keyboard)
+  composerDock: {
+    width: "100%",
+    overflow: "hidden",
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.07)",
-    marginTop: 4,
+    borderTopColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 6,
+    backgroundColor: "rgba(13,6,24,0.98)",
+  },
+  composerFloat: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    elevation: 10,
+  },
+  emojiBar: {
+    borderTopWidth: 0,
+    marginTop: 0,
   },
   emojiBarContent: {
     flexDirection: "row",
@@ -1580,6 +1664,7 @@ const BannerSlider = memo(({ slides, activeBanner, onBannerChange }) => {
 // its specific props change (e.g. diamonds update, tab switch)
 const HomeHeader = memo(({
   userProfile,
+  walletDiamonds,
   sessionAvatarSource,
   stats,
   unreadNotifications,
@@ -1591,6 +1676,7 @@ const HomeHeader = memo(({
   onSearchOpen,
   onNotifOpen,
   onGiftsOpen,
+  onRechargeOpen,
   onNearbyPress,
   onComingSoon,
   router,
@@ -1628,7 +1714,17 @@ const HomeHeader = memo(({
         <View style={styles.headerIcons}>
           <View style={styles.diamondPill}>
             <Text style={styles.diamondEmoji}>💎</Text>
-            <Text style={styles.diamondCount}>{userProfile?.diamonds?.toLocaleString() ?? "..."}</Text>
+            <Text style={styles.diamondCount}>
+              {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString("en-IN")}
+            </Text>
+            <TouchableOpacity
+              style={styles.diamondPlusBtn}
+              activeOpacity={0.85}
+              onPress={onRechargeOpen}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.diamondPlusText}>+</Text>
+            </TouchableOpacity>
           </View>
           <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8} onPress={onGiftsOpen}>
             <Text style={styles.headerIconEmoji}>🎁</Text>
@@ -1806,6 +1902,8 @@ const HomeHeader = memo(({
 // ─────────────────────────────────────────────────────────────
 export default function Home() {
   const router = useRouter();
+  const feedListRef = useRef(null);
+  useScrollToTop(feedListRef);
   const [selectedTab, setSelectedTab] = useState("For You");
   const [activeBanner, setActiveBanner] = useState(0);
 
@@ -1822,6 +1920,7 @@ export default function Home() {
   const [notifications, setNotifications] = useState([]);
   const [gifts, setGifts] = useState([]);
   const [wallet, setWallet] = useState(null);
+  const { diamonds: walletDiamonds } = useWalletBalance();
   const [followingIds, setFollowingIds] = useState([]);
   const [followingList, setFollowingList] = useState([]);
   const [followersList, setFollowersList] = useState([]);
@@ -1851,6 +1950,7 @@ export default function Home() {
   const [toastVisible, setToastVisible] = useState(false);
   const [sessionAvatarSource, setSessionAvatarSource] = useState(null);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
+  const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
 
   const syncSessionAvatar = useCallback(async () => {
     try {
@@ -1865,6 +1965,12 @@ export default function Home() {
     useCallback(() => {
       syncSessionAvatar();
     }, [syncSessionAvatar])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshWalletBalance();
+    }, [])
   );
 
   useFocusEffect(
@@ -1946,6 +2052,10 @@ export default function Home() {
           setNotifications(data.notifications);
           setGifts(data.gifts);
           setWallet(data.wallet);
+          applyWalletFromSources({
+            walletData: data.wallet,
+            userProfile: data.userProfile,
+          });
           setSearchSuggestions(data.searchSuggestions);
           setTrendingTags(data.trendingTags);
           // Use server unreadCount when available, fall back to local filter
@@ -2392,6 +2502,7 @@ export default function Home() {
   const listHeader = useMemo(() => (
     <HomeHeader
       userProfile={userProfile}
+      walletDiamonds={walletDiamonds}
       sessionAvatarSource={sessionAvatarSource}
       stats={stats}
       unreadNotifications={unreadNotifications}
@@ -2403,11 +2514,12 @@ export default function Home() {
       onSearchOpen={openSearch}
       onNotifOpen={openNotif}
       onGiftsOpen={openGifts}
+      onRechargeOpen={() => setDiamondRechargeVisible(true)}
       onNearbyPress={handleNearbyPress}
       onComingSoon={setComingSoonFeature}
       router={router}
     />
-  ), [userProfile, sessionAvatarSource, stats, unreadNotifications, recommendedUsers, selectedTab,
+  ), [userProfile, walletDiamonds, sessionAvatarSource, stats, unreadNotifications, recommendedUsers, selectedTab,
       handleTabPress, openSearch, openNotif, openGifts, handleNearbyPress, router]);
 
   return (
@@ -2427,6 +2539,7 @@ export default function Home() {
       {/* Outer FlatList gives true virtualization to the feed —
           only posts near the viewport are kept in memory */}
       <FlatList
+        ref={feedListRef}
         data={feedData}
         renderItem={renderFeedItem}
         keyExtractor={keyExtractor}
@@ -2765,6 +2878,12 @@ export default function Home() {
         onClose={() => setComingSoonFeature(null)}
       />
 
+      <DiamondRechargeModal
+        visible={diamondRechargeVisible}
+        onClose={() => setDiamondRechargeVisible(false)}
+        currentDiamonds={walletDiamonds}
+      />
+
       {/* ── Searched user profile ── */}
       <Modal
         visible={Boolean(searchProfile)}
@@ -2981,6 +3100,21 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 12,
     fontWeight: "700",
+  },
+  diamondPlusBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#7c3aed",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 2,
+  },
+  diamondPlusText: {
+    color: "white",
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 14,
   },
   headerIconBtn: {
     width: 34,

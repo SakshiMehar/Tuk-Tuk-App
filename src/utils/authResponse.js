@@ -1,9 +1,25 @@
+import { resolveBundledAvatarId } from "../data/avatarOptions";
+
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
 
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null && String(value).trim() !== "") ??
   null;
+
+const applyAvatarFields = (user, ...sources) => {
+  const avatarId = resolveBundledAvatarId(...sources);
+  if (avatarId) {
+    user.avatarId = avatarId;
+    user.avatar = avatarId;
+  }
+  const remoteUrl = firstText(...sources);
+  if (remoteUrl && !avatarId) {
+    user.profilePicUrl = remoteUrl;
+    user.avatarUrl = remoteUrl;
+  }
+  return user;
+};
 
 const buildUserFromPayload = (payload) => {
   const userId = firstValue(payload?.userId, payload?.id, payload?.user_id);
@@ -13,13 +29,6 @@ const buildUserFromPayload = (payload) => {
     payload?.displayName,
     payload?.fullName,
     payload?.nickname
-  );
-  const avatarUrl = firstText(
-    payload?.profilePicUrl,
-    payload?.avatarUrl,
-    payload?.avatar,
-    payload?.profileImageUrl,
-    payload?.profileImage
   );
 
   const user = {};
@@ -31,10 +40,14 @@ const buildUserFromPayload = (payload) => {
     user.name = name;
     user.username = name;
   }
-  if (avatarUrl) {
-    user.profilePicUrl = avatarUrl;
-    user.avatarUrl = avatarUrl;
-  }
+  applyAvatarFields(
+    user,
+    payload?.avatar,
+    payload?.profilePicUrl,
+    payload?.avatarUrl,
+    payload?.profileImageUrl,
+    payload?.profileImage
+  );
   if (payload?.role) user.role = payload.role;
   if (payload?.email) user.email = payload.email;
   if (payload?.phone) user.phone = payload.phone;
@@ -55,13 +68,19 @@ export const normalizeAuthResponse = (data) => {
   const nestedUser = payload?.user ?? data?.user;
   if (nestedUser && typeof nestedUser === "object" && Object.keys(nestedUser).length > 0) {
     const userId = firstValue(nestedUser?.userId, nestedUser?.id);
-    return {
-      token,
-      user: {
-        ...nestedUser,
-        ...(userId != null ? { id: String(userId), userId: String(userId) } : {}),
-      },
+    const user = {
+      ...nestedUser,
+      ...(userId != null ? { id: String(userId), userId: String(userId) } : {}),
     };
+    applyAvatarFields(
+      user,
+      nestedUser?.avatar,
+      nestedUser?.profilePicUrl,
+      payload?.avatar,
+      payload?.profilePicUrl,
+      nestedUser?.avatarUrl
+    );
+    return { token, user };
   }
 
   // Flat login: { userId, username, token, profilePicUrl, role, ... }

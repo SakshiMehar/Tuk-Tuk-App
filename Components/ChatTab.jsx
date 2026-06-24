@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Search, UserPlus, X, Check, ChevronDown, AlignJustify } from "lucide-react-native";
 import { useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { getRecommendedUsers } from "../src/services/homeService";
 import { loadConversations } from "../src/services/chatService";
 import { wsService } from "../src/services/websocket";
@@ -131,6 +131,8 @@ const contactsData = {
 
 export default function ChatTab() {
   const router = useRouter();
+  const scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
   const [activeTopTab, setActiveTopTab] = useState("Chats");
   const [searchText, setSearchText] = useState("");
   const [showBanner, setShowBanner] = useState(true);
@@ -429,7 +431,7 @@ export default function ChatTab() {
         )}
       </LinearGradient>
 
-      <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} style={styles.body} showsVerticalScrollIndicator={false}>
 
         {/* ══════════ CONTACTS TAB ══════════ */}
         {activeTopTab === "Contacts" && !contactsPage && (

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,12 +6,12 @@ import {
   StatusBar,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   FlatList,
   Image,
   ActivityIndicator,
   Alert,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -20,6 +20,8 @@ import { loadBlocked, unblockUser } from "../src/services/relationshipService";
 
 export default function BlockedAccounts() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const scrollBottomPad = 24 + Math.max(insets.bottom, 16);
   const [blockedAccounts, setBlockedAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -118,7 +120,7 @@ export default function BlockedAccounts() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar barStyle="light-content" backgroundColor="#0d0618" />
       <LinearGradient
         colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
@@ -142,7 +144,7 @@ export default function BlockedAccounts() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPad }]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.subtitle}>Manage your blocked users list</Text>
@@ -186,7 +188,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 56,
+    paddingTop: 8,
     paddingHorizontal: 16,
     paddingBottom: 12,
     gap: 12,

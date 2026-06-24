@@ -6,10 +6,15 @@ import {
 } from "../api/partyApi";
 import { refreshTokenCache } from "../api/axios";
 import { getToken } from "../store/authStore";
+import { AGORA_APP_ID } from "../config/env";
 import * as agoraVoice from "./agoraVoiceService";
 import { getVoiceUid } from "../utils/voiceUid";
 import { buildSeatProfile, syncUserFromToken } from "../utils/sessionUser";
 import { wsService } from "./websocket";
+import { runVoicePreflightChecks } from "./voice/voiceHealthChecks";
+
+let activeRoomId = null;
+let activeIsSpeaker = false;
 
 const ensureAuthToken = async () => {
   await refreshTokenCache();
@@ -20,15 +25,61 @@ const ensureAuthToken = async () => {
   return token;
 };
 
+const fetchVoiceToken = async (roomId, uid, isSpeaker) => {
+  await ensureAuthToken();
+  return getVoiceToken(roomId, uid, isSpeaker);
+};
+
+const runPreflightOrThrow = async ({ roomId, uid, tokenData, isSpeaker, micGranted }) => {
+  const preflight = runVoicePreflightChecks({
+    roomId,
+    uid,
+    tokenData,
+    isSpeaker,
+    micPermissionGranted: micGranted,
+    fallbackAppId: AGORA_APP_ID,
+  });
+
+  if (!preflight.ok) {
+    const failed = preflight.checks.filter((c) => !c.passed);
+    throw new Error(failed.map((c) => `${c.name}: ${c.detail}`).join(" "));
+  }
+
+  return preflight;
+};
+
+const registerTokenRenewal = (roomId) => {
+  activeRoomId = String(roomId);
+  agoraVoice.setTokenRenewalHandler(async ({ isSpeaker }) => {
+    const uid = await getVoiceUid();
+    const tokenData = await fetchVoiceToken(activeRoomId, uid, isSpeaker ?? activeIsSpeaker);
+    activeIsSpeaker = isSpeaker ?? activeIsSpeaker;
+    return tokenData?.token ?? tokenData?.rtcToken ?? tokenData?.agoraToken ?? "";
+  });
+};
+
 export const joinAsListener = async (roomId) => {
   const uid = await getVoiceUid();
-  const tokenData = await getVoiceToken(roomId, uid, false);
+  const tokenData = await fetchVoiceToken(roomId, uid, false);
+
+  await runPreflightOrThrow({
+    roomId,
+    uid,
+    tokenData,
+    isSpeaker: false,
+    micGranted: true,
+  });
+
+  registerTokenRenewal(roomId);
+  activeIsSpeaker = false;
+
   await agoraVoice.joinVoiceChannel({
     roomId: String(roomId),
     uid,
     tokenData,
     isSpeaker: false,
   });
+
   return { uid, tokenData };
 };
 
@@ -44,12 +95,24 @@ export const activateMicOnSeat = async (roomId, seatNumber) => {
   await ensureAuthToken();
   const uid = await getVoiceUid();
 
-  const granted = await agoraVoice.requestMicPermission();
-  if (!granted) {
+  const micGranted = await agoraVoice.requestMicPermission();
+  if (!micGranted) {
     throw new Error("Microphone permission denied.");
   }
 
-  const tokenData = await getVoiceToken(roomId, uid, true);
+  const tokenData = await fetchVoiceToken(roomId, uid, true);
+
+  await runPreflightOrThrow({
+    roomId,
+    uid,
+    tokenData,
+    isSpeaker: true,
+    micGranted,
+  });
+
+  registerTokenRenewal(roomId);
+  activeIsSpeaker = true;
+
   await agoraVoice.joinVoiceChannel({
     roomId: String(roomId),
     uid,
@@ -76,7 +139,9 @@ export const leaveMic = async (roomId, seatNumber) => {
   wsService.sendSpeakingStatus(String(roomId), false);
 
   const uid = await getVoiceUid();
-  const tokenData = await getVoiceToken(roomId, uid, false);
+  const tokenData = await fetchVoiceToken(roomId, uid, false);
+  activeIsSpeaker = false;
+
   await agoraVoice.joinVoiceChannel({
     roomId: String(roomId),
     uid,
@@ -94,7 +159,15 @@ export const toggleMicMute = async (roomId, seatNumber, muted) => {
   wsService.sendSpeakingStatus(String(roomId), !muted);
 };
 
+export const getVoiceSessionStatus = () => agoraVoice.getVoiceDiagnostics();
+
+export const subscribeVoiceSessionStatus = (listener) =>
+  agoraVoice.subscribeVoiceStatus(listener);
+
 export const teardownVoice = async () => {
+  activeRoomId = null;
+  activeIsSpeaker = false;
+  agoraVoice.setTokenRenewalHandler(null);
   await agoraVoice.leaveVoiceChannel();
   agoraVoice.destroyVoiceEngine();
 };

@@ -7,14 +7,20 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ArrowLeft, MapPin, Heart, X, Star,
-  MessageCircle, MoreVertical, ChevronRight, Search,
+  MessageCircle, MoreVertical, ChevronRight, Search, UserPlus,
 } from "lucide-react-native";
 import Toast from "./Toast";
 import { loadNearbyWithLocation, loadUserDetail } from "../src/services/nearbyService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
+import {
+  followUser,
+  unfollowUser,
+  loadRelationshipStatus,
+} from "../src/services/relationshipService";
 
 const { width: W, height: H } = Dimensions.get("window");
 const CARD_W = (W - 14 * 2 - 10) / 2;
@@ -135,7 +141,18 @@ function MatchOverlay({ user, onClose, onMessage }) {
 }
 
 // ── Profile modal ────────────────────────────────────────────
-function ProfileModal({ user, loading, onClose, onLike, onPass, onMessage, onSave }) {
+function ProfileModal({
+  user,
+  loading,
+  onClose,
+  onFollow,
+  onPass,
+  onMessage,
+  onSave,
+  isFollowing,
+  followLoading,
+}) {
+  const insets = useSafeAreaInsets();
   if (!user && !loading) return null;
   return (
     <Modal visible={Boolean(user || loading)} transparent animationType="slide" onRequestClose={onClose}>
@@ -166,7 +183,12 @@ function ProfileModal({ user, loading, onClose, onLike, onPass, onMessage, onSav
               <TouchableOpacity style={styles.profileModalClose} onPress={onClose}>
                 <X size={20} color="white" />
               </TouchableOpacity>
-              <View style={styles.profileModalInfo}>
+              <View
+                style={[
+                  styles.profileModalInfo,
+                  { paddingBottom: Math.max(insets.bottom, 12) + 16 },
+                ]}
+              >
                 <View style={styles.profileModalNameRow}>
                   <Text style={styles.profileModalName}>{user.displayName ?? user.name}</Text>
                   {user.verified && <Text style={{ fontSize: 14 }}>✅</Text>}
@@ -203,8 +225,26 @@ function ProfileModal({ user, loading, onClose, onLike, onPass, onMessage, onSav
                   <TouchableOpacity style={[styles.profileActionBtn, styles.superBtn]} onPress={onSave} activeOpacity={0.8}>
                     <Star size={20} color="#ffd700" fill="#ffd700" />
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.profileActionBtn, styles.likeBtn]} onPress={onLike} activeOpacity={0.8}>
-                    <Heart size={26} color="white" fill="white" />
+                  <TouchableOpacity
+                    style={[
+                      styles.profileActionBtn,
+                      styles.followBtn,
+                      isFollowing && styles.followBtnActive,
+                    ]}
+                    onPress={onFollow}
+                    disabled={followLoading}
+                    activeOpacity={0.8}
+                  >
+                    {followLoading ? (
+                      <ActivityIndicator size="small" color="white" />
+                    ) : (
+                      <>
+                        <UserPlus size={18} color="white" />
+                        <Text style={styles.followBtnText}>
+                          {isFollowing ? "Following" : "Follow"}
+                        </Text>
+                      </>
+                    )}
                   </TouchableOpacity>
                 </View>
               </View>
@@ -431,6 +471,8 @@ export default function Nearby() {
   const [matchUser,       setMatchUser]       = useState(null);
   const [detailUser,      setDetailUser]      = useState(null);
   const [detailLoading,   setDetailLoading]   = useState(false);
+  const [detailFollowing, setDetailFollowing] = useState(false);
+  const [followLoading,   setFollowLoading]   = useState(false);
   const [nearbyUsers,     setNearbyUsers]     = useState([]);
   const [loadingNearby,   setLoadingNearby]   = useState(true);
   const [nearbyFetched,   setNearbyFetched]   = useState(false);
@@ -563,13 +605,38 @@ export default function Nearby() {
   const handleOpenProfile = async (user) => {
     setDetailUser(user);
     setDetailLoading(true);
+    setDetailFollowing(false);
     try {
-      const profile = await loadUserDetail(user.id);
+      const [profile, status] = await Promise.all([
+        loadUserDetail(user.id),
+        loadRelationshipStatus(user.id).catch(() => ({ following: false })),
+      ]);
       setDetailUser((current) => ({ ...current, ...profile, id: user.id }));
+      setDetailFollowing(Boolean(status?.following));
     } catch (err) {
       showToast(err?.message || "Failed to load profile.");
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const handleFollow = async (user) => {
+    if (!user?.id || followLoading) return;
+    setFollowLoading(true);
+    try {
+      if (detailFollowing) {
+        await unfollowUser(user.id);
+        setDetailFollowing(false);
+        showToast(`Unfollowed ${user.displayName ?? user.name}`);
+      } else {
+        await followUser(user.id);
+        setDetailFollowing(true);
+        showToast(`Following ${user.displayName ?? user.name}`);
+      }
+    } catch (err) {
+      showToast(err?.message || "Could not update follow.");
+    } finally {
+      setFollowLoading(false);
     }
   };
 
@@ -634,11 +701,14 @@ export default function Nearby() {
         onClose={() => {
           setDetailUser(null);
           setDetailLoading(false);
+          setDetailFollowing(false);
         }}
-        onLike={() => handleLike(detailUser)}
+        onFollow={() => handleFollow(detailUser)}
         onPass={() => handlePass(detailUser)}
         onMessage={() => openChatWithUser(detailUser)}
         onSave={() => handleSaveFavorite(detailUser)}
+        isFollowing={detailFollowing}
+        followLoading={followLoading}
       />
 
       <Toast
@@ -879,11 +949,27 @@ const styles = StyleSheet.create({
   profileMsgBtn: { borderRadius: 14, overflow: "hidden", marginTop: 4 },
   profileMsgGradient: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12 },
   profileMsgText: { color: "white", fontSize: 15, fontWeight: "700" },
-  profileActionRow: { flexDirection: "row", justifyContent: "center", gap: 18, marginTop: 6 },
+  profileActionRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 14, marginTop: 8 },
   profileActionBtn: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", borderWidth: 1, shadowOffset: { width:0, height:4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
   passBtn:  { backgroundColor: "rgba(255,107,107,0.15)", borderColor: "rgba(255,107,107,0.4)", shadowColor: "#ff6b6b" },
   superBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.15)", borderColor: "rgba(255,215,0,0.4)", shadowColor: "#ffd700" },
-  likeBtn:  { backgroundColor: "#ff4ea3", borderColor: "rgba(255,78,163,0.5)", shadowColor: "#ff4ea3" },
+  followBtn: {
+    width: "auto",
+    minWidth: 108,
+    height: 54,
+    borderRadius: 27,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    gap: 6,
+    backgroundColor: "#7c4dff",
+    borderColor: "rgba(167,139,250,0.5)",
+    shadowColor: "#7c4dff",
+  },
+  followBtnActive: {
+    backgroundColor: "rgba(124,77,255,0.35)",
+    borderColor: "rgba(167,139,250,0.45)",
+  },
+  followBtnText: { color: "white", fontSize: 14, fontWeight: "800" },
 });
 
 // ── Filter styles ────────────────────────────────────────────

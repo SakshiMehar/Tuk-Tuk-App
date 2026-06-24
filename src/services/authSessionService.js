@@ -1,9 +1,10 @@
 import { logout as apiLogout, deleteAccount as apiDeleteAccount } from "../api/authApi";
-import { saveSession, clearSession, setTermsAccepted } from "../store/authStore";
+import { saveSession, clearSession, setTermsAccepted, getUser, updateUser } from "../store/authStore";
 import { normalizeAuthResponse } from "../utils/authResponse";
 import { resolveAppUserId } from "../utils/sessionUser";
 import { refreshTokenCache, clearTokenCache } from "../api/axios";
 import { wsService } from "./websocket";
+import { loadMyProfile } from "./meProfileService";
 
 export const endLocalSession = async () => {
   wsService.disconnect();
@@ -31,6 +32,28 @@ export const deleteAccountSession = async ({ reason, additionalComment }) => {
   return data;
 };
 
+/** Login/auth responses omit avatar — load persisted profile from GET /api/app/users/me/profile. */
+export const hydrateSessionUserFromProfile = async () => {
+  try {
+    const profile = await loadMyProfile();
+    const useLocalAvatar = Boolean(profile.avatarId) || !profile.profilePicUrl;
+
+    await updateUser({
+      ...(profile.name ? { name: profile.name } : {}),
+      ...(profile.avatarId
+        ? { avatarId: profile.avatarId, avatar: profile.avatarId }
+        : {}),
+      profilePicUrl: profile.profilePicUrl ?? null,
+      ...(profile.profilePicUrl ? { avatarUrl: profile.profilePicUrl } : {}),
+      useLocalAvatar,
+    });
+
+    return profile;
+  } catch {
+    return null;
+  }
+};
+
 /** Call backend auth endpoint, persist JWT + user. */
 export const establishSessionFromApi = async (apiCall, credential) => {
   const data = await apiCall(credential);
@@ -41,12 +64,14 @@ export const establishSessionFromApi = async (apiCall, credential) => {
     throw new Error("Authentication succeeded but no token was returned.");
   }
   await saveSession(token, user);
+  await refreshTokenCache();
+  await hydrateSessionUserFromProfile();
   await setTermsAccepted(true);
-  await refreshTokenCache(); // keep axios cache in sync immediately after login
   try {
     await wsService.connect();
   } catch {
     // WebSocket optional on login — reconnect when chat/party opens
   }
-  return { token, user };
+  const sessionUser = (await getUser()) ?? user;
+  return { token, user: sessionUser };
 };

@@ -132,16 +132,100 @@ export const parseOnlineUsers = (stateData, joinData) => {
   }));
 };
 
+const resolveChatText = (msg) => {
+  if (!msg || typeof msg !== "object") return "";
+  if (typeof msg.message === "string") return msg.message.trim();
+  const nested =
+    msg.message && typeof msg.message === "object" ? msg.message : null;
+  return (
+    firstText(
+      msg.text,
+      msg.content,
+      msg.body,
+      nested?.message,
+      nested?.text,
+      nested?.content,
+      nested?.body,
+      msg.data?.message,
+      msg.data?.text,
+      msg.data?.content,
+      msg.payload?.message,
+      msg.payload?.text
+    ) ?? ""
+  );
+};
+
 export const normalizeChatMessage = (msg, index = 0) => ({
-  id: firstValue(msg?.id, msg?.messageId, msg?._id, `msg-${index}`),
+  id: firstValue(
+    msg?.id,
+    msg?.messageId,
+    msg?._id,
+    msg?.message?.id,
+    msg?.data?.id,
+    `msg-${index}`
+  ),
   system: Boolean(msg?.system ?? msg?.type === "SYSTEM"),
-  user: firstText(msg?.senderName, msg?.user, msg?.username, msg?.sender?.name) ?? "User",
-  avatar: firstText(msg?.avatar, msg?.senderAvatar, msg?.sender?.avatar),
-  text: firstText(msg?.message, msg?.text, msg?.content, msg?.body) ?? "",
-  level: msg?.level ?? 1,
+  user:
+    firstText(
+      msg?.senderName,
+      msg?.user,
+      msg?.username,
+      msg?.sender?.name,
+      msg?.message?.senderName,
+      msg?.data?.senderName
+    ) ?? "User",
+  avatar: firstText(
+    msg?.avatar,
+    msg?.senderAvatar,
+    msg?.sender?.avatar,
+    msg?.message?.avatar,
+    msg?.data?.avatar
+  ),
+  text: resolveChatText(msg),
+  level: msg?.level ?? msg?.senderLevel ?? 1,
   coins: msg?.coins ?? 0,
   diamonds: msg?.diamonds ?? 0,
+  isGift: Boolean(msg?.isGift),
+  pending: Boolean(msg?.pending),
 });
+
+export const createLocalChatMessage = ({ text, user, avatar, extra = {} }) => ({
+  id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  system: false,
+  user: user ?? "You",
+  avatar: avatar ?? null,
+  text: String(text ?? "").trim(),
+  level: 1,
+  coins: 0,
+  diamonds: 0,
+  pending: true,
+  ...extra,
+});
+
+/** Append or replace a pending local echo when the server message arrives. */
+export const upsertChatMessage = (prev, payload) => {
+  const normalized = normalizeChatMessage(payload);
+  if (!normalized.text) return prev;
+
+  const exists = prev.some((m) => String(m.id) === String(normalized.id));
+  if (exists) return prev;
+
+  const pendingIdx = prev.findIndex(
+    (m) =>
+      m.pending &&
+      m.text === normalized.text &&
+      (m.user === normalized.user ||
+        normalized.user === "User" ||
+        m.user === "You")
+  );
+  if (pendingIdx >= 0) {
+    const next = [...prev];
+    next[pendingIdx] = { ...normalized, pending: false };
+    return next;
+  }
+
+  return [...prev, normalized];
+};
 
 export const normalizeChatMessages = (data) => {
   const list = Array.isArray(data) ? data : listFrom(data, "messages");

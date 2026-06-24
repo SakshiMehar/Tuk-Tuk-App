@@ -8,10 +8,27 @@ import {
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
 
-const countFromResponse = (data, list) => {
-  if (typeof data?.totalElements === "number") return data.totalElements;
-  if (typeof data?.total === "number") return data.total;
-  if (typeof data?.count === "number") return data.count;
+const countFromResponse = (data, list, countKeys = []) => {
+  if (typeof data === "number") return data;
+  if (!data || typeof data !== "object") {
+    return Array.isArray(list) ? list.length : 0;
+  }
+
+  if (typeof data.totalElements === "number") return data.totalElements;
+  if (typeof data.total === "number") return data.total;
+  if (typeof data.count === "number") return data.count;
+  if (typeof data.totalCount === "number") return data.totalCount;
+
+  for (const key of countKeys) {
+    if (typeof data[key] === "number") return data[key];
+  }
+
+  const nested = data.profile ?? data.data ?? data.result ?? null;
+  if (nested && nested !== data && typeof nested === "object") {
+    const nestedCount = countFromResponse(nested, list, countKeys);
+    if (nestedCount > 0) return nestedCount;
+  }
+
   return Array.isArray(list) ? list.length : 0;
 };
 
@@ -61,31 +78,56 @@ export const parseProfileVisitsList = (data) =>
     .filter((u) => u.userId != null);
 
 export const loadProfileVisitsList = async () => {
-  
   const data = await getProfileVisits(50);
   const list = parseProfileVisitsList(data);
-  
   return list;
 };
 
+const loadFollowingStats = async () => {
+  const data = await getFollowing();
+  const list = parseRelationshipList(data);
+  return countFromResponse(data, list, [
+    "followingCount",
+    "totalFollowing",
+    "followingTotal",
+  ]);
+};
+
+const loadFollowersStats = async () => {
+  const data = await getFollowers();
+  const list = parseRelationshipList(data);
+  return countFromResponse(data, list, [
+    "followersCount",
+    "totalFollowers",
+    "followerCount",
+    "followerTotal",
+  ]);
+};
+
+const loadVisitorStats = async () => {
+  const data = await getProfileVisits(50);
+  const list = listFromVisits(data);
+  return countFromResponse(data, list, [
+    "visitorCount",
+    "visitorsCount",
+    "visitCount",
+    "totalVisits",
+    "profileVisitCount",
+  ]);
+};
+
 export const loadProfileStats = async () => {
-  
-  const [visitsData, followingData, followersData] = await Promise.all([
-    getProfileVisits(50),
-    getFollowing(),
-    getFollowers(),
+  const [followingResult, followersResult, visitsResult] = await Promise.allSettled([
+    loadFollowingStats(),
+    loadFollowersStats(),
+    loadVisitorStats(),
   ]);
 
-  const followingList = parseRelationshipList(followingData);
-  const followersList = parseRelationshipList(followersData);
-  const visitsList = listFromVisits(visitsData);
-
-  const stats = {
-    followingCount: countFromResponse(followingData, followingList),
-    followersCount: countFromResponse(followersData, followersList),
-    visitorCount: countFromResponse(visitsData, visitsList),
+  return {
+    followingCount:
+      followingResult.status === "fulfilled" ? followingResult.value : 0,
+    followersCount:
+      followersResult.status === "fulfilled" ? followersResult.value : 0,
+    visitorCount: visitsResult.status === "fulfilled" ? visitsResult.value : 0,
   };
-
-  
-  return stats;
 };

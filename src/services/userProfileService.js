@@ -29,10 +29,16 @@ const API_PROFILE_KEYS = new Set([
   "language",
   "spokenLanguage",
   "profilePicUrl",
+  "country",
+  "countryCode",
+  "countryName",
 ]);
 
 const hasValue = (value) =>
   value !== null && value !== undefined && String(value).trim().length > 0;
+
+const firstText = (...values) =>
+  values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
 
 const normalizeBirthday = (value) => {
   if (!hasValue(value)) return value;
@@ -50,7 +56,8 @@ const normalizeBirthday = (value) => {
   return trimmed;
 };
 
-const unwrapProfile = (data) => data?.profile ?? data?.data ?? data ?? {};
+const unwrapProfile = (data) =>
+  data?.profile ?? data?.settings ?? data?.data ?? data ?? {};
 
 export const parseUserProfile = (data) => {
   const raw = unwrapProfile(data);
@@ -61,6 +68,9 @@ export const parseUserProfile = (data) => {
     profilePicUrl: raw.profilePicUrl ?? null,
     name: raw.nickname ?? "",
     gender: raw.gender ?? "",
+    country: firstText(raw.country, raw.countryName) ?? "",
+    countryCode: raw.countryCode ?? "",
+    countryName: firstText(raw.countryName, raw.country) ?? "",
     birthday: hasValue(raw.birthday) ? String(raw.birthday) : "",
     interests: raw.interests ?? "",
     education: raw.education ?? "",
@@ -105,6 +115,19 @@ export const buildProfilePatchPayload = (updates = {}) => {
         : updates.language;
     payload.language = languageValue;
     payload.spokenLanguage = languageValue;
+  }
+
+  if (updates.country !== undefined && !payload.countryName) {
+    const countryName =
+      typeof updates.country === "string" ? updates.country.trim() : updates.country;
+    if (countryName) payload.countryName = countryName;
+  }
+  if (updates.countryName !== undefined && !payload.country) {
+    const country =
+      typeof updates.countryName === "string"
+        ? updates.countryName.trim()
+        : updates.countryName;
+    if (country) payload.country = country;
   }
 
   return payload;

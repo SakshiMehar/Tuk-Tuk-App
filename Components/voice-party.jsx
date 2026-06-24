@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -35,12 +35,28 @@ import {
   parseOnlineUsers,
   normalizeChatMessage,
   normalizeChatMessages,
+  createLocalChatMessage,
+  upsertChatMessage,
 } from "../src/services/partyService";
 import { wsService } from "../src/services/websocket";
 import { getRoomState, getRoomChatMessages } from "../src/api/partyApi";
 import { refreshTokenCache } from "../src/api/axios";
 import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
 import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
+import { useWalletBalance } from "../src/hooks/useWalletBalance";
+import { refreshWalletBalance, applyWalletFromSources } from "../src/store/walletStore";
+import {
+  buyGiftToBackpack,
+  loadPartyGiftCatalog,
+  loadGiftInventory,
+  normalizeGiftAnimation,
+  sendPartyRoomGift,
+  findInventoryGift,
+  adjustInventoryQty,
+  reconcileInventory,
+  parseBuyResultInventory,
+  giftsMatch,
+} from "../src/services/giftCatalogService";
 import TreasureBoxModal from "./TreasureBoxModal";
 import {
   MEDIA_SECTIONS,
@@ -51,6 +67,7 @@ import {
 } from "../src/data/voicePartyMediaPicker";
 import { loadConversations } from "../src/services/chatService";
 import { getUser } from "../src/store/authStore";
+import { resolveVideoSource, resolveImageSource } from "../src/utils/videoSource";
 import * as partyVoice from "../src/services/partyVoiceService";
 import * as agoraVoice from "../src/services/agoraVoiceService";
 import {
@@ -178,102 +195,8 @@ const audienceAvatars = [
 const SEAT_SIZE = (W - 32 - 40) / 5;
 const GIFT_CARD_W = (W - 32) / 4 - 6;
 
-const giftItems = [
-  { id: 1, name: "Cricket Gift",    price: 3077,   emoji: "🎁",  hot: true },
-  { id: 2, name: "Glory Chest",     price: 7777,   emoji: "📦",  hot: false },
-  { id: 3, name: "Champion Cup",    price: 60777,  emoji: "🏆",  hot: false },
-  { id: 4, name: "Carnival",        price: 357777, emoji: "🎪",  hot: false },
-  { id: 5, name: "Glory Crown",     price: 137777, emoji: "👑",  hot: false },
-  { id: 6, name: "Shared Trophy",   price: 10777,  emoji: "🥇",  hot: false },
-  { id: 7, name: "Stadium Fire",    price: 1777,   emoji: "🔥",  hot: false },
-  { id: 8, name: "Serenade",        price: 87777,  emoji: "🎆",  hot: false },
-];
-
-const randomGiftOrbs = [
-  { id: 1, price: 1777,  emoji: "🔮" },
-  { id: 2, price: 3077,  emoji: "🔮" },
-  { id: 3, price: 4777,  emoji: "🔮" },
-  { id: 4, price: 7777,  emoji: "🔮" },
-  { id: 5, price: 27777, emoji: "🔮" },
-];
-
-const activityEvents = ["Flamenco Fantasy", "Ethereal Ring", "TukTuk Carnival"];
-
-const activityGiftsByEvent = {
-  "Flamenco Fantasy": [
-    { id: "af1", name: "Confession",      price: 9,       emoji: "💐" },
-    { id: "af2", name: "Crimson Bloom",   price: 39,      emoji: "🌺" },
-    { id: "af3", name: "Heart Choker",    price: 17,      emoji: "💝" },
-    { id: "af4", name: "Grand Yacht",     price: 1077777, emoji: "🛥️" },
-    { id: "af5", name: "Vermilion Silk",  price: 70777,   emoji: "🎀" },
-    { id: "af6", name: "Jade Grace",      price: 8777,    emoji: "💚" },
-    { id: "af7", name: "Scarlet Elegance",price: 3577,    emoji: "🥀" },
-  ],
-  "Ethereal Ring": [
-    { id: "ae1", name: "Crystal Ring",   price: 777,    emoji: "💍" },
-    { id: "ae2", name: "Moonstone",      price: 4777,   emoji: "🌙" },
-    { id: "ae3", name: "Stardust",       price: 9777,   emoji: "⭐" },
-    { id: "ae4", name: "Aurora",         price: 27777,  emoji: "🌈" },
-    { id: "ae5", name: "Nebula",         price: 57777,  emoji: "🔮" },
-    { id: "ae6", name: "Celestial",      price: 107777, emoji: "✨" },
-    { id: "ae7", name: "Cosmic Ring",    price: 357777, emoji: "💫" },
-  ],
-  "TukTuk Carnival": [
-    { id: "ac1", name: "Confetti",       price: 99,     emoji: "🎊" },
-    { id: "ac2", name: "Carnival Box",   price: 999,    emoji: "🎪" },
-    { id: "ac3", name: "Lucky Drum",     price: 3077,   emoji: "🥁" },
-    { id: "ac4", name: "Firecracker",    price: 7777,   emoji: "🎆" },
-    { id: "ac5", name: "Gold Elephant",  price: 37777,  emoji: "🐘" },
-    { id: "ac6", name: "Royal Float",    price: 77777,  emoji: "👑" },
-    { id: "ac7", name: "Festival Crown", price: 207777, emoji: "🎭" },
-  ],
-};
-
-const specialGifts = [
-  { id: "sp1",  name: "Star Flower",     price: 199,     emoji: "🌸",  isNew: true  },
-  { id: "sp2",  name: "Love Spark",      price: 499,     emoji: "💖",  isNew: true  },
-  { id: "sp3",  name: "Magic Lantern",   price: 1499,    emoji: "🏮",  isNew: false },
-  { id: "sp4",  name: "Dragon Scale",    price: 3999,    emoji: "🐉",  isNew: false },
-  { id: "sp5",  name: "Phoenix Flame",   price: 9999,    emoji: "🔥",  isNew: false },
-  { id: "sp6",  name: "Sakura Storm",    price: 19999,   emoji: "🌸",  isNew: false },
-  { id: "sp7",  name: "Golden Torii",    price: 49999,   emoji: "⛩️", isNew: false },
-  { id: "sp8",  name: "TukTuk Special",  price: 99999,   emoji: "🛺",  isNew: true  },
-  { id: "sp9",  name: "Diamond Lotus",   price: 199999,  emoji: "💠",  isNew: false },
-  { id: "sp10", name: "Emperor Gift",    price: 499999,  emoji: "🏯",  isNew: false },
-  { id: "sp11", name: "Celestial Fox",   price: 777777,  emoji: "🦊",  isNew: false },
-  { id: "sp12", name: "Cosmic Gem",      price: 1077777, emoji: "💎",  isNew: false },
-];
-
-const vipGifts = [
-  { id: "vip1", name: "VIP Throne",   price: 9999,    emoji: "🪑" },
-  { id: "vip2", name: "Gold Armor",   price: 19999,   emoji: "🛡️" },
-  { id: "vip3", name: "Royal Sword",  price: 49999,   emoji: "⚔️" },
-  { id: "vip4", name: "Divine Halo",  price: 99999,   emoji: "😇" },
-  { id: "vip5", name: "Titan's Fist", price: 199999,  emoji: "✊" },
-  { id: "vip6", name: "Sacred Lotus", price: 399999,  emoji: "🪷" },
-  { id: "vip7", name: "Galaxy Ship",  price: 777777,  emoji: "🚀" },
-  { id: "vip8", name: "God's Eye",    price: 1077777, emoji: "👁️" },
-];
-
-const pkGifts = [
-  { id: "pk1", name: "PK Hammer",     price: 1777,   emoji: "🔨", hot: true  },
-  { id: "pk2", name: "Battle Shield", price: 3077,   emoji: "🛡️", hot: false },
-  { id: "pk3", name: "Victory Flame", price: 7777,   emoji: "🔥", hot: false },
-  { id: "pk4", name: "Arena Crown",   price: 17777,  emoji: "👑", hot: false },
-  { id: "pk5", name: "Power Surge",   price: 37777,  emoji: "⚡", hot: true  },
-  { id: "pk6", name: "Champion Star", price: 57777,  emoji: "⭐", hot: false },
-  { id: "pk7", name: "PK Champion",   price: 107777, emoji: "🏆", hot: false },
-  { id: "pk8", name: "Legend Boost",  price: 207777, emoji: "💫", hot: false },
-];
-
-const intimacyVideos = [
-  { id: "iv1", name: "Moment 1", uri: require("../assets/videos/v1.mp4"), colors: ["#4a1080", "#7c4dff"] },
-  { id: "iv2", name: "Moment 2", uri: require("../assets/videos/v2.mp4"), colors: ["#0d2952", "#4a6cf7"] },
-  { id: "iv3", name: "Moment 3", uri: require("../assets/videos/v3.mp4"), colors: ["#4a0a28", "#c2185b"] },
-  { id: "iv4", name: "Moment 4", uri: require("../assets/videos/v4.mp4"), colors: ["#0a2010", "#2e7d32"] },
-  { id: "iv5", name: "Moment 5", uri: require("../assets/videos/v5.mp4"), colors: ["#3d1800", "#e65100"] },
-  { id: "iv6", name: "Moment 6", uri: require("../assets/videos/v6.mp4"), colors: ["#2a0a3e", "#9c27b0"] },
-];
+const formatGiftPrice = (price) =>
+  Number(price ?? 0).toLocaleString();
 
 export default function VoiceParty() {
   const router = useRouter();
@@ -295,12 +218,15 @@ export default function VoiceParty() {
   const [onMic, setOnMic] = useState(false);
   const [mySeatNumber, setMySeatNumber] = useState(null);
   const [voiceConnecting, setVoiceConnecting] = useState(false);
+  const [voiceListenStatus, setVoiceListenStatus] = useState("idle");
+  const [voiceDiagnostics, setVoiceDiagnostics] = useState(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
   const exitedRef = useRef(false);
+  const buyingGiftRef = useRef(false);
   const roomIdRef = useRef(roomIdParam);
-  const { keyboardHeight, safeBottom } = useKeyboardInset();
+  const { keyboardHeight, safeBottom, idleBottom } = useKeyboardInset();
   const [showPlayCenter, setShowPlayCenter] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGiftPanel, setShowGiftPanel] = useState(false);
@@ -310,6 +236,24 @@ export default function VoiceParty() {
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
   const [selectedGift, setSelectedGift] = useState(null);
   const [giftQty, setGiftQty] = useState(1);
+  const [purchaseGift, setPurchaseGift] = useState(null);
+  const [backpackGifts, setBackpackGifts] = useState([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
+  const [giftCatalog, setGiftCatalog] = useState({
+    random: [],
+    gift: [],
+    activity: [],
+    activityByEvent: {},
+    relationship: [],
+    pk: [],
+    special: [],
+    vip: [],
+  });
+  const [giftReceiverId, setGiftReceiverId] = useState(null);
+  const [showGiftReceiverPicker, setShowGiftReceiverPicker] = useState(false);
+  const giftReceiverTouchedRef = useRef(false);
+  const [giftPopup, setGiftPopup] = useState(null);
   const [activityEvent, setActivityEvent] = useState("Flamenco Fantasy");
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [currentVideo, setCurrentVideo] = useState(null);
@@ -317,13 +261,31 @@ export default function VoiceParty() {
   const videoPlayer = useVideoPlayer(null, (p) => { p.loop = false; });
 
   useEffect(() => {
-    if (showVideoModal && currentVideo) {
-      videoPlayer.replace(currentVideo.uri);
-      videoPlayer.play();
-    } else {
+    if (!showVideoModal || !currentVideo) {
       videoPlayer.pause();
+      return undefined;
     }
-  }, [showVideoModal, currentVideo?.id]);
+
+    let cancelled = false;
+    const source = resolveVideoSource(currentVideo.videoUrl ?? currentVideo.uri);
+    if (!source) return undefined;
+
+    (async () => {
+      try {
+        await videoPlayer.replaceAsync(source);
+        if (!cancelled) videoPlayer.play();
+      } catch (err) {
+        console.error("[VoiceParty] relationship video failed", err);
+        if (!cancelled) {
+          Alert.alert("Video error", "Could not play this video. Try again.");
+          setShowVideoModal(false);
+          setCurrentVideo(null);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [showVideoModal, currentVideo?.id, currentVideo?.videoUrl, currentVideo?.uri]);
   const [mediaSection, setMediaSection] = useState("emoji");
   const [emojiTab, setEmojiTab] = useState("smileys");
   const [stickerTab, setStickerTab] = useState("reactions");
@@ -336,6 +298,140 @@ export default function VoiceParty() {
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
   const { treasureState, selectChest } = useTreasureBoxProgress(!roomLoading && Boolean(roomId));
+  const { diamonds: walletDiamonds } = useWalletBalance();
+
+  useEffect(() => {
+    refreshWalletBalance();
+  }, []);
+
+  useEffect(() => {
+    if (!showBackpack) return undefined;
+
+    let cancelled = false;
+    setCatalogLoading(true);
+    Promise.all([
+      loadPartyGiftCatalog()
+        .then((catalog) => {
+          if (!cancelled) setGiftCatalog(catalog);
+        })
+        .catch(() => {}),
+      loadGiftInventory()
+        .then((items) => {
+          if (!cancelled) setBackpackGifts(items);
+        })
+        .catch(() => {
+          if (!cancelled) setBackpackGifts([]);
+        }),
+      refreshWalletBalance(),
+    ]).finally(() => {
+      if (!cancelled) setCatalogLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [showBackpack, catalogRefreshKey]);
+
+  useEffect(() => {
+    const keys = Object.keys(giftCatalog.activityByEvent);
+    if (keys.length && !keys.includes(activityEvent)) {
+      setActivityEvent(keys[0]);
+    }
+  }, [giftCatalog.activityByEvent, activityEvent]);
+
+  const resolveRecipientUserId = useCallback(
+    (userLike) => {
+      const direct = userLike?.id ?? userLike?.userId ?? userLike?.uid;
+      if (direct != null && String(direct).length > 0) return String(direct);
+
+      const name = userLike?.name?.trim()?.toLowerCase();
+      if (!name) return null;
+
+      const fromOnline = onlineUsers.find(
+        (user) => user?.id && user.name?.trim()?.toLowerCase() === name
+      );
+      if (fromOnline?.id) return String(fromOnline.id);
+
+      return null;
+    },
+    [onlineUsers]
+  );
+
+  const giftRecipientOptions = useMemo(() => {
+    const byId = new Map();
+
+    const addRecipient = ({ id, name, avatar, subtitle }) => {
+      const normalizedId = id != null ? String(id) : null;
+      if (!normalizedId || isSameUser(normalizedId, myUserId)) return;
+
+      if (byId.has(normalizedId)) {
+        const existing = byId.get(normalizedId);
+        if (!existing.avatar && avatar) existing.avatar = avatar;
+        if (subtitle && !existing.subtitle?.includes("Mic")) {
+          existing.subtitle = subtitle;
+        }
+        return;
+      }
+
+      byId.set(normalizedId, {
+        id: normalizedId,
+        name: name ?? "User",
+        avatar: avatar ?? null,
+        subtitle: subtitle ?? null,
+      });
+    };
+
+    if (hostId && !isSameUser(hostId, myUserId)) {
+      addRecipient({
+        id: hostId,
+        name: roomInfo?.name ?? "Host",
+        avatar: roomInfo?.profileImageUrl ?? null,
+        subtitle: "Host",
+      });
+    }
+
+    onlineUsers.forEach((user) => {
+      const userId = resolveRecipientUserId(user);
+      if (!userId) return;
+      addRecipient({
+        id: userId,
+        name: user.name,
+        avatar: user.avatar,
+        subtitle: "In room",
+      });
+    });
+
+    seats.forEach((seat) => {
+      if (!seat.user) return;
+      const userId = resolveRecipientUserId(seat.user);
+      if (!userId) return;
+      addRecipient({
+        id: userId,
+        name: seat.user.name,
+        avatar: seat.user.avatar,
+        subtitle: `On mic · ${seat.id}`,
+      });
+    });
+
+    return Array.from(byId.values());
+  }, [hostId, roomInfo, onlineUsers, seats, myUserId, resolveRecipientUserId]);
+
+  useEffect(() => {
+    if (!showBackpack) setShowGiftReceiverPicker(false);
+  }, [showBackpack]);
+
+  useEffect(() => {
+    if (giftReceiverTouchedRef.current || giftReceiverId) return;
+    const preferred =
+      giftRecipientOptions[0]?.id ??
+      (hostId && !isSameUser(hostId, myUserId) ? String(hostId) : null) ??
+      null;
+    if (preferred) setGiftReceiverId(preferred);
+  }, [giftRecipientOptions, giftReceiverId, hostId, myUserId]);
+
+  useEffect(() => {
+    if (!showBackpack || giftReceiverTouchedRef.current || giftReceiverId) return;
+    const preferred = giftRecipientOptions[0]?.id ?? null;
+    if (preferred) setGiftReceiverId(preferred);
+  }, [showBackpack, giftRecipientOptions, giftReceiverId]);
 
   useEffect(() => {
     getAppUserId()
@@ -427,9 +523,23 @@ export default function VoiceParty() {
           setMySeatNumber(session.reservedSeatNumber);
         }
 
-        partyVoice.joinAsListener(String(session.roomId)).catch((voiceErr) => {
-          
-        });
+        setVoiceListenStatus("connecting");
+        try {
+          await partyVoice.joinAsListener(String(session.roomId));
+          if (!cancelled) setVoiceListenStatus("ready");
+        } catch (voiceErr) {
+          if (!cancelled) {
+            setVoiceListenStatus("failed");
+            const msg = voiceErr?.message ?? "Could not connect to room audio.";
+            if (__DEV__) {
+              console.warn("[voice-party] joinAsListener failed:", msg);
+            }
+            Alert.alert(
+              "Voice audio unavailable",
+              `${msg}\n\nYou can still chat in the room. Tap Take Mic to retry speaking.`
+            );
+          }
+        }
       } catch (err) {
         if (!cancelled) {
           Alert.alert(
@@ -459,6 +569,16 @@ export default function VoiceParty() {
   }, [roomIdParam, isCreate, isRandomParty, router]);
 
   useEffect(() => {
+    if (!roomId) return undefined;
+    return partyVoice.subscribeVoiceSessionStatus((diag) => {
+      setVoiceDiagnostics(diag);
+      if (__DEV__ && diag?.lastError) {
+        console.warn("[voice-party] Agora:", diag.lastError.message);
+      }
+    });
+  }, [roomId]);
+
+  useEffect(() => {
     messageCountRef.current = messages.length;
   }, [messages]);
 
@@ -479,16 +599,19 @@ export default function VoiceParty() {
     return () => clearTimeout(timer);
   }, [roomId, messages.length]);
 
+  const revealGiftAnimation = useCallback((payload, fallbackGift) => {
+    const animated = normalizeGiftAnimation(payload, fallbackGift);
+    setGiftPopup({
+      gift: animated,
+      qty: animated.quantity,
+    });
+    setTimeout(() => setGiftPopup(null), 2800);
+  }, []);
+
   useEffect(() => {
     if (!roomId) return undefined;
     const appendChatMessage = (payload) => {
-      const normalized = normalizeChatMessage(payload);
-      if (!normalized.text) return;
-      setMessages((prev) => {
-        const exists = prev.some((m) => String(m.id) === String(normalized.id));
-        if (exists) return prev;
-        return [...prev, normalized];
-      });
+      setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     };
 
@@ -529,13 +652,36 @@ export default function VoiceParty() {
         }))
       );
     });
+    const unsubGiftAnimation = wsService.onRoomGiftAnimation(String(roomId), (payload) => {
+      revealGiftAnimation(payload);
+      const senderName =
+        payload?.senderName ?? payload?.sender ?? "Someone";
+      const giftName = payload?.giftName ?? payload?.name ?? "a gift";
+      const qty = Math.max(1, Number(payload?.quantity ?? 1));
+      const giftText = `sent ${payload?.emoji ?? "🎁"} ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
+      const normalized = normalizeChatMessage({
+        id: payload?.id ?? `gift-ws-${Date.now()}`,
+        message: `${senderName} ${giftText}`,
+        senderName,
+        text: `${senderName} ${giftText}`,
+        isGift: true,
+      });
+      if (!normalized.text) return;
+      setMessages((prev) => {
+        const exists = prev.some((m) => String(m.id) === String(normalized.id));
+        if (exists) return prev;
+        return [...prev, normalized];
+      });
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    });
     return () => {
       unsubChat();
       unsubChatSummary();
       unsubUi();
       unsubSpeaking();
+      unsubGiftAnimation();
     };
-  }, [roomId, mySeatNumber]);
+  }, [roomId, mySeatNumber, revealGiftAnimation]);
 
   const handleExitRoom = async () => {
     setShowPowerMenu(false);
@@ -596,6 +742,7 @@ export default function VoiceParty() {
       setOnMic(true);
       setMySeatNumber(targetSeat);
       setIsMicMuted(false);
+      setVoiceListenStatus("ready");
       if (isSpeakerMuted) {
         agoraVoice.toggleRemoteMute(true);
       }
@@ -625,6 +772,21 @@ export default function VoiceParty() {
     const nextMuted = !isSpeakerMuted;
     setIsSpeakerMuted(nextMuted);
     agoraVoice.toggleRemoteMute(nextMuted);
+  };
+
+  const handleToggleMic = async () => {
+    if (!roomId || !onMic || !mySeatNumber || voiceConnecting) return;
+
+    const nextMuted = !isMicMuted;
+    setVoiceConnecting(true);
+    try {
+      await partyVoice.toggleMicMute(String(roomId), mySeatNumber, nextMuted);
+      setIsMicMuted(nextMuted);
+    } catch (err) {
+      Alert.alert("Mic mute failed", err?.message ?? "Please try again.");
+    } finally {
+      setVoiceConnecting(false);
+    }
   };
 
   const [shareTab, setShareTab] = useState("Recently");
@@ -695,12 +857,25 @@ export default function VoiceParty() {
     setShowEmojiPicker(true);
   };
 
-  const sendPickerMessage = (content) => {
+  const appendOutgoingMessage = async (text, extra = {}) => {
+    const user = await getUser();
+    const localMsg = createLocalChatMessage({
+      text,
+      user: user?.name ?? user?.username ?? user?.nickname ?? "You",
+      avatar: user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null,
+      extra,
+    });
+    setMessages((prev) => [...prev, localMsg]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    return localMsg;
+  };
+
+  const sendPickerMessage = async (content) => {
     const text = String(content ?? "").trim();
     if (!text || !roomId) return;
+    await appendOutgoingMessage(text);
     try {
-      wsService.sendRoomMessage(String(roomId), text);
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      await wsService.sendRoomMessage(String(roomId), text);
     } catch (err) {
       Alert.alert("Send failed", err?.message || "WebSocket not connected.");
     }
@@ -727,19 +902,355 @@ export default function VoiceParty() {
     setShowEmojiPicker(false);
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const text = inputText.trim();
     if (!text || !roomId) return;
-    try {
-      wsService.sendRoomMessage(String(roomId), text);
-    } catch (err) {
-      Alert.alert("Send failed", err?.message || "WebSocket not connected.");
-      return;
-    }
+
     setInputText("");
     setShowChatInput(false);
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    await appendOutgoingMessage(text);
+
+    try {
+      await wsService.sendRoomMessage(String(roomId), text);
+    } catch (err) {
+      Alert.alert("Send failed", err?.message || "WebSocket not connected.");
+    }
   };
+
+  const openGiftPurchase = (gift) => {
+    setPurchaseGift(gift);
+  };
+
+  const handleBuyGift = async () => {
+    if (!purchaseGift || buyingGiftRef.current || catalogLoading) return;
+    const giftCode = String(purchaseGift.giftCode ?? purchaseGift.id ?? "");
+    if (!giftCode) {
+      Alert.alert("Purchase failed", "This gift is missing a code.");
+      return;
+    }
+
+    if (purchaseGift.vipLocked) {
+      Alert.alert("VIP gift", "Only VIP users can buy this gift.");
+      return;
+    }
+
+    const price = Math.max(0, Number(purchaseGift.price ?? 0));
+    if (price > 0 && walletDiamonds < price) {
+      Alert.alert(
+        "Not enough diamonds",
+        `You need 💎 ${formatGiftPrice(price)} but only have 💎 ${formatGiftPrice(walletDiamonds)}. Recharge to continue.`
+      );
+      return;
+    }
+
+    buyingGiftRef.current = true;
+    setCatalogLoading(true);
+    try {
+      const result = await buyGiftToBackpack({
+        giftCode,
+        quantity: 1,
+      });
+      if (result?.wallet) {
+        applyWalletFromSources({ walletData: result.wallet });
+      } else {
+        await refreshWalletBalance();
+      }
+
+      let inventory = await loadGiftInventory();
+      if (!findInventoryGift(inventory, purchaseGift)) {
+        const boughtRow = parseBuyResultInventory(result, purchaseGift, 1);
+        inventory = adjustInventoryQty(
+          inventory,
+          boughtRow ?? purchaseGift,
+          boughtRow?.qty ?? 1
+        );
+      }
+
+      setBackpackGifts(inventory);
+      const boughtEntry = findInventoryGift(inventory, purchaseGift);
+      if (boughtEntry) setSelectedGift(boughtEntry);
+      setCatalogRefreshKey((key) => key + 1);
+      const bought = purchaseGift;
+      setPurchaseGift(null);
+      setBackpackMainTab("Backpack");
+      setBackpackSubTab("Gift");
+      Alert.alert(
+        "Purchased",
+        `${bought.emoji} ${bought.name} was added to your backpack.`
+      );
+    } catch (err) {
+      Alert.alert("Purchase failed", err?.message || "Could not buy this gift.");
+    } finally {
+      buyingGiftRef.current = false;
+      setCatalogLoading(false);
+    }
+  };
+
+  const handleSendBackpackGift = async () => {
+    if (!selectedGift) {
+      Alert.alert("Select a gift", "Choose a gift from your backpack first.");
+      return;
+    }
+
+    const owned = findInventoryGift(backpackGifts, selectedGift);
+    const qty = Math.max(1, Number(giftQty) || 1);
+
+    const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
+    const hasBackpackStock = ownedQty >= qty;
+    const totalCost = Math.max(0, Number(selectedGift.price ?? 0)) * qty;
+
+    if (!hasBackpackStock && totalCost > 0 && walletDiamonds < totalCost) {
+      Alert.alert(
+        "Not enough diamonds",
+        `You need 💎 ${formatGiftPrice(totalCost)} but only have 💎 ${formatGiftPrice(walletDiamonds)}.`
+      );
+      return;
+    }
+
+    const receiverId = giftReceiverId ?? hostId;
+    if (!receiverId) {
+      Alert.alert(
+        "Select a person",
+        "Tap the name next to ❤️ to choose who receives this gift."
+      );
+      openGiftReceiverPicker();
+      return;
+    }
+
+    try {
+      const user = await getUser();
+      const senderName = user?.name ?? user?.username ?? user?.nickname ?? "You";
+      const senderAvatar = user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null;
+      const giftText = `sent ${selectedGift.emoji} ${selectedGift.name} ×${qty}`;
+
+      const result = await sendPartyRoomGift({
+        roomId,
+        gift: owned ?? selectedGift,
+        receiverId,
+        quantity: qty,
+        senderName,
+        backpackQty: ownedQty,
+      });
+
+      const optimisticInventory = hasBackpackStock
+        ? adjustInventoryQty(backpackGifts, owned ?? selectedGift, -qty)
+        : backpackGifts;
+
+      let inventory = await loadGiftInventory();
+      inventory = reconcileInventory(inventory, optimisticInventory, {
+        preferLowerQty: hasBackpackStock,
+      });
+      setBackpackGifts(inventory);
+
+      const remaining = findInventoryGift(inventory, selectedGift);
+      setSelectedGift(remaining?.qty > 0 ? remaining : null);
+      await refreshWalletBalance();
+
+      revealGiftAnimation(result, selectedGift);
+
+      const localMsg = createLocalChatMessage({
+        text: giftText,
+        user: senderName,
+        avatar: senderAvatar,
+        extra: {
+          diamonds: Number(selectedGift.price ?? 0) * qty,
+          isGift: true,
+          pending: false,
+        },
+      });
+
+      setMessages((prev) => [...prev, localMsg]);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+
+      if (roomId) {
+        try {
+          wsService.sendRoomMessage(String(roomId), giftText);
+        } catch {
+          // Chat message already added locally.
+        }
+      }
+
+      setSelectedGift(null);
+      setGiftQty(1);
+    } catch (err) {
+      Alert.alert("Send failed", err?.message || "Could not send gift.");
+    }
+  };
+
+  const displayRandomGifts = giftCatalog.random;
+  const displayGiftItems = giftCatalog.gift;
+  const displayPkGifts = giftCatalog.pk;
+  const displaySpecialGifts = giftCatalog.special;
+  const displayVipGifts = giftCatalog.vip;
+  const displayActivityEvents = Object.keys(giftCatalog.activityByEvent);
+  const displayActivityGifts = giftCatalog.activityByEvent[activityEvent] ?? [];
+  const displayRelationshipVideos = giftCatalog.relationship.map((gift) => ({
+    ...gift,
+    videoUrl: gift.videoUrl,
+    uri: gift.videoUrl,
+  }));
+  const selectedGiftRecipient = useMemo(() => {
+    if (!giftReceiverId) return null;
+    const found = giftRecipientOptions.find(
+      (person) => String(person.id) === String(giftReceiverId)
+    );
+    if (found) return found;
+    return {
+      id: String(giftReceiverId),
+      name: isSameUser(giftReceiverId, hostId) ? (roomInfo?.name ?? "Host") : "User",
+      avatar: isSameUser(giftReceiverId, hostId) ? (roomInfo?.profileImageUrl ?? null) : null,
+      subtitle: isSameUser(giftReceiverId, hostId) ? "Host" : null,
+    };
+  }, [giftReceiverId, giftRecipientOptions, hostId, roomInfo]);
+
+  const giftReceiverName = selectedGiftRecipient?.name ?? "Select person";
+  const giftSendBarBottom = Math.max(22, idleBottom + 6);
+
+  const renderGiftRecipientAvatar = (person, sizeStyle = styles.bpSendAvatar) => {
+    if (person?.avatar) {
+      return <Image source={{ uri: person.avatar }} style={sizeStyle} />;
+    }
+    return (
+      <View style={[sizeStyle, styles.chatAvatarPlaceholder]}>
+        <Text style={{ color: "white", fontSize: 14, fontWeight: "700" }}>
+          {person?.name?.[0]?.toUpperCase() ?? "?"}
+        </Text>
+      </View>
+    );
+  };
+
+  const trySelectGiftRecipientFromUser = (userLike) => {
+    const userId = resolveRecipientUserId(userLike);
+    if (!userId || isSameUser(userId, myUserId)) return false;
+    giftReceiverTouchedRef.current = true;
+    setGiftReceiverId(userId);
+    return true;
+  };
+
+  const handleSeatPressForGift = (seat) => {
+    if (!showBackpack || !seat?.user) return;
+    if (trySelectGiftRecipientFromUser(seat.user)) {
+      setShowGiftReceiverPicker(false);
+    } else {
+      Alert.alert(
+        "Cannot select user",
+        "This person is not available to receive gifts yet."
+      );
+    }
+  };
+
+  const handleOnlineUserPressForGift = (user) => {
+    if (!showBackpack) return;
+    if (trySelectGiftRecipientFromUser(user)) {
+      setShowGiftReceiverPicker(false);
+    }
+  };
+
+  const openGiftReceiverPicker = () => {
+    setShowGiftReceiverPicker(true);
+  };
+
+  const selectGiftRecipient = (id) => {
+    giftReceiverTouchedRef.current = true;
+    setGiftReceiverId(String(id));
+    setShowGiftReceiverPicker(false);
+  };
+
+  const renderGiftRecipientPickerOverlay = () => {
+    if (!showGiftReceiverPicker) return null;
+
+    return (
+      <View style={styles.giftReceiverInlineOverlay} pointerEvents="box-none">
+        <TouchableOpacity
+          style={styles.giftReceiverInlineBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowGiftReceiverPicker(false)}
+        />
+        <View style={styles.giftReceiverSheet}>
+          <View style={styles.shareHandle} />
+          <Text style={styles.giftReceiverTitle}>Send gift to</Text>
+          <Text style={styles.giftReceiverSubtitle}>
+            Choose who receives your gift
+          </Text>
+          {giftRecipientOptions.length === 0 ? (
+            <View style={styles.giftRecipientEmpty}>
+              <Text style={styles.giftRecipientEmptyText}>
+                No one else is in the room yet. Invite friends to join, then pick
+                them here.
+              </Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.giftRecipientList}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {giftRecipientOptions.map((person) => {
+                const selected = String(giftReceiverId) === String(person.id);
+                return (
+                  <TouchableOpacity
+                    key={person.id}
+                    style={[
+                      styles.giftRecipientRow,
+                      selected && styles.giftRecipientRowActive,
+                    ]}
+                    activeOpacity={0.85}
+                    onPress={() => selectGiftRecipient(person.id)}
+                  >
+                    {renderGiftRecipientAvatar(person, styles.giftRecipientAvatar)}
+                    <View style={styles.giftRecipientInfo}>
+                      <Text style={styles.giftRecipientName} numberOfLines={1}>
+                        {person.name}
+                      </Text>
+                      {person.subtitle ? (
+                        <Text style={styles.giftRecipientMeta} numberOfLines={1}>
+                          {person.subtitle}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {selected ? (
+                      <Text style={styles.giftRecipientCheck}>✓</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  const renderGiftSendBar = () => (
+    <View style={[styles.bpSendBar, { paddingBottom: giftSendBarBottom }]}>
+      {renderGiftRecipientAvatar(selectedGiftRecipient)}
+      <TouchableOpacity
+        style={styles.bpSendRecipient}
+        activeOpacity={0.8}
+        onPress={openGiftReceiverPicker}
+      >
+        <Text style={styles.bpSendHeart}>❤️ </Text>
+        <Text style={styles.bpSendName} numberOfLines={1}>
+          {giftReceiverName}
+        </Text>
+        <Text style={styles.bpSendChev}> ▼</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.bpSendQtyBtn}
+        activeOpacity={0.8}
+        onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
+      >
+        <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.bpSendBtn}
+        activeOpacity={0.8}
+        onPress={handleSendBackpackGift}
+      >
+        <Text style={styles.bpSendBtnText}>Send</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
@@ -783,6 +1294,91 @@ export default function VoiceParty() {
         </View>
       </Modal>
 
+      {/* ── GIFT PURCHASE MODAL ── */}
+      <Modal
+        visible={Boolean(purchaseGift)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPurchaseGift(null)}
+      >
+        <TouchableOpacity
+          style={styles.giftPurchaseOverlay}
+          activeOpacity={1}
+          onPress={() => setPurchaseGift(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.giftPurchaseBox}>
+            {purchaseGift && (() => {
+              const purchasePrice = Math.max(0, Number(purchaseGift.price ?? 0));
+              const canAfford = purchasePrice <= 0 || walletDiamonds >= purchasePrice;
+              return (
+              <>
+                <LinearGradient colors={["#2a0d50", "#4a1d80"]} style={styles.giftPurchaseEmojiWrap}>
+                  <Text style={styles.giftPurchaseEmoji}>{purchaseGift.emoji}</Text>
+                </LinearGradient>
+                <Text style={styles.giftPurchaseName}>{purchaseGift.name}</Text>
+                <Text style={styles.giftPurchasePrice}>
+                  💎 {formatGiftPrice(purchasePrice)}
+                </Text>
+                <Text style={styles.giftPurchaseBalance}>
+                  Your balance: 💎 {formatGiftPrice(walletDiamonds)}
+                </Text>
+                {!canAfford ? (
+                  <Text style={styles.giftPurchaseWarning}>
+                    Not enough diamonds to buy this gift.
+                  </Text>
+                ) : null}
+                <View style={styles.giftPurchaseActions}>
+                  <TouchableOpacity
+                    style={styles.giftPurchaseCloseBtn}
+                    activeOpacity={0.85}
+                    onPress={() => setPurchaseGift(null)}
+                  >
+                    <Text style={styles.giftPurchaseCloseText}>Close</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.giftPurchaseBuyBtn, (!canAfford || catalogLoading) && styles.giftPurchaseBuyBtnDisabled]}
+                    activeOpacity={0.85}
+                    disabled={!canAfford || catalogLoading}
+                    onPress={handleBuyGift}
+                  >
+                    <LinearGradient
+                      colors={canAfford && !catalogLoading ? ["#7c4dff", "#4a6cf7"] : ["#4a4a5a", "#3a3a4a"]}
+                      style={styles.giftPurchaseBuyGrad}
+                    >
+                      <Text style={styles.giftPurchaseBuyText}>
+                        {catalogLoading ? "Buying..." : "Buy"}
+                      </Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </>
+              );
+            })()}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── GIFT SEND POPUP ── */}
+      <Modal visible={Boolean(giftPopup)} transparent animationType="fade">
+        <View style={styles.giftPopupOverlay} pointerEvents="none">
+          <View style={styles.giftPopupCard}>
+            {giftPopup?.gift?.imageUrl ? (
+              <ExpoImage
+                source={resolveImageSource(giftPopup.gift.imageUrl)}
+                style={styles.giftPopupImage}
+                contentFit="contain"
+              />
+            ) : (
+              <Text style={styles.giftPopupEmoji}>{giftPopup?.gift?.emoji}</Text>
+            )}
+            <Text style={styles.giftPopupTitle}>Gift Sent!</Text>
+            <Text style={styles.giftPopupSub}>
+              {giftPopup?.gift?.name} ×{giftPopup?.qty}
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── BACKPACK MODAL ── */}
       <Modal
         visible={showBackpack}
@@ -795,7 +1391,7 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowBackpack(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.backpackBox}>
+        <View style={styles.backpackBox} onStartShouldSetResponder={() => true}>
             <View style={{ height: H * 0.82 }}>
             {/* Handle */}
             <View style={styles.shareHandle} />
@@ -821,7 +1417,7 @@ export default function VoiceParty() {
             <View style={styles.bpCurrencyRow}>
               <TouchableOpacity style={styles.bpCurrencyItem} activeOpacity={0.8}>
                 <Text style={styles.bpDiamondIcon}>💎</Text>
-                <Text style={styles.bpCurrencyVal}>2</Text>
+                <Text style={styles.bpCurrencyVal}>{walletDiamonds.toLocaleString()}</Text>
                 <Text style={styles.bpCurrencyChev}> ›</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.bpCurrencyItem} activeOpacity={0.8}>
@@ -835,6 +1431,9 @@ export default function VoiceParty() {
             </View>
 
             {/* Main tabs */}
+            {catalogLoading && (
+              <ActivityIndicator color="#a78bfa" style={{ marginVertical: 8 }} />
+            )}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -846,7 +1445,13 @@ export default function VoiceParty() {
                   key={tab}
                   style={styles.bpMainTabItem}
                   activeOpacity={0.8}
-                  onPress={() => { setBackpackMainTab(tab); setSelectedGift(null); }}
+                  onPress={() => {
+                    setBackpackMainTab(tab);
+                    setSelectedGift(null);
+                    if (tab !== "Rank") {
+                      setCatalogRefreshKey((key) => key + 1);
+                    }
+                  }}
                 >
                   <Text style={[styles.bpMainTabText, backpackMainTab === tab && styles.bpMainTabTextActive]}>
                     {tab}
@@ -870,17 +1475,17 @@ export default function VoiceParty() {
                       <Text style={styles.bpRandomBoxLabel}>Random{"\n"}gifts</Text>
                     </LinearGradient>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-                      {randomGiftOrbs.map((orb) => (
+                      {displayRandomGifts.map((orb) => (
                         <TouchableOpacity
                           key={orb.id}
                           style={styles.bpOrbWrap}
                           activeOpacity={0.8}
-                          onPress={() => setSelectedGift({ id: `r${orb.id}`, name: "Random Gift", price: orb.price, emoji: orb.emoji })}
+                          onPress={() => openGiftPurchase(orb)}
                         >
                           <LinearGradient colors={["#2a1060", "#5c2daf"]} style={styles.bpOrbCircle}>
                             <Text style={styles.bpOrbEmoji}>{orb.emoji}</Text>
                           </LinearGradient>
-                          <Text style={styles.bpOrbPrice}>💎 {orb.price.toLocaleString()}</Text>
+                          <Text style={styles.bpOrbPrice}>💎 {formatGiftPrice(orb.price)}</Text>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
@@ -901,12 +1506,12 @@ export default function VoiceParty() {
 
                   {/* Gift grid */}
                   <View style={styles.bpGiftGrid}>
-                    {giftItems.map((gift) => (
+                    {displayGiftItems.map((gift) => (
                       <TouchableOpacity
                         key={gift.id}
-                        style={[styles.bpGiftCard, selectedGift?.id === gift.id && styles.bpGiftCardSelected]}
+                        style={styles.bpGiftCard}
                         activeOpacity={0.8}
-                        onPress={() => setSelectedGift(gift)}
+                        onPress={() => openGiftPurchase(gift)}
                       >
                         {gift.hot && (
                           <View style={styles.bpHotBadge}>
@@ -921,47 +1526,12 @@ export default function VoiceParty() {
                         </LinearGradient>
                         <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
                         <View style={styles.bpGiftPriceRow}>
-                          <Text style={styles.bpGiftPriceText}>💎 {gift.price.toLocaleString()}</Text>
+                          <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
                         </View>
                       </TouchableOpacity>
                     ))}
                   </View>
                 </ScrollView>
-
-                {/* Send bar */}
-                <View style={styles.bpSendBar}>
-                  <Image
-                    source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
-                    style={styles.bpSendAvatar}
-                  />
-                  <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
-                    <Text style={styles.bpSendHeart}>❤️ </Text>
-                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
-                    <Text style={styles.bpSendChev}> ▼</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.bpSendQtyBtn}
-                    activeOpacity={0.8}
-                    onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-                  >
-                    <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.bpSendBtn}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      if (selectedGift) {
-                        Alert.alert("Gift Sent! 🎁", `You sent ${giftQty}x ${selectedGift.name}!`);
-                        setSelectedGift(null);
-                        setGiftQty(1);
-                      } else {
-                        Alert.alert("Select a gift", "Tap any gift to select it first.");
-                      }
-                    }}
-                  >
-                    <Text style={styles.bpSendBtnText}>Send</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             )}
 
@@ -982,10 +1552,44 @@ export default function VoiceParty() {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <View style={styles.bpEmptyState}>
-                  <Text style={styles.bpEmptyEmoji}>🎒</Text>
-                  <Text style={styles.bpEmptyText}>Your backpack is empty.</Text>
-                </View>
+                {backpackSubTab === "Gift" && backpackGifts.length > 0 ? (
+                  <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                    <View style={styles.bpGiftGrid}>
+                      {backpackGifts.map((gift) => (
+                        <TouchableOpacity
+                          key={gift.id}
+                          style={[
+                            styles.bpGiftCard,
+                            giftsMatch(selectedGift, gift) && styles.bpGiftCardSelected,
+                          ]}
+                          activeOpacity={0.8}
+                          onPress={() => setSelectedGift(gift)}
+                        >
+                          <View style={styles.bpGiftQtyBadge}>
+                            <Text style={styles.bpGiftQtyBadgeText}>×{gift.qty}</Text>
+                          </View>
+                          <LinearGradient colors={["#2a0d50", "#4a1d80"]} style={styles.bpGiftEmojiWrap}>
+                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                          </LinearGradient>
+                          <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
+                          <View style={styles.bpGiftPriceRow}>
+                            <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                ) : (
+                  <View style={styles.bpEmptyState}>
+                    <Text style={styles.bpEmptyEmoji}>🎒</Text>
+                    <Text style={styles.bpEmptyText}>
+                      {backpackSubTab === "Gift"
+                        ? "Your backpack is empty. Buy gifts from the Gift tab."
+                        : "Your backpack is empty."}
+                    </Text>
+                  </View>
+                )}
+                {backpackSubTab === "Gift" && backpackGifts.length > 0 && renderGiftSendBar()}
               </View>
             )}
 
@@ -999,7 +1603,7 @@ export default function VoiceParty() {
                   style={styles.bpActEventScroll}
                   contentContainerStyle={styles.bpActEventContent}
                 >
-                  {activityEvents.map((ev) => (
+                  {displayActivityEvents.map((ev) => (
                     <TouchableOpacity
                       key={ev}
                       style={[styles.bpActEventTab, activityEvent === ev && styles.bpActEventTabActive]}
@@ -1016,12 +1620,12 @@ export default function VoiceParty() {
                 {/* Gift grid */}
                 <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
                   <View style={styles.bpGiftGrid}>
-                    {(activityGiftsByEvent[activityEvent] || []).map((gift) => (
+                    {(displayActivityGifts).map((gift) => (
                       <TouchableOpacity
                         key={gift.id}
-                        style={[styles.bpGiftCard, selectedGift?.id === gift.id && styles.bpGiftCardSelected]}
+                        style={styles.bpGiftCard}
                         activeOpacity={0.8}
-                        onPress={() => setSelectedGift(gift)}
+                        onPress={() => openGiftPurchase(gift)}
                       >
                         <View style={styles.bpGiftSendBtn}>
                           <Text style={{ fontSize: 9 }}>🎁</Text>
@@ -1031,47 +1635,12 @@ export default function VoiceParty() {
                         </LinearGradient>
                         <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
                         <View style={styles.bpGiftPriceRow}>
-                          <Text style={styles.bpGiftPriceText}>💎 {gift.price.toLocaleString()}</Text>
+                          <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
                         </View>
                       </TouchableOpacity>
                     ))}
                   </View>
                 </ScrollView>
-
-                {/* Send bar */}
-                <View style={styles.bpSendBar}>
-                  <Image
-                    source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
-                    style={styles.bpSendAvatar}
-                  />
-                  <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
-                    <Text style={styles.bpSendHeart}>❤️ </Text>
-                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
-                    <Text style={styles.bpSendChev}> ▼</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.bpSendQtyBtn}
-                    activeOpacity={0.8}
-                    onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-                  >
-                    <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.bpSendBtn}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      if (selectedGift) {
-                        Alert.alert("Gift Sent! 🎁", `You sent ${giftQty}x ${selectedGift.name}!`);
-                        setSelectedGift(null);
-                        setGiftQty(1);
-                      } else {
-                        Alert.alert("Select a gift", "Tap any gift to select it first.");
-                      }
-                    }}
-                  >
-                    <Text style={styles.bpSendBtnText}>Send</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             )}
 
@@ -1080,37 +1649,46 @@ export default function VoiceParty() {
               <View style={{ flex: 1 }}>
                 <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
                   <View style={styles.bpGiftGrid}>
-                    {intimacyVideos.map((video, idx) => (
+                    {displayRelationshipVideos.length === 0 && !catalogLoading ? (
+                      <Text style={styles.bpEmptyText}>No relationship videos available.</Text>
+                    ) : null}
+                    {displayRelationshipVideos.map((video, idx) => (
                       <TouchableOpacity
                         key={video.id}
                         style={[styles.bpGiftCard, selectedGift?.id === video.id && styles.bpGiftCardSelected]}
                         activeOpacity={0.85}
-                        onPress={() => { setSelectedGift(video); setCurrentVideo(video); setShowVideoModal(true); }}
+                        onPress={() => {
+                          setSelectedGift(video);
+                          setCurrentVideo(video);
+                          setShowVideoModal(true);
+                        }}
                       >
-                        {/* Gradient thumbnail */}
-                        <LinearGradient
-                          colors={video.colors}
-                          style={styles.bpVideoThumb}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                        >
-                          {/* Video number badge */}
+                        <View style={styles.bpVideoThumb}>
+                          {video.imageUrl ? (
+                            <ExpoImage
+                              source={resolveImageSource(video.imageUrl)}
+                              style={styles.bpVideoThumbImage}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <LinearGradient
+                              colors={["#4a1080", "#7c4dff", "#2d1060"]}
+                              style={StyleSheet.absoluteFillObject}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                            />
+                          )}
                           <View style={styles.bpVideoNumBadge}>
                             <Text style={styles.bpVideoNumText}>{idx + 1}</Text>
                           </View>
-                          {/* Play circle */}
                           <View style={styles.bpVideoPlayCircle}>
                             <Play size={22} color="white" fill="white" />
                           </View>
-                          {/* Shimmer dots */}
-                          <View style={styles.bpVideoShimmerWrap}>
-                            <Text style={styles.bpVideoShimmerText}>✦ ✦ ✦</Text>
-                          </View>
-                        </LinearGradient>
+                        </View>
 
                         <Text style={styles.bpGiftName} numberOfLines={1}>{video.name}</Text>
                         <View style={styles.bpGiftPriceRow}>
-                          <Text style={styles.bpVideoTagText}>🎬 Video</Text>
+                          <Text style={styles.bpVideoTagText}>🎬 Free video</Text>
                         </View>
                       </TouchableOpacity>
                     ))}
@@ -1118,14 +1696,17 @@ export default function VoiceParty() {
                 </ScrollView>
 
                 {/* Send bar */}
-                <View style={styles.bpSendBar}>
-                  <Image
-                    source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
-                    style={styles.bpSendAvatar}
-                  />
-                  <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
+                <View style={[styles.bpSendBar, { paddingBottom: giftSendBarBottom }]}>
+                  {renderGiftRecipientAvatar(selectedGiftRecipient)}
+                  <TouchableOpacity
+                    style={styles.bpSendRecipient}
+                    activeOpacity={0.8}
+                    onPress={openGiftReceiverPicker}
+                  >
                     <Text style={styles.bpSendHeart}>❤️ </Text>
-                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
+                    <Text style={styles.bpSendName} numberOfLines={1}>
+                      {giftReceiverName}
+                    </Text>
                     <Text style={styles.bpSendChev}> ▼</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -1157,12 +1738,12 @@ export default function VoiceParty() {
               <View style={{ flex: 1 }}>
                 <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
                   <View style={styles.bpGiftGrid}>
-                    {pkGifts.map((gift) => (
+                    {displayPkGifts.map((gift) => (
                       <TouchableOpacity
                         key={gift.id}
-                        style={[styles.bpGiftCard, selectedGift?.id === gift.id && styles.bpGiftCardSelected]}
+                        style={styles.bpGiftCard}
                         activeOpacity={0.8}
-                        onPress={() => setSelectedGift(gift)}
+                        onPress={() => openGiftPurchase(gift)}
                       >
                         {gift.hot && (
                           <View style={styles.bpHotBadge}>
@@ -1177,47 +1758,12 @@ export default function VoiceParty() {
                         </LinearGradient>
                         <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
                         <View style={styles.bpGiftPriceRow}>
-                          <Text style={styles.bpGiftPriceText}>💎 {gift.price.toLocaleString()}</Text>
+                          <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
                         </View>
                       </TouchableOpacity>
                     ))}
                   </View>
                 </ScrollView>
-
-                {/* Send bar */}
-                <View style={styles.bpSendBar}>
-                  <Image
-                    source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
-                    style={styles.bpSendAvatar}
-                  />
-                  <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
-                    <Text style={styles.bpSendHeart}>❤️ </Text>
-                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
-                    <Text style={styles.bpSendChev}> ▼</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.bpSendQtyBtn}
-                    activeOpacity={0.8}
-                    onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-                  >
-                    <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.bpSendBtn}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      if (selectedGift) {
-                        Alert.alert("PK Gift Sent! ⚔️", `You sent ${giftQty}x ${selectedGift.name}!`);
-                        setSelectedGift(null);
-                        setGiftQty(1);
-                      } else {
-                        Alert.alert("Select a gift", "Tap any PK gift to select it first.");
-                      }
-                    }}
-                  >
-                    <Text style={styles.bpSendBtnText}>Send</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             )}
 
@@ -1226,12 +1772,12 @@ export default function VoiceParty() {
               <View style={{ flex: 1 }}>
                 <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
                   <View style={styles.bpGiftGrid}>
-                    {specialGifts.map((gift) => (
+                    {displaySpecialGifts.map((gift) => (
                       <TouchableOpacity
                         key={gift.id}
-                        style={[styles.bpGiftCard, selectedGift?.id === gift.id && styles.bpGiftCardSelected]}
+                        style={styles.bpGiftCard}
                         activeOpacity={0.8}
-                        onPress={() => setSelectedGift(gift)}
+                        onPress={() => openGiftPurchase(gift)}
                       >
                         {gift.isNew && (
                           <View style={styles.bpNewBadge}>
@@ -1246,39 +1792,12 @@ export default function VoiceParty() {
                         </LinearGradient>
                         <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
                         <View style={styles.bpGiftPriceRow}>
-                          <Text style={styles.bpGiftPriceText}>💎 {gift.price.toLocaleString()}</Text>
+                          <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
                         </View>
                       </TouchableOpacity>
                     ))}
                   </View>
                 </ScrollView>
-                <View style={styles.bpSendBar}>
-                  <Image
-                    source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
-                    style={styles.bpSendAvatar}
-                  />
-                  <TouchableOpacity style={styles.bpSendRecipient} activeOpacity={0.8}>
-                    <Text style={styles.bpSendHeart}>❤️ </Text>
-                    <Text style={styles.bpSendName}>{roomInfo?.name ?? "Room"}</Text>
-                    <Text style={styles.bpSendChev}> ▼</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.bpSendQtyBtn}
-                    activeOpacity={0.8}
-                    onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-                  >
-                    <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.bpSendBtn, !selectedGift && { opacity: 0.5 }]}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      if (!selectedGift) Alert.alert("Select a gift", "Tap any gift to select it first.");
-                    }}
-                  >
-                    <Text style={styles.bpSendBtnText}>Send</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             )}
 
@@ -1297,7 +1816,7 @@ export default function VoiceParty() {
                 </View>
                 <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
                   <View style={styles.bpGiftGrid}>
-                    {vipGifts.map((gift) => (
+                    {displayVipGifts.map((gift) => (
                       <TouchableOpacity
                         key={gift.id}
                         style={styles.bpGiftCard}
@@ -1309,7 +1828,7 @@ export default function VoiceParty() {
                         </LinearGradient>
                         <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
                         <View style={styles.bpGiftPriceRow}>
-                          <Text style={styles.bpVipPriceText}>💎 {gift.price.toLocaleString()}</Text>
+                          <Text style={styles.bpVipPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
                         </View>
                         {/* Lock overlay */}
                         <View style={styles.bpVipLockOverlay}>
@@ -1347,7 +1866,8 @@ export default function VoiceParty() {
               </View>
             )}
             </View>
-          </TouchableOpacity>
+            {renderGiftRecipientPickerOverlay()}
+          </View>
         </TouchableOpacity>
       </Modal>
 
@@ -1856,10 +2376,12 @@ export default function VoiceParty() {
               style={styles.ownerAvatar}
             />
             <View style={styles.ownerTextCol}>
-              <Text style={styles.ownerName} numberOfLines={1}>
+              <Text style={styles.ownerName} numberOfLines={1} ellipsizeMode="tail">
                 {roomInfo?.name ?? "Voice Room"}
               </Text>
-              <Text style={styles.ownerId}>ID:{roomId ?? "—"}</Text>
+              <Text style={styles.ownerId} numberOfLines={1} ellipsizeMode="middle">
+                ID:{roomId ?? "—"}
+              </Text>
             </View>
             {!isHostSelf && (
               <TouchableOpacity
@@ -1901,7 +2423,13 @@ export default function VoiceParty() {
             contentContainerStyle={styles.audienceScrollContent}
           >
             {onlineUsers.slice(0, 6).map((user, index) => (
-              <View key={user.id ?? `user-${index}`} style={styles.audienceItem}>
+              <TouchableOpacity
+                key={user.id ?? `user-${index}`}
+                style={styles.audienceItem}
+                activeOpacity={0.85}
+                onPress={() => handleOnlineUserPressForGift(user)}
+                disabled={!showBackpack}
+              >
                 {user.avatar ? (
                   <Image
                     source={{ uri: user.avatar }}
@@ -1927,7 +2455,7 @@ export default function VoiceParty() {
                     <Mic size={9} color="rgba(255,255,255,0.5)" />
                   )}
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
           </ScrollView>
           {onlineCount > 6 && (
@@ -1940,7 +2468,12 @@ export default function VoiceParty() {
         {/* ── MIC SEATS GRID ── */}
         <View style={styles.seatsGrid}>
           {seats.map((seat) => (
-            <TouchableOpacity key={seat.id} style={styles.seatItem} activeOpacity={0.8}>
+            <TouchableOpacity
+              key={seat.id}
+              style={styles.seatItem}
+              activeOpacity={0.8}
+              onPress={() => handleSeatPressForGift(seat)}
+            >
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
                   {seat.user.active && <View style={styles.activeRing} />}
@@ -2028,7 +2561,9 @@ export default function VoiceParty() {
                           resizeMode="contain"
                         />
                       ) : (
-                        <Text style={styles.chatText}>{msg.text}</Text>
+                        <Text style={[styles.chatText, msg.isGift && styles.chatGiftText]}>
+                          {msg.text}
+                        </Text>
                       )}
                     </View>
                   </View>
@@ -2080,8 +2615,31 @@ export default function VoiceParty() {
                 </>
               )}
             </TouchableOpacity>
+            {onMic ? (
+              <TouchableOpacity
+                style={styles.micMuteBtn}
+                onPress={handleToggleMic}
+                disabled={voiceConnecting}
+              >
+                {isMicMuted ? (
+                  <MicOff size={20} color="#ff6b6b" />
+                ) : (
+                  <Mic size={20} color="white" />
+                )}
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
+
+        {__DEV__ && voiceDiagnostics ? (
+          <Text style={styles.voiceDebugText} numberOfLines={2}>
+            Voice: {voiceListenStatus}
+            {voiceDiagnostics.joined ? " · joined" : " · not joined"}
+            {voiceDiagnostics.remoteSpeakerCount > 0
+              ? ` · ${voiceDiagnostics.remoteSpeakerCount} remote`
+              : ""}
+          </Text>
+        ) : null}
 
         {/* ── BOTTOM DOCK: buttons above chat input ── */}
         <View
@@ -2175,6 +2733,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    marginRight: 8,
   },
   ownerAvatar: {
     width: 42,
@@ -2185,6 +2747,9 @@ const styles = StyleSheet.create({
   },
   ownerTextCol: {
     gap: 2,
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
   },
   ownerName: {
     color: "white",
@@ -2194,6 +2759,7 @@ const styles = StyleSheet.create({
   ownerId: {
     color: "rgba(255,255,255,0.55)",
     fontSize: 11,
+    flexShrink: 1,
   },
   plusBtn: {
     width: 34,
@@ -2277,7 +2843,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   audienceCountText: { color: "white", fontSize: 11, fontWeight: "700" },
-  headerRight: { flexDirection: "row", gap: 6 },
+  headerRight: { flexDirection: "row", gap: 6, flexShrink: 0 },
   badgesRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2442,6 +3008,7 @@ const styles = StyleSheet.create({
   chatCoin: { fontSize: 11, color: "#ffd700" },
   chatDiamond: { fontSize: 11, color: "#4dc8ff" },
   chatText: { color: "white", fontSize: 13 },
+  chatGiftText: { color: "#f9a8d4", fontWeight: "700" },
   chatRight: { width: 60, alignItems: "center", gap: 10, justifyContent: "flex-end" },
   luckyStarBox: {
     alignItems: "center",
@@ -2532,6 +3099,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     marginTop: 2,
+  },
+  micMuteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 6,
+  },
+  voiceDebugText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 10,
+    paddingHorizontal: 12,
+    paddingBottom: 4,
   },
   bottomDock: {
     borderTopWidth: 1,
@@ -3086,6 +3668,7 @@ const styles = StyleSheet.create({
 
   // ── Backpack modal ──
   backpackBox: {
+    position: "relative",
     backgroundColor: "#0f0720",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -3255,6 +3838,21 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
+  bpGiftQtyBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    zIndex: 2,
+    backgroundColor: "#7c4dff",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  bpGiftQtyBadgeText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "800",
+  },
   bpHotBadge: {
     position: "absolute",
     top: 5,
@@ -3350,6 +3948,95 @@ const styles = StyleSheet.create({
   },
   bpSendBtnText: { color: "white", fontSize: 15, fontWeight: "700" },
 
+  giftReceiverOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+  },
+  giftReceiverInlineOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end",
+    zIndex: 40,
+    elevation: 40,
+  },
+  giftReceiverInlineBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  giftReceiverSheet: {
+    backgroundColor: "#1a0a2e",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 8,
+    paddingBottom: 28,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderColor: "rgba(167,139,250,0.2)",
+    maxHeight: H * 0.55,
+    zIndex: 41,
+    elevation: 41,
+  },
+  giftRecipientEmpty: {
+    paddingVertical: 24,
+    paddingHorizontal: 8,
+  },
+  giftRecipientEmptyText: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  giftReceiverTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+  giftReceiverSubtitle: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  giftRecipientList: {
+    maxHeight: H * 0.38,
+  },
+  giftRecipientRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    marginBottom: 6,
+    backgroundColor: "rgba(124,77,255,0.08)",
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  giftRecipientRowActive: {
+    backgroundColor: "rgba(124,77,255,0.22)",
+    borderColor: "rgba(167,139,250,0.45)",
+  },
+  giftRecipientAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: "#7c4dff",
+  },
+  giftRecipientInfo: { flex: 1, minWidth: 0 },
+  giftRecipientName: { color: "white", fontSize: 15, fontWeight: "600" },
+  giftRecipientMeta: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  giftRecipientCheck: {
+    color: "#a78bfa",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+
   // Backpack sub-tabs & empty
   bpSubTabRow: {
     flexDirection: "row",
@@ -3415,7 +4102,20 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    backgroundColor: "#2a0d50",
+    position: "relative",
+  },
+  bpVideoThumbImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
+  },
+  bpEmptyText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    textAlign: "center",
+    paddingVertical: 24,
+    width: "100%",
   },
   bpVideoNumBadge: {
     position: "absolute",
@@ -3577,4 +4277,125 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   bpVipUpgradeBtnText: { color: "#7c4000", fontSize: 13, fontWeight: "800" },
+
+  giftPurchaseOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+  giftPurchaseBox: {
+    width: "100%",
+    maxWidth: 320,
+    backgroundColor: "#1a0a2e",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.35)",
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    alignItems: "center",
+  },
+  giftPurchaseEmojiWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  giftPurchaseEmoji: { fontSize: 44 },
+  giftPurchaseName: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  giftPurchasePrice: {
+    color: "#c4b5fd",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  giftPurchaseBalance: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  giftPurchaseWarning: {
+    color: "#f87171",
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  giftPurchaseActions: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 12,
+  },
+  giftPurchaseCloseBtn: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.35)",
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  giftPurchaseCloseText: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  giftPurchaseBuyBtn: {
+    flex: 1,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  giftPurchaseBuyBtnDisabled: {
+    opacity: 0.75,
+  },
+  giftPurchaseBuyGrad: {
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  giftPurchaseBuyText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  giftPopupOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  giftPopupCard: {
+    backgroundColor: "rgba(26,10,46,0.95)",
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.45)",
+    paddingHorizontal: 36,
+    paddingVertical: 28,
+    alignItems: "center",
+    shadowColor: "#ff4ea3",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  giftPopupEmoji: { fontSize: 64, marginBottom: 10 },
+  giftPopupImage: { width: 96, height: 96, marginBottom: 10 },
+  giftPopupTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  giftPopupSub: {
+    color: "#f9a8d4",
+    fontSize: 15,
+    fontWeight: "700",
+  },
 });

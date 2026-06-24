@@ -310,10 +310,13 @@ class WebSocketService {
     this._unsubscribeRoom(roomId);
   }
 
-  sendRoomMessage(roomId: string, message: string): void {
+  async sendRoomMessage(roomId: string, message: string): Promise<void> {
+    if (!this.connected) {
+      await this.connect();
+    }
     this._assertConnected();
     const destination = `/app/room/${roomId}/chat`;
-    const body = JSON.stringify({ message });
+    const body = JSON.stringify({ message, content: message, text: message });
     this.client!.publish({ destination, body });
   }
 

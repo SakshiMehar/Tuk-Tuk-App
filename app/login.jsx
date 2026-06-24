@@ -14,13 +14,13 @@ import { FontAwesome, FontAwesome5, AntDesign } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import { guestLogin, googleLogin } from "../src/api/authApi";
-import { saveSession, hasAcceptedTerms, setTermsAccepted } from "../src/store/authStore";
-import { refreshTokenCache } from "../src/api/axios";
-import { normalizeAuthResponse } from "../src/utils/authResponse";
+import { getUsersCount } from "../src/api/userApi";
+import { hasAcceptedTerms, setTermsAccepted } from "../src/store/authStore";
 import { establishSessionFromApi } from "../src/services/authSessionService";
 import {
   configureFacebookSdk,
   signInWithFacebook,
+  getFacebookAuthErrorMessage,
 } from "../src/services/facebookAuthService";
 import FacebookLoginWebViewModal from "../Components/FacebookLoginWebViewModal";
 import {
@@ -39,12 +39,27 @@ export default function Login() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [facebookLoading, setFacebookLoading] = useState(false);
   const [facebookWebView, setFacebookWebView] = useState(null);
+  const [userCount, setUserCount] = useState(null);
 
   useEffect(() => {
     configureGoogleSignIn();
     configureFacebookSdk();
     hasAcceptedTerms().then(setAccepted).catch(() => setAccepted(false));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUsersCount()
+      .then((data) => {
+        if (cancelled) return;
+        const count = data?.userCount ?? data?.count ?? null;
+        if (count != null) setUserCount(Number(count));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const userCountLabel = userCount != null ? userCount.toLocaleString() : "...";
 
   const requireAccepted = () => {
     if (!accepted) {
@@ -100,14 +115,8 @@ export default function Login() {
       });
       await finishLogin();
     } catch (err) {
-      console.error("[login] Facebook sign-in failed:", {
-        message: err?.message,
-        status: err?.status,
-        requestUrl: err?.requestUrl,
-        responseData: err?.responseData,
-      });
-      const msg = err?.message ?? "Facebook sign-in failed.";
-      if (!msg.toLowerCase().includes("cancelled")) {
+      const msg = getFacebookAuthErrorMessage(err);
+      if (msg) {
         Alert.alert("Facebook Sign-In", msg);
       }
     } finally {
@@ -124,13 +133,7 @@ export default function Login() {
     if (!requireAccepted()) return;
     setGuestLoading(true);
     try {
-      const data = await guestLogin();
-      const { token, user } = normalizeAuthResponse(data);
-      if (!token) {
-        throw new Error("Guest login did not return a token.");
-      }
-      await saveSession(token, user);
-      await refreshTokenCache();
+      await establishSessionFromApi(guestLogin);
       await finishLogin();
     } catch (err) {
       Alert.alert(
@@ -194,11 +197,11 @@ export default function Login() {
           <MaskedView
             style={{ marginTop: 8 }}
             maskElement={
-              <Text style={{ fontSize: 46, fontWeight: "800", textAlign: "center" }}>13,365,176</Text>
+              <Text style={{ fontSize: 46, fontWeight: "800", textAlign: "center" }}>{userCountLabel}</Text>
             }
           >
             <LinearGradient colors={["#00ffff", "#ff00ff", "#ff69b4"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-              <Text style={{ fontSize: 46, fontWeight: "800", opacity: 0 }}>13,365,176</Text>
+              <Text style={{ fontSize: 46, fontWeight: "800", opacity: 0 }}>{userCountLabel}</Text>
             </LinearGradient>
           </MaskedView>
 

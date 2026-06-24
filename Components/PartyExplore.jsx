@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import { useScrollToTop } from "@react-navigation/native";
 import {
   Search,
   Home,
@@ -194,6 +195,8 @@ function RelatedRoomItem({ room, onPress, showFollow }) {
 
 export default function PartyExplore() {
   const router = useRouter();
+  const scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
   const [activeTopTab, setActiveTopTab] = useState("Explore");
   const [activeRelatedTab, setActiveRelatedTab] = useState("Recently");
   const [activeFilter, setActiveFilter] = useState("Recommend");
@@ -390,7 +393,7 @@ export default function PartyExplore() {
           </View>
         </LinearGradient>
 
-        <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
+        <ScrollView ref={scrollRef} style={styles.body} showsVerticalScrollIndicator={false}>
           {/* ══════════ RELATED TAB ══════════ */}
           {activeTopTab === "Related" && (
             <>

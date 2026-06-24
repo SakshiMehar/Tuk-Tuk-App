@@ -76,6 +76,12 @@ export const getNearbyUsers = async ({
   return response.data;
 };
 
+// GET /api/app/users/count — total registered users (login screen, no auth required)
+export const getUsersCount = async () => {
+  const response = await API.get("/api/app/users/count");
+  return response.data;
+};
+
 // GET /api/app/users/active/count — platform-wide online user count (home header pill)
 export const getActiveUsersCount = async () => {
   const { headers } = await buildAuthedConfig("active/count");

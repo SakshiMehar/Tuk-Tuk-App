@@ -10,10 +10,10 @@ import {
   Modal,
   Image,
   Switch,
-  SafeAreaView,
   TextInput,
   ActivityIndicator,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -79,6 +79,9 @@ const settingSections = [
 
 export default function Settings() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const scrollBottomPad = 24 + Math.max(insets.bottom, 16);
+  const sheetBottomPad = Math.max(insets.bottom, 12);
   const [cacheSize] = useState("22.21M");
   const [matchSwitchVisible, setMatchSwitchVisible] = useState(false);
   const [privacyVisible, setPrivacyVisible] = useState(false);
@@ -419,7 +422,7 @@ export default function Settings() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar barStyle="light-content" backgroundColor="#0d0618" />
       <LinearGradient
         colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
@@ -442,7 +445,7 @@ export default function Settings() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPad }]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.subtitle}>Customize your app preferences.</Text>
@@ -583,33 +586,35 @@ export default function Settings() {
       >
         <View style={styles.notificationsOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setNotificationsVisible(false)} />
-          <View style={styles.notificationsSheet}>
-            <View style={styles.handleBar} />
-            {[
-              "All notifications",
-              "Only message, moments & interaction alerts",
-              "Only message alerts",
-              "No notifications",
-            ].map((opt) => (
-              <TouchableOpacity
-                key={opt}
-                style={[styles.optionRow, notificationOption === opt && styles.optionSelected]}
-                onPress={() => {
-                  setNotificationsVisible(false);
-                  persistSettings(
-                    { notificationOption: opt },
-                    () => setNotificationOption(opt)
-                  );
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.optionText, notificationOption === opt && styles.optionTextSelected]}>{opt}</Text>
+          <SafeAreaView edges={["bottom"]} style={styles.bottomSheetSafe}>
+            <View style={[styles.notificationsSheet, { paddingBottom: sheetBottomPad }]}>
+              <View style={styles.handleBar} />
+              {[
+                "All notifications",
+                "Only message, moments & interaction alerts",
+                "Only message alerts",
+                "No notifications",
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.optionRow, notificationOption === opt && styles.optionSelected]}
+                  onPress={() => {
+                    setNotificationsVisible(false);
+                    persistSettings(
+                      { notificationOption: opt },
+                      () => setNotificationOption(opt)
+                    );
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.optionText, notificationOption === opt && styles.optionTextSelected]}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setNotificationsVisible(false)} activeOpacity={0.8}>
+                <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={styles.cancelButton} onPress={() => setNotificationsVisible(false)} activeOpacity={0.8}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -626,7 +631,7 @@ export default function Settings() {
             activeOpacity={1}
             onPress={() => setPrivacyVisible(false)}
           />
-          <SafeAreaView style={styles.privacyPanel}>
+          <SafeAreaView style={styles.privacyPanel} edges={["bottom"]}>
             <LinearGradient
               colors={["#1a0a2e", "#16082a", "#0d0618"]}
               style={StyleSheet.absoluteFill}
@@ -647,7 +652,10 @@ export default function Settings() {
             <View style={styles.privacyDivider} />
 
             {/* Privacy Options */}
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: sheetBottomPad + 8 }}
+            >
               {/* Prevent following into room */}
               <View style={styles.privacyOptionItem}>
                 <View style={styles.privacyOptionLeft}>
@@ -754,30 +762,34 @@ export default function Settings() {
       >
         <View style={styles.languageOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setSystemLanguageVisible(false)} />
-          <View style={styles.languageSheet}>
-            <View style={styles.handleBar} />
-            <Text style={styles.sheetTitle}>System Language</Text>
-            {languages.map((lang) => (
-              <TouchableOpacity
-                key={lang}
-                style={[styles.languageOption, systemLanguage === lang && styles.languageOptionSelected]}
-                onPress={() => {
-                  setSystemLanguageVisible(false);
-                  persistSettings(
-                    { systemLanguage: lang },
-                    () => setSystemLanguage(lang)
-                  );
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.languageOptionText, systemLanguage === lang && styles.languageOptionTextSelected]}>{lang}</Text>
-                {systemLanguage === lang && <Ionicons name="checkmark" size={20} color="#a78bfa" />}
+          <SafeAreaView edges={["bottom"]} style={styles.bottomSheetSafe}>
+            <View style={[styles.languageSheet, { paddingBottom: sheetBottomPad }]}>
+              <View style={styles.handleBar} />
+              <Text style={styles.sheetTitle}>System Language</Text>
+              <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                {languages.map((lang) => (
+                  <TouchableOpacity
+                    key={lang}
+                    style={[styles.languageOption, systemLanguage === lang && styles.languageOptionSelected]}
+                    onPress={() => {
+                      setSystemLanguageVisible(false);
+                      persistSettings(
+                        { systemLanguage: lang },
+                        () => setSystemLanguage(lang)
+                      );
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.languageOptionText, systemLanguage === lang && styles.languageOptionTextSelected]}>{lang}</Text>
+                    {systemLanguage === lang && <Ionicons name="checkmark" size={20} color="#a78bfa" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.langCancelButton} onPress={() => setSystemLanguageVisible(false)} activeOpacity={0.8}>
+                <Text style={styles.langCancelText}>Cancel</Text>
               </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={styles.langCancelButton} onPress={() => setSystemLanguageVisible(false)} activeOpacity={0.8}>
-              <Text style={styles.langCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -790,30 +802,34 @@ export default function Settings() {
       >
         <View style={styles.languageOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setContentLanguageVisible(false)} />
-          <View style={styles.languageSheet}>
-            <View style={styles.handleBar} />
-            <Text style={styles.sheetTitle}>Content Language</Text>
-            {languages.map((lang) => (
-              <TouchableOpacity
-                key={lang}
-                style={[styles.languageOption, contentLanguage === lang && styles.languageOptionSelected]}
-                onPress={() => {
-                  setContentLanguageVisible(false);
-                  persistSettings(
-                    { contentLanguage: lang },
-                    () => setContentLanguage(lang)
-                  );
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.languageOptionText, contentLanguage === lang && styles.languageOptionTextSelected]}>{lang}</Text>
-                {contentLanguage === lang && <Ionicons name="checkmark" size={20} color="#a78bfa" />}
+          <SafeAreaView edges={["bottom"]} style={styles.bottomSheetSafe}>
+            <View style={[styles.languageSheet, { paddingBottom: sheetBottomPad }]}>
+              <View style={styles.handleBar} />
+              <Text style={styles.sheetTitle}>Content Language</Text>
+              <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                {languages.map((lang) => (
+                  <TouchableOpacity
+                    key={lang}
+                    style={[styles.languageOption, contentLanguage === lang && styles.languageOptionSelected]}
+                    onPress={() => {
+                      setContentLanguageVisible(false);
+                      persistSettings(
+                        { contentLanguage: lang },
+                        () => setContentLanguage(lang)
+                      );
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.languageOptionText, contentLanguage === lang && styles.languageOptionTextSelected]}>{lang}</Text>
+                    {contentLanguage === lang && <Ionicons name="checkmark" size={20} color="#a78bfa" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.langCancelButton} onPress={() => setContentLanguageVisible(false)} activeOpacity={0.8}>
+                <Text style={styles.langCancelText}>Cancel</Text>
               </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={styles.langCancelButton} onPress={() => setContentLanguageVisible(false)} activeOpacity={0.8}>
-              <Text style={styles.langCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -903,7 +919,7 @@ export default function Settings() {
             activeOpacity={1}
             onPress={closeDeleteAccountModal}
           />
-          <SafeAreaView style={styles.deleteAccountPanel}>
+          <SafeAreaView style={styles.deleteAccountPanel} edges={["bottom"]}>
             <LinearGradient
               colors={["#1a0a2e", "#16082a", "#0d0618"]}
               style={StyleSheet.absoluteFill}
@@ -926,7 +942,10 @@ export default function Settings() {
 
             <ScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.deleteAccountContent}
+              contentContainerStyle={[
+                styles.deleteAccountContent,
+                { paddingBottom: sheetBottomPad + 16 },
+              ]}
             >
               <Text style={styles.deleteAccountLabel}>Reason for leaving</Text>
               <View style={styles.deleteReasonList}>
@@ -1008,7 +1027,7 @@ export default function Settings() {
       >
         <View style={styles.helpOverlay}>
           <TouchableOpacity style={styles.helpBackdrop} activeOpacity={1} onPress={() => setHelpVisible(false)} />
-          <SafeAreaView style={styles.helpPanel}>
+          <SafeAreaView style={styles.helpPanel} edges={["bottom"]}>
             <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
 
             {/* Header */}
@@ -1022,7 +1041,11 @@ export default function Settings() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: sheetBottomPad + 24 }}
+            >
               {/* FAQ */}
               <Text style={styles.helpSectionLabel}>Frequently Asked Questions</Text>
               {faqs.map((item) => (
@@ -1270,7 +1293,7 @@ export default function Settings() {
         onClose={() => setClearChatCacheVisible(false)}
       />
 
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -1283,13 +1306,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 56,
+    paddingTop: 8,
     paddingHorizontal: 16,
     paddingBottom: 12,
     gap: 12,
@@ -1569,12 +1592,14 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     backgroundColor: "rgba(0,0,0,0.45)",
   },
+  bottomSheetSafe: {
+    width: "100%",
+  },
   notificationsSheet: {
     backgroundColor: "white",
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     paddingTop: 12,
-    paddingBottom: 26,
     paddingHorizontal: 18,
     minHeight: 260,
   },
@@ -1628,7 +1653,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 12,
-    paddingBottom: 26,
     paddingHorizontal: 18,
     maxHeight: "80%",
     borderTopWidth: 1,
@@ -2206,7 +2230,7 @@ const styles = StyleSheet.create({
   },
   deleteAccountContent: {
     paddingHorizontal: 20,
-    paddingBottom: 28,
+    paddingTop: 4,
   },
   deleteAccountTitle: {
     color: "#f87171",

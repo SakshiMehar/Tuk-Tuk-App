@@ -43,6 +43,8 @@ const listFrom = (value) => {
     value.data ??
     value.users ??
     value.items ??
+    value.following ??
+    value.followers ??
     value.blockedUsers ??
     value.blockUsers ??
     value.blocked ??
@@ -88,8 +90,42 @@ export const normalizeRelationshipUser = (user) => {
   };
 };
 
+const unwrapRelationshipEntry = (entry) => {
+  if (!entry || typeof entry !== "object") return entry;
+  return (
+    entry.user ??
+    entry.followedUser ??
+    entry.follower ??
+    entry.followingUser ??
+    entry.targetUser ??
+    entry.profile ??
+    entry
+  );
+};
+
 export const parseRelationshipList = (data) =>
-  listFrom(data).map(normalizeRelationshipUser).filter((u) => u.userId != null);
+  listFrom(data)
+    .map((entry) => {
+      const raw = unwrapRelationshipEntry(entry);
+      const userId = firstValue(
+        entry?.userId,
+        entry?.id,
+        entry?.targetUserId,
+        entry?.followedUserId,
+        entry?.followerId,
+        raw?.userId,
+        raw?.id,
+        raw?._id,
+        typeof entry === "string" || typeof entry === "number" ? entry : null
+      );
+      return normalizeRelationshipUser({
+        ...(typeof entry === "object" ? entry : {}),
+        ...(typeof raw === "object" ? raw : {}),
+        userId,
+        id: userId,
+      });
+    })
+    .filter((u) => u.userId != null);
 
 export const parseBlockedUsers = (data) => {
   const rawList = listFrom(data);
