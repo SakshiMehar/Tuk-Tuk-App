@@ -6,7 +6,7 @@ import {
   ConnectionStateType,
 } from "react-native-agora";
 import { AGORA_APP_ID } from "../config/env";
-import { parseTokenPayload, validateTokenPayload } from "./voice/voiceTokenUtils";
+import { parseTokenPayload, unwrapVoiceTokenResponse, validateTokenPayload } from "./voice/voiceTokenUtils";
 
 const AGORA_ERR_JOIN_REJECTED = -17;
 
@@ -202,6 +202,11 @@ const ensureEngine = (appId) => {
     },
     onError: (err, msg) => {
       if (err === AGORA_ERR_JOIN_REJECTED) {
+        if (engine && syncJoinedFromRtc(engine, currentChannel)) {
+          joining = false;
+          settleJoinWaiters();
+          notifyStatusListeners();
+        }
         return;
       }
       lastError = {
@@ -279,18 +284,37 @@ export const getVoiceDiagnostics = () => ({
 });
 
 const switchRoleInChannel = (rtc, payload, isSpeaker) => {
-  joined = true;
-  currentChannel = payload.channel;
-  joining = false;
-  applyClientRole(rtc, isSpeaker, payload.token);
-  if (remoteAudioMuted) {
-    rtc.muteAllRemoteAudioStreams(true);
+  if (!syncJoinedFromRtc(rtc, payload.channel)) {
+    return null;
   }
+  applyClientRole(rtc, isSpeaker, payload.token);
+  ensureRemoteAudioPlayback(rtc);
   return payload;
 };
 
+const ensureRemoteAudioPlayback = (rtc) => {
+  try {
+    rtc.setEnableSpeakerphone(true);
+    rtc.setDefaultAudioRouteToSpeakerphone(true);
+    remoteAudioMuted = false;
+    rtc.muteAllRemoteAudioStreams(false);
+  } catch {
+    // ignore routing errors on some devices
+  }
+  notifyStatusListeners();
+};
+
+const handleJoinRejected = (rtc, payload, isSpeaker) => {
+  if (syncJoinedFromRtc(rtc, payload.channel)) {
+    return switchRoleInChannel(rtc, payload, isSpeaker);
+  }
+  joining = false;
+  return null;
+};
+
 export const joinVoiceChannel = async ({ roomId, uid, tokenData, isSpeaker = true }) => {
-  const payload = parseTokenPayload(tokenData, roomId, uid, AGORA_APP_ID);
+  const rawToken = unwrapVoiceTokenResponse(tokenData);
+  const payload = parseTokenPayload(rawToken, roomId, uid, AGORA_APP_ID);
   const validation = validateTokenPayload(payload);
   if (!validation.ok) {
     throw new Error(validation.issues[0]);
@@ -311,11 +335,12 @@ export const joinVoiceChannel = async ({ roomId, uid, tokenData, isSpeaker = tru
   }
 
   const alreadyInTargetChannel =
-    (joined || isRtcInChannel(rtc)) &&
-    (currentChannel === payload.channel || !currentChannel);
+    readConnectionState(rtc) === ConnectionStateType.ConnectionStateConnected &&
+    currentChannel === payload.channel;
 
   if (alreadyInTargetChannel) {
-    return switchRoleInChannel(rtc, payload, isSpeaker);
+    const switched = switchRoleInChannel(rtc, payload, isSpeaker);
+    if (switched) return switched;
   }
 
   if (isRtcInChannel(rtc) && currentChannel && currentChannel !== payload.channel) {
@@ -335,11 +360,31 @@ export const joinVoiceChannel = async ({ roomId, uid, tokenData, isSpeaker = tru
 
   if (typeof result === "number" && result < 0) {
     if (result === AGORA_ERR_JOIN_REJECTED) {
-      return switchRoleInChannel(rtc, payload, isSpeaker);
+      const switched = handleJoinRejected(rtc, payload, isSpeaker);
+      if (switched) return switched;
+      try {
+        rtc.leaveChannel();
+      } catch {
+        // ignore
+      }
+      joined = false;
+      currentChannel = null;
+      joining = true;
+      const retry = rtc.joinChannel(
+        payload.token,
+        payload.channel,
+        payload.uid,
+        channelMediaOptions(isSpeaker)
+      );
+      if (typeof retry === "number" && retry < 0 && retry !== AGORA_ERR_JOIN_REJECTED) {
+        joining = false;
+        throw new Error(`Agora joinChannel failed (code ${retry}).`);
+      }
+    } else {
+      joining = false;
+      currentChannel = joined ? currentChannel : null;
+      throw new Error(`Agora joinChannel failed (code ${result}).`);
     }
-    joining = false;
-    currentChannel = joined ? currentChannel : null;
-    throw new Error(`Agora joinChannel failed (code ${result}).`);
   }
 
   try {
@@ -356,6 +401,7 @@ export const joinVoiceChannel = async ({ roomId, uid, tokenData, isSpeaker = tru
 
   joining = false;
   applyClientRole(rtc, isSpeaker, null);
+  ensureRemoteAudioPlayback(rtc);
 
   if (remoteAudioMuted) {
     rtc.muteAllRemoteAudioStreams(true);

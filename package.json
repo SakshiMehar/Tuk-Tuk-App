@@ -11,7 +11,8 @@
     "lint": "expo lint",
     "test:voice": "node scripts/run-voice-checks.js",
     "postinstall": "patch-package",
-    "facebook:keyhash": "powershell -ExecutionPolicy Bypass -File ./scripts/get-facebook-key-hash.ps1"
+    "facebook:keyhash": "powershell -ExecutionPolicy Bypass -File ./scripts/get-facebook-key-hash.ps1",
+    "google:android-sha": "powershell -ExecutionPolicy Bypass -File ./scripts/print-google-signin-sha.ps1"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

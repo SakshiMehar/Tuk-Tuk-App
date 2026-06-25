@@ -12,14 +12,20 @@ const firstValue = (...values) =>
 const parseTokenPayload = (data, roomId, uid, fallbackAppId = "") => {
   const appId =
     firstText(data?.appId, data?.agoraAppId, data?.applicationId) || fallbackAppId || "";
-  const resolvedUid = Number(firstValue(data?.uid, data?.userId, uid) ?? uid);
+  // Always join with the uid we requested the token for — backend must mint for this uid.
+  const resolvedUid = Number(uid);
 
   return {
     token: firstText(data?.token, data?.rtcToken, data?.agoraToken, data?.accessToken) ?? "",
     appId,
-    channel: firstText(data?.channel, data?.channelName, data?.roomId) ?? String(roomId),
+    channel: firstText(data?.channel, data?.channelName) ?? String(roomId),
     uid: resolvedUid,
   };
+};
+
+const unwrapVoiceTokenResponse = (data) => {
+  if (!data || typeof data !== "object") return data;
+  return data.data ?? data.result ?? data.payload ?? data;
 };
 
 const validateTokenPayload = (payload, { requireToken = true } = {}) => {
@@ -97,7 +103,14 @@ const tests = [
       assert(payload.token === "tok_abc", "token");
       assert(payload.appId === "app123", "appId");
       assert(payload.channel === "room-99", "channel");
-      assert(payload.uid === 42, "uid");
+      assert(payload.uid === 7, "uid uses client uid, not backend userId");
+    },
+  ],
+  [
+    "unwrapVoiceTokenResponse",
+    () => {
+      assert(unwrapVoiceTokenResponse({ data: { token: "t" } }).token === "t", "unwrap data");
+      assert(unwrapVoiceTokenResponse({ token: "t" }).token === "t", "passthrough");
     },
   ],
   [

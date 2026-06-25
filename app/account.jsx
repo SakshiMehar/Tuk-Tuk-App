@@ -34,6 +34,8 @@ import {
   DEFAULT_AVATAR_ID,
 } from "../src/data/avatarOptions";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
+import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
+import ProfileAvatarWithFrame from "../Components/ProfileAvatarWithFrame";
 import {
   COUNTRY_OPTIONS,
   DEFAULT_COUNTRY,
@@ -97,6 +99,7 @@ export default function Account() {
   const [countrySearch, setCountrySearch] = useState("");
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [newUserFrameSource, setNewUserFrameSource] = useState(null);
   const currentAvatar = resolveProfileAvatarSource({
     avatarId: profile.avatarId,
     useLocalAvatar: profile.useLocalAvatar,
@@ -274,6 +277,9 @@ export default function Account() {
 
           if (cancelled) return;
 
+          const frameSource = await syncNewUserFrameForSession();
+          if (!cancelled) setNewUserFrameSource(frameSource);
+
           const useLocalAvatar = Boolean(user?.useLocalAvatar);
           const storedProfile = {
             name: user?.nickname ?? user?.name ?? "",
@@ -366,7 +372,13 @@ export default function Account() {
                 <View style={[styles.sprinkleDot, styles.sprinkleDotFour]} />
               </View>
               <View style={styles.avatarWrapper}>
-                <Image source={currentAvatar} style={styles.accountAvatar} />
+                <ProfileAvatarWithFrame
+                  avatarSource={currentAvatar}
+                  frameSource={newUserFrameSource}
+                  size={104}
+                  avatarStyle={styles.accountAvatar}
+                  wrapperStyle={styles.accountAvatarFrameWrap}
+                />
               </View>
             </View>
           </View>
@@ -709,7 +721,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.07)",
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
+    overflow: "visible",
+  },
+  accountAvatarFrameWrap: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   accountAvatar: {
     width: 104,

@@ -22,9 +22,9 @@ export const resolveProfileAvatarSource = (user) => {
 
   const remoteUrl = resolveRemoteProfilePicUrl(
     firstText(
+      user?.avatar,
       user?.profilePicUrl,
       user?.avatarUrl,
-      user?.avatar,
       user?.profileImageUrl,
       user?.profileImage
     )

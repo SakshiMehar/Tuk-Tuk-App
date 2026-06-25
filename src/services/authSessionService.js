@@ -5,6 +5,8 @@ import { resolveAppUserId } from "../utils/sessionUser";
 import { refreshTokenCache, clearTokenCache } from "../api/axios";
 import { wsService } from "./websocket";
 import { loadMyProfile } from "./meProfileService";
+import { applyNewUserFrameForLogin } from "./newUserFrameService";
+import { applyInitialUserLevelForLogin } from "./userLevelService";
 
 export const endLocalSession = async () => {
   wsService.disconnect();
@@ -46,6 +48,11 @@ export const hydrateSessionUserFromProfile = async () => {
       profilePicUrl: profile.profilePicUrl ?? null,
       ...(profile.profilePicUrl ? { avatarUrl: profile.profilePicUrl } : {}),
       useLocalAvatar,
+      ...(profile.createdAt ? { createdAt: profile.createdAt } : {}),
+      ...(profile.hasNewUserFrame ? { hasNewUserFrame: true } : {}),
+      ...(profile.newUserFrameUrl ? { newUserFrameUrl: profile.newUserFrameUrl } : {}),
+      ...(profile.level != null ? { level: profile.level } : {}),
+      ...(profile.levelBadgeUrl ? { levelBadgeUrl: profile.levelBadgeUrl } : {}),
     });
 
     return profile;
@@ -66,6 +73,8 @@ export const establishSessionFromApi = async (apiCall, credential) => {
   await saveSession(token, user);
   await refreshTokenCache();
   await hydrateSessionUserFromProfile();
+  await applyNewUserFrameForLogin(data);
+  await applyInitialUserLevelForLogin(data);
   await setTermsAccepted(true);
   try {
     await wsService.connect();

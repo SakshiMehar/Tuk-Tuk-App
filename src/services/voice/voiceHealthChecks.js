@@ -1,4 +1,4 @@
-import { parseTokenPayload, validateTokenPayload } from "./voiceTokenUtils";
+import { parseTokenPayload, unwrapVoiceTokenResponse, validateTokenPayload } from "./voiceTokenUtils";
 
 /**
  * Run preflight checks before joining an Agora voice channel.
@@ -26,7 +26,7 @@ export const runVoicePreflightChecks = ({
   );
 
   const payload = tokenData
-    ? parseTokenPayload(tokenData, roomId, uid, fallbackAppId)
+    ? parseTokenPayload(unwrapVoiceTokenResponse(tokenData), roomId, uid, fallbackAppId)
     : null;
   const validation = validateTokenPayload(payload);
   push("tokenPayload", validation.ok, validation.ok ? "token payload valid" : validation.issues.join("; "));

@@ -29,7 +29,6 @@ import { getAppUserId } from "../src/utils/sessionUser";
 import {
   enterRoomSession,
   exitRoomSession,
-  createAndJoinRoom,
   enterRandomPartySession,
   parseSeats,
   parseOnlineUsers,
@@ -58,6 +57,8 @@ import {
   giftsMatch,
 } from "../src/services/giftCatalogService";
 import TreasureBoxModal from "./TreasureBoxModal";
+import RoomUserProfilePopup from "./RoomUserProfilePopup";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import {
   MEDIA_SECTIONS,
   emojiCategories,
@@ -67,6 +68,12 @@ import {
 } from "../src/data/voicePartyMediaPicker";
 import { loadConversations } from "../src/services/chatService";
 import { getUser } from "../src/store/authStore";
+import { resolveProfileAvatarUri, resolveProfileAvatarSource } from "../src/utils/profileAvatar";
+import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
+import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
+import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
+import { syncUserLevelForSession } from "../src/services/userLevelService";
+import { loadUserDetail } from "../src/services/nearbyService";
 import { resolveVideoSource, resolveImageSource } from "../src/utils/videoSource";
 import * as partyVoice from "../src/services/partyVoiceService";
 import * as agoraVoice from "../src/services/agoraVoiceService";
@@ -81,6 +88,7 @@ import {
   Smile,
   MessageSquare,
   Volume2,
+  VolumeX,
   LayoutGrid,
   MessageCircle,
   AlertCircle,
@@ -98,22 +106,102 @@ const TREASURE_BOX_GIF = require("../assets/Gift/tresurebox.gif");
 const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
   if (!seatNumber) return parsedSeats;
   const user = await getUser();
+  const userId = await getAppUserId().catch(() => null);
   const avatar =
-    user?.avatarUrl ?? user?.avatar ?? user?.profileImageUrl ?? user?.profileImage ?? null;
-  const name = user?.name ?? user?.username ?? user?.nickname ?? null;
+    resolveProfileAvatarUri(user) ??
+    user?.avatarUrl ??
+    user?.avatar ??
+    user?.profileImageUrl ??
+    user?.profileImage ??
+    null;
+  const name = user?.name ?? user?.username ?? user?.nickname ?? "User";
+  const username = user?.username ?? user?.name ?? null;
 
   return parsedSeats.map((seat) => {
-    if (seat.id !== seatNumber || !seat.user) return seat;
+    if (seat.id !== seatNumber) return seat;
+
+    const existing = seat.user ?? {};
     return {
       ...seat,
       user: {
-        ...seat.user,
-        name: seat.user.name && seat.user.name !== "Guest" ? seat.user.name : (name ?? seat.user.name),
-        avatar: seat.user.avatar ?? avatar,
+        ...existing,
+        id: existing.id ?? userId,
+        name:
+          existing.name && existing.name !== "Guest" ? existing.name : (name ?? existing.name ?? "User"),
+        username: existing.username ?? username,
+        avatar: existing.avatar ?? avatar,
+        hasNewUserFrame: Boolean(user?.hasNewUserFrame),
+        newUserFrameUrl: user?.newUserFrameUrl ?? null,
+        level: existing.level ?? user?.level ?? 1,
         active: true,
+        muted: existing.muted ?? false,
       },
     };
   });
+};
+
+const reconcileSeatAssignments = (
+  parsedSeats,
+  { onlineUsers = null, myUserId = null, mySeatNumber = null } = {}
+) => {
+  const next = parsedSeats.map((seat) => ({ ...seat, user: seat.user ? { ...seat.user } : null }));
+
+  const onlineIds =
+    Array.isArray(onlineUsers) && onlineUsers.length > 0
+      ? new Set(
+        onlineUsers
+          .map((u) => (u?.id != null ? String(u.id) : null))
+          .filter(Boolean)
+      )
+      : null;
+
+  // If room presence is known, clear seats for users who already left.
+  if (onlineIds) {
+    for (let i = 0; i < next.length; i += 1) {
+      const userId = next[i]?.user?.id != null ? String(next[i].user.id) : null;
+      if (userId && !onlineIds.has(userId)) {
+        next[i] = { ...next[i], user: null };
+      }
+    }
+  }
+
+  const indexByUserId = new Map();
+  for (let i = 0; i < next.length; i += 1) {
+    const seat = next[i];
+    const userId = seat?.user?.id != null ? String(seat.user.id) : null;
+    if (!userId) continue;
+
+    if (!indexByUserId.has(userId)) {
+      indexByUserId.set(userId, i);
+      continue;
+    }
+
+    const prevIdx = indexByUserId.get(userId);
+    const prevSeat = next[prevIdx];
+    const prevUser = prevSeat?.user;
+    const currUser = seat?.user;
+
+    let keepCurrent = false;
+    if (myUserId && String(myUserId) === userId && mySeatNumber) {
+      keepCurrent = seat.id === mySeatNumber && prevSeat.id !== mySeatNumber;
+    } else if (Boolean(currUser?.active) !== Boolean(prevUser?.active)) {
+      keepCurrent = Boolean(currUser?.active);
+    } else if (Boolean(currUser?.muted) !== Boolean(prevUser?.muted)) {
+      keepCurrent = Boolean(prevUser?.muted) && !Boolean(currUser?.muted);
+    } else {
+      // Fallback: prefer later seat as fresher assignment.
+      keepCurrent = Number(seat.id) >= Number(prevSeat.id);
+    }
+
+    if (keepCurrent) {
+      next[prevIdx] = { ...next[prevIdx], user: null };
+      indexByUserId.set(userId, i);
+    } else {
+      next[i] = { ...next[i], user: null };
+    }
+  }
+
+  return next;
 };
 
 const micSeats = [
@@ -198,11 +286,12 @@ const GIFT_CARD_W = (W - 32) / 4 - 6;
 const formatGiftPrice = (price) =>
   Number(price ?? 0).toLocaleString();
 
+const SEAT_FRAME_CONFIG = NEW_USER_FRAME_LAYOUT;
+
 export default function VoiceParty() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const roomIdParam = params.roomId ?? params.id ?? null;
-  const isCreate = params.create === "true";
   const isRandomParty = params.party === "true";
 
   const [roomLoading, setRoomLoading] = useState(true);
@@ -294,7 +383,13 @@ export default function VoiceParty() {
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [profilePopupUser, setProfilePopupUser] = useState(null);
+  const [profilePopupAvatarSource, setProfilePopupAvatarSource] = useState(null);
+  const [profilePopupLoading, setProfilePopupLoading] = useState(false);
+  const [profilePopupFollowing, setProfilePopupFollowing] = useState(false);
+  const [profileFollowLoading, setProfileFollowLoading] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
+  const [localSessionUser, setLocalSessionUser] = useState(null);
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
   const { treasureState, selectChest } = useTreasureBoxProgress(!roomLoading && Boolean(roomId));
@@ -303,6 +398,48 @@ export default function VoiceParty() {
   useEffect(() => {
     refreshWalletBalance();
   }, []);
+
+  useEffect(() => {
+    getUser()
+      .then((user) => setLocalSessionUser(user))
+      .catch(() => setLocalSessionUser(null));
+  }, []);
+
+  const hostUserLike = useMemo(() => {
+    const fromSeat = seats.find(
+      (seat) => seat.user && isSameUser(seat.user.id ?? seat.user.userId, hostId)
+    )?.user;
+    if (fromSeat) return fromSeat;
+
+    const fromOnline = onlineUsers.find(
+      (user) => isSameUser(user.id ?? user.userId, hostId)
+    );
+    if (fromOnline) return fromOnline;
+
+    if (isHostSelf && localSessionUser) {
+      return {
+        ...localSessionUser,
+        profileImageUrl:
+          roomInfo?.profileImageUrl ??
+          localSessionUser.profileImageUrl ??
+          localSessionUser.profilePicUrl,
+        avatar:
+          roomInfo?.profileImageUrl ??
+          localSessionUser.avatar ??
+          localSessionUser.avatarUrl,
+      };
+    }
+
+    if (!hostId && !roomInfo?.profileImageUrl) return null;
+
+    return {
+      id: hostId,
+      name: roomInfo?.name ?? "Host",
+      avatar: roomInfo?.profileImageUrl,
+      profileImageUrl: roomInfo?.profileImageUrl,
+      avatarUrl: roomInfo?.profileImageUrl,
+    };
+  }, [hostId, seats, onlineUsers, roomInfo, isHostSelf, localSessionUser]);
 
   useEffect(() => {
     if (!showBackpack) return undefined;
@@ -495,16 +632,10 @@ export default function VoiceParty() {
       exitedRef.current = false;
       await refreshTokenCache();
       try {
+        await syncNewUserFrameForSession();
+        await syncUserLevelForSession();
         let session;
-        if (isCreate) {
-          const user = await getUser();
-          session = await createAndJoinRoom({
-            name: user?.name ?? user?.username ?? "My Room",
-            ...(user?.profilePicUrl || user?.avatarUrl
-              ? { profileImageUrl: user.profilePicUrl ?? user.avatarUrl }
-              : {}),
-          });
-        } else if (isRandomParty) {
+        if (isRandomParty) {
           session = await enterRandomPartySession();
         } else if (roomIdParam) {
           session = await enterRoomSession(String(roomIdParam));
@@ -515,20 +646,50 @@ export default function VoiceParty() {
         setRoomId(session.roomId);
         roomIdRef.current = session.roomId;
         setRoomInfo(session.room);
-        setSeats(session.seats);
+        const initialSeatNumber = session.reservedSeatNumber ?? null;
+        if (initialSeatNumber) {
+          setMySeatNumber(initialSeatNumber);
+          const enrichedSeats = await enrichSeatsWithMyProfile(
+            session.seats,
+            initialSeatNumber
+          );
+          setSeats(
+            reconcileSeatAssignments(enrichedSeats, {
+              onlineUsers: session.onlineUsers,
+              myUserId,
+              mySeatNumber: initialSeatNumber,
+            })
+          );
+        } else {
+          setSeats(
+            reconcileSeatAssignments(session.seats, {
+              onlineUsers: session.onlineUsers,
+              myUserId,
+              mySeatNumber: null,
+            })
+          );
+        }
         setOnlineUsers(session.onlineUsers);
         setOnlineCount(session.onlineCount);
         setMessages(session.messages);
-        if (session.reservedSeatNumber) {
-          setMySeatNumber(session.reservedSeatNumber);
-        }
 
         setVoiceListenStatus("connecting");
-        try {
-          await partyVoice.joinAsListener(String(session.roomId));
-          if (!cancelled) setVoiceListenStatus("ready");
-        } catch (voiceErr) {
-          if (!cancelled) {
+        setIsSpeakerMuted(false);
+        agoraVoice.toggleRemoteMute(false);
+
+        const connectRoomAudio = async (attempt = 1) => {
+          try {
+            await partyVoice.joinAsListener(String(session.roomId));
+            if (!cancelled) {
+              setVoiceListenStatus("ready");
+              agoraVoice.toggleRemoteMute(false);
+            }
+          } catch (voiceErr) {
+            if (cancelled) return;
+            if (attempt < 2) {
+              await new Promise((resolve) => setTimeout(resolve, 900));
+              return connectRoomAudio(attempt + 1);
+            }
             setVoiceListenStatus("failed");
             const msg = voiceErr?.message ?? "Could not connect to room audio.";
             if (__DEV__) {
@@ -536,18 +697,39 @@ export default function VoiceParty() {
             }
             Alert.alert(
               "Voice audio unavailable",
-              `${msg}\n\nYou can still chat in the room. Tap Take Mic to retry speaking.`
+              `${msg}\n\nYou can still chat in the room. Tap Reconnect to try audio again, or Take Mic to speak.`,
+              [
+                {
+                  text: "Reconnect",
+                  onPress: async () => {
+                    setVoiceListenStatus("connecting");
+                    try {
+                      await partyVoice.reconnectAsListener(String(session.roomId));
+                      setVoiceListenStatus("ready");
+                      agoraVoice.toggleRemoteMute(false);
+                      setIsSpeakerMuted(false);
+                    } catch (retryErr) {
+                      setVoiceListenStatus("failed");
+                      Alert.alert(
+                        "Reconnect failed",
+                        retryErr?.message ?? "Could not reconnect room audio."
+                      );
+                    }
+                  },
+                },
+                { text: "OK", style: "cancel" },
+              ]
             );
           }
-        }
+        };
+
+        await connectRoomAudio();
       } catch (err) {
         if (!cancelled) {
           Alert.alert(
-            isCreate
-              ? "Could not create room"
-              : isRandomParty
-                ? "Could not join party room"
-                : "Could not join room",
+            isRandomParty
+              ? "Could not join party room"
+              : "Could not join room",
             err?.message || "Please try again."
           );
           router.back();
@@ -566,7 +748,7 @@ export default function VoiceParty() {
         exitRoomSession(String(activeRoomId)).catch(() => {});
       }
     };
-  }, [roomIdParam, isCreate, isRandomParty, router]);
+  }, [roomIdParam, isRandomParty, router]);
 
   useEffect(() => {
     if (!roomId) return undefined;
@@ -628,18 +810,38 @@ export default function VoiceParty() {
       }
     });
     const unsubUi = wsService.onRoomUiState(String(roomId), (payload) => {
+      const hasPresenceSnapshot =
+        Array.isArray(payload?.participants) ||
+        Array.isArray(payload?.onlineUsers) ||
+        Array.isArray(payload?.members) ||
+        Array.isArray(payload?.users);
+      const users = parseOnlineUsers(payload, null);
+      if (hasPresenceSnapshot) {
+        setOnlineUsers(users);
+        setOnlineCount(users.length);
+      }
+
       if (payload?.seats) {
         const nextSeats = parseSeats(payload.seats, payload);
         if (mySeatNumber) {
-          enrichSeatsWithMyProfile(nextSeats, mySeatNumber).then(setSeats);
+          enrichSeatsWithMyProfile(nextSeats, mySeatNumber).then((enriched) =>
+            setSeats(
+              reconcileSeatAssignments(enriched, {
+                onlineUsers: hasPresenceSnapshot ? users : null,
+                myUserId,
+                mySeatNumber,
+              })
+            )
+          );
         } else {
-          setSeats(nextSeats);
+          setSeats(
+            reconcileSeatAssignments(nextSeats, {
+              onlineUsers: hasPresenceSnapshot ? users : null,
+              myUserId,
+              mySeatNumber,
+            })
+          );
         }
-      }
-      const users = parseOnlineUsers(payload, null);
-      if (users.length) {
-        setOnlineUsers(users);
-        setOnlineCount(users.length);
       }
     });
     const unsubSpeaking = wsService.onRoomSpeaking(String(roomId), (payload) => {
@@ -681,7 +883,7 @@ export default function VoiceParty() {
       unsubSpeaking();
       unsubGiftAnimation();
     };
-  }, [roomId, mySeatNumber, revealGiftAnimation]);
+  }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
   const handleExitRoom = async () => {
     setShowPowerMenu(false);
@@ -715,7 +917,13 @@ export default function VoiceParty() {
         setMySeatNumber(null);
         setIsMicMuted(true);
         const state = await getRoomState(String(roomId));
-        setSeats(parseSeats(state?.seats, state));
+        setSeats(
+          reconcileSeatAssignments(parseSeats(state?.seats, state), {
+            onlineUsers,
+            myUserId,
+            mySeatNumber: null,
+          })
+        );
       } catch (err) {
         Alert.alert("Leave mic failed", err?.message || "Please try again.");
       } finally {
@@ -747,12 +955,50 @@ export default function VoiceParty() {
         agoraVoice.toggleRemoteMute(true);
       }
 
+      const localUser = await getUser();
+      const localUserId = await getAppUserId().catch(() => null);
+      const localAvatar =
+        resolveProfileAvatarUri(localUser) ??
+        localUser?.avatarUrl ??
+        localUser?.avatar ??
+        null;
+      const localName = localUser?.name ?? localUser?.username ?? "User";
+      setSeats((prev) =>
+        prev.map((seat) => {
+          if (seat.id !== targetSeat) return seat;
+          const existing = seat.user ?? {};
+          return {
+            ...seat,
+            user: {
+              ...existing,
+              id: existing.id ?? localUserId,
+              name:
+                existing.name && existing.name !== "Guest"
+                  ? existing.name
+                  : (localName ?? existing.name ?? "User"),
+              username: existing.username ?? localUser?.username ?? localName,
+              avatar: existing.avatar ?? localAvatar,
+              hasNewUserFrame: Boolean(localUser?.hasNewUserFrame),
+              newUserFrameUrl: localUser?.newUserFrameUrl ?? null,
+              active: true,
+              muted: false,
+            },
+          };
+        })
+      );
+
       const state = await getRoomState(String(roomId));
       const nextSeats = await enrichSeatsWithMyProfile(
         parseSeats(state?.seats, state),
         targetSeat
       );
-      setSeats(nextSeats);
+      setSeats(
+        reconcileSeatAssignments(nextSeats, {
+          onlineUsers,
+          myUserId: localUserId ?? myUserId,
+          mySeatNumber: targetSeat,
+        })
+      );
       setOnlineCount(state?.onlineCount ?? onlineCount);
     } catch (err) {
       const msg = err?.message ?? "Could not start voice.";
@@ -863,7 +1109,7 @@ export default function VoiceParty() {
       text,
       user: user?.name ?? user?.username ?? user?.nickname ?? "You",
       avatar: user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null,
-      extra,
+      extra: { level: user?.level ?? 1, ...extra },
     });
     setMessages((prev) => [...prev, localMsg]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -1127,23 +1373,139 @@ export default function VoiceParty() {
     return true;
   };
 
-  const handleSeatPressForGift = (seat) => {
-    if (!showBackpack || !seat?.user) return;
-    if (trySelectGiftRecipientFromUser(seat.user)) {
-      setShowGiftReceiverPicker(false);
-    } else {
-      Alert.alert(
-        "Cannot select user",
-        "This person is not available to receive gifts yet."
-      );
+  const resolveRoomUserAvatarSource = (userLike) => {
+    const source = resolveProfileAvatarSource({
+      avatarId: userLike?.avatarId,
+      avatar: userLike?.avatar,
+      avatarUrl: userLike?.avatarUrl,
+      profilePicUrl: userLike?.profilePicUrl,
+      profileImageUrl: userLike?.profileImageUrl,
+      profileImage: userLike?.profileImage,
+    });
+    if (!source) return null;
+    return source?.uri ? resolveImageSource(source.uri) : source;
+  };
+
+  const closeProfilePopup = () => {
+    setProfilePopupUser(null);
+    setProfilePopupAvatarSource(null);
+    setProfilePopupLoading(false);
+    setProfilePopupFollowing(false);
+    setProfileFollowLoading(false);
+  };
+
+  const openUserProfile = async (userLike) => {
+    const userId = resolveRecipientUserId(userLike);
+    if (!userId) {
+      Alert.alert("Profile unavailable", "User information is not available yet.");
+      return;
+    }
+
+    const lockedAvatarSource = resolveRoomUserAvatarSource(userLike);
+    const initial = {
+      id: userId,
+      name: userLike?.name ?? "User",
+      username: userLike?.username ?? userLike?.name,
+    };
+    setProfilePopupAvatarSource(lockedAvatarSource);
+    setProfilePopupUser(initial);
+    setProfilePopupLoading(true);
+    setProfilePopupFollowing(false);
+
+    try {
+      if (!isSameUser(userId, myUserId)) {
+        const status = await loadRelationshipStatus(userId).catch(() => ({ following: false }));
+        setProfilePopupFollowing(Boolean(status?.following));
+      }
+
+      if (!isSameUser(userId, myUserId)) {
+        try {
+          const detail = await loadUserDetail(userId);
+          setProfilePopupUser((prev) => ({
+            ...(prev ?? initial),
+            id: userId,
+            name: detail?.name ?? detail?.displayName ?? prev?.name ?? initial.name,
+            username: detail?.username ?? detail?.handle ?? prev?.username ?? initial.username,
+          }));
+          if (!lockedAvatarSource) {
+            setProfilePopupAvatarSource(resolveRoomUserAvatarSource(detail));
+          }
+        } catch {
+          // keep initial profile from room state
+        }
+      }
+    } finally {
+      setProfilePopupLoading(false);
     }
   };
 
-  const handleOnlineUserPressForGift = (user) => {
-    if (!showBackpack) return;
-    if (trySelectGiftRecipientFromUser(user)) {
-      setShowGiftReceiverPicker(false);
+  const handleProfileFollowToggle = async () => {
+    const targetId = profilePopupUser?.id;
+    if (!targetId || isSameUser(targetId, myUserId) || profileFollowLoading) return;
+
+    setProfileFollowLoading(true);
+    try {
+      if (profilePopupFollowing) {
+        await unfollowUser(targetId);
+        setProfilePopupFollowing(false);
+      } else {
+        await followUser(targetId);
+        setProfilePopupFollowing(true);
+      }
+    } catch (err) {
+      Alert.alert(
+        profilePopupFollowing ? "Unfollow failed" : "Follow failed",
+        err?.message || "Please try again."
+      );
+    } finally {
+      setProfileFollowLoading(false);
     }
+  };
+
+  const handleUserAvatarPress = (userLike) => {
+    if (!userLike) return;
+    openUserProfile(userLike);
+  };
+
+  const handleSeatPress = (seat) => {
+    if (!seat?.user) return;
+    handleUserAvatarPress(seat.user);
+  };
+
+  const handleOnlineUserPress = (user) => {
+    handleUserAvatarPress(user);
+  };
+
+  const renderRoomUserAvatar = (
+    user,
+    imageStyle,
+    placeholderStyle,
+    initialStyle,
+    frameConfig = SEAT_FRAME_CONFIG
+  ) => {
+    const resolvedStyle = Array.isArray(imageStyle) ? imageStyle[0] : imageStyle;
+    const size = resolvedStyle?.width ?? resolvedStyle?.height ?? 48;
+    const imageSource = resolveRoomUserAvatarSource(user);
+    const frameSource = resolveNewUserFrameSource(user);
+    const hasFrame = Boolean(frameSource);
+
+    return (
+      <ProfileAvatarWithFrame
+        user={user}
+        avatarSource={imageSource}
+        frameSource={frameSource}
+        size={typeof size === "number" ? size : 48}
+        frameScale={hasFrame ? frameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale}
+        frameResizeMode={hasFrame ? frameConfig.frameResizeMode : "contain"}
+        frameOffsetX={hasFrame ? frameConfig.frameOffsetX : 0}
+        frameOffsetY={hasFrame ? frameConfig.frameOffsetY : 0}
+        frameBleed={hasFrame ? frameConfig.frameBleed : 0}
+        avatarStyle={imageStyle}
+        placeholderStyle={placeholderStyle}
+        initialStyle={initialStyle}
+        placeholderInitial={user?.name?.[0]?.toUpperCase() ?? "?"}
+      />
+    );
   };
 
   const openGiftReceiverPicker = () => {
@@ -1949,6 +2311,18 @@ export default function VoiceParty() {
         onSelectChest={selectChest}
       />
 
+      <RoomUserProfilePopup
+        visible={Boolean(profilePopupUser || profilePopupLoading)}
+        user={profilePopupUser}
+        avatarSource={profilePopupAvatarSource}
+        loading={profilePopupLoading}
+        isFollowing={profilePopupFollowing}
+        followLoading={profileFollowLoading}
+        isSelf={isSameUser(profilePopupUser?.id, myUserId)}
+        onClose={closeProfilePopup}
+        onFollowToggle={handleProfileFollowToggle}
+      />
+
       {/* ── EMOJI PICKER MODAL ── */}
       <Modal
         visible={showEmojiPicker}
@@ -2367,14 +2741,23 @@ export default function VoiceParty() {
         <View style={styles.header}>
           {/* Room info + follow button */}
           <View style={styles.ownerSection}>
-            <Image
-              source={{
-                uri:
-                  roomInfo?.profileImageUrl ??
-                  "https://randomuser.me/api/portraits/men/32.jpg",
-              }}
-              style={styles.ownerAvatar}
-            />
+            {hostUserLike ? (
+              renderRoomUserAvatar(
+                hostUserLike,
+                styles.ownerAvatar,
+                [styles.ownerAvatar, styles.ownerAvatarPlaceholder],
+                styles.ownerInitial
+              )
+            ) : (
+              <Image
+                source={{
+                  uri:
+                    roomInfo?.profileImageUrl ??
+                    "https://randomuser.me/api/portraits/men/32.jpg",
+                }}
+                style={styles.ownerAvatar}
+              />
+            )}
             <View style={styles.ownerTextCol}>
               <Text style={styles.ownerName} numberOfLines={1} ellipsizeMode="tail">
                 {roomInfo?.name ?? "Voice Room"}
@@ -2427,24 +2810,17 @@ export default function VoiceParty() {
                 key={user.id ?? `user-${index}`}
                 style={styles.audienceItem}
                 activeOpacity={0.85}
-                onPress={() => handleOnlineUserPressForGift(user)}
-                disabled={!showBackpack}
+                onPress={() => handleOnlineUserPress(user)}
               >
-                {user.avatar ? (
-                  <Image
-                    source={{ uri: user.avatar }}
-                    style={[styles.audienceAvatar, index > 0 && styles.audienceAvatarOverlap]}
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.audienceAvatar,
-                      styles.audienceAvatarPlaceholder,
-                      index > 0 && styles.audienceAvatarOverlap,
-                    ]}
-                  >
-                    <Text style={styles.audienceInitial}>{user.name?.[0] ?? "?"}</Text>
-                  </View>
+                {renderRoomUserAvatar(
+                  user,
+                  [styles.audienceAvatar, index > 0 && styles.audienceAvatarOverlap],
+                  [
+                    styles.audienceAvatar,
+                    styles.audienceAvatarPlaceholder,
+                    index > 0 && styles.audienceAvatarOverlap,
+                  ],
+                  styles.audienceInitial
                 )}
                 <View style={styles.micStatusDot}>
                   {user.muted ? (
@@ -2472,33 +2848,31 @@ export default function VoiceParty() {
               key={seat.id}
               style={styles.seatItem}
               activeOpacity={0.8}
-              onPress={() => handleSeatPressForGift(seat)}
+              onPress={() => handleSeatPress(seat)}
+              disabled={!seat.user}
             >
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
-                  {seat.user.active && <View style={styles.activeRing} />}
-                  {seat.user.avatar ? (
-                    <Image source={{ uri: seat.user.avatar }} style={styles.seatAvatar} />
-                  ) : (
-                    <View
-                      style={[
-                        styles.seatEmpty,
-                        styles.seatAvatarPlaceholder,
-                        seat.user.active && styles.seatActiveBorder,
-                      ]}
-                    >
-                      <Text style={styles.seatInitial}>
-                        {seat.user.name?.[0]?.toUpperCase() ?? "?"}
-                      </Text>
-                      <View style={styles.seatMicIcon}>
-                        {seat.user.muted ? (
-                          <MicOff size={12} color="#f87171" />
-                        ) : (
-                          <Mic size={12} color={seat.user.active ? "#4ade80" : "rgba(255,255,255,0.8)"} />
-                        )}
-                      </View>
-                    </View>
+                  {seat.user.active && !resolveNewUserFrameSource(seat.user) && (
+                    <View style={styles.activeRing} />
                   )}
+                  {renderRoomUserAvatar(
+                    seat.user,
+                    styles.seatAvatar,
+                    [
+                      styles.seatEmpty,
+                      styles.seatAvatarPlaceholder,
+                      seat.user.active && styles.seatActiveBorder,
+                    ],
+                    styles.seatInitial
+                  )}
+                  <View style={styles.seatMicIcon}>
+                    {seat.user.muted ? (
+                      <MicOff size={12} color="#f87171" />
+                    ) : (
+                      <Mic size={12} color={seat.user.active ? "#4ade80" : "rgba(255,255,255,0.8)"} />
+                    )}
+                  </View>
                 </View>
               ) : seat.locked ? (
                 <View style={styles.seatEmpty}>
@@ -2631,15 +3005,18 @@ export default function VoiceParty() {
           </View>
         </View>
 
-        {__DEV__ && voiceDiagnostics ? (
+        {(voiceListenStatus !== "idle" || voiceDiagnostics?.joined) && (
           <Text style={styles.voiceDebugText} numberOfLines={2}>
-            Voice: {voiceListenStatus}
-            {voiceDiagnostics.joined ? " · joined" : " · not joined"}
-            {voiceDiagnostics.remoteSpeakerCount > 0
-              ? ` · ${voiceDiagnostics.remoteSpeakerCount} remote`
-              : ""}
+            Audio: {voiceListenStatus}
+            {voiceDiagnostics?.joined ? " · connected" : ""}
+            {voiceDiagnostics?.remoteSpeakerCount > 0
+              ? ` · ${voiceDiagnostics.remoteSpeakerCount} speaking`
+              : voiceDiagnostics?.joined
+                ? " · waiting for speakers"
+                : ""}
+            {isSpeakerMuted ? " · speaker off" : ""}
           </Text>
-        ) : null}
+        )}
 
         {/* ── BOTTOM DOCK: buttons above chat input ── */}
         <View
@@ -2657,7 +3034,7 @@ export default function VoiceParty() {
               onPress={handleToggleSpeaker}
             >
               {isSpeakerMuted ? (
-                <MicOff size={20} color="white" />
+                <VolumeX size={20} color="white" />
               ) : (
                 <Volume2 size={20} color="white" />
               )}
@@ -2744,6 +3121,16 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     borderWidth: 2,
     borderColor: "#a78bfa",
+  },
+  ownerAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ownerInitial: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
   },
   ownerTextCol: {
     gap: 2,
@@ -2870,13 +3257,14 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
-  seatItem: { width: SEAT_SIZE, alignItems: "center", gap: 4 },
+  seatItem: { width: SEAT_SIZE, alignItems: "center", gap: 4, overflow: "visible" },
   seatUserWrap: {
     position: "relative",
     width: SEAT_SIZE - 4,
     height: SEAT_SIZE - 4,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "visible",
   },
   activeRing: {
     position: "absolute",

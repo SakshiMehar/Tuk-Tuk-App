@@ -7,6 +7,7 @@ import {
   View,
   Text,
   Image,
+  Modal,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
@@ -21,7 +22,6 @@ import {
   UserPlus,
   MoreHorizontal,
   X,
-  Smile,
   Send,
   Mic,
   ImageIcon,
@@ -29,10 +29,10 @@ import {
   Gift,
   Phone,
   Shield,
-  ChevronRight,
 } from "lucide-react-native";
 
 const { width: W } = Dimensions.get("window");
+const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", "😡", "👍", "🙏", "🎉", "❤️"];
 
 export default function ChatBox({ user = {}, onBack }) {
   const {
@@ -46,6 +46,7 @@ export default function ChatBox({ user = {}, onBack }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [myUserId, setMyUserId] = useState(null);
+  const [showEmojiBox, setShowEmojiBox] = useState(false);
   const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom } = useKeyboardInset();
   const scrollRef = useRef(null);
   const [composerHeight, setComposerHeight] = useState(136);
@@ -124,8 +125,8 @@ export default function ChatBox({ user = {}, onBack }) {
     return unsub;
   }, [userId, myUserId]);
 
-  const sendMessage = () => {
-    const text = message.trim();
+  const sendMessageText = (rawText, { clearComposer = false } = {}) => {
+    const text = String(rawText ?? "").trim();
     if (!text || !userId) return;
 
     try {
@@ -135,8 +136,20 @@ export default function ChatBox({ user = {}, onBack }) {
       return;
     }
 
-    setMessage("");
+    if (clearComposer) setMessage("");
+    setShowEmojiBox(false);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+  };
+
+  const sendMessage = () => {
+    sendMessageText(message, { clearComposer: true });
+  };
+
+  const handleEmojiPick = (emoji) => {
+    sendMessageText(emoji);
+  };
+  const showComingSoon = (feature) => {
+    Alert.alert("Coming soon", `${feature} will be available soon.`);
   };
 
   const formatTime = (date) => formatChatTime(date) || date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -170,6 +183,42 @@ export default function ChatBox({ user = {}, onBack }) {
       </LinearGradient>
 
       <View style={styles.bodyWrap}>
+        <Modal
+          visible={showEmojiBox}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowEmojiBox(false)}
+        >
+          <TouchableOpacity
+            style={styles.emojiOverlay}
+            activeOpacity={1}
+            onPress={() => setShowEmojiBox(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              style={[
+                styles.emojiSheet,
+                { bottom: composerBottom + (isKeyboardVisible ? 72 : 126) },
+              ]}
+              onPress={() => {}}
+            >
+              <Text style={styles.emojiSheetTitle}>Emojis</Text>
+              <View style={styles.emojiGrid}>
+                {LIMITED_EMOJIS.map((emoji) => (
+                  <TouchableOpacity
+                    key={emoji}
+                    style={styles.emojiItem}
+                    activeOpacity={0.8}
+                    onPress={() => handleEmojiPick(emoji)}
+                  >
+                    <Text style={styles.emojiItemText}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
         <ScrollView
           ref={scrollRef}
           style={styles.body}
@@ -236,25 +285,6 @@ export default function ChatBox({ user = {}, onBack }) {
                   ) : null}
                 </View>
               </View>
-            </LinearGradient>
-          </View>
-
-          {/* ── SAFE MODE BANNER ── */}
-          <View style={styles.safeBannerWrap}>
-            <LinearGradient
-              colors={["rgba(74,108,247,0.15)", "rgba(124,77,255,0.15)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.safeBanner}
-            >
-              <View style={styles.safeIconWrap}>
-                <Shield size={18} color="#7c4dff" />
-              </View>
-              <Text style={styles.safeText}>Safe mode protect your information.</Text>
-              <TouchableOpacity style={styles.safeArrow} activeOpacity={0.8}>
-                <ChevronRight size={14} color="#7c4dff" />
-                <ChevronRight size={14} color="#7c4dff" style={{ marginLeft: -8 }} />
-              </TouchableOpacity>
             </LinearGradient>
           </View>
 
@@ -330,8 +360,12 @@ export default function ChatBox({ user = {}, onBack }) {
                 onChangeText={setMessage}
                 multiline
               />
-              <TouchableOpacity style={styles.emojiBtn} activeOpacity={0.8}>
-                <Smile size={22} color="rgba(167,139,250,0.55)" />
+              <TouchableOpacity
+                style={styles.emojiBtn}
+                activeOpacity={0.8}
+                onPress={() => setShowEmojiBox((v) => !v)}
+              >
+                <Text style={styles.emojiBtnText}>😊</Text>
               </TouchableOpacity>
             </View>
 
@@ -352,13 +386,18 @@ export default function ChatBox({ user = {}, onBack }) {
           {!isKeyboardVisible && (
             <View style={styles.actionBar}>
               {[
-                { icon: <Mic size={22} color="rgba(167,139,250,0.55)" />, label: "" },
-                { icon: <ImageIcon size={22} color="rgba(167,139,250,0.55)" />, label: "" },
-                { icon: <HelpCircle size={22} color="#7c4dff" />, label: "" },
-                { icon: <Gift size={22} color="#ff7043" />, label: "" },
-                { icon: <Phone size={22} color="rgba(167,139,250,0.55)" />, label: "" },
+                { icon: <Mic size={22} color="rgba(167,139,250,0.55)" />, label: "Speaker" },
+                { icon: <ImageIcon size={22} color="rgba(167,139,250,0.55)" />, label: "Gallery" },
+                { icon: <HelpCircle size={22} color="#7c4dff" />, label: "Help" },
+                { icon: <Gift size={22} color="#ff7043" />, label: "Gift" },
+                { icon: <Phone size={22} color="rgba(167,139,250,0.55)" />, label: "Call" },
               ].map((item, idx) => (
-                <TouchableOpacity key={idx} style={styles.actionBtn} activeOpacity={0.8}>
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.actionBtn}
+                  activeOpacity={0.8}
+                  onPress={() => showComingSoon(item.label)}
+                >
                   {item.icon}
                 </TouchableOpacity>
               ))}
@@ -373,6 +412,42 @@ export default function ChatBox({ user = {}, onBack }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#0f0720" },
   bodyWrap: { flex: 1, position: "relative" },
+  emojiOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.2)",
+  },
+  emojiSheet: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    backgroundColor: "#170b2e",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.24)",
+    padding: 12,
+  },
+  emojiSheetTitle: {
+    color: "white",
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  emojiGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  emojiItem: {
+    width: (W - 60) / 6,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(124,77,255,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.22)",
+  },
+  emojiItemText: { fontSize: 20 },
   composer: {
     backgroundColor: "#0f0720",
     borderTopWidth: 1,
@@ -620,6 +695,7 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   emojiBtn: { paddingLeft: 8 },
+  emojiBtnText: { fontSize: 20 },
   sendBtn: { width: 42, height: 42 },
   sendBtnActive: {},
   sendBtnGrad: {

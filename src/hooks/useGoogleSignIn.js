@@ -23,5 +23,14 @@ export const getGoogleAuthErrorMessage = (err) => {
   if (err.code === statusCodes.IN_PROGRESS) return "Sign-in already in progress.";
   if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE)
     return "Google Play Services not available.";
-  return err?.message ?? "Google sign-in failed.";
+  const message = err?.message ?? "Google sign-in failed.";
+  if (/DEVELOPER_ERROR/i.test(message)) {
+    return (
+      "Google Sign-In is not configured for this APK signing key. " +
+      "Add the EAS/release SHA-1 fingerprint in Firebase (Android app tuk.tuk.app), " +
+      "download an updated google-services.json, then rebuild. " +
+      "Run: npm run google:android-sha"
+    );
+  }
+  return message;
 };

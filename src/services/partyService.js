@@ -9,18 +9,27 @@ import {
   getRoomState,
   getRoomChatMessages,
   createRoom as createRoomApi,
+  createRoomForUser as createRoomForUserApi,
   getPartyRanking as getPartyRankingApi,
   getFamilies as getFamiliesApi,
 } from "../api/partyApi";
 import { wsService } from "./websocket";
 import { reserveSeat } from "./partyVoiceService";
 import { syncUserFromToken } from "../utils/sessionUser";
+import { resolveRemoteProfilePicUrl } from "./meProfileService";
+import { resolveBundledAvatarId } from "../data/avatarOptions";
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
 
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
+
+const normalizeAvatarField = (value) => {
+  if (!value) return null;
+  if (resolveBundledAvatarId(value)) return value;
+  return resolveRemoteProfilePicUrl(value);
+};
 
 const listFrom = (value, key) => {
   const target = key && value?.[key] !== undefined ? value[key] : value;
@@ -77,19 +86,22 @@ const normalizeSeatUser = (seatValue) => {
     if (seatValue === "LOCKED") return null;
     return { name: seatValue, avatar: null, active: false, muted: true };
   }
-  const user = seatValue?.user ?? seatValue;
+  const user = seatValue?.user ?? seatValue?.profile ?? seatValue;
+  const rawAvatar = firstText(
+    user?.avatar,
+    user?.avatarUrl,
+    user?.profilePicUrl,
+    user?.profileImageUrl,
+    user?.profileImage,
+    user?.photoUrl,
+    seatValue?.avatarUrl,
+    seatValue?.profileImageUrl,
+    seatValue?.avatar
+  );
   return {
     name: firstText(user?.name, user?.username, user?.displayName, seatValue?.name) ?? "Guest",
-    avatar: firstText(
-      user?.avatar,
-      user?.avatarUrl,
-      user?.profileImageUrl,
-      user?.profileImage,
-      user?.photoUrl,
-      seatValue?.avatarUrl,
-      seatValue?.profileImageUrl,
-      seatValue?.avatar
-    ),
+    username: firstText(user?.username, user?.handle, user?.nickname, user?.name),
+    avatar: normalizeAvatarField(rawAvatar),
     active: Boolean(user?.isSpeaking ?? user?.active ?? user?.onMic ?? seatValue?.onMic),
     muted: Boolean(user?.muted ?? user?.isMuted ?? seatValue?.muted),
     id: firstValue(user?.id, user?.userId, user?.uid, seatValue?.userId),
@@ -123,13 +135,22 @@ export const parseOnlineUsers = (stateData, joinData) => {
     joinData?.participants,
   ];
   const list = candidates.find((item) => Array.isArray(item) && item.length > 0) ?? [];
-  return list.map((user) => ({
+  return list.map((user) => {
+    const rawAvatar = firstText(
+      user?.avatar,
+      user?.avatarUrl,
+      user?.profilePicUrl,
+      user?.profileImageUrl
+    );
+    return {
     id: firstValue(user?.id, user?.userId, user?.uid),
-    name: firstText(user?.name, user?.username) ?? "User",
-    avatar: firstText(user?.avatar, user?.avatarUrl, user?.profileImageUrl),
+    name: firstText(user?.name, user?.username, user?.displayName) ?? "User",
+    username: firstText(user?.username, user?.handle, user?.nickname),
+    avatar: normalizeAvatarField(rawAvatar),
     muted: Boolean(user?.muted ?? user?.isMuted),
     isSpeaking: Boolean(user?.isSpeaking),
-  }));
+  };
+  });
 };
 
 const resolveChatText = (msg) => {
@@ -269,19 +290,119 @@ export const enterRandomPartySession = async (payload = {}) => {
   return enterRoomSession(roomId);
 };
 
-export const createAndJoinRoom = async (payload = {}) => {
-  await syncUserFromToken().catch(() => {});
-  const created = await createRoomApi(payload);
-  const roomId = firstValue(
+export const parseCreatedRoomId = (created, fallbackId) => {
+  const resolved = firstValue(
     created?.roomId,
     created?.id,
-    created?.room?.id,
     created?.room?.roomId,
+    created?.room?.id,
     created?.data?.roomId,
-    created?.data?.id
+    created?.data?.id,
+    created?.result?.roomId,
+    created?.result?.id,
+    fallbackId
   );
-  if (!roomId) throw new Error("Create room did not return a room id.");
-  
+  return String(resolved ?? fallbackId);
+};
+
+const roomExistsOnServer = async (roomId) => {
+  try {
+    await getRoomState(roomId);
+    return true;
+  } catch (err) {
+    if (err?.status === 404) return false;
+    return true;
+  }
+};
+
+const postCreateRoom = async (roomId, createBody) => {
+  try {
+    return await createRoomApi(createBody);
+  } catch (err) {
+    const status = err?.status ?? err?.response?.status;
+    if (status === 404 || status === 405 || status === 400) {
+      return createRoomForUserApi(roomId, {
+        name: createBody.name,
+        title: createBody.title,
+        profileImageUrl: createBody.profileImageUrl,
+        inviteUserIds: createBody.inviteUserIds,
+        memberIds: createBody.memberIds,
+        invitedUserIds: createBody.invitedUserIds,
+      });
+    }
+    throw err;
+  }
+};
+
+export const createPartyRoom = async (payload = {}) => {
+  await syncUserFromToken().catch(() => {});
+
+  const {
+    roomId: requestedRoomId,
+    inviteUserIds,
+    memberIds,
+    invitedUserIds,
+    ...rest
+  } = payload;
+
+  const roomId = String(requestedRoomId ?? rest.userId ?? rest.id ?? "");
+  if (!roomId) {
+    throw new Error("User id is required to create a room.");
+  }
+
+  const invites = inviteUserIds ?? memberIds ?? invitedUserIds ?? [];
+  const inviteList = Array.isArray(invites)
+    ? invites.map((id) => String(id)).filter(Boolean)
+    : [];
+
+  const roomName = rest.name ?? "My Room";
+  const createBody = {
+    ...rest,
+    name: roomName,
+    title: roomName,
+    roomId,
+    id: roomId,
+    creatorId: roomId,
+    hostId: roomId,
+    userId: roomId,
+    inviteUserIds: inviteList,
+    memberIds: inviteList,
+    invitedUserIds: inviteList,
+  };
+
+  try {
+    const created = await postCreateRoom(roomId, createBody);
+    return {
+      roomId: parseCreatedRoomId(created, roomId),
+      created,
+      alreadyExists: false,
+    };
+  } catch (err) {
+    const msg = String(err?.message ?? "");
+    const status = err?.status ?? err?.response?.status;
+    const conflict =
+      status === 409 || /already exists|duplicate|conflict/i.test(msg);
+
+    if (conflict) {
+      const exists = await roomExistsOnServer(roomId);
+      if (exists) {
+        return { roomId, created: null, alreadyExists: true };
+      }
+    }
+
+    throw err;
+  }
+};
+
+/** Create room then join — use from Create & Enter before navigating to voice party */
+export const createAndEnterPartyRoom = async (payload = {}) => {
+  const { roomId } = await createPartyRoom(payload);
+  return enterRoomSession(roomId);
+};
+
+/** @deprecated Prefer createPartyRoom + enterRoomSession separately */
+export const createAndJoinRoom = async (payload = {}) => {
+  const { roomId } = await createPartyRoom(payload);
   return enterRoomSession(roomId);
 };
 

@@ -39,6 +39,8 @@ import {
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import { getUser } from "../../src/store/authStore";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
+import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
+import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
 import {
@@ -1475,7 +1477,7 @@ const cs = StyleSheet.create({
   sendIcon: { color: "#fff", fontSize: 15 },
 });
 
-const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, currentUserId, currentUserAvatarSource }) => {
+const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, currentUserId, currentUserAvatarSource, currentUserFrameSource }) => {
   const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
   const postAvatarSource =
     isOwnPost && currentUserAvatarSource
@@ -1483,6 +1485,7 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
       : post.avatar
         ? { uri: post.avatar }
         : null;
+  const postFrameSource = isOwnPost ? currentUserFrameSource : null;
   // Resolve media — prefer CDN URL, fall back to local URI picked from device
   const imageUri  = post.imageUrl      ?? post._localMediaUri ?? null;
   const hasImage  = imageUri && (post._mediaType !== "video" && !post.hasVideo);
@@ -1493,14 +1496,21 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
   <View style={styles.postOuter}>
     <View style={styles.postCard}>
       <View style={styles.postHeader}>
-        {postAvatarSource
-          ? <Image source={postAvatarSource} style={styles.postAvatar} transition={200} cachePolicy="memory-disk" />
-          : <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
+        {postAvatarSource ? (
+          <ProfileAvatarWithFrame
+            avatarSource={postAvatarSource}
+            frameSource={postFrameSource}
+            size={42}
+            avatarStyle={styles.postAvatar}
+            imageComponent={Image}
+          />
+        ) : (
+          <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
               <Text style={{ color: "white", fontSize: 16, fontWeight: "700" }}>
                 {(post.name ?? "?")[0].toUpperCase()}
               </Text>
             </View>
-        }
+        )}
         <Text style={styles.postName}>{post.name ?? "User"}</Text>
         {!isOwnPost && (
           <TouchableOpacity
@@ -1666,6 +1676,7 @@ const HomeHeader = memo(({
   userProfile,
   walletDiamonds,
   sessionAvatarSource,
+  sessionNewUserFrameSource,
   stats,
   unreadNotifications,
   recommendedUsers,
@@ -1686,16 +1697,17 @@ const HomeHeader = memo(({
     <View style={styles.headerCard}>
       <View style={styles.headerTopRow}>
         <View style={styles.avatarWrapper}>
-          <Image
-            source={
+          <ProfileAvatarWithFrame
+            avatarSource={
               sessionAvatarSource ??
               (userProfile?.avatarUrl
                 ? { uri: userProfile.avatarUrl }
                 : require("../../assets/images/splash-icon.png"))
             }
-            style={styles.headerAvatar}
-            cachePolicy="memory-disk"
-            contentFit="cover"
+            frameSource={sessionNewUserFrameSource}
+            size={62}
+            avatarStyle={styles.headerAvatar}
+            imageComponent={Image}
           />
           <View style={styles.onlineDot} />
         </View>
@@ -1949,6 +1961,7 @@ export default function Home() {
   const [toastMessage, setToastMessage] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   const [sessionAvatarSource, setSessionAvatarSource] = useState(null);
+  const [sessionNewUserFrameSource, setSessionNewUserFrameSource] = useState(null);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
   const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
 
@@ -1956,8 +1969,11 @@ export default function Home() {
     try {
       const user = await getUser();
       setSessionAvatarSource(resolveProfileAvatarSource(user));
+      const frameSource = await syncNewUserFrameForSession();
+      setSessionNewUserFrameSource(frameSource);
     } catch {
       setSessionAvatarSource(null);
+      setSessionNewUserFrameSource(null);
     }
   }, []);
 
@@ -2471,9 +2487,10 @@ export default function Home() {
         onCommentPress={handleCommentPress}
         currentUserId={currentUserId}
         currentUserAvatarSource={sessionAvatarSource}
+        currentUserFrameSource={sessionNewUserFrameSource}
       />
     );
-  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, currentUserId, sessionAvatarSource]);
+  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, currentUserId, sessionAvatarSource, sessionNewUserFrameSource]);
 
   const keyExtractor = useCallback((item) => String(item.id), []);
 
@@ -2504,6 +2521,7 @@ export default function Home() {
       userProfile={userProfile}
       walletDiamonds={walletDiamonds}
       sessionAvatarSource={sessionAvatarSource}
+      sessionNewUserFrameSource={sessionNewUserFrameSource}
       stats={stats}
       unreadNotifications={unreadNotifications}
       recommendedUsers={recommendedUsers}
@@ -2519,7 +2537,7 @@ export default function Home() {
       onComingSoon={setComingSoonFeature}
       router={router}
     />
-  ), [userProfile, walletDiamonds, sessionAvatarSource, stats, unreadNotifications, recommendedUsers, selectedTab,
+  ), [userProfile, walletDiamonds, sessionAvatarSource, sessionNewUserFrameSource, stats, unreadNotifications, recommendedUsers, selectedTab,
       handleTabPress, openSearch, openNotif, openGifts, handleNearbyPress, router]);
 
   return (
@@ -3038,6 +3056,7 @@ const styles = StyleSheet.create({
     position: "relative",
     marginTop: -8,
     marginBottom: -4,
+    overflow: "visible",
   },
   headerAvatar: {
     width: 62,

@@ -9,8 +9,14 @@ import {
   resolveBundledAvatarId,
 } from "../data/avatarOptions";
 
+import { normalizeUserLevel } from "../utils/levelBadge";
+
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
+
+const firstValue = (...values) =>
+  values.find((value) => value !== undefined && value !== null && String(value).trim() !== "") ??
+  null;
 
 export const resolveRemoteProfilePicUrl = (url) => {
   if (!url || typeof url !== "string") return null;
@@ -37,8 +43,31 @@ export const parseMeProfile = (data) => {
     ? null
     : resolveRemoteProfilePicUrl(remotePic);
 
+  const hasNewUserFrame = Boolean(
+    raw.hasNewUserFrame ??
+      raw.newUserFrame ??
+      raw.showNewUserFrame ??
+      (raw.profileFrameType &&
+        String(raw.profileFrameType).toLowerCase().includes("new"))
+  );
+  const newUserFrameUrl = firstText(
+    raw.newUserFrameUrl,
+    raw.profileFrameUrl,
+    raw.frameUrl
+  );
+  const level = normalizeUserLevel(
+    firstValue(raw.level, raw.honorLevel, raw.userLevel, raw.lv),
+    null
+  );
+  const levelBadgeUrl = firstText(
+    raw.levelBadgeUrl,
+    raw.levelImageUrl,
+    raw.badgeUrl,
+    raw.honorBadgeUrl
+  );
+
   return {
-    id: raw.id ?? raw.userId ?? null,
+    id: firstValue(raw.id, raw.userId, raw.user_id, raw.memberId),
     name: firstText(raw.name, raw.nickname, raw.displayName) ?? "",
     email: raw.email ?? null,
     phoneNumber: raw.phoneNumber ?? null,
@@ -48,6 +77,15 @@ export const parseMeProfile = (data) => {
     avatarId,
     profilePicUrl,
     role: raw.role ?? null,
+    createdAt: firstText(raw.createdAt, raw.created_at, raw.registeredAt, raw.joinedAt),
+    hasNewUserFrame,
+    newUserFrameUrl: newUserFrameUrl
+      ? resolveRemoteProfilePicUrl(newUserFrameUrl) ?? newUserFrameUrl
+      : null,
+    level,
+    levelBadgeUrl: levelBadgeUrl
+      ? resolveRemoteProfilePicUrl(levelBadgeUrl) ?? levelBadgeUrl
+      : null,
   };
 };
 

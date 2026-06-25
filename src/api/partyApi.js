@@ -91,6 +91,20 @@ export const createRoom = async (body = {}) => {
   }
 };
 
+/** POST /api/v1/tuktuk/rooms/{roomId}/create — user-scoped room create (room id = user id) */
+export const createRoomForUser = async (roomId, body = {}) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/create`;
+  logRequest("POST", path, body);
+  try {
+    const response = await API.post(path, body, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
 export const joinRoom = async (roomId) => {
   const response = await API.post(
     `/api/v1/tuktuk/rooms/${roomId}/join`,
@@ -165,7 +179,7 @@ export const getVoiceToken = async (roomId, uid, isSpeaker = true) => {
     `/api/v1/tuktuk/rooms/${roomId}/voice-token?uid=${uid}&isSpeaker=${speaker}`,
     await authRequestConfig()
   );
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 /** GET /api/app/party/ranking?period=daily|weekly|monthly — leaderboard. */

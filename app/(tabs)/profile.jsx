@@ -37,6 +37,10 @@ import {
   DEFAULT_AVATAR_ID,
 } from "../../src/data/avatarOptions";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
+import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
+import { syncUserLevelForSession } from "../../src/services/userLevelService";
+import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
+import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
 import { loadWalletData } from "../../src/services/walletService";
 import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
@@ -109,6 +113,10 @@ export default function Profile() {
   const [editVisible, setEditVisible] = useState(false);
   const [editName, setEditName] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [newUserFrameSource, setNewUserFrameSource] = useState(null);
+  const [userLevel, setUserLevel] = useState(1);
+  const [levelBadgeSource, setLevelBadgeSource] = useState(null);
   const avatarSource = resolveProfileAvatarSource({
     avatarId,
     profilePicUrl,
@@ -192,12 +200,33 @@ export default function Profile() {
     const user = await getUser();
     if (!user) return;
     if (user.name) setName(user.name);
+    const localId = user.userId ?? user.id;
+    if (localId != null) setUserId(String(localId));
     if (user.avatarId) {
       setAvatarId(user.avatarId);
       setEditAvatarId(user.avatarId);
     }
     setUseLocalAvatar(user.useLocalAvatar !== false);
     setProfilePicUrl(user.profilePicUrl ?? user.avatarUrl ?? null);
+    const frameSource = await syncNewUserFrameForSession();
+    setNewUserFrameSource(frameSource);
+    const levelData = await syncUserLevelForSession();
+    if (levelData?.level != null) setUserLevel(levelData.level);
+    setLevelBadgeSource(levelData?.badgeSource ?? null);
+
+    try {
+      await refreshTokenCache();
+      const serverProfile = await loadMyProfile();
+      if (serverProfile?.id != null) {
+        const id = String(serverProfile.id);
+        setUserId(id);
+        if (String(localId ?? "") !== id) {
+          await updateUser({ id: serverProfile.id, userId: serverProfile.id });
+        }
+      }
+    } catch {
+      // Keep the cached local id if the profile request fails.
+    }
   }, []);
 
   const loadConnectionStats = useCallback(async () => {
@@ -220,6 +249,10 @@ export default function Profile() {
     try {
       const user = await getUser();
       const serverProfile = await loadMyProfile();
+      if (serverProfile.id != null) {
+        const id = String(serverProfile.id);
+        setUserId(id);
+      }
       if (serverProfile.name) setName(serverProfile.name);
       if (serverProfile.avatarId) {
         setAvatarId(serverProfile.avatarId);
@@ -232,10 +265,23 @@ export default function Profile() {
       }
       await updateUser({
         name: serverProfile.name || user?.name,
+        ...(serverProfile.id != null
+          ? { id: serverProfile.id, userId: serverProfile.id }
+          : {}),
         avatarId: serverProfile.avatarId ?? user?.avatarId,
         profilePicUrl: serverProfile.profilePicUrl ?? null,
         useLocalAvatar: Boolean(serverProfile.avatarId) || !serverProfile.profilePicUrl,
+        ...(serverProfile.createdAt ? { createdAt: serverProfile.createdAt } : {}),
+        ...(serverProfile.hasNewUserFrame ? { hasNewUserFrame: true } : {}),
+        ...(serverProfile.newUserFrameUrl ? { newUserFrameUrl: serverProfile.newUserFrameUrl } : {}),
+        ...(serverProfile.level != null ? { level: serverProfile.level } : {}),
+        ...(serverProfile.levelBadgeUrl ? { levelBadgeUrl: serverProfile.levelBadgeUrl } : {}),
       });
+      const frameSource = await syncNewUserFrameForSession();
+      setNewUserFrameSource(frameSource);
+      const levelData = await syncUserLevelForSession();
+      if (levelData?.level != null) setUserLevel(levelData.level);
+      setLevelBadgeSource(levelData?.badgeSource ?? null);
     } catch {
       // Keep cached local values if the profile tab fetch fails.
     } finally {
@@ -841,7 +887,7 @@ export default function Profile() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
           <View style={styles.mmHonorHero}>
             <Text style={{ fontSize: 52, marginBottom: 8 }}>⭐</Text>
-            <Text style={styles.mmHonorLevel}>Level 1</Text>
+            <Text style={styles.mmHonorLevel}>Level {userLevel ?? 1}</Text>
             <Text style={styles.mmHonorXP}>0 / 500 XP to Level 2</Text>
             <View style={[styles.mmProgressBar, { width: "100%", marginTop: 10 }]}>
               <View style={[styles.mmProgressFill, { width: "3%" }]} />
@@ -999,9 +1045,9 @@ export default function Profile() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
           <View style={styles.mmLevelHero}>
             <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmLevelBadge}>
-              <Text style={styles.mmLevelNum}>1</Text>
+              <Text style={styles.mmLevelNum}>{userLevel ?? 1}</Text>
             </LinearGradient>
-            <Text style={styles.mmLevelTitle}>Level 1</Text>
+            <Text style={styles.mmLevelTitle}>Level {userLevel ?? 1}</Text>
             <Text style={styles.mmLevelXP}>0 / 200 XP to next level</Text>
             <View style={[styles.mmProgressBar, { width: "100%", marginTop: 10 }]}>
               <View style={[styles.mmProgressFill, { width: "3%" }]} />
@@ -1338,7 +1384,13 @@ export default function Profile() {
 
             {/* Avatar with frame */}
             <View style={styles.profilePicWrapper}>
-              <Image source={avatarSource} style={styles.profilePic} resizeMode="cover" />
+              <ProfileAvatarWithFrame
+                avatarSource={avatarSource}
+                frameSource={newUserFrameSource}
+                size={72}
+                avatarStyle={styles.profilePic}
+                wrapperStyle={styles.profilePicFrameWrap}
+              />
             </View>
 
             {/* Name + ID + badges */}
@@ -1353,12 +1405,14 @@ export default function Profile() {
 
               {/* ID + level badge inline */}
               <View style={styles.idRow}>
-                <Text style={styles.userId}>ID: 167038</Text>
-                <Image
-                  source={require("../../assets/level/level1.png")}
-                  style={styles.levelBadge}
-                  resizeMode="contain"
-                />
+                <Text style={styles.userId}>ID: {userId ?? "—"}</Text>
+                {userLevel != null ? (
+                  <Image
+                    source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel)}
+                    style={styles.levelBadge}
+                    resizeMode="contain"
+                  />
+                ) : null}
               </View>
 
               {/* Verified badge */}
@@ -1893,11 +1947,15 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   profilePicWrapper: {
-    width: 72,
-    height: 72,
+    width: 78,
+    height: 78,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+  },
+  profilePicFrameWrap: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   profilePic: {
     width: 72,

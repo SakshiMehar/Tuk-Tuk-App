@@ -16,7 +16,7 @@ const getTodayKey = () => {
 const defaultState = () => ({
   activeChest: 0,
   selectedChest: 0,
-  powerPercent: 13,
+  powerPercent: 0,
   lastResetDate: getTodayKey(),
 });
 
@@ -37,7 +37,8 @@ export const loadTreasureBoxState = async () => {
     return {
       ...defaultState(),
       ...parsed,
-      powerPercent: Math.min(100, Math.max(0, Number(parsed.powerPercent) || 0)),
+      // Keep the bar reset to 0 when loading persisted state.
+      powerPercent: 0,
       activeChest: Math.min(3, Math.max(0, Number(parsed.activeChest) || 0)),
       selectedChest: Math.min(3, Math.max(0, Number(parsed.selectedChest) || 0)),
     };

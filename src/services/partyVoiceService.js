@@ -8,6 +8,7 @@ import { refreshTokenCache } from "../api/axios";
 import { getToken } from "../store/authStore";
 import { AGORA_APP_ID } from "../config/env";
 import * as agoraVoice from "./agoraVoiceService";
+import { unwrapVoiceTokenResponse } from "./voice/voiceTokenUtils";
 import { getVoiceUid } from "../utils/voiceUid";
 import { buildSeatProfile, syncUserFromToken } from "../utils/sessionUser";
 import { wsService } from "./websocket";
@@ -27,7 +28,17 @@ const ensureAuthToken = async () => {
 
 const fetchVoiceToken = async (roomId, uid, isSpeaker) => {
   await ensureAuthToken();
-  return getVoiceToken(roomId, uid, isSpeaker);
+  const data = await getVoiceToken(roomId, uid, isSpeaker);
+  return unwrapVoiceTokenResponse(data);
+};
+
+const extractRtcToken = (tokenData) => {
+  const token =
+    tokenData?.token ?? tokenData?.rtcToken ?? tokenData?.agoraToken ?? tokenData?.accessToken;
+  if (!token) {
+    throw new Error("Voice token missing from backend response.");
+  }
+  return token;
 };
 
 const runPreflightOrThrow = async ({ roomId, uid, tokenData, isSpeaker, micGranted }) => {
@@ -54,7 +65,7 @@ const registerTokenRenewal = (roomId) => {
     const uid = await getVoiceUid();
     const tokenData = await fetchVoiceToken(activeRoomId, uid, isSpeaker ?? activeIsSpeaker);
     activeIsSpeaker = isSpeaker ?? activeIsSpeaker;
-    return tokenData?.token ?? tokenData?.rtcToken ?? tokenData?.agoraToken ?? "";
+    return extractRtcToken(tokenData);
   });
 };
 
@@ -163,6 +174,11 @@ export const getVoiceSessionStatus = () => agoraVoice.getVoiceDiagnostics();
 
 export const subscribeVoiceSessionStatus = (listener) =>
   agoraVoice.subscribeVoiceStatus(listener);
+
+export const reconnectAsListener = async (roomId) => {
+  await agoraVoice.leaveVoiceChannel();
+  return joinAsListener(roomId);
+};
 
 export const teardownVoice = async () => {
   activeRoomId = null;

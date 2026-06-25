@@ -8,14 +8,21 @@ const firstValue = (...values) =>
 export const parseTokenPayload = (data, roomId, uid, fallbackAppId = "") => {
   const appId =
     firstText(data?.appId, data?.agoraAppId, data?.applicationId) || fallbackAppId || "";
-  const resolvedUid = Number(firstValue(data?.uid, data?.userId, uid) ?? uid);
+  // Always join with the uid we requested the token for — backend must mint for this uid.
+  const resolvedUid = Number(uid);
 
   return {
     token: firstText(data?.token, data?.rtcToken, data?.agoraToken, data?.accessToken) ?? "",
     appId,
-    channel: firstText(data?.channel, data?.channelName, data?.roomId) ?? String(roomId),
+    channel: firstText(data?.channel, data?.channelName) ?? String(roomId),
     uid: resolvedUid,
   };
+};
+
+/** Unwrap common API envelopes for voice-token responses. */
+export const unwrapVoiceTokenResponse = (data) => {
+  if (!data || typeof data !== "object") return data;
+  return data.data ?? data.result ?? data.payload ?? data;
 };
 
 /** Pure validation — used by health checks and unit tests. */

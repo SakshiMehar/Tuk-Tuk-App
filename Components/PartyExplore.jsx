@@ -34,6 +34,7 @@ import {
 } from "../src/services/partyService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import ComingSoonModal from "./ComingSoonModal";
+import CreateRoomModal from "./CreateRoomModal";
 import exploreData from "../src/data/partyExploreData.json";
 
 const { width: W } = Dimensions.get("window");
@@ -220,6 +221,9 @@ export default function PartyExplore() {
   // ── Coming soon modal ──
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
 
+  // ── Create room modal ──
+  const [createRoomVisible, setCreateRoomVisible] = useState(false);
+
   useEffect(() => {
     if (activeTopTab !== "Explore") return;
     let cancelled = false;
@@ -330,8 +334,16 @@ export default function PartyExplore() {
     router.push({ pathname: "/voice-party", params: { roomId } });
   };
 
-  const createRoom = () => {
-    router.push({ pathname: "/voice-party", params: { create: "true" } });
+  const openCreateRoomModal = () => {
+    setCreateRoomVisible(true);
+  };
+
+  const handleCreateRoomEntered = (roomId) => {
+    setCreateRoomVisible(false);
+    router.push({
+      pathname: "/voice-party",
+      params: { roomId: String(roomId) },
+    });
   };
 
   const renderRelatedContent = () => {
@@ -382,7 +394,7 @@ export default function PartyExplore() {
             <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8}>
               <Search size={20} color={THEME.purpleLight} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={createRoom}>
+            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={openCreateRoomModal}>
               <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.iconBtnGrad}>
                 <Home size={16} color={THEME.purpleLight} />
                 <View style={styles.createRoomPlus}>
@@ -401,7 +413,7 @@ export default function PartyExplore() {
               <TouchableOpacity
                 style={styles.createCard}
                 activeOpacity={0.85}
-                onPress={createRoom}
+                onPress={openCreateRoomModal}
               >
                 <LinearGradient colors={["#7c4dff", "#4a6cf7"]} style={styles.createIconWrap}>
                   <Home size={22} color="white" />
@@ -707,6 +719,12 @@ export default function PartyExplore() {
       <ComingSoonModal
         feature={comingSoonFeature}
         onClose={() => setComingSoonFeature(null)}
+      />
+
+      <CreateRoomModal
+        visible={createRoomVisible}
+        onClose={() => setCreateRoomVisible(false)}
+        onEntered={handleCreateRoomEntered}
       />
     </View>
   );
