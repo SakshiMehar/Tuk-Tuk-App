@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import { getToken } from "../src/store/authStore";
 
 const splashIcon = require("../assets/images/splash-icon.png");
 
@@ -69,7 +70,16 @@ export default function Index() {
         useNativeDriver: true,
       }),
     ]).start(() => {
-      router.replace("/login");
+      // Check if the user is already logged in — skip the login screen if so
+      getToken().then((token) => {
+        if (token) {
+          router.replace("/(tabs)/home");
+        } else {
+          router.replace("/login");
+        }
+      }).catch(() => {
+        router.replace("/login");
+      });
     });
   }, []);
 

@@ -238,7 +238,6 @@ export const shareUser = async (targetUserId) => {
 // GET /api/posts/online?page=0&size=10
 export const getOnlinePosts = async (page = 0, size = 10) => {
   const response = await API.get(`/api/posts/online?page=${page}&size=${size}`);
-  
   return response.data;
 };
 
@@ -246,7 +245,6 @@ export const getOnlinePosts = async (page = 0, size = 10) => {
 // GET /api/posts/following?page=0&size=10
 export const getFollowingPosts = async (page = 0, size = 10) => {
   const response = await API.get(`/api/posts/following?page=${page}&size=${size}`);
-  
   return response.data;
 };
 
@@ -254,7 +252,6 @@ export const getFollowingPosts = async (page = 0, size = 10) => {
 // GET /api/posts/discover?page=0&size=10
 export const getDiscoverPosts = async (page = 0, size = 10) => {
   const response = await API.get(`/api/posts/discover?page=${page}&size=${size}`);
-  
   return response.data;
 };
 

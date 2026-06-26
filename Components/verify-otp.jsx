@@ -13,6 +13,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft } from "lucide-react-native";
 import { verifyPhoneOtpAndLogin } from "../src/services/firebasePhoneService";
+import { s, vs, ms } from "../src/utils/responsive";
 
 export default function VerifyOtp() {
   const router = useRouter();
@@ -131,35 +132,35 @@ export default function VerifyOtp() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#070616" },
   orbPink: {
-    position: "absolute", width: 280, height: 280, top: -60, left: -60,
-    borderRadius: 140, backgroundColor: "rgba(255,77,166,0.18)",
+    position: "absolute", width: s(280), height: s(280), top: vs(-60), left: s(-60),
+    borderRadius: s(140), backgroundColor: "rgba(255,77,166,0.18)",
   },
   orbPurple: {
-    position: "absolute", width: 300, height: 300, bottom: 80, right: -80,
-    borderRadius: 150, backgroundColor: "rgba(132,66,255,0.16)",
+    position: "absolute", width: s(300), height: s(300), bottom: vs(80), right: s(-80),
+    borderRadius: s(150), backgroundColor: "rgba(132,66,255,0.16)",
   },
-  header: { paddingTop: 52, paddingHorizontal: 16, paddingBottom: 8 },
+  header: { paddingTop: vs(52), paddingHorizontal: s(16), paddingBottom: vs(8) },
   backBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: s(36), height: s(36), borderRadius: s(18),
     backgroundColor: "rgba(255,255,255,0.08)",
     alignItems: "center", justifyContent: "center",
   },
-  body: { flex: 1, paddingHorizontal: 24, paddingTop: 32 },
-  title: { color: "white", fontSize: 28, fontWeight: "800", marginBottom: 10 },
-  subtitle: { color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 22, marginBottom: 36 },
+  body: { flex: 1, paddingHorizontal: s(24), paddingTop: vs(32) },
+  title: { color: "white", fontSize: ms(28), fontWeight: "800", marginBottom: vs(10) },
+  subtitle: { color: "rgba(255,255,255,0.6)", fontSize: ms(14), lineHeight: ms(22), marginBottom: vs(36) },
   phoneHighlight: { color: "#ff69b4", fontWeight: "700" },
-  otpRow: { flexDirection: "row", gap: 10, marginBottom: 32, justifyContent: "center" },
+  otpRow: { flexDirection: "row", gap: s(10), marginBottom: vs(32), justifyContent: "center" },
   otpBox: {
-    width: 48, height: 56, borderRadius: 14,
+    width: s(48), height: vs(56), borderRadius: s(14),
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
-    color: "white", fontSize: 22, fontWeight: "700",
+    color: "white", fontSize: ms(22), fontWeight: "700",
   },
   otpBoxFilled: { borderColor: "#ff4ea3", backgroundColor: "rgba(255,78,163,0.12)" },
-  verifyBtn: { borderRadius: 14, overflow: "hidden", marginBottom: 20 },
-  verifyBtnGradient: { height: 54, alignItems: "center", justifyContent: "center", borderRadius: 14 },
-  verifyBtnText: { color: "white", fontSize: 16, fontWeight: "700" },
+  verifyBtn: { borderRadius: s(14), overflow: "hidden", marginBottom: vs(20) },
+  verifyBtnGradient: { height: vs(54), alignItems: "center", justifyContent: "center", borderRadius: s(14) },
+  verifyBtnText: { color: "white", fontSize: ms(16), fontWeight: "700" },
   resendBtn: { alignItems: "center" },
-  resendText: { color: "rgba(255,255,255,0.55)", fontSize: 13 },
+  resendText: { color: "rgba(255,255,255,0.55)", fontSize: ms(13) },
   resendLink: { color: "#ff69b4", fontWeight: "700" },
 });

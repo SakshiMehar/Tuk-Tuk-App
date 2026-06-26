@@ -27,6 +27,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { ChevronRight } from "lucide-react-native";
+import { API_BASE_URL, toRemoteImageSource } from "../../src/config/env";
 import * as homeService from "../../src/services/homeService";
 import {
   followUser,
@@ -65,6 +66,7 @@ import ComingSoonModal from "../../Components/ComingSoonModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
 import { openUserChat } from "../../src/utils/chatNavigation";
+import { s, vs, ms } from "../../src/utils/responsive";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const H_PAD = 14;
@@ -100,7 +102,7 @@ const actionCards = [
     title: "Nearby",
     subtitle: "People around you",
     colors: ["#143238ff", "#0077b6"],
-    img: require("../../assets/images/TM3.gif"),
+    img: toRemoteImageSource(`${API_BASE_URL}/api/public/media/assets/TM3.gif`),
     route: "/nearby",
     imgSize: CARD_SIZE * 0.90,
     gifDelay: 800,
@@ -109,7 +111,7 @@ const actionCards = [
     title: "Blind Pick",
     subtitle: "Mystery match",
     colors: ["#dc62bcff", "#351743ff"],
-    img: require("../../assets/images/TM2B.gif"),
+    img: toRemoteImageSource(`${API_BASE_URL}/api/public/media/assets/TM2B.gif`),
     route: "/(tabs)/blind-pick",
     imgSize: CARD_SIZE * 0.80,
     gifDelay: 1200,
@@ -336,7 +338,7 @@ const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete,
                     style={moreMenuStyles.friendRing}
                   >
                     <Image
-                      source={{ uri: item.avatar }}
+                      source={toImageSource(item.avatar)}
                       style={moreMenuStyles.friendAvatar}
                       cachePolicy="memory-disk"
                     />
@@ -1187,7 +1189,7 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
         <LinearGradient colors={["#7c4dff", "#ff4ea3"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={cs.ring}>
           <View style={cs.ringInner}>
             {avatarUri
-              ? <Image source={{ uri: avatarUri }} style={cs.avatarImg} cachePolicy="memory-disk" />
+              ? <Image source={toImageSource(avatarUri)} style={cs.avatarImg} cachePolicy="memory-disk" />
               : <Text style={cs.avatarFallback}>👤</Text>
             }
           </View>
@@ -1477,13 +1479,25 @@ const cs = StyleSheet.create({
   sendIcon: { color: "#fff", fontSize: 15 },
 });
 
+// Add ngrok-skip-browser-warning header when URL is served through ngrok.
+// Without this header, ngrok returns an HTML warning page instead of the
+// actual image, causing blank image containers.
+const toImageSource = (uri) => {
+  if (!uri) return null;
+  const needsNgrokHeader = /ngrok-free\.dev|ngrok\.io/i.test(uri);
+  return needsNgrokHeader
+    ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri };
+};
+
 const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, currentUserId, currentUserAvatarSource, currentUserFrameSource }) => {
+  const [imgFailed, setImgFailed] = useState(false);
   const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
   const postAvatarSource =
     isOwnPost && currentUserAvatarSource
       ? currentUserAvatarSource
       : post.avatar
-        ? { uri: post.avatar }
+        ? toImageSource(post.avatar)
         : null;
   const postFrameSource = isOwnPost ? currentUserFrameSource : null;
   // Resolve media — prefer CDN URL, fall back to local URI picked from device
@@ -1537,13 +1551,14 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
       )}
 
       {/* Image */}
-      {hasImage && (
+      {hasImage && !imgFailed && (
         <Image
-          source={{ uri: imageUri }}
+          source={toImageSource(imageUri)}
           style={styles.postImage}
           contentFit="cover"
           transition={200}
-          cachePolicy="memory-disk"
+          cachePolicy="none"
+          onError={() => setImgFailed(true)}
         />
       )}
 
@@ -1599,7 +1614,7 @@ const RecommendedUserItem = memo(({ user }) => (
       style={styles.recommendAvatarRing}
     >
       {user.avatar ? (
-        <Image source={{ uri: user.avatar }} style={styles.recommendAvatar} cachePolicy="memory-disk" transition={150} />
+        <Image source={toImageSource(user.avatar)} style={styles.recommendAvatar} cachePolicy="memory-disk" transition={150} />
       ) : (
         <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
           <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -1698,15 +1713,11 @@ const HomeHeader = memo(({
       <View style={styles.headerTopRow}>
         <View style={styles.avatarWrapper}>
           <ProfileAvatarWithFrame
-            avatarSource={
-              sessionAvatarSource ??
-              (userProfile?.avatarUrl
-                ? { uri: userProfile.avatarUrl }
-                : require("../../assets/images/splash-icon.png"))
-            }
+            avatarSource={sessionAvatarSource ?? (userProfile?.avatarUrl ? { uri: userProfile.avatarUrl } : null)}
             frameSource={sessionNewUserFrameSource}
-            size={62}
+            size={s(62)}
             avatarStyle={styles.headerAvatar}
+            placeholderInitial={(userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"}
             imageComponent={Image}
           />
           <View style={styles.onlineDot} />
@@ -1715,12 +1726,12 @@ const HomeHeader = memo(({
           <View style={styles.appNameWrapper}>
             {/* Thin #7f3f89 outline — 8 directions at 1px */}
             {[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]].map(([dx, dy], i) => (
-              <Text key={i} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
+              <Text key={i} numberOfLines={1} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
                 Tuk Tuk
               </Text>
             ))}
             {/* White text on top */}
-            <Text style={styles.appName}>Tuk Tuk</Text>
+            <Text numberOfLines={1} style={styles.appName}>Tuk Tuk</Text>
           </View>
         </View>
         <View style={styles.headerIcons}>
@@ -1762,7 +1773,7 @@ const HomeHeader = memo(({
           onPress={() => router.push("/chat")}
         >
           <Image
-            source={{ uri: stats?.featuredUserAvatar ?? "https://randomuser.me/api/portraits/men/45.jpg" }}
+            source={toImageSource(stats?.featuredUserAvatar ?? "https://randomuser.me/api/portraits/men/45.jpg")}
             style={styles.matchAvatar}
             cachePolicy="memory-disk"
             transition={200}
@@ -2645,7 +2656,7 @@ export default function Home() {
                       }}
                     >
                       {result.type === "user" && result.avatar ? (
-                        <Image source={{ uri: result.avatar }} style={styles.resultIconBox} contentFit="cover" />
+                        <Image source={toImageSource(result.avatar)} style={styles.resultIconBox} contentFit="cover" />
                       ) : (
                         <LinearGradient
                           colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
@@ -2828,7 +2839,7 @@ export default function Home() {
                     )}
                     {notif.avatar ? (
                       <View style={styles.notifAvatarWrapper}>
-                        <Image source={{ uri: notif.avatar }} style={styles.notifAvatar} cachePolicy="memory-disk" transition={150} />
+                        <Image source={toImageSource(notif.avatar)} style={styles.notifAvatar} cachePolicy="memory-disk" transition={150} />
                         <View style={styles.notifIconBubble}>
                           <Text style={styles.notifIconBubbleTxt}>{notif.icon}</Text>
                         </View>
@@ -2923,7 +2934,7 @@ export default function Home() {
               style={styles.searchProfileHero}
             >
               {searchProfile?.avatar ? (
-                <Image source={{ uri: searchProfile.avatar }} style={styles.searchProfileAvatar} contentFit="cover" />
+                <Image source={toImageSource(searchProfile.avatar)} style={styles.searchProfileAvatar} contentFit="cover" />
               ) : (
                 <Text style={styles.searchProfileEmoji}>👤</Text>
               )}
@@ -3036,32 +3047,32 @@ const styles = StyleSheet.create({
 
   // Header glass card
   headerCard: {
-    marginTop: 20,
+    marginTop: vs(20),
     marginHorizontal: H_PAD,
-    marginBottom: 14,
+    marginBottom: vs(14),
     backgroundColor: "rgba(255,255,255,0.07)",
-    borderRadius: 22,
+    borderRadius: s(22),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 10,
+    paddingHorizontal: s(12),
+    paddingVertical: vs(10),
+    gap: vs(10),
   },
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: s(8),
   },
   avatarWrapper: {
     position: "relative",
-    marginTop: -8,
-    marginBottom: -4,
+    marginTop: vs(-8),
+    marginBottom: vs(-4),
     overflow: "visible",
   },
   headerAvatar: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: s(62),
+    height: s(62),
+    borderRadius: s(31),
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.35)",
   },
@@ -3069,31 +3080,34 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 1,
     right: 1,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: s(12),
+    height: s(12),
+    borderRadius: s(6),
     backgroundColor: "#00e676",
     borderWidth: 2,
     borderColor: "#1a0a2e",
   },
   headerTitleCol: {
     flex: 1,
+    minWidth: 0,
   },
   helloText: {
     color: "rgba(255,255,255,0.55)",
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "500",
-    lineHeight: 14,
+    lineHeight: ms(14),
   },
   appName: {
-    fontSize: 22,
+    fontSize: ms(22),
     fontWeight: "900",
     color: "white",
-    lineHeight: 26,
+    lineHeight: ms(26),
   },
   appNameWrapper: {
     position: "relative",
     alignSelf: "flex-start",
+    maxWidth: "100%",
+    overflow: "hidden",
   },
   appNameOutline: {
     color: "#7f3f89",
@@ -3107,61 +3121,61 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(80,50,160,0.6)",
-    borderRadius: 16,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    borderRadius: s(16),
+    paddingHorizontal: s(8),
+    paddingVertical: vs(5),
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.5)",
-    gap: 3,
+    gap: s(3),
   },
-  diamondEmoji: { fontSize: 12 },
+  diamondEmoji: { fontSize: ms(12) },
   diamondCount: {
     color: "white",
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "700",
   },
   diamondPlusBtn: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: s(18),
+    height: s(18),
+    borderRadius: s(9),
     backgroundColor: "#7c3aed",
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 2,
+    marginLeft: s(2),
   },
   diamondPlusText: {
     color: "white",
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: "800",
-    lineHeight: 14,
+    lineHeight: ms(14),
   },
   headerIconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: s(34),
+    height: s(34),
+    borderRadius: s(17),
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerIconEmoji: { fontSize: 16 },
+  headerIconEmoji: { fontSize: ms(16) },
   headerIconBadge: {
     position: "absolute",
     top: -3,
     right: -3,
-    minWidth: 15,
-    height: 15,
-    borderRadius: 8,
+    minWidth: s(15),
+    height: s(15),
+    borderRadius: s(8),
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 2,
+    paddingHorizontal: s(2),
     borderWidth: 1.5,
     borderColor: "#0d0618",
   },
   headerIconBadgeText: {
     color: "white",
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
   },
   headerDivider: {
@@ -3185,9 +3199,9 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   matchAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: s(34),
+    height: s(34),
+    borderRadius: s(17),
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.5)",
   },
@@ -3206,14 +3220,14 @@ const styles = StyleSheet.create({
   },
   activeNumber: {
     color: "#4eff91",
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "800",
-    lineHeight: 19,
+    lineHeight: ms(19),
   },
   activeLabel: {
     color: "rgba(255,255,255,0.9)",
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: ms(11),
+    lineHeight: ms(14),
   },
   matchArrow: {
     width: 24,
@@ -3283,16 +3297,16 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: "white",
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "800",
-    lineHeight: 20,
+    lineHeight: ms(20),
   },
   cardSubtitle: {
     color: "rgba(255,255,255,0.7)",
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "500",
-    marginTop: 2,
-    marginBottom: 4,
+    marginTop: vs(2),
+    marginBottom: vs(4),
   },
   waveRow: {
     flexDirection: "row",
@@ -3321,22 +3335,22 @@ const styles = StyleSheet.create({
   },
   iconItem: {
     alignItems: "center",
-    width: 76,
+    width: s(76),
   },
   iconBox: {
-    width: 68,
-    height: 68,
-    borderRadius: 18,
+    width: s(68),
+    height: s(68),
+    borderRadius: s(18),
     alignItems: "center",
     justifyContent: "center",
   },
-  iconImg: { width: 44, height: 44 },
+  iconImg: { width: s(44), height: s(44) },
   iconLabel: {
     color: "rgba(255,255,255,0.7)",
-    fontSize: 11,
-    marginTop: 6,
+    fontSize: ms(11),
+    marginTop: vs(6),
     textAlign: "center",
-    lineHeight: 14,
+    lineHeight: ms(14),
   },
 
   // Tabs
@@ -3356,13 +3370,13 @@ const styles = StyleSheet.create({
   },
   tabText: {
     color: "rgba(255,255,255,0.45)",
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "500",
   },
   tabActive: {
     color: "white",
     fontWeight: "800",
-    fontSize: 16,
+    fontSize: ms(16),
   },
   tabUnderline: {
     width: "100%",
@@ -3409,9 +3423,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   postAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: s(42),
+    height: s(42),
+    borderRadius: s(21),
   },
   postAvatarPlaceholder: {
     backgroundColor: "rgba(124,77,255,0.4)",
@@ -3427,7 +3441,7 @@ const styles = StyleSheet.create({
   },
   postName: {
     color: "white",
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "700",
     flex: 1,
   },
@@ -3501,9 +3515,9 @@ const styles = StyleSheet.create({
   },
   postText: {
     color: "rgba(255,255,255,0.82)",
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 10,
+    fontSize: ms(13),
+    lineHeight: ms(20),
+    marginBottom: vs(10),
   },
   moreText: {
     color: "#7c4dff",
@@ -3546,9 +3560,9 @@ const styles = StyleSheet.create({
   },
   recommendTitle: {
     color: "white",
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "700",
-    marginBottom: 14,
+    marginBottom: vs(14),
   },
   recommendScroll: {
     gap: 16,
@@ -3556,14 +3570,14 @@ const styles = StyleSheet.create({
   },
   recommendItem: {
     alignItems: "center",
-    width: 76,
+    width: s(76),
   },
   recommendAvatarRing: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    padding: 3,
-    marginBottom: 8,
+    width: s(72),
+    height: s(72),
+    borderRadius: s(36),
+    padding: s(3),
+    marginBottom: vs(8),
   },
   recommendAvatar: {
     width: "100%",
@@ -3577,12 +3591,12 @@ const styles = StyleSheet.create({
   },
   recommendInitial: {
     color: "white",
-    fontSize: 22,
+    fontSize: ms(22),
     fontWeight: "800",
   },
   recommendName: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 12,
+    fontSize: ms(12),
     textAlign: "center",
     fontWeight: "500",
   },
@@ -3616,7 +3630,7 @@ const styles = StyleSheet.create({
   },
   bannerTitle: {
     color: "#ffd700",
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: "900",
     textAlign: "center",
     letterSpacing: 0.5,

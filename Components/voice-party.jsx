@@ -14,6 +14,14 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+} from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image as ExpoImage } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
@@ -288,6 +296,96 @@ const formatGiftPrice = (price) =>
 
 const SEAT_FRAME_CONFIG = NEW_USER_FRAME_LAYOUT;
 
+const RING_SIZE = SEAT_SIZE - 2;
+const RING_BASE_STYLE = {
+  position: "absolute",
+  width: RING_SIZE,
+  height: RING_SIZE,
+  borderRadius: RING_SIZE / 2,
+  borderWidth: 2.5,
+  borderColor: "#4ade80",
+  backgroundColor: "transparent",
+};
+
+const SpeakingRing = ({ active }) => {
+  const s1 = useSharedValue(1);
+  const o1 = useSharedValue(0);
+  const s2 = useSharedValue(1);
+  const o2 = useSharedValue(0);
+  const s3 = useSharedValue(1);
+  const o3 = useSharedValue(0);
+
+  useEffect(() => {
+    const CYCLE = 1500;
+    if (active) {
+      s1.value = withRepeat(
+        withSequence(withTiming(1, { duration: 0 }), withTiming(1.5, { duration: CYCLE })),
+        -1
+      );
+      o1.value = withRepeat(
+        withSequence(withTiming(0.9, { duration: 0 }), withTiming(0, { duration: CYCLE })),
+        -1
+      );
+      s2.value = withDelay(
+        500,
+        withRepeat(
+          withSequence(withTiming(1, { duration: 0 }), withTiming(1.5, { duration: CYCLE })),
+          -1
+        )
+      );
+      o2.value = withDelay(
+        500,
+        withRepeat(
+          withSequence(withTiming(0.9, { duration: 0 }), withTiming(0, { duration: CYCLE })),
+          -1
+        )
+      );
+      s3.value = withDelay(
+        1000,
+        withRepeat(
+          withSequence(withTiming(1, { duration: 0 }), withTiming(1.5, { duration: CYCLE })),
+          -1
+        )
+      );
+      o3.value = withDelay(
+        1000,
+        withRepeat(
+          withSequence(withTiming(0.9, { duration: 0 }), withTiming(0, { duration: CYCLE })),
+          -1
+        )
+      );
+    } else {
+      s1.value = withTiming(1, { duration: 300 });
+      o1.value = withTiming(0, { duration: 300 });
+      s2.value = withTiming(1, { duration: 300 });
+      o2.value = withTiming(0, { duration: 300 });
+      s3.value = withTiming(1, { duration: 300 });
+      o3.value = withTiming(0, { duration: 300 });
+    }
+  }, [active]);
+
+  const a1 = useAnimatedStyle(() => ({
+    transform: [{ scale: s1.value }],
+    opacity: o1.value,
+  }));
+  const a2 = useAnimatedStyle(() => ({
+    transform: [{ scale: s2.value }],
+    opacity: o2.value,
+  }));
+  const a3 = useAnimatedStyle(() => ({
+    transform: [{ scale: s3.value }],
+    opacity: o3.value,
+  }));
+
+  return (
+    <>
+      <Animated.View style={[RING_BASE_STYLE, a1]} />
+      <Animated.View style={[RING_BASE_STYLE, a2]} />
+      <Animated.View style={[RING_BASE_STYLE, a3]} />
+    </>
+  );
+};
+
 export default function VoiceParty() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -298,6 +396,7 @@ export default function VoiceParty() {
   const [roomId, setRoomId] = useState(roomIdParam);
   const [roomInfo, setRoomInfo] = useState(null);
   const [seats, setSeats] = useState(micSeats);
+  const [speakingUserIds, setSpeakingUserIds] = useState(new Set());
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
   const [messages, setMessages] = useState([]);
@@ -847,12 +946,28 @@ export default function VoiceParty() {
     const unsubSpeaking = wsService.onRoomSpeaking(String(roomId), (payload) => {
       const speakerId = payload.userId;
       if (!speakerId) return;
+      const isSpeaking = Boolean(payload.isSpeaking);
       setOnlineUsers((prev) =>
         prev.map((u) => ({
           ...u,
-          isSpeaking: u.id === speakerId ? Boolean(payload.isSpeaking) : u.isSpeaking,
+          isSpeaking: u.id === speakerId ? isSpeaking : u.isSpeaking,
         }))
       );
+      setSeats((prev) =>
+        prev.map((seat) => {
+          if (!seat.user || String(seat.user.id) !== String(speakerId)) return seat;
+          return { ...seat, user: { ...seat.user, active: isSpeaking } };
+        })
+      );
+      setSpeakingUserIds((prev) => {
+        const next = new Set(prev);
+        if (isSpeaking) {
+          next.add(String(speakerId));
+        } else {
+          next.delete(String(speakerId));
+        }
+        return next;
+      });
     });
     const unsubGiftAnimation = wsService.onRoomGiftAnimation(String(roomId), (payload) => {
       revealGiftAnimation(payload);
@@ -2853,8 +2968,8 @@ export default function VoiceParty() {
             >
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
-                  {seat.user.active && !resolveNewUserFrameSource(seat.user) && (
-                    <View style={styles.activeRing} />
+                  {!resolveNewUserFrameSource(seat.user) && (
+                    <SpeakingRing active={speakingUserIds.has(String(seat.user.id))} />
                   )}
                   {renderRoomUserAvatar(
                     seat.user,

@@ -15,7 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import { guestLogin, googleLogin } from "../src/api/authApi";
 import { getUsersCount } from "../src/api/userApi";
-import { hasAcceptedTerms, setTermsAccepted } from "../src/store/authStore";
+import { hasAcceptedTerms, setTermsAccepted, updateUser } from "../src/store/authStore";
 import { establishSessionFromApi } from "../src/services/authSessionService";
 import {
   configureFacebookSdk,
@@ -28,6 +28,7 @@ import {
   signInWithGoogle,
   getGoogleAuthErrorMessage,
 } from "../src/hooks/useGoogleSignIn";
+import { s, vs, ms, wp } from "../src/utils/responsive";
 
 const logo = require("../assets/images/splash-icon.png");
 
@@ -134,6 +135,7 @@ export default function Login() {
     setGuestLoading(true);
     try {
       await establishSessionFromApi(guestLogin);
+      await updateUser({ isGuest: true, avatarId: null, avatar: null, profilePicUrl: null, avatarUrl: null });
       await finishLogin();
     } catch (err) {
       Alert.alert(
@@ -160,53 +162,77 @@ export default function Login() {
 
       {/* Top-left pink orb */}
       <View style={{
-        position: "absolute", width: 300, height: 300, top: -80, left: -80,
-        borderRadius: 150, backgroundColor: "rgba(255,0,128,0.18)",
+        position: "absolute",
+        width: s(300), height: s(300),
+        top: vs(-80), left: s(-80),
+        borderRadius: s(150),
+        backgroundColor: "rgba(255,0,128,0.18)",
       }} />
 
       {/* Bottom-right purple orb */}
       <View style={{
-        position: "absolute", width: 350, height: 350, bottom: -120, right: -120,
-        borderRadius: 175, backgroundColor: "rgba(138,43,226,0.22)",
+        position: "absolute",
+        width: s(350), height: s(350),
+        bottom: vs(-120), right: s(-120),
+        borderRadius: s(175),
+        backgroundColor: "rgba(138,43,226,0.22)",
       }} />
 
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
         <View style={{
-          flex: 1, alignItems: "center", justifyContent: "center",
-          paddingHorizontal: 28, paddingVertical: 48,
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: s(28),
+          paddingVertical: vs(48),
         }}>
 
           {/* Logo */}
-          <Image source={logo} style={{ width: 300, height: 90, borderRadius: 20 }} resizeMode="contain" />
+          <Image
+            source={logo}
+            style={{ width: wp(80), height: vs(90), borderRadius: s(20) }}
+            resizeMode="contain"
+          />
 
           {/* Title */}
           <MaskedView
-            style={{ marginTop: 28 }}
+            style={{ marginTop: vs(28) }}
             maskElement={
-              <Text style={{ fontSize: 38, fontWeight: "800", letterSpacing: 1, textAlign: "center" }}>
+              <Text style={{ fontSize: ms(38), fontWeight: "800", letterSpacing: 1, textAlign: "center" }}>
                 Tuk Tuk
               </Text>
             }
           >
             <LinearGradient colors={["#ffffff", "#f0e6ff", "#ff69b4"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-              <Text style={{ fontSize: 48, fontWeight: "800", opacity: 0 }}>Tuk Tuk</Text>
+              <Text style={{ fontSize: ms(48), fontWeight: "800", opacity: 0 }}>Tuk Tuk</Text>
             </LinearGradient>
           </MaskedView>
 
           {/* User count */}
           <MaskedView
-            style={{ marginTop: 8 }}
+            style={{ marginTop: vs(8) }}
             maskElement={
-              <Text style={{ fontSize: 46, fontWeight: "800", textAlign: "center" }}>{userCountLabel}</Text>
+              <Text style={{ fontSize: ms(46), fontWeight: "800", textAlign: "center" }}>{userCountLabel}</Text>
             }
           >
             <LinearGradient colors={["#00ffff", "#ff00ff", "#ff69b4"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-              <Text style={{ fontSize: 46, fontWeight: "800", opacity: 0 }}>{userCountLabel}</Text>
+              <Text style={{ fontSize: ms(46), fontWeight: "800", opacity: 0 }}>{userCountLabel}</Text>
             </LinearGradient>
           </MaskedView>
 
           {/* Subtitle */}
-          <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 15, marginTop: 6, marginBottom: 36, letterSpacing: 0.5 }}>
+          <Text
+            allowFontScaling={false}
+            style={{
+              color: "rgba(255,255,255,0.6)",
+              fontSize: ms(15),
+              marginTop: vs(6),
+              marginBottom: vs(36),
+              letterSpacing: 0.5,
+              textAlign: "center",
+              alignSelf: "stretch",
+            }}
+          >
             Connect - Talk - Earn
           </Text>
 
@@ -216,26 +242,29 @@ export default function Login() {
             disabled={facebookLoading}
             activeOpacity={0.8}
             style={{
-              width: "100%", height: 62, borderRadius: 16,
+              width: "100%", height: vs(62), borderRadius: s(16),
               borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
               backgroundColor: "rgba(255,255,255,0.07)",
               flexDirection: "row", alignItems: "center",
-              paddingHorizontal: 18, marginBottom: 14,
+              paddingHorizontal: s(18), marginBottom: vs(14),
               shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
               shadowOpacity: 0.3, shadowRadius: 16, elevation: 6,
             }}
           >
             <View style={{
-              width: 42, height: 42, borderRadius: 12, backgroundColor: "white",
-              alignItems: "center", justifyContent: "center", marginRight: 18,
+              width: s(42), height: s(42), borderRadius: s(12),
+              backgroundColor: "white",
+              alignItems: "center", justifyContent: "center",
+              marginRight: s(18),
             }}>
-              <FontAwesome name="facebook-f" size={20} color="#1877F2" />
+              <FontAwesome name="facebook-f" size={ms(20)} color="#1877F2" />
             </View>
             {facebookLoading
               ? <ActivityIndicator color="white" style={{ marginLeft: "auto" }} />
-              : <Text style={{ color: "white", fontSize: 16, fontWeight: "600", letterSpacing: 0.3 }}>
+              : <Text style={{ color: "white", fontSize: ms(16), fontWeight: "600", letterSpacing: 0.3 }}>
                   Sign in with Facebook
-                </Text>}
+                </Text>
+            }
           </TouchableOpacity>
 
           {/* Google Button */}
@@ -244,41 +273,47 @@ export default function Login() {
             disabled={googleLoading}
             activeOpacity={0.8}
             style={{
-              width: "100%", height: 62, borderRadius: 16,
+              width: "100%", height: vs(62), borderRadius: s(16),
               borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
               backgroundColor: "rgba(255,255,255,0.07)",
               flexDirection: "row", alignItems: "center",
-              paddingHorizontal: 18, marginBottom: 32,
+              paddingHorizontal: s(18), marginBottom: vs(32),
               shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
               shadowOpacity: 0.3, shadowRadius: 16, elevation: 6,
             }}
           >
             <View style={{
-              width: 42, height: 42, borderRadius: 12, backgroundColor: "white",
-              alignItems: "center", justifyContent: "center", marginRight: 18,
+              width: s(42), height: s(42), borderRadius: s(12),
+              backgroundColor: "white",
+              alignItems: "center", justifyContent: "center",
+              marginRight: s(18),
             }}>
-              <AntDesign name="google" size={22} color="#EA4335" />
+              <AntDesign name="google" size={ms(22)} color="#EA4335" />
             </View>
             {googleLoading
               ? <ActivityIndicator color="white" style={{ marginLeft: "auto" }} />
-              : <Text style={{ color: "white", fontSize: 16, fontWeight: "600", letterSpacing: 0.3 }}>
+              : <Text style={{ color: "white", fontSize: ms(16), fontWeight: "600", letterSpacing: 0.3 }}>
                   Sign in with Google
-                </Text>}
+                </Text>
+            }
           </TouchableOpacity>
 
           {/* Divider */}
-          <View style={{ flexDirection: "row", alignItems: "center", width: "100%", marginBottom: 28 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", width: "100%", marginBottom: vs(28) }}>
             <View style={{ flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" }} />
-            <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 14, marginHorizontal: 16 }}>
+            <Text
+              allowFontScaling={false}
+              style={{ color: "rgba(255,255,255,0.55)", fontSize: ms(14), marginHorizontal: s(16) }}
+            >
               More login options
             </Text>
             <View style={{ flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" }} />
           </View>
 
           {/* Phone login */}
-          <View style={{ alignItems: "center", width: "100%", marginBottom: 40 }}>
+          <View style={{ alignItems: "center", width: "100%", marginBottom: vs(40) }}>
             <TouchableOpacity onPress={handlePhoneLogin} activeOpacity={0.8} style={circleBtn}>
-              <FontAwesome5 name="phone-alt" size={24} color="white" />
+              <FontAwesome5 name="phone-alt" size={ms(24)} color="white" />
             </TouchableOpacity>
           </View>
 
@@ -288,17 +323,17 @@ export default function Login() {
             disabled={guestLoading}
             activeOpacity={0.7}
             style={{
-              width: "100%", height: 52, borderRadius: 14,
+              width: "100%", height: vs(52), borderRadius: s(14),
               borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
               backgroundColor: "rgba(255,255,255,0.05)",
               flexDirection: "row", alignItems: "center", justifyContent: "center",
-              gap: 10, marginBottom: 28,
+              gap: s(10), marginBottom: vs(28),
             }}
           >
-            <FontAwesome5 name="user-secret" size={18} color="rgba(255,255,255,0.6)" />
+            <FontAwesome5 name="user-secret" size={ms(18)} color="rgba(255,255,255,0.6)" />
             {guestLoading
               ? <ActivityIndicator color="rgba(255,255,255,0.6)" />
-              : <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 15, fontWeight: "600" }}>
+              : <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: ms(15), fontWeight: "600" }}>
                   Continue as Guest
                 </Text>
             }
@@ -307,25 +342,25 @@ export default function Login() {
           {/* Terms Checkbox */}
           <View style={{
             flexDirection: "row", alignItems: "center", width: "100%",
-            backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 14,
+            backgroundColor: "rgba(255,255,255,0.04)", borderRadius: s(14),
             borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
-            paddingVertical: 16, paddingHorizontal: 16,
+            paddingVertical: vs(16), paddingHorizontal: s(16),
           }}>
             <TouchableOpacity
               onPress={toggleAccepted}
               activeOpacity={0.8}
               style={{
-                width: 22, height: 22, borderRadius: 5, borderWidth: 2,
+                width: s(22), height: s(22), borderRadius: s(5), borderWidth: 2,
                 borderColor: accepted ? "transparent" : "rgba(255,255,255,0.35)",
                 backgroundColor: accepted ? "#ff0080" : "rgba(255,255,255,0.08)",
-                alignItems: "center", justifyContent: "center", marginRight: 12,
+                alignItems: "center", justifyContent: "center", marginRight: s(12),
                 shadowColor: accepted ? "#ff0080" : "transparent",
                 shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 8,
               }}
             >
-              {accepted && <FontAwesome name="check" size={11} color="white" />}
+              {accepted && <FontAwesome name="check" size={ms(11)} color="white" />}
             </TouchableOpacity>
-            <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 13, flex: 1, lineHeight: 20 }}>
+            <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: ms(13), flex: 1, lineHeight: ms(20) }}>
               I agree to the{" "}
               <Text style={{ color: "#ff69b4", fontWeight: "700" }} onPress={() => router.push("/terms-of-use")}>
                 Terms and Conditions
@@ -348,7 +383,7 @@ export default function Login() {
 }
 
 const circleBtn = {
-  width: 68, height: 68, borderRadius: 34,
+  width: s(68), height: s(68), borderRadius: s(34),
   backgroundColor: "rgba(255,255,255,0.08)",
   borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
   alignItems: "center", justifyContent: "center",

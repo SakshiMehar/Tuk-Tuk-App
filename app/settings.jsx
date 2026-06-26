@@ -21,6 +21,7 @@ import {
   logoutSession,
   deleteAccountSession,
 } from "../src/services/authSessionService";
+import { getUser } from "../src/store/authStore";
 import {
   loadUserSettings,
   updateUserSettings,
@@ -117,6 +118,13 @@ export default function Settings() {
   const [expandedFaq, setExpandedFaq] = useState(null);
 
   const [loggingOut, setLoggingOut] = useState(false);
+  const [currentUserAvatar, setCurrentUserAvatar] = useState(null);
+
+  useEffect(() => {
+    getUser().then((u) => {
+      if (u) setCurrentUserAvatar(u.avatarUrl ?? u.avatar ?? u.profileImage ?? null);
+    }).catch(() => {});
+  }, []);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteReason, setDeleteReason] = useState("");
   const [deleteComment, setDeleteComment] = useState("");
@@ -540,7 +548,11 @@ export default function Settings() {
                   <View style={styles.profileDisplayArea}>
                     <View style={styles.profileCircle}>
                       <Image
-                        source={{ uri: "https://randomuser.me/api/portraits/women/32.jpg" }}
+                        source={
+                          currentUserAvatar
+                            ? { uri: currentUserAvatar }
+                            : require("../assets/images/splash-icon.png")
+                        }
                         style={styles.profileImage}
                       />
                     </View>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,17 +7,66 @@ import {
   TouchableOpacity,
   Switch,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import {
+  loadUserSettings,
+  updateUserSettings,
+} from "../src/services/userSettingsService";
 
 export default function MessageNotification() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [enabled, setEnabled] = useState(true);
   const footerBottomPad = Math.max(insets.bottom, 16);
+
+  const [enabled, setEnabled] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  // Keep a snapshot so updateUserSettings can merge correctly
+  const [settingsSnapshot, setSettingsSnapshot] = useState({});
+
+  // Load persisted setting on mount
+  useEffect(() => {
+    loadUserSettings()
+      .then((settings) => {
+        // messageNotification maps to notificationOption from the settings object;
+        // treat anything other than "No notifications" as enabled.
+        const isEnabled =
+          settings.notificationOption !== "No notifications";
+        setEnabled(isEnabled);
+        setSettingsSnapshot(settings);
+      })
+      .catch(() => {
+        // Keep default (enabled) on load failure — non-critical
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleToggle = async (value) => {
+    if (saving) return;
+    setEnabled(value);
+    setSaving(true);
+    try {
+      const updated = await updateUserSettings(
+        {
+          notificationOption: value
+            ? "All notifications"
+            : "No notifications",
+        },
+        settingsSnapshot
+      );
+      setSettingsSnapshot(updated);
+    } catch {
+      // Revert on failure
+      setEnabled(!value);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -52,10 +101,6 @@ export default function MessageNotification() {
               <Text style={styles.pillText}>You received a new message</Text>
             </View>
           </View>
-
-          <TouchableOpacity style={styles.openBtn} activeOpacity={0.85}>
-            <Text style={styles.openBtnText}>Open</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -63,15 +108,22 @@ export default function MessageNotification() {
         <View style={styles.optionRow}>
           <View style={styles.optionTextWrap}>
             <Text style={styles.optionTitle}>Message Notification</Text>
-            <Text style={styles.optionSub}>Close will not show it</Text>
+            <Text style={styles.optionSub}>
+              {enabled ? "Notifications are on" : "Notifications are off"}
+            </Text>
           </View>
-          <Switch
-            value={enabled}
-            onValueChange={setEnabled}
-            trackColor={{ false: "rgba(255,255,255,0.2)", true: "#7c3aed" }}
-            thumbColor="#fff"
-            style={styles.switch}
-          />
+          {loading ? (
+            <ActivityIndicator color="#a78bfa" style={{ marginRight: 4 }} />
+          ) : (
+            <Switch
+              value={enabled}
+              onValueChange={handleToggle}
+              disabled={saving}
+              trackColor={{ false: "rgba(255,255,255,0.2)", true: "#7c3aed" }}
+              thumbColor="#fff"
+              style={styles.switch}
+            />
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -161,18 +213,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 15,
     flex: 1,
-  },
-  openBtn: {
-    marginTop: 24,
-    backgroundColor: "#000",
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  openBtnText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
   },
   footer: {
     paddingTop: 12,

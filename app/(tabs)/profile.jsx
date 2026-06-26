@@ -47,6 +47,8 @@ import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/
 import { openUserChat } from "../../src/utils/chatNavigation";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import { refreshWalletBalance } from "../../src/store/walletStore";
+import { submitFeedback } from "../../src/services/userSettingsService";
+import { s, ms } from "../../src/utils/responsive";
 
 const screen = Dimensions.get("window");
 
@@ -127,6 +129,7 @@ export default function Profile() {
   const [expandedFaqMM, setExpandedFaqMM] = useState(null);
   const [profileFeedback, setProfileFeedback] = useState("");
   const [feedbackSentMM, setFeedbackSentMM] = useState(false);
+  const [feedbackSubmittingMM, setFeedbackSubmittingMM] = useState(false);
 
   // Saved / favourite users
   const [savedUsers, setSavedUsers] = useState([]);
@@ -496,7 +499,12 @@ export default function Profile() {
                 onPress={() => handleOpenSavedUser(u)}
               >
                 {u.avatarUrl ? (
-                  <Image source={{ uri: u.avatarUrl }} style={styles.savedAvatar} />
+                  <Image
+                    source={/ngrok-free\.dev|ngrok\.io/i.test(u.avatarUrl ?? "")
+                      ? { uri: u.avatarUrl, headers: { "ngrok-skip-browser-warning": "true" } }
+                      : { uri: u.avatarUrl }}
+                    style={styles.savedAvatar}
+                  />
                 ) : (
                   <View style={[styles.savedAvatar, styles.savedAvatarFallback]}>
                     <FontAwesome5 name="user" size={18} color="#a78bfa" solid />
@@ -1249,13 +1257,23 @@ export default function Profile() {
                 textAlignVertical="top"
               />
               <TouchableOpacity
-                style={[styles.mmPrimaryBtn, !profileFeedback.trim() && { opacity: 0.4 }]}
+                style={[styles.mmPrimaryBtn, (!profileFeedback.trim() || feedbackSubmittingMM) && { opacity: 0.4 }]}
                 activeOpacity={0.8}
-                disabled={!profileFeedback.trim()}
-                onPress={() => {
-                  setFeedbackSentMM(true);
-                  setProfileFeedback("");
-                  setTimeout(() => setFeedbackSentMM(false), 3000);
+                disabled={!profileFeedback.trim() || feedbackSubmittingMM}
+                onPress={async () => {
+                  const text = profileFeedback.trim();
+                  if (!text || feedbackSubmittingMM) return;
+                  setFeedbackSubmittingMM(true);
+                  try {
+                    await submitFeedback(text);
+                    setFeedbackSentMM(true);
+                    setProfileFeedback("");
+                    setTimeout(() => setFeedbackSentMM(false), 3000);
+                  } catch (err) {
+                    Alert.alert("Send failed", err?.message ?? "Could not send feedback. Please try again.");
+                  } finally {
+                    setFeedbackSubmittingMM(false);
+                  }
                 }}
               >
                 <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
@@ -1387,7 +1405,7 @@ export default function Profile() {
               <ProfileAvatarWithFrame
                 avatarSource={avatarSource}
                 frameSource={newUserFrameSource}
-                size={72}
+                size={s(72)}
                 avatarStyle={styles.profilePic}
                 wrapperStyle={styles.profilePicFrameWrap}
               />
@@ -1405,7 +1423,7 @@ export default function Profile() {
 
               {/* ID + level badge inline */}
               <View style={styles.idRow}>
-                <Text style={styles.userId}>ID: {userId ?? "—"}</Text>
+                <Text allowFontScaling={false} style={styles.userId}>ID: {userId ?? "—"}</Text>
                 {userLevel != null ? (
                   <Image
                     source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel)}
@@ -1563,7 +1581,12 @@ export default function Profile() {
                   )}
 
                   {post.imageUrl && !post.hasVideo ? (
-                    <Image source={{ uri: post.imageUrl }} style={styles.momentPostImage} />
+                    <Image
+                      source={/ngrok-free\.dev|ngrok\.io/i.test(post.imageUrl)
+                        ? { uri: post.imageUrl, headers: { "ngrok-skip-browser-warning": "true" } }
+                        : { uri: post.imageUrl }}
+                      style={styles.momentPostImage}
+                    />
                   ) : null}
 
                   {post.hasVideo ? (
@@ -1947,8 +1970,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   profilePicWrapper: {
-    width: 78,
-    height: 78,
+    width: Math.round(s(72) * 1.23) + 4,
+    height: Math.round(s(72) * 1.23) + 4,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
@@ -1958,9 +1981,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   profilePic: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: s(72),
+    height: s(72),
+    borderRadius: s(36),
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.35)",
   },
@@ -1975,7 +1998,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   userName: {
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: "800",
     color: "white",
     flex: 1,
@@ -2003,8 +2026,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   userId: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 12,
+    color: "rgba(255,255,255,0.75)",
+    fontSize: ms(12),
   },
   levelBadge: {
     width: 36,

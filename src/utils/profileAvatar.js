@@ -4,6 +4,7 @@ import {
   DEFAULT_AVATAR_ID,
 } from "../data/avatarOptions";
 import { resolveRemoteProfilePicUrl } from "../services/meProfileService";
+import { toRemoteImageSource } from "../config/env";
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ??
@@ -30,7 +31,7 @@ export const resolveProfileAvatarSource = (user) => {
     )
   );
   if (remoteUrl) {
-    return { uri: remoteUrl };
+    return toRemoteImageSource(remoteUrl);
   }
 
   if (user?.avatarId) {

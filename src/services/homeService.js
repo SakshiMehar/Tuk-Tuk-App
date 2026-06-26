@@ -18,6 +18,16 @@ import {
 import { getActiveUsersCount } from "../api/userApi";
 import { getToken } from "../store/authStore";
 import { resolveAppUserId } from "../utils/sessionUser";
+import { API_BASE_URL } from "../config/env";
+
+// Backend returns relative paths like "/uploads/feed/abc.jpg".
+// React Native Image requires a full https:// URL.
+const toAbsoluteUrl = (url) => {
+  if (!url || typeof url !== "string") return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("/")) return `${API_BASE_URL}${url}`;
+  return url;
+};
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
@@ -41,14 +51,14 @@ const normalizeUserProfile = (profile, token = null) => {
     ...profile,
     id: userId,
     userId,
-    avatarUrl: firstText(
+    avatarUrl: toAbsoluteUrl(firstText(
       profile.avatarUrl,
       profile.avatar,
       profile.profileImage,
       profile.profilePic,
       profile.photoUrl,
       profile.imageUrl
-    ),
+    )),
   };
 };
 
@@ -74,7 +84,7 @@ const normalizeRecommendedUser = (user) => {
         profile?.username
       ) ?? "Guest",
     avatar:
-      firstText(
+      toAbsoluteUrl(firstText(
         user?.avatar,
         user?.avatarUrl,
         user?.profileImageUrl,
@@ -89,7 +99,7 @@ const normalizeRecommendedUser = (user) => {
         profile?.profileImageUrl,
         profile?.profileImage,
         profile?.photoUrl
-      ) ?? null,
+      )) ?? null,
     isOnline: Boolean(user?.isOnline ?? user?.online ?? profile?.isOnline),
   };
 };
@@ -97,6 +107,28 @@ const normalizeRecommendedUser = (user) => {
 export const normalizePost = (post) => {
   const author = post?.user ?? post?.author ?? post?.createdBy ?? {};
   const media = post?.media ?? post?.attachment ?? {};
+
+  // Determine media type first so we can route the generic media.url correctly.
+  // A post is a video when the backend explicitly marks it as such.
+  const isVideo = Boolean(
+    post?.hasVideo ||
+    post?.type === "video" ||
+    post?.mediaType === "video" ||
+    media?.type === "video" ||
+    media?.mediaType === "video"
+  );
+
+  // Use media.url as a video fallback only when we already know it is a video.
+  // This prevents a plain image URL stored in media.url from being treated as a
+  // video URL, which would set hasVideo=true and hide the image in PostCard.
+  const videoUrl = firstText(
+    post?.videoUrl,
+    media?.videoUrl,
+    media?.mediaUrl,
+    isVideo ? media?.url : null
+  );
+
+  // Use media.url as an image fallback only when the post is NOT a video.
   const imageUrl = firstText(
     post?.imageUrl,
     post?.mediaUrl,
@@ -105,12 +137,13 @@ export const normalizePost = (post) => {
     post?.postImage,
     post?.thumbnailUrl,
     media?.imageUrl,
-    media?.url,
-    Array.isArray(post?.mediaUrls) ? post.mediaUrls[0] : null
+    media?.mediaUrl,
+    !isVideo ? media?.url : null,
+    Array.isArray(post?.mediaUrls) ? post.mediaUrls[0] : null,
+    Array.isArray(post?.images) ? post.images[0] : null
   );
-  const videoUrl = firstText(post?.videoUrl, media?.videoUrl, media?.url);
 
-  return {
+  const result = {
     ...post,
     id: firstValue(post?.id, post?.postId, post?._id),
     userId: firstValue(
@@ -126,7 +159,7 @@ export const normalizePost = (post) => {
       typeof author === "string" || typeof author === "number" ? author : null
     ),
     name: firstText(post?.name, post?.username, post?.authorName, author?.name, author?.username) ?? "User",
-    avatar: firstText(
+    avatar: toAbsoluteUrl(firstText(
       post?.avatar,
       post?.avatarUrl,
       post?.profileImage,
@@ -136,13 +169,17 @@ export const normalizePost = (post) => {
       author?.avatarUrl,
       author?.profileImage,
       author?.profilePic
-    ),
+    )),
     text: firstText(post?.text, post?.caption, post?.content, post?.description) ?? "",
-    imageUrl,
-    videoUrl,
-    hasVideo: Boolean(post?.hasVideo || post?.type === "video" || media?.type === "video" || videoUrl),
+    imageUrl: toAbsoluteUrl(imageUrl),
+    videoUrl: toAbsoluteUrl(videoUrl),
+    // Re-derive hasVideo from the canonical videoUrl so it's consistent even
+    // when the backend field is missing or the type is not set explicitly.
+    hasVideo: Boolean(isVideo || toAbsoluteUrl(videoUrl)),
     likeCount: post?.likeCount ?? post?.likes ?? post?.totalLikes ?? 0,
   };
+
+  return result;
 };
 
 // Map UI display labels → API tab param values
@@ -174,19 +211,26 @@ const hasMoreFrom = (data) => {
 };
 
 // Loads all data the Home screen needs in a single call.
+// Uses Promise.allSettled so a failing secondary call (gifts, wallet, etc.)
+// never prevents the feed and profile from loading.
 export const getHomeData = async () => {
-  const [initData, feedData, notifData, giftsData, walletData, activeCountData] =
-    await Promise.all([
-    getHomeInit(),
-    getFeedPosts("for_you", 1, 10),
-    getNotifications(),
-    getDailyGifts(),
-    getWallet(),
-    getActiveUsersCount().catch((err) => {
-      
-      return null;
-    }),
-  ]);
+  const [initResult, feedResult, notifResult, giftsResult, walletResult, activeCountResult] =
+    await Promise.allSettled([
+      getHomeInit(),
+      getFeedPosts("for_you", 1, 10),
+      getNotifications(),
+      getDailyGifts(),
+      getWallet(),
+      getActiveUsersCount(),
+    ]);
+
+  // Core data — if init or feed fail the home screen should still handle it gracefully
+  const initData       = initResult.status       === "fulfilled" ? initResult.value       : null;
+  const feedData       = feedResult.status       === "fulfilled" ? feedResult.value       : null;
+  const notifData      = notifResult.status      === "fulfilled" ? notifResult.value      : null;
+  const giftsData      = giftsResult.status      === "fulfilled" ? giftsResult.value      : null;
+  const walletData     = walletResult.status     === "fulfilled" ? walletResult.value     : null;
+  const activeCountData= activeCountResult.status=== "fulfilled" ? activeCountResult.value: null;
 
   const gifts = Array.isArray(giftsData) ? giftsData : (giftsData?.gifts ?? []);
   const notifList = notifData?.notifications?.content

@@ -19,5 +19,21 @@ export const API_TIMEOUT_MS = Number(
 export const isNgrokBaseUrl = () =>
   /ngrok-free\.dev|ngrok\.io/i.test(API_BASE_URL);
 
+/**
+ * Wraps a remote image URI in a source object, adding the ngrok header
+ * when the URL passes through ngrok. Use this for every <Image> that
+ * loads a URL from the backend — otherwise ngrok returns its HTML
+ * warning page instead of the actual image.
+ *
+ * Works with both expo-image and React Native's native Image component.
+ */
+export const toRemoteImageSource = (uri) => {
+  if (!uri) return null;
+  const isNgrok = /ngrok-free\.dev|ngrok\.io/i.test(uri);
+  return isNgrok
+    ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri };
+};
+
 /** Agora App ID — fallback if voice-token API does not return appId. */
 export const AGORA_APP_ID = process.env.EXPO_PUBLIC_AGORA_APP_ID ?? "";

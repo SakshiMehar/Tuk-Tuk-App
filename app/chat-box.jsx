@@ -8,7 +8,8 @@ export default function ChatBoxScreen() {
   const user = {
     userId: params.userId ?? params.id ?? null,
     name: params.name ?? "User",
-    avatar: params.avatar ?? null,
+    // Avatar URLs passed as route params get URL-encoded — decode before use
+    avatar: params.avatar ? decodeURIComponent(params.avatar) : null,
     lastMsg: params.lastMsg ?? "",
   };
 

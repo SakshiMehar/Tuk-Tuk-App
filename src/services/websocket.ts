@@ -228,6 +228,11 @@ class WebSocketService {
 
   private _onDisconnect(): void {
     this.connected = false;
+    // Clear the subscriptions map so that when the STOMP client auto-reconnects
+    // (reconnectDelay), _onConnect → _subscribeUserChats doesn't find the stale
+    // key and skip re-subscribing. Without this, incoming messages are silently
+    // dropped after every automatic reconnection until the user logs out/in.
+    this.subscriptions.clear();
   }
 
   private _sub<T>(

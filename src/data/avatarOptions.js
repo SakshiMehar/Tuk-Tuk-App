@@ -1,5 +1,6 @@
 /** Local profile avatars — add new files under assets/Avatar and register here. */
 export const avatarMap = {
+  newuserpic: require("../../assets/Avatar/newuserPic.png"),
   avatar1: require("../../assets/Avatar/avatar1.webp"),
   avatar2: require("../../assets/Avatar/avatar2.webp"),
   avatar3: require("../../assets/Avatar/avatar3.webp"),
@@ -55,4 +56,4 @@ export const resolveBundledAvatarId = (...values) =>
 export const getAvatarSource = (avatarId) =>
   avatarMap[avatarId] ?? avatarMap.avatar1;
 
-export const DEFAULT_AVATAR_ID = "avatar1";
+export const DEFAULT_AVATAR_ID = "newuserpic";

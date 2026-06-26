@@ -52,25 +52,25 @@ export const applyWalletFromSources = ({ walletData, userProfile } = {}) => {
   return balance;
 };
 
-/** Refresh balance from backend — used on screen focus and after rewards. */
+/** Refresh balance from backend — used on screen focus and after rewards.
+ *  Calls the wallet endpoint first; only falls back to home/init if it fails. */
 export const refreshWalletBalance = async () => {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
     try {
-      const [walletResult, initResult] = await Promise.allSettled([
-        getWalletMe(),
-        getHomeInit(),
-      ]);
-
-      const walletData =
-        walletResult.status === "fulfilled" ? walletResult.value : null;
-      const userProfile =
-        initResult.status === "fulfilled"
-          ? initResult.value?.userProfile
-          : null;
-
-      return applyWalletFromSources({ walletData, userProfile });
+      // Primary: lightweight wallet endpoint
+      const walletData = await getWalletMe();
+      return applyWalletFromSources({ walletData });
+    } catch {
+      // Fallback: pull balance from home/init profile if wallet endpoint is down
+      try {
+        const initData = await getHomeInit();
+        return applyWalletFromSources({ userProfile: initData?.userProfile });
+      } catch {
+        // Both failed — keep current balance
+        return balance;
+      }
     } finally {
       refreshPromise = null;
     }

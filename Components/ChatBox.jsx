@@ -102,15 +102,25 @@ export default function ChatBox({ user = {}, onBack }) {
       const text = payload?.content ?? payload?.message ?? "";
       if (!text) return;
 
+      const id = String(payload?.messageId ?? payload?.id ?? `ws-${Date.now()}`);
+      const fromMe = String(senderId) === String(myUserId);
+
       setMessages((prev) => {
-        const id = String(payload?.messageId ?? payload?.id ?? `ws-${Date.now()}`);
+        // Skip duplicate real IDs
         if (prev.some((m) => String(m.id) === id)) return prev;
+
+        // If the server echoes our own message back, replace the optimistic
+        // pending entry (same text, fromMe) rather than adding a duplicate.
+        const filtered = fromMe
+          ? prev.filter((m) => !(m._pending && m.text === text))
+          : prev;
+
         return [
-          ...prev,
+          ...filtered,
           {
             id,
             text,
-            fromMe: String(senderId) === String(myUserId),
+            fromMe,
             time: payload?.timestamp ? new Date(payload.timestamp) : new Date(),
           },
         ];
@@ -129,16 +139,26 @@ export default function ChatBox({ user = {}, onBack }) {
     const text = String(rawText ?? "").trim();
     if (!text || !userId) return;
 
+    // Optimistic update — show the message immediately so the user gets
+    // instant feedback. The WS handler deduplicates server echoes later.
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: tempId, text, fromMe: true, time: new Date(), _pending: true },
+    ]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+
     try {
       wsService.sendMessage(String(userId), text);
     } catch (err) {
+      // Roll back the optimistic entry on send failure
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       Alert.alert("Send failed", err?.message || "WebSocket not connected.");
       return;
     }
 
     if (clearComposer) setMessage("");
     setShowEmojiBox(false);
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
   const sendMessage = () => {
@@ -271,7 +291,12 @@ export default function ChatBox({ user = {}, onBack }) {
                   style={styles.matchAvatarRing}
                 >
                   {avatar ? (
-                    <Image source={{ uri: avatar }} style={styles.matchAvatar} />
+                    <Image
+                      source={/ngrok-free\.dev|ngrok\.io/i.test(avatar)
+                        ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
+                        : { uri: avatar }}
+                      style={styles.matchAvatar}
+                    />
                   ) : (
                     <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
                       <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -303,7 +328,12 @@ export default function ChatBox({ user = {}, onBack }) {
                 >
                   {!msg.fromMe && (
                     avatar ? (
-                      <Image source={{ uri: avatar }} style={styles.msgAvatar} />
+                      <Image
+                        source={/ngrok-free\.dev|ngrok\.io/i.test(avatar)
+                          ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
+                          : { uri: avatar }}
+                        style={styles.msgAvatar}
+                      />
                     ) : (
                       <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
                         <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>

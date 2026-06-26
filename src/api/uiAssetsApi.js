@@ -1,5 +1,14 @@
 import API, { authRequestConfig } from "./axios";
 
+/** GET /api/app/users/:userId/ui-assets */
+export const getUserUiAssets = async (userId) => {
+  const response = await API.get(
+    `/api/app/users/${userId}/ui-assets`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
 /** GET /api/app/ui-assets/new-user-frame */
 export const getNewUserFrame = async () => {
   const response = await API.get(
