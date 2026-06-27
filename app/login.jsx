@@ -303,7 +303,9 @@ export default function Login() {
             <View style={{ flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" }} />
             <Text
               allowFontScaling={false}
-              style={{ color: "rgba(255,255,255,0.55)", fontSize: ms(14), marginHorizontal: s(16) }}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={{ color: "rgba(255,255,255,0.55)", fontSize: ms(14), marginHorizontal: s(8), flexShrink: 1 }}
             >
               More login options
             </Text>

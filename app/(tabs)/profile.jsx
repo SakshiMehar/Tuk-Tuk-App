@@ -1456,8 +1456,8 @@ export default function Profile() {
               activeOpacity={0.75}
               onPress={() => setConnectionsListType("following")}
             >
-              <Text style={styles.statValue}>{following.toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Following</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{following.toLocaleString()}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Following</Text>
             </TouchableOpacity>
             <View style={styles.statDivider} />
             <TouchableOpacity
@@ -1465,8 +1465,8 @@ export default function Profile() {
               activeOpacity={0.75}
               onPress={() => setConnectionsListType("followers")}
             >
-              <Text style={styles.statValue}>{followers.toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{followers.toLocaleString()}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Followers</Text>
             </TouchableOpacity>
             <View style={styles.statDivider} />
             <TouchableOpacity
@@ -1474,8 +1474,8 @@ export default function Profile() {
               activeOpacity={0.75}
               onPress={() => setConnectionsListType("visitors")}
             >
-              <Text style={styles.statValue}>{visitorCount.toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Visitor</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{visitorCount.toLocaleString()}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Visitor</Text>
             </TouchableOpacity>
               </>
             )}
@@ -2051,16 +2051,22 @@ const styles = StyleSheet.create({
   statItem: {
     alignItems: "center",
     flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 2,
   },
   statValue: {
     fontSize: 18,
     fontWeight: "800",
     color: "white",
+    width: "100%",
+    textAlign: "center",
   },
   statLabel: {
     fontSize: 12,
     color: "rgba(255,255,255,0.5)",
     marginTop: 2,
+    width: "100%",
+    textAlign: "center",
   },
   statDivider: {
     width: 1,

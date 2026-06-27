@@ -27,7 +27,6 @@ import { useRouter } from "expo-router";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { ChevronRight } from "lucide-react-native";
-import { API_BASE_URL, toRemoteImageSource } from "../../src/config/env";
 import * as homeService from "../../src/services/homeService";
 import {
   followUser,
@@ -102,7 +101,7 @@ const actionCards = [
     title: "Nearby",
     subtitle: "People around you",
     colors: ["#143238ff", "#0077b6"],
-    img: toRemoteImageSource(`${API_BASE_URL}/api/public/media/assets/TM3.gif`),
+    img: require("../../assets/images/TM3.gif"),
     route: "/nearby",
     imgSize: CARD_SIZE * 0.90,
     gifDelay: 800,
@@ -111,7 +110,7 @@ const actionCards = [
     title: "Blind Pick",
     subtitle: "Mystery match",
     colors: ["#dc62bcff", "#351743ff"],
-    img: toRemoteImageSource(`${API_BASE_URL}/api/public/media/assets/TM2B.gif`),
+    img: require("../../assets/images/TM2B.gif"),
     route: "/(tabs)/blind-pick",
     imgSize: CARD_SIZE * 0.80,
     gifDelay: 1200,
@@ -1726,12 +1725,12 @@ const HomeHeader = memo(({
           <View style={styles.appNameWrapper}>
             {/* Thin #7f3f89 outline — 8 directions at 1px */}
             {[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]].map(([dx, dy], i) => (
-              <Text key={i} numberOfLines={1} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
+              <Text key={i} numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
                 Tuk Tuk
               </Text>
             ))}
             {/* White text on top */}
-            <Text numberOfLines={1} style={styles.appName}>Tuk Tuk</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.appName}>Tuk Tuk</Text>
           </View>
         </View>
         <View style={styles.headerIcons}>
@@ -3107,7 +3106,6 @@ const styles = StyleSheet.create({
     position: "relative",
     alignSelf: "flex-start",
     maxWidth: "100%",
-    overflow: "hidden",
   },
   appNameOutline: {
     color: "#7f3f89",

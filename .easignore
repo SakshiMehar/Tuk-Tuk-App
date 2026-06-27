@@ -58,11 +58,5 @@ README.md
 scripts/
 patches/
 
-# ── Large GIFs served from backend CDN — not require()'d in app code ──
-# Upload these to: /api/public/media/assets/ on your server.
-# home.jsx loads them via toRemoteImageSource(API_BASE_URL + '/api/public/media/assets/...')
-assets/images/TM3.gif
-assets/images/TM2B.gif
-
 # ── Videos served from API — not require()'d in app code ──
 assets/videos/

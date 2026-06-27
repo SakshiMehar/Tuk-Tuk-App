@@ -80,6 +80,7 @@ import { resolveProfileAvatarUri, resolveProfileAvatarSource } from "../src/util
 import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
+import { getUserUiAssets } from "../src/api/uiAssetsApi";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadUserDetail } from "../src/services/nearbyService";
 import { resolveVideoSource, resolveImageSource } from "../src/utils/videoSource";
@@ -414,6 +415,7 @@ export default function VoiceParty() {
   const exitedRef = useRef(false);
   const buyingGiftRef = useRef(false);
   const roomIdRef = useRef(roomIdParam);
+  const fetchedUiAssetIdsRef = useRef(new Set());
   const { keyboardHeight, safeBottom, idleBottom } = useKeyboardInset();
   const [showPlayCenter, setShowPlayCenter] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -445,6 +447,9 @@ export default function VoiceParty() {
   const [activityEvent, setActivityEvent] = useState("Flamenco Fantasy");
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [currentVideo, setCurrentVideo] = useState(null);
+  // Frame data keyed by userId string — lives independently of seats/onlineUsers
+  // so WebSocket seat resets can never wipe it.
+  const [userFrameData, setUserFrameData] = useState({});
 
   const videoPlayer = useVideoPlayer(null, (p) => { p.loop = false; });
 
@@ -503,6 +508,50 @@ export default function VoiceParty() {
       .then((user) => setLocalSessionUser(user))
       .catch(() => setLocalSessionUser(null));
   }, []);
+
+  // Collect all visible user IDs (seats + audience) and fetch UI assets for any
+  // we haven't seen before. Results go into userFrameData — a separate state that
+  // WebSocket seat resets can never touch — so the frame survives any re-render.
+  useEffect(() => {
+    const seatUserIds = seats
+      .filter((seat) => seat.user?.id != null)
+      .map((seat) => String(seat.user.id));
+    const audienceUserIds = onlineUsers
+      .filter((u) => u?.id != null)
+      .map((u) => String(u.id));
+    const allIds = [...new Set([...seatUserIds, ...audienceUserIds])];
+    const pending = allIds.filter((userId) => !fetchedUiAssetIdsRef.current.has(userId));
+
+    if (pending.length === 0) return;
+
+    pending.forEach((userId) => {
+      fetchedUiAssetIdsRef.current.add(userId);
+      getUserUiAssets(userId)
+        .then((response) => {
+          console.log(`[VoiceParty] ui-assets userId=${userId}:`, JSON.stringify(response));
+          const showFrame = Boolean(
+            response?.showNewUserFrame ??
+            response?.hasNewUserFrame ??
+            response?.data?.showNewUserFrame ??
+            response?.data?.hasNewUserFrame ??
+            false
+          );
+          const frameUrl =
+            response?.newUserFrameUrl ??
+            response?.frameUrl ??
+            response?.data?.newUserFrameUrl ??
+            response?.data?.frameUrl ??
+            null;
+          setUserFrameData((prev) => ({
+            ...prev,
+            [userId]: { hasNewUserFrame: showFrame, newUserFrameUrl: frameUrl },
+          }));
+        })
+        .catch((err) => {
+          if (__DEV__) console.warn(`[VoiceParty] ui-assets fetch failed userId=${userId}:`, err?.message ?? err);
+        });
+    });
+  }, [seats, onlineUsers]);
 
   const hostUserLike = useMemo(() => {
     const fromSeat = seats.find(
@@ -1600,13 +1649,19 @@ export default function VoiceParty() {
   ) => {
     const resolvedStyle = Array.isArray(imageStyle) ? imageStyle[0] : imageStyle;
     const size = resolvedStyle?.width ?? resolvedStyle?.height ?? 48;
-    const imageSource = resolveRoomUserAvatarSource(user);
-    const frameSource = resolveNewUserFrameSource(user);
+    // Merge in fetched frame data so WebSocket seat resets don't lose it.
+    const userId = user?.id != null ? String(user.id) : null;
+    const fetched = userId ? (userFrameData[userId] ?? {}) : {};
+    const userWithFrame = user
+      ? { ...user, hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame, newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl }
+      : user;
+    const imageSource = resolveRoomUserAvatarSource(userWithFrame);
+    const frameSource = resolveNewUserFrameSource(userWithFrame);
     const hasFrame = Boolean(frameSource);
 
     return (
       <ProfileAvatarWithFrame
-        user={user}
+        user={userWithFrame}
         avatarSource={imageSource}
         frameSource={frameSource}
         size={typeof size === "number" ? size : 48}
@@ -1618,7 +1673,7 @@ export default function VoiceParty() {
         avatarStyle={imageStyle}
         placeholderStyle={placeholderStyle}
         initialStyle={initialStyle}
-        placeholderInitial={user?.name?.[0]?.toUpperCase() ?? "?"}
+        placeholderInitial={userWithFrame?.name?.[0]?.toUpperCase() ?? "?"}
       />
     );
   };
@@ -2968,7 +3023,7 @@ export default function VoiceParty() {
             >
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
-                  {!resolveNewUserFrameSource(seat.user) && (
+                  {!resolveNewUserFrameSource({ ...seat.user, ...(userFrameData[String(seat.user.id)] ?? {}) }) && (
                     <SpeakingRing active={speakingUserIds.has(String(seat.user.id))} />
                   )}
                   {renderRoomUserAvatar(

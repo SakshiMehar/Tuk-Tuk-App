@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { initFirebase } from "../src/lib/firebase";
-
+import { setSessionExpiredHandler } from "../src/api/axios";
 
 // NOTE: Splash screen is handled manually inside app/index.jsx
 // using Animated transitions. SplashScreen.preventAutoHideAsync()
@@ -12,6 +12,18 @@ export default function RootLayout() {
   useEffect(() => {
     initFirebase();
   }, []);
+
+  useEffect(() => {
+    // When any API call returns 401 (expired / missing token), clear the
+    // session and return the user to the login screen.
+    setSessionExpiredHandler(() => {
+      router.replace("/login");
+    });
+    return () => {
+      setSessionExpiredHandler(null);
+    };
+  }, []);
+
   return (
     <SafeAreaProvider>
     <Stack screenOptions={{ headerShown: false }}>

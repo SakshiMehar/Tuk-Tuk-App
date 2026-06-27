@@ -32,6 +32,11 @@ const toAbsoluteUrl = (url) => {
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
 
+// A post is considered displayable only when it has at least one piece of
+// visible content — text, an image URL, or a video URL.
+const hasContent = (post) =>
+  Boolean(post.text || post.imageUrl || post.videoUrl);
+
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
 
@@ -105,7 +110,18 @@ const normalizeRecommendedUser = (user) => {
 };
 
 export const normalizePost = (post) => {
-  const author = post?.user ?? post?.author ?? post?.createdBy ?? {};
+  if (__DEV__) {
+    console.log("[normalizePost] raw keys:", Object.keys(post ?? {}), "| author key:", Object.keys(post?.user ?? post?.author ?? post?.poster ?? post?.member ?? {}));
+  }
+  const author =
+    post?.user ??
+    post?.author ??
+    post?.poster ??
+    post?.member ??
+    post?.userData ??
+    post?.userInfo ??
+    (typeof post?.createdBy === "object" ? post.createdBy : null) ??
+    {};
   const media = post?.media ?? post?.attachment ?? {};
 
   // Determine media type first so we can route the generic media.url correctly.
@@ -158,17 +174,36 @@ export const normalizePost = (post) => {
       author?.userId,
       typeof author === "string" || typeof author === "number" ? author : null
     ),
-    name: firstText(post?.name, post?.username, post?.authorName, author?.name, author?.username) ?? "User",
+    name: firstText(
+      post?.name,
+      post?.username,
+      post?.authorName,
+      post?.displayName,
+      author?.name,
+      author?.username,
+      author?.displayName,
+      author?.fullName,
+      author?.nickName,
+      author?.nickname,
+    ) ?? "User",
     avatar: toAbsoluteUrl(firstText(
       post?.avatar,
       post?.avatarUrl,
       post?.profileImage,
+      post?.profileImageUrl,
       post?.profilePic,
       post?.authorAvatar,
+      post?.userAvatar,
       author?.avatar,
       author?.avatarUrl,
       author?.profileImage,
-      author?.profilePic
+      author?.profileImageUrl,
+      author?.profilePic,
+      author?.picture,
+      author?.photo,
+      author?.photoUrl,
+      author?.imageUrl,
+      author?.image,
     )),
     text: firstText(post?.text, post?.caption, post?.content, post?.description) ?? "",
     imageUrl: toAbsoluteUrl(imageUrl),
@@ -238,7 +273,7 @@ export const getHomeData = async () => {
   const token = await getToken();
   const userProfile = normalizeUserProfile(initData?.userProfile, token);
   const recommendedUsers = listFrom(initData, "recommendedUsers").map(normalizeRecommendedUser);
-  const feedPosts = listFrom(feedData, "posts").map(normalizePost);
+  const feedPosts = listFrom(feedData, "posts").map(normalizePost).filter(hasContent);
   const activeUsers =
     activeCountData?.activeUsers ??
     activeCountData?.count ??
@@ -272,13 +307,13 @@ export const refreshFeed = async (tab = "for_you") => {
 
   if (loader) {
     const data = await loader(0, 10);
-    const posts = listFrom(data, "posts").map(normalizePost);
+    const posts = listFrom(data, "posts").map(normalizePost).filter(hasContent);
     return { posts, hasMore: hasMoreFrom(data) };
   }
 
   const apiTab = toApiTab(tab);
   const data = await getFeedPosts(apiTab, 1, 10);
-  const posts = listFrom(data, "posts").map(normalizePost);
+  const posts = listFrom(data, "posts").map(normalizePost).filter(hasContent);
 
   return {
     posts,
@@ -294,13 +329,13 @@ export const loadMoreFeed = async (tab, page) => {
   if (loader) {
     // Dedicated endpoints are 0-based, so page 2 (UI) → page 1 (API).
     const data = await loader(Math.max(0, page - 1), 10);
-    const posts = listFrom(data, "posts").map(normalizePost);
+    const posts = listFrom(data, "posts").map(normalizePost).filter(hasContent);
     return { ...data, posts, hasMore: hasMoreFrom(data) };
   }
 
   const apiTab = toApiTab(tab);
   const data = await getFeedPosts(apiTab, page, 10);
-  const posts = listFrom(data, "posts").map(normalizePost);
+  const posts = listFrom(data, "posts").map(normalizePost).filter(hasContent);
 
   return { ...data, posts };
 };
