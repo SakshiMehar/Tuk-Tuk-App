@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { DeviceEventEmitter } from "react-native";
 import { refreshTokenCache } from "../api/axios";
 
 const resetVoiceUid = () => {
@@ -36,6 +37,7 @@ export const saveSession = async (token, user) => {
   ]);
   await refreshTokenCache();
   resetVoiceUid();
+  DeviceEventEmitter.emit("sessionSaved", sessionUser);
 };
 
 // ── Read stored token ───────────────────────────────────────
@@ -70,6 +72,7 @@ export const updateUser = async (updates) => {
   const current = (await getUser()) || {};
   const next = { ...current, ...updates };
   await setUser(next);
+  DeviceEventEmitter.emit("userProfileUpdated", next);
   return next;
 };
 

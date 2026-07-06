@@ -174,35 +174,6 @@ export const addComment = async (postId, text) => {
   return response.data;
 };
 
-// ── Feed: Like a post ────────────────────────────────────────
-// POST /api/home/feed/posts/{postId}/like
-export const feedLikePost = async (postId) => {
-  const response = await API.post(`/api/home/feed/posts/${postId}/like`);
-  return response.data;
-};
-
-// ── Feed: Dislike a post (used as unlike) ────────────────────
-// POST /api/home/feed/posts/{postId}/dislike
-export const feedDislikePost = async (postId) => {
-  const response = await API.post(`/api/home/feed/posts/${postId}/dislike`);
-  return response.data;
-};
-
-// ── Feed: Get comments ────────────────────────────────────────
-// GET /api/home/feed/posts/{postId}/comments
-export const feedGetComments = async (postId) => {
-  const response = await API.get(`/api/home/feed/posts/${postId}/comments`);
-  return response.data;
-};
-
-// ── Feed: Add a comment ───────────────────────────────────────
-// POST /api/home/feed/posts/{postId}/comments
-// Body: { "text": "Nice post" }
-export const feedAddComment = async (postId, text) => {
-  const response = await API.post(`/api/home/feed/posts/${postId}/comments`, { text });
-  return response.data;
-};
-
 // ── Mark user as Interested ───────────────────────────────────
 // POST /api/home/users/{targetUserId}/interested
 export const markInterested = async (targetUserId) => {
@@ -218,9 +189,9 @@ export const markNotInterested = async (targetUserId) => {
 };
 
 // ── Report a user ─────────────────────────────────────────────
-// POST /api/home/users/{targetUserId}/report
-export const reportUser = async (targetUserId) => {
-  const response = await API.post(`/api/home/users/${targetUserId}/report`);
+// POST /api/home/report
+export const reportUser = async (targetUserId, reason) => {
+  const response = await API.post(`/api/home/report`, { targetUserId, reason });
   return response.data;
 };
 

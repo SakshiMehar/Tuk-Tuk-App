@@ -161,6 +161,30 @@ export const leaveSeat = async (roomId, seatNumber) => {
   return response.data;
 };
 
+/** POST .../seat/heartbeat — keep mic seat alive; backend evicts after 30 s of silence */
+export const postSeatHeartbeat = async (roomId) => {
+  const response = await API.post(
+    `/api/v1/tuktuk/rooms/${roomId}/seat/heartbeat`,
+    {},
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
+/** POST .../seat/{seatNumber}/lock — host locks an empty seat */
+export const lockSeat = async (roomId, seatNumber) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/lock`;
+  logRequest("POST", path);
+  try {
+    const response = await API.post(path, {}, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
 /** POST .../toggle-mute?isMuted=true|false */
 export const toggleSeatMute = async (roomId, seatNumber, isMuted) => {
   const muted = isMuted === true || isMuted === "true";

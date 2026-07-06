@@ -46,6 +46,19 @@ export const avatarMap = {
 
 export const avatarOptions = Object.keys(avatarMap);
 
+// Gender-specific subsets (generic avatars shown to everyone)
+const GENERIC_IDS  = ["newuserpic", "avatar1", "avatar2", "avatar3", "avatar4", "avatar5"];
+const MALE_IDS     = [...GENERIC_IDS, ...Object.keys(avatarMap).filter((id) => id.startsWith("maleprofile_"))];
+const FEMALE_IDS   = [...GENERIC_IDS, ...Object.keys(avatarMap).filter((id) => id.startsWith("profile_"))];
+
+/** Returns the avatar id list appropriate for the given gender string. */
+export const getAvatarOptionsForGender = (gender) => {
+  const g = (gender ?? "").toLowerCase();
+  if (g === "male")   return MALE_IDS;
+  if (g === "female") return FEMALE_IDS;
+  return avatarOptions; // "Other" or unset → show all
+};
+
 export const isBundledAvatarId = (value) =>
   typeof value === "string" && Boolean(avatarMap[value]);
 

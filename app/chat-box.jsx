@@ -11,6 +11,7 @@ export default function ChatBoxScreen() {
     // Avatar URLs passed as route params get URL-encoded — decode before use
     avatar: params.avatar ? decodeURIComponent(params.avatar) : null,
     lastMsg: params.lastMsg ?? "",
+    level: params.level ? Number(params.level) : null,
   };
 
   

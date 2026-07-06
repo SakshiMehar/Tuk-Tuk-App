@@ -186,6 +186,14 @@ export const normalizeChatMessage = (msg, index = 0) => ({
     `msg-${index}`
   ),
   system: Boolean(msg?.system ?? msg?.type === "SYSTEM"),
+  userId: firstValue(
+    msg?.senderId,
+    msg?.userId,
+    msg?.sender?.id,
+    msg?.sender?.userId,
+    msg?.message?.senderId,
+    msg?.data?.senderId
+  ) ?? null,
   user:
     firstText(
       msg?.senderName,

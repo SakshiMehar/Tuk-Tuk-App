@@ -13,6 +13,9 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  DeviceEventEmitter,
+  BackHandler,
+  PermissionsAndroid,
 } from "react-native";
 import Animated, {
   useSharedValue,
@@ -23,6 +26,7 @@ import Animated, {
   withDelay,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
+import { Audio } from "expo-av";
 import { Image as ExpoImage } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -46,7 +50,7 @@ import {
   upsertChatMessage,
 } from "../src/services/partyService";
 import { wsService } from "../src/services/websocket";
-import { getRoomState, getRoomChatMessages } from "../src/api/partyApi";
+import { getRoomState, getRoomChatMessages, lockSeat, postSeatHeartbeat } from "../src/api/partyApi";
 import { refreshTokenCache } from "../src/api/axios";
 import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
 import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
@@ -81,6 +85,8 @@ import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { reportUser } from "../src/api/postApi";
+import ReportReasonModal from "./ReportReasonModal";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadUserDetail } from "../src/services/nearbyService";
 import { resolveVideoSource, resolveImageSource } from "../src/utils/videoSource";
@@ -111,15 +117,32 @@ import {
 const { width: W, height: H } = Dimensions.get("window");
 
 const TREASURE_BOX_GIF = require("../assets/Gift/tresurebox.gif");
+const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
+
+// Listen Rewards — countdown thresholds in seconds
+const LISTEN_THRESHOLDS = [60, 3600, 18000]; // 1 min, 1 hr, 5 hr
+const LISTEN_THRESHOLD_LABELS = ["1 min", "1 hr", "5 hr"];
+const LISTEN_LOCKED_IMGS = [
+  require("../assets/Gift/gift1.png"),
+  require("../assets/Gift/gift2.png"),
+  require("../assets/Gift/gift3.png"),
+];
+const LISTEN_GIFT_POOL = [
+  require("../assets/Gift/gift1.png"),
+  require("../assets/Gift/gift2.png"),
+  require("../assets/Gift/gift3.png"),
+  require("../assets/Gift/gift4.gif"),
+];
 
 const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
   if (!seatNumber) return parsedSeats;
   const user = await getUser();
   const userId = await getAppUserId().catch(() => null);
-  const avatar =
+  // For OWN seat always prefer local profile data — WS data can be stale or empty.
+  const resolvedAvatarUri =
     resolveProfileAvatarUri(user) ??
+    user?.profilePicUrl ??
     user?.avatarUrl ??
-    user?.avatar ??
     user?.profileImageUrl ??
     user?.profileImage ??
     null;
@@ -138,7 +161,13 @@ const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
         name:
           existing.name && existing.name !== "Guest" ? existing.name : (name ?? existing.name ?? "User"),
         username: existing.username ?? username,
-        avatar: existing.avatar ?? avatar,
+        // Always use local profile data for avatar fields on own seat.
+        avatarId: user?.avatarId ?? existing.avatarId ?? null,
+        avatar: resolvedAvatarUri ?? existing.avatar ?? null,
+        avatarUrl: user?.avatarUrl ?? existing.avatarUrl ?? null,
+        profilePicUrl: user?.profilePicUrl ?? existing.profilePicUrl ?? null,
+        profileImageUrl: user?.profileImageUrl ?? existing.profileImageUrl ?? null,
+        profileImage: user?.profileImage ?? existing.profileImage ?? null,
         hasNewUserFrame: Boolean(user?.hasNewUserFrame),
         newUserFrameUrl: user?.newUserFrameUrl ?? null,
         level: existing.level ?? user?.level ?? 1,
@@ -402,6 +431,8 @@ export default function VoiceParty() {
   const [onlineCount, setOnlineCount] = useState(0);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
+  const [showTagPicker, setShowTagPicker] = useState(false);
+  const [taggedUser, setTaggedUser] = useState(null); // { id, name, username }
   const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [onMic, setOnMic] = useState(false);
@@ -410,9 +441,12 @@ export default function VoiceParty() {
   const [voiceListenStatus, setVoiceListenStatus] = useState("idle");
   const [voiceDiagnostics, setVoiceDiagnostics] = useState(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
   const exitedRef = useRef(false);
+  const onMicRef = useRef(false);
+  const mySeatNumberRef = useRef(null);
   const buyingGiftRef = useRef(false);
   const roomIdRef = useRef(roomIdParam);
   const fetchedUiAssetIdsRef = useRef(new Set());
@@ -420,6 +454,13 @@ export default function VoiceParty() {
   const [showPlayCenter, setShowPlayCenter] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGiftPanel, setShowGiftPanel] = useState(false);
+  const [listenSeconds, setListenSeconds] = useState(0);
+  const listenSecondsRef = useRef(0);
+  const [rewardStates, setRewardStates] = useState([
+    { claimed: false, rewardImg: null },
+    { claimed: false, rewardImg: null },
+    { claimed: false, rewardImg: null },
+  ]);
   const [showTreasureBox, setShowTreasureBox] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
@@ -450,6 +491,15 @@ export default function VoiceParty() {
   // Frame data keyed by userId string — lives independently of seats/onlineUsers
   // so WebSocket seat resets can never wipe it.
   const [userFrameData, setUserFrameData] = useState({});
+  // Empty-seat action sheet
+  const [seatActionSheet, setSeatActionSheet] = useState(null); // { seatId }
+  const [seatActionLoading, setSeatActionLoading] = useState(false);
+  // Mic permission warning popup (stores pending seatId)
+  const [micPermWarning, setMicPermWarning] = useState(null); // seatId | null
+  // Pinned welcome message (editable by the host)
+  const [welcomeMessage, setWelcomeMessage] = useState("Welcome everyone! Let's chat and have fun together!");
+  const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
+  const [welcomeDraft, setWelcomeDraft] = useState("");
 
   const videoPlayer = useVideoPlayer(null, (p) => { p.loop = false; });
 
@@ -509,9 +559,48 @@ export default function VoiceParty() {
       .catch(() => setLocalSessionUser(null));
   }, []);
 
-  // Collect all visible user IDs (seats + audience) and fetch UI assets for any
-  // we haven't seen before. Results go into userFrameData — a separate state that
-  // WebSocket seat resets can never touch — so the frame survives any re-render.
+  // When the user updates their profile (avatar, name, etc.) anywhere in the app,
+  // refresh localSessionUser and patch their avatar into the mic seat immediately.
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("userProfileUpdated", (updatedUser) => {
+      setLocalSessionUser(updatedUser);
+      if (!mySeatNumber) return;
+      // Re-resolve the avatar URI from the freshly-saved user object.
+      const freshAvatarUri =
+        resolveProfileAvatarUri(updatedUser) ??
+        updatedUser?.profilePicUrl ??
+        updatedUser?.avatarUrl ??
+        updatedUser?.profileImageUrl ??
+        updatedUser?.profileImage ??
+        null;
+      setSeats((prev) =>
+        prev.map((seat) => {
+          if (seat.id !== mySeatNumber || !seat.user) return seat;
+          return {
+            ...seat,
+            user: {
+              ...seat.user,
+              // Use updated values unconditionally — null means "no longer set".
+              avatarId: updatedUser?.avatarId ?? null,
+              avatar: freshAvatarUri ?? null,
+              avatarUrl: updatedUser?.avatarUrl ?? null,
+              profilePicUrl: updatedUser?.profilePicUrl ?? null,
+              profileImageUrl: updatedUser?.profileImageUrl ?? null,
+              profileImage: updatedUser?.profileImage ?? null,
+              name: updatedUser?.name ?? updatedUser?.username ?? seat.user.name,
+            },
+          };
+        })
+      );
+    });
+    return () => sub.remove();
+  }, [mySeatNumber]);
+
+  // Collect all visible user IDs (seats + audience + chat senders) and fetch UI
+  // assets for any we haven't seen before. Results go into userFrameData — a
+  // separate state that WebSocket seat resets can never touch — so the frame
+  // survives any re-render. Chat senders are included so the NEW STAR badge
+  // also appears for audience members who are not on a mic seat.
   useEffect(() => {
     const seatUserIds = seats
       .filter((seat) => seat.user?.id != null)
@@ -519,7 +608,10 @@ export default function VoiceParty() {
     const audienceUserIds = onlineUsers
       .filter((u) => u?.id != null)
       .map((u) => String(u.id));
-    const allIds = [...new Set([...seatUserIds, ...audienceUserIds])];
+    const chatSenderIds = messages
+      .filter((m) => m?.userId != null)
+      .map((m) => String(m.userId));
+    const allIds = [...new Set([...seatUserIds, ...audienceUserIds, ...chatSenderIds])];
     const pending = allIds.filter((userId) => !fetchedUiAssetIdsRef.current.has(userId));
 
     if (pending.length === 0) return;
@@ -551,7 +643,7 @@ export default function VoiceParty() {
           if (__DEV__) console.warn(`[VoiceParty] ui-assets fetch failed userId=${userId}:`, err?.message ?? err);
         });
     });
-  }, [seats, onlineUsers]);
+  }, [seats, onlineUsers, messages]);
 
   const hostUserLike = useMemo(() => {
     const fromSeat = seats.find(
@@ -796,6 +888,7 @@ export default function VoiceParty() {
         setRoomInfo(session.room);
         const initialSeatNumber = session.reservedSeatNumber ?? null;
         if (initialSeatNumber) {
+          mySeatNumberRef.current = initialSeatNumber;
           setMySeatNumber(initialSeatNumber);
           const enrichedSeats = await enrichSeatsWithMyProfile(
             session.seats,
@@ -820,6 +913,31 @@ export default function VoiceParty() {
         setOnlineUsers(session.onlineUsers);
         setOnlineCount(session.onlineCount);
         setMessages(session.messages);
+
+        // Deferred reconcile — fetch a fresh room snapshot a few seconds after
+        // entry so any ghost/stale seat users the backend cleaned up are removed.
+        setTimeout(async () => {
+          if (cancelled) return;
+          try {
+            const freshState = await getRoomState(String(session.roomId));
+            if (cancelled) return;
+            const freshOnline = parseOnlineUsers(freshState, null);
+            const freshSeats = parseSeats(freshState?.seats, freshState);
+            if (freshOnline.length > 0) {
+              setOnlineUsers(freshOnline);
+              setOnlineCount(freshOnline.length);
+            }
+            setSeats((prev) =>
+              reconcileSeatAssignments(freshSeats, {
+                onlineUsers: freshOnline.length > 0 ? freshOnline : null,
+                myUserId,
+                mySeatNumber: mySeatNumberRef.current,
+              })
+            );
+          } catch {
+            // Non-critical — ignore failures
+          }
+        }, 5000);
 
         setVoiceListenStatus("connecting");
         setIsSpeakerMuted(false);
@@ -889,11 +1007,20 @@ export default function VoiceParty() {
     initRoom();
     return () => {
       cancelled = true;
-      partyVoice.teardownVoice();
       const activeRoomId = roomIdRef.current;
       if (activeRoomId && !exitedRef.current) {
         exitedRef.current = true;
-        exitRoomSession(String(activeRoomId)).catch(() => {});
+        const seatToLeave = onMicRef.current ? mySeatNumberRef.current : null;
+        const cleanup = async () => {
+          if (seatToLeave) {
+            await partyVoice.leaveMic(String(activeRoomId), seatToLeave).catch(() => {});
+          }
+          await partyVoice.teardownVoice().catch(() => {});
+          await exitRoomSession(String(activeRoomId)).catch(() => {});
+        };
+        cleanup();
+      } else {
+        partyVoice.teardownVoice().catch(() => {});
       }
     };
   }, [roomIdParam, isRandomParty, router]);
@@ -1049,7 +1176,7 @@ export default function VoiceParty() {
     };
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
-  const handleExitRoom = async () => {
+  const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
     if (!roomId || exitedRef.current) {
       router.back();
@@ -1065,10 +1192,65 @@ export default function VoiceParty() {
     } catch {
       // APIs logged in partyApi
     }
+    onMicRef.current = false;
+    mySeatNumberRef.current = null;
     setOnMic(false);
     setMySeatNumber(null);
     router.back();
-  };
+  }, [roomId, onMic, mySeatNumber, router]);
+
+  // Intercept Android hardware back button — run the same full exit flow.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      handleExitRoom();
+      return true; // prevent default navigation
+    });
+    return () => sub.remove();
+  }, [handleExitRoom]);
+
+  // Listen Rewards — tick every second while in the room.
+  // Component unmounts on exit so counters reset automatically.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (exitedRef.current) return;
+      listenSecondsRef.current += 1;
+      const sec = listenSecondsRef.current;
+      setListenSeconds(sec);
+      setRewardStates((prev) =>
+        prev.map((r, i) => {
+          if (!r.rewardImg && sec >= LISTEN_THRESHOLDS[i]) {
+            const idx = Math.floor(Math.random() * LISTEN_GIFT_POOL.length);
+            return { ...r, rewardImg: LISTEN_GIFT_POOL[idx] };
+          }
+          return r;
+        })
+      );
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Mic-seat heartbeat — fires every 25 s while user is on a seat.
+  // Backend removes the seat automatically after 30 s of silence.
+  // Uses WebSocket publish when connected, REST POST as fallback.
+  useEffect(() => {
+    if (!onMic || !mySeatNumber || !roomId) return;
+
+    const ping = async () => {
+      try {
+        if (wsService.connected) {
+          wsService.sendSeatHeartbeat(String(roomId));
+        } else {
+          await postSeatHeartbeat(String(roomId));
+        }
+      } catch {
+        // Non-critical — backend will evict after the timeout automatically
+      }
+    };
+
+    ping(); // send immediately when seat is taken
+    const interval = setInterval(ping, 25_000);
+    return () => clearInterval(interval);
+  }, [onMic, mySeatNumber, roomId]);
 
   const handleTakeMic = async () => {
     if (!roomId || voiceConnecting) return;
@@ -1077,6 +1259,8 @@ export default function VoiceParty() {
       setVoiceConnecting(true);
       try {
         await partyVoice.leaveMic(String(roomId), mySeatNumber);
+        onMicRef.current = false;
+        mySeatNumberRef.current = null;
         setOnMic(false);
         setMySeatNumber(null);
         setIsMicMuted(true);
@@ -1106,11 +1290,13 @@ export default function VoiceParty() {
 
     setVoiceConnecting(true);
     try {
-      if (mySeatNumber) {
-        await partyVoice.activateMicOnSeat(String(roomId), mySeatNumber);
-      } else {
-        await partyVoice.takeMic(String(roomId), targetSeat);
-      }
+      // Always re-claim the seat before activating mic — a seat number left
+      // over from room entry (session.reservedSeatNumber) can have already
+      // been evicted server-side since no heartbeat runs until onMic is true.
+      // claimSeat re-claiming a seat we still hold is a no-op on the backend.
+      await partyVoice.takeMic(String(roomId), targetSeat);
+      onMicRef.current = true;
+      mySeatNumberRef.current = targetSeat;
       setOnMic(true);
       setMySeatNumber(targetSeat);
       setIsMicMuted(false);
@@ -1212,6 +1398,16 @@ export default function VoiceParty() {
     { label: "WhatsApp",  bg: "#25d366", icon: "💬" },
   ];
 
+  const handleReportRoomSubmit = async (reason) => {
+    try {
+      await reportUser(hostId, reason);
+      setShowReportModal(false);
+      Alert.alert("Reported", "This room has been reported. Thank you.");
+    } catch (e) {
+      throw new Error(e?.message || "Could not submit report. Please try again.");
+    }
+  };
+
   const moreMenuItems = [
     {
       icon: <MessageCircle size={22} color="#a78bfa" />,
@@ -1226,7 +1422,11 @@ export default function VoiceParty() {
       label: "Report",
       onPress: () => {
         setShowMoreMenu(false);
-        Alert.alert("Report", "Room has been reported.");
+        if (!hostId) {
+          Alert.alert("Report", "Could not identify room host.");
+          return;
+        }
+        setShowReportModal(true);
       },
     },
     ...(!isHostSelf
@@ -1317,6 +1517,7 @@ export default function VoiceParty() {
     if (!text || !roomId) return;
 
     setInputText("");
+    setTaggedUser(null);
     setShowChatInput(false);
     await appendOutgoingMessage(text);
 
@@ -1325,6 +1526,47 @@ export default function VoiceParty() {
     } catch (err) {
       Alert.alert("Send failed", err?.message || "WebSocket not connected.");
     }
+  };
+
+  // Build a deduplicated list of all people currently in the room
+  // (mic seat users + audience), excluding the current user.
+  const roomMembersList = useMemo(() => {
+    const seatUsers = seats
+      .filter((s) => s.user && s.user.id != null)
+      .map((s) => ({
+        id: String(s.user.id),
+        name: s.user.name ?? s.user.username ?? "User",
+        username: s.user.username ?? s.user.name ?? "User",
+        avatar: s.user.avatar ?? s.user.avatarUrl ?? null,
+        onMic: true,
+      }));
+    const audienceUsers = onlineUsers
+      .filter((u) => u.id != null)
+      .map((u) => ({
+        id: String(u.id),
+        name: u.name ?? u.username ?? "User",
+        username: u.username ?? u.name ?? "User",
+        avatar: u.avatar ?? u.avatarUrl ?? null,
+        onMic: false,
+      }));
+    const seen = new Set();
+    return [...seatUsers, ...audienceUsers].filter((u) => {
+      if (seen.has(u.id) || String(u.id) === String(myUserId)) return false;
+      seen.add(u.id);
+      return true;
+    });
+  }, [seats, onlineUsers, myUserId]);
+
+  const handleTagUser = (member) => {
+    setTaggedUser(member);
+    const mention = `@${member.username ?? member.name} `;
+    // Replace any existing leading @mention or prepend fresh one
+    setInputText((prev) => {
+      const stripped = prev.replace(/^@\S+\s*/, "");
+      return mention + stripped;
+    });
+    setShowTagPicker(false);
+    setShowChatInput(true);
   };
 
   const openGiftPurchase = (gift) => {
@@ -1631,9 +1873,84 @@ export default function VoiceParty() {
     openUserProfile(userLike);
   };
 
-  const handleSeatPress = (seat) => {
-    if (!seat?.user) return;
-    handleUserAvatarPress(seat.user);
+  const handleSeatPress = async (seat) => {
+    if (seat?.user) {
+      handleUserAvatarPress(seat.user);
+      return;
+    }
+    if (!seat?.locked) {
+      let micGranted = false;
+      try {
+        if (Platform.OS === "android") {
+          micGranted = await PermissionsAndroid.check(
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
+          );
+        } else {
+          const { status } = await Audio.getPermissionsAsync();
+          micGranted = status === "granted";
+        }
+      } catch {
+        micGranted = false;
+      }
+
+      if (micGranted) {
+        setSeatActionSheet({ seatId: seat.id });
+      } else {
+        setMicPermWarning(seat.id);
+      }
+    }
+  };
+
+  const handleTakeSeat = async (targetSeatId) => {
+    if (!roomId || voiceConnecting || seatActionLoading) return;
+    setSeatActionLoading(true);
+    setSeatActionSheet(null);
+    try {
+      // Leave current seat first if already on mic
+      if (onMic && mySeatNumber) {
+        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => {});
+        onMicRef.current = false;
+        mySeatNumberRef.current = null;
+        setOnMic(false);
+        setMySeatNumber(null);
+      }
+      setVoiceConnecting(true);
+      await partyVoice.takeMic(String(roomId), targetSeatId);
+      onMicRef.current = true;
+      mySeatNumberRef.current = targetSeatId;
+      setOnMic(true);
+      setMySeatNumber(targetSeatId);
+      setIsMicMuted(false);
+      setVoiceListenStatus("ready");
+      const freshState = await getRoomState(String(roomId));
+      const freshSeats = freshState?.seats ? parseSeats(freshState.seats, freshState) : seats;
+      const enriched = await enrichSeatsWithMyProfile(freshSeats, targetSeatId);
+      setSeats(reconcileSeatAssignments(enriched, { onlineUsers, myUserId, mySeatNumber: targetSeatId }));
+    } catch (err) {
+      Alert.alert("Take seat failed", err?.message || "Could not take that seat. Please try again.");
+    } finally {
+      setSeatActionLoading(false);
+      setVoiceConnecting(false);
+    }
+  };
+
+  const handleLockSeat = async (targetSeatId) => {
+    if (!roomId || seatActionLoading) return;
+    setSeatActionLoading(true);
+    setSeatActionSheet(null);
+    try {
+      await lockSeat(String(roomId), targetSeatId);
+      // Optimistically lock the seat in local state; WS will confirm
+      setSeats((prev) =>
+        prev.map((seat) =>
+          seat.id === targetSeatId ? { ...seat, locked: true, user: null } : seat
+        )
+      );
+    } catch (err) {
+      Alert.alert("Lock seat failed", err?.message || "Could not lock that seat. Please try again.");
+    } finally {
+      setSeatActionLoading(false);
+    }
   };
 
   const handleOnlineUserPress = (user) => {
@@ -1783,6 +2100,18 @@ export default function VoiceParty() {
       </TouchableOpacity>
     </View>
   );
+
+  const formatListenTime = (seconds) => {
+    if (seconds < 3600) {
+      const m = String(Math.floor(seconds / 60)).padStart(2, "0");
+      const s = String(seconds % 60).padStart(2, "0");
+      return `${m}:${s}`;
+    }
+    const h = String(Math.floor(seconds / 3600)).padStart(2, "0");
+    const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
+    const s = String(seconds % 3600 % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
+  };
 
   return (
     <View style={styles.container}>
@@ -2430,45 +2759,52 @@ export default function VoiceParty() {
 
             {/* Reward cards */}
             <View style={styles.giftCardsRow}>
-              {[
-                {
-                  img: require("../assets/Gift/gift1.png"),
-                  qty: "x1d",
-                  action: "00:14",
-                  active: true,
-                },
-                {
-                  img: require("../assets/Batches/vip-batch.png"),
-                  qty: "x1d",
-                  action: "listen 1 min",
-                  active: false,
-                },
-                {
-                  img: require("../assets/Gift/gift2.png"),
-                  qty: "x1d",
-                  action: "listen 10 min",
-        
-                  active: false,
-                },
-              ].map((item, i) => (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.giftCard}
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    setShowGiftPanel(false);
-                    Alert.alert("Reward", item.active ? "Reward claimed!" : "Keep listening to unlock!");
-                  }}
-                >
-                  <Image source={item.img} style={styles.giftCardImg} resizeMode="contain" />
-                  <Text style={styles.giftCardQty}>{item.qty}</Text>
-                  <View style={[styles.giftCardBtn, item.active && styles.giftCardBtnActive]}>
-                    <Text style={[styles.giftCardBtnText, item.active && styles.giftCardBtnTextActive]}>
-                      {item.action}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {rewardStates.map((reward, i) => {
+                const remaining = Math.max(0, LISTEN_THRESHOLDS[i] - listenSeconds);
+                const isReady = reward.rewardImg != null && !reward.claimed;
+                const isClaimed = reward.claimed;
+                const img = reward.rewardImg ?? LISTEN_LOCKED_IMGS[i];
+
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    style={[styles.giftCard, isReady && styles.giftCardReady]}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      if (isReady) {
+                        setRewardStates((prev) =>
+                          prev.map((r, idx) => idx === i ? { ...r, claimed: true } : r)
+                        );
+                        Alert.alert("🎁 Reward Claimed!", "You received a gift! Check your backpack.");
+                      } else if (!isClaimed) {
+                        Alert.alert("Keep Listening", `Unlock in ${formatListenTime(remaining)}`);
+                      }
+                    }}
+                  >
+                    <View style={styles.giftCardImgWrap}>
+                      <Image source={img} style={styles.giftCardImg} resizeMode="contain" />
+                      {!isReady && !isClaimed && (
+                        <View style={styles.giftCardLockOverlay}>
+                          <Text style={styles.giftCardLockIcon}>🔒</Text>
+                        </View>
+                      )}
+                      {isClaimed && (
+                        <View style={styles.giftCardLockOverlay}>
+                          <Text style={styles.giftCardLockIcon}>✓</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <Text style={styles.giftCardLabel}>{LISTEN_THRESHOLD_LABELS[i]}</Text>
+
+                    <View style={[styles.giftCardBtn, isReady && styles.giftCardBtnActive, isClaimed && styles.giftCardBtnClaimed]}>
+                      <Text style={[styles.giftCardBtnText, (isReady || isClaimed) && styles.giftCardBtnTextActive]}>
+                        {isClaimed ? "Claimed ✓" : isReady ? "Claim!" : formatListenTime(remaining)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -2856,6 +3192,186 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
+      {/* ── SEAT ACTION POPUP (centered) ── */}
+      <Modal
+        visible={Boolean(seatActionSheet)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSeatActionSheet(null)}
+      >
+        <TouchableOpacity
+          style={styles.seatActionOverlay}
+          activeOpacity={1}
+          onPress={() => setSeatActionSheet(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.seatActionCard}>
+            {/* Header */}
+            <View style={styles.seatActionHeader}>
+              <Text style={styles.seatActionHeaderEmoji}>🎙️</Text>
+              <Text style={styles.seatActionHeaderTitle}>Seat {seatActionSheet?.seatId}</Text>
+              <Text style={styles.seatActionHeaderSub}>What would you like to do?</Text>
+            </View>
+
+            {/* Divider */}
+            <View style={styles.seatActionDivider} />
+
+            {/* Take a Seat */}
+            <TouchableOpacity
+              style={styles.seatActionBtn}
+              activeOpacity={0.8}
+              disabled={seatActionLoading}
+              onPress={() => handleTakeSeat(seatActionSheet?.seatId)}
+            >
+              <LinearGradient
+                colors={["#7c4dff", "#a855f7"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.seatActionBtnGradient}
+              >
+                {seatActionLoading
+                  ? <ActivityIndicator color="white" />
+                  : <>
+                      <Text style={styles.seatActionBtnIcon}>🎤</Text>
+                      <Text style={styles.seatActionBtnText}>Take a Seat</Text>
+                    </>
+                }
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* Cancel */}
+            <TouchableOpacity
+              style={styles.seatActionCancelBtn}
+              activeOpacity={0.8}
+              onPress={() => setSeatActionSheet(null)}
+            >
+              <Text style={styles.seatActionCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── MIC PERMISSION WARNING ── */}
+      <Modal
+        visible={micPermWarning !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMicPermWarning(null)}
+      >
+        <TouchableOpacity
+          style={styles.seatActionOverlay}
+          activeOpacity={1}
+          onPress={() => setMicPermWarning(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            {/* ── Illustrated header area ── */}
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              {/* Decorative glow blobs */}
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              {/* Main illustration — mic inside a phone-shaped card */}
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                {/* Mic icon inside the card */}
+                <View style={styles.micPermMicCircle}>
+                  <Mic size={22} color="#7c4dff" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+
+              {/* Small floating badge */}
+              <View style={styles.micPermBadge}>
+                <View style={styles.micPermBadgeDot} />
+                <View style={styles.micPermBadgeLine} />
+              </View>
+            </LinearGradient>
+
+            {/* ── Body text ── */}
+            <View style={styles.micPermBody}>
+              <Text style={styles.micPermMsg}>
+                Please enable microphone access to use functions such as voice verification and calling.
+              </Text>
+            </View>
+
+            {/* ── Buttons ── */}
+            <View style={styles.micPermBtnRow}>
+              <TouchableOpacity
+                style={styles.micPermCancelBtn}
+                activeOpacity={0.7}
+                onPress={() => setMicPermWarning(null)}
+              >
+                <Text style={styles.micPermCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <View style={styles.micPermBtnDivider} />
+
+              <TouchableOpacity
+                style={styles.micPermOkBtn}
+                activeOpacity={0.7}
+                onPress={() => setMicPermWarning(null)}
+              >
+                <Text style={styles.micPermOkText}>Ok</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── WELCOME MESSAGE EDIT MODAL ── */}
+      <Modal
+        visible={showWelcomeEdit}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowWelcomeEdit(false)}
+      >
+        <TouchableOpacity
+          style={styles.welcomeEditOverlay}
+          activeOpacity={1}
+          onPress={() => setShowWelcomeEdit(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.welcomeEditBox}>
+            <View style={styles.shareHandle} />
+            <Text style={styles.welcomeEditTitle}>Edit Welcome Message</Text>
+            <TextInput
+              style={styles.welcomeEditInput}
+              value={welcomeDraft}
+              onChangeText={setWelcomeDraft}
+              placeholder="Type a welcome message..."
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              multiline
+              maxLength={120}
+              autoFocus
+            />
+            <Text style={styles.welcomeEditCount}>{welcomeDraft.length}/120</Text>
+            <View style={styles.welcomeEditActions}>
+              <TouchableOpacity
+                style={styles.welcomeEditCancel}
+                activeOpacity={0.8}
+                onPress={() => setShowWelcomeEdit(false)}
+              >
+                <Text style={styles.welcomeEditCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.welcomeEditSave}
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (welcomeDraft.trim()) setWelcomeMessage(welcomeDraft.trim());
+                  setShowWelcomeEdit(false);
+                }}
+              >
+                <Text style={styles.welcomeEditSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ── MORE MENU MODAL ── */}
       <Modal
         visible={showMoreMenu}
@@ -2886,6 +3402,15 @@ export default function VoiceParty() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* ── REPORT ROOM MODAL ── */}
+      <ReportReasonModal
+        visible={showReportModal}
+        title="Report Room"
+        targetLabel="this room"
+        onClose={() => setShowReportModal(false)}
+        onSubmit={handleReportRoomSubmit}
+      />
 
       {roomLoading && (
         <View style={styles.loadingOverlay}>
@@ -3019,7 +3544,7 @@ export default function VoiceParty() {
               style={styles.seatItem}
               activeOpacity={0.8}
               onPress={() => handleSeatPress(seat)}
-              disabled={!seat.user}
+              disabled={seat.locked && !seat.user}
             >
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
@@ -3064,7 +3589,7 @@ export default function VoiceParty() {
         </View>
 
         {/* ── CHAT + RIGHT PANEL ── */}
-        <View style={styles.chatArea}>
+        <View style={[styles.chatArea, { paddingBottom: 52 + safeBottom }]}>
           <View style={styles.chatLeft}>
             <ScrollView
               ref={scrollRef}
@@ -3073,6 +3598,42 @@ export default function VoiceParty() {
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.chatScrollContent}
             >
+              {/* ── PINNED ROOM MESSAGES ── */}
+              {/* Card 1 — rules */}
+              <View style={styles.pinnedRulesCard}>
+                <Text style={styles.pinnedRulesText}>
+                  Welcome to TukTuk! Please respect each other and chat in a decent manner.
+                </Text>
+              </View>
+
+              {/* Card 2 — host welcome (editable by host) */}
+              <View style={styles.pinnedWelcomeCard}>
+                <Text style={styles.pinnedWelcomeText} numberOfLines={3}>
+                  {welcomeMessage}
+                </Text>
+                {isHostSelf && (
+                  <TouchableOpacity
+                    style={styles.pinnedEditBtn}
+                    activeOpacity={0.8}
+                    onPress={() => { setWelcomeDraft(welcomeMessage); setShowWelcomeEdit(true); }}
+                  >
+                    <Text style={styles.pinnedEditBtnText}>Edit</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Card 3 — share prompt */}
+              <View style={styles.pinnedShareCard}>
+                <Text style={styles.pinnedShareText}>Share your room to others!</Text>
+                <TouchableOpacity
+                  style={styles.pinnedShareBtn}
+                  activeOpacity={0.8}
+                  onPress={() => setShowShareMenu(true)}
+                >
+                  <Text style={styles.pinnedShareBtnText}>Share</Text>
+                </TouchableOpacity>
+              </View>
+
               {messages.map((msg) =>
                 msg.system ? (
                   <View key={msg.id} style={styles.systemMsg}>
@@ -3095,6 +3656,13 @@ export default function VoiceParty() {
                         <View style={styles.lvBadge}>
                           <Text style={styles.lvText}>Lv.{msg.level}</Text>
                         </View>
+                        {msg.userId != null && (userFrameData[String(msg.userId)]?.hasNewUserFrame ?? false) && (
+                          <Image
+                            source={NEW_START_BADGE}
+                            style={styles.newStartBadge}
+                            resizeMode="contain"
+                          />
+                        )}
                         {msg.coins > 0 && <Text style={styles.chatCoin}>🪙 {msg.coins}</Text>}
                         {msg.diamonds > 0 && <Text style={styles.chatDiamond}>💎 {msg.diamonds}</Text>}
                       </View>
@@ -3193,8 +3761,8 @@ export default function VoiceParty() {
           style={[
             styles.bottomDock,
             {
-              marginBottom: keyboardHeight,
-              paddingBottom: keyboardHeight > 0 ? 6 : safeBottom,
+              bottom: keyboardHeight > 0 ? keyboardHeight : safeBottom,
+              paddingBottom: keyboardHeight > 0 ? 4 : 0,
             },
           ]}
         >
@@ -3229,19 +3797,110 @@ export default function VoiceParty() {
 
           {showChatInput && (
             <View style={styles.inputRow}>
-              <TextInput
-                style={styles.input}
-                placeholder="Say something..."
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                value={inputText}
-                onChangeText={setInputText}
-                onSubmitEditing={sendMessage}
-                returnKeyType="send"
-                autoFocus
-              />
+              {/* @ Tag button */}
+              <TouchableOpacity
+                style={styles.tagBtn}
+                onPress={() => setShowTagPicker((v) => !v)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.tagBtnText}>@</Text>
+              </TouchableOpacity>
+
+              <View style={styles.inputWrapper}>
+                {taggedUser && (
+                  <View style={styles.tagChip}>
+                    <Text style={styles.tagChipText} numberOfLines={1}>
+                      @{taggedUser.username ?? taggedUser.name}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setTaggedUser(null);
+                        setInputText((prev) => prev.replace(/^@\S+\s*/, ""));
+                      }}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    >
+                      <Text style={styles.tagChipClose}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                <TextInput
+                  style={[styles.input, taggedUser && { paddingLeft: 8 }]}
+                  placeholder="Say something..."
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={inputText}
+                  onChangeText={(val) => {
+                    setInputText(val);
+                    // Clear tag chip if the user manually deleted the @mention
+                    if (taggedUser && !val.startsWith("@")) setTaggedUser(null);
+                  }}
+                  onSubmitEditing={sendMessage}
+                  returnKeyType="send"
+                  autoFocus
+                />
+              </View>
+
               <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
                 <Text style={styles.sendBtnText}>Send</Text>
               </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Tag Picker — member list */}
+          {showTagPicker && showChatInput && (
+            <View style={styles.tagPickerContainer}>
+              <View style={styles.tagPickerHeader}>
+                <Text style={styles.tagPickerTitle}>Tag someone</Text>
+                <TouchableOpacity onPress={() => setShowTagPicker(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={styles.tagPickerClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              {roomMembersList.length === 0 ? (
+                <Text style={styles.tagPickerEmpty}>No one else is in the room</Text>
+              ) : (
+                <ScrollView
+                  style={styles.tagPickerList}
+                  keyboardShouldPersistTaps="always"
+                  showsVerticalScrollIndicator={false}
+                >
+                  {roomMembersList.map((member) => (
+                    <TouchableOpacity
+                      key={member.id}
+                      style={styles.tagPickerItem}
+                      activeOpacity={0.75}
+                      onPress={() => handleTagUser(member)}
+                    >
+                      {member.avatar ? (
+                        <ExpoImage
+                          source={{ uri: member.avatar }}
+                          style={styles.tagPickerAvatar}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View style={[styles.tagPickerAvatar, styles.tagPickerAvatarFallback]}>
+                          <Text style={styles.tagPickerAvatarInitial}>
+                            {(member.name ?? "?")[0].toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.tagPickerUserInfo}>
+                        <Text style={styles.tagPickerName} numberOfLines={1}>
+                          {member.name}
+                        </Text>
+                        {member.username && member.username !== member.name && (
+                          <Text style={styles.tagPickerUsername} numberOfLines={1}>
+                            @{member.username}
+                          </Text>
+                        )}
+                      </View>
+                      {member.onMic && (
+                        <View style={styles.tagPickerMicBadge}>
+                          <Text style={styles.tagPickerMicText}>🎤</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
             </View>
           )}
         </View>
@@ -3563,6 +4222,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   lvText: { color: "white", fontSize: 10, fontWeight: "700" },
+  newStartBadge: { width: 52, height: 24, marginLeft: 2 },
   chatCoin: { fontSize: 11, color: "#ffd700" },
   chatDiamond: { fontSize: 11, color: "#4dc8ff" },
   chatText: { color: "white", fontSize: 13 },
@@ -3674,9 +4334,12 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   bottomDock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(0,0,0,0.3)",
+    backgroundColor: "#110720",
   },
   bottomBar: {
     flexDirection: "row",
@@ -3730,15 +4393,14 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    height: 36,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 18,
-    paddingHorizontal: 14,
+    height: 34,
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    paddingHorizontal: 6,
     paddingVertical: 0,
     color: "white",
     fontSize: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderWidth: 0,
   },
   sendBtn: {
     backgroundColor: "#7c4dff",
@@ -3750,7 +4412,140 @@ const styles = StyleSheet.create({
   },
   sendBtnText: { color: "white", fontWeight: "700", fontSize: 13 },
 
-  // More menu modal
+  // Tag / @mention styles
+  tagBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(124,77,255,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tagBtnText: {
+    color: "#b39dff",
+    fontSize: 17,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  inputWrapper: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+    height: 36,
+    paddingHorizontal: 8,
+    overflow: "hidden",
+  },
+  tagChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(124,77,255,0.4)",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginRight: 4,
+    maxWidth: 110,
+  },
+  tagChipText: {
+    color: "#d8c8ff",
+    fontSize: 12,
+    fontWeight: "700",
+    flexShrink: 1,
+  },
+  tagChipClose: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 10,
+    marginLeft: 4,
+    fontWeight: "700",
+  },
+  tagPickerContainer: {
+    backgroundColor: "rgba(30,10,60,0.97)",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderTopWidth: 1,
+    borderColor: "rgba(124,77,255,0.35)",
+    maxHeight: 260,
+    paddingBottom: 8,
+  },
+  tagPickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  tagPickerTitle: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  tagPickerClose: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  tagPickerEmpty: {
+    color: "rgba(255,255,255,0.4)",
+    textAlign: "center",
+    paddingVertical: 20,
+    fontSize: 13,
+  },
+  tagPickerList: {
+    paddingHorizontal: 8,
+  },
+  tagPickerItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    gap: 10,
+  },
+  tagPickerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  tagPickerAvatarFallback: {
+    backgroundColor: "rgba(124,77,255,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tagPickerAvatarInitial: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  tagPickerUserInfo: {
+    flex: 1,
+  },
+  tagPickerName: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  tagPickerUsername: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
+    marginTop: 1,
+  },
+  tagPickerMicBadge: {
+    backgroundColor: "rgba(77,200,255,0.15)",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  tagPickerMicText: {
+    fontSize: 12,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -4040,14 +4835,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     gap: 8,
   },
+  giftCardImgWrap: {
+    position: "relative",
+    width: 64,
+    height: 64,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   giftCardImg: {
     width: 64,
     height: 64,
   },
-  giftCardQty: {
+  giftCardLockOverlay: {
+    position: "absolute",
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  giftCardLockIcon: {
+    fontSize: 20,
+  },
+  giftCardLabel: {
     color: "#a78bfa",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
+  },
+  giftCardReady: {
+    borderColor: "#a78bfa",
+    backgroundColor: "rgba(124,77,255,0.18)",
   },
   giftCardBtn: {
     borderRadius: 20,
@@ -4060,6 +4877,10 @@ const styles = StyleSheet.create({
   giftCardBtnActive: {
     backgroundColor: "rgba(124,77,255,0.45)",
     borderColor: "#a78bfa",
+  },
+  giftCardBtnClaimed: {
+    backgroundColor: "rgba(74,222,128,0.2)",
+    borderColor: "#4ade80",
   },
   giftCardBtnText: {
     color: "rgba(255,255,255,0.6)",
@@ -4953,6 +5774,369 @@ const styles = StyleSheet.create({
   },
   giftPopupSub: {
     color: "#f9a8d4",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  // ── Seat action popup (centered) ──
+  seatActionOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  seatActionCard: {
+    width: "100%",
+    backgroundColor: "#1e1035",
+    borderRadius: 24,
+    paddingHorizontal: 22,
+    paddingTop: 28,
+    paddingBottom: 22,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.25)",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.45,
+    shadowRadius: 20,
+    elevation: 16,
+  },
+  seatActionHeader: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  seatActionHeaderEmoji: {
+    fontSize: 38,
+    marginBottom: 8,
+  },
+  seatActionHeaderTitle: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  seatActionHeaderSub: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 13,
+  },
+  seatActionDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    marginBottom: 18,
+  },
+  seatActionBtn: {
+    borderRadius: 14,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  seatActionBtnGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 15,
+    gap: 10,
+  },
+  seatActionBtnIcon: { fontSize: 20 },
+  seatActionBtnText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  seatActionCancelBtn: {
+    marginTop: 4,
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  seatActionCancelText: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  // ── Mic permission warning card ──
+  micPermCard: {
+    width: "82%",
+    backgroundColor: "#12082b",
+    borderRadius: 22,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+  },
+  // Top illustrated gradient section
+  micPermIllustration: {
+    width: "100%",
+    height: 170,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  // Decorative background blobs
+  micPermBlob1: {
+    position: "absolute",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(124,77,255,0.25)",
+    top: -20,
+    left: -30,
+  },
+  micPermBlob2: {
+    position: "absolute",
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: "rgba(168,85,247,0.2)",
+    bottom: -10,
+    right: -10,
+  },
+  // Phone-shaped card in the illustration
+  micPermPhoneCard: {
+    width: 110,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "rgba(168,85,247,0.5)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    alignItems: "flex-start",
+    gap: 7,
+  },
+  micPermPhoneBar1: {
+    width: "80%",
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "rgba(168,85,247,0.6)",
+  },
+  micPermPhoneBar2: {
+    width: "55%",
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "rgba(168,85,247,0.35)",
+  },
+  micPermMicCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(124,77,255,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    marginVertical: 2,
+  },
+  micPermPhoneBar3: {
+    width: "65%",
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "rgba(168,85,247,0.35)",
+  },
+  // Small floating badge bottom-right of illustration
+  micPermBadge: {
+    position: "absolute",
+    bottom: 22,
+    right: 36,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.4)",
+    padding: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  micPermBadgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#a855f7",
+  },
+  micPermBadgeLine: {
+    width: 24,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(168,85,247,0.5)",
+  },
+  // Text body section
+  micPermBody: {
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 20,
+  },
+  micPermMsg: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 21,
+  },
+  // Button row
+  micPermBtnRow: {
+    flexDirection: "row",
+    width: "100%",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  micPermCancelBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  micPermCancelText: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  micPermBtnDivider: {
+    width: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  micPermOkBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  micPermOkText: {
+    color: "#a855f7",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  // ── Pinned room message cards ──
+  pinnedRulesCard: {
+    backgroundColor: "#0e7c7b",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 2,
+  },
+  pinnedRulesText: {
+    color: "#e0ffff",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  pinnedWelcomeCard: {
+    backgroundColor: "rgba(30,18,55,0.85)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 2,
+  },
+  pinnedWelcomeText: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 12,
+    lineHeight: 18,
+    flex: 1,
+  },
+  pinnedEditBtn: {
+    backgroundColor: "#7c4dff",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+  },
+  pinnedEditBtnText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  pinnedShareCard: {
+    backgroundColor: "rgba(30,18,55,0.85)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 2,
+  },
+  pinnedShareText: {
+    color: "#fbbf24",
+    fontSize: 12,
+    fontWeight: "600",
+    flex: 1,
+  },
+  pinnedShareBtn: {
+    backgroundColor: "#3b82f6",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 5,
+  },
+  pinnedShareBtnText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  // ── Welcome message edit modal ──
+  welcomeEditOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  welcomeEditBox: {
+    backgroundColor: "#1a0a2e",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    paddingTop: 12,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.2)",
+  },
+  welcomeEditTitle: {
+    color: "white",
+    fontSize: 17,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  welcomeEditInput: {
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.25)",
+    color: "white",
+    fontSize: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 90,
+    textAlignVertical: "top",
+  },
+  welcomeEditCount: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 11,
+    textAlign: "right",
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  welcomeEditActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  welcomeEditCancel: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  welcomeEditCancelText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  welcomeEditSave: {
+    flex: 1,
+    backgroundColor: "#7c4dff",
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  welcomeEditSaveText: {
+    color: "white",
     fontSize: 15,
     fontWeight: "700",
   },

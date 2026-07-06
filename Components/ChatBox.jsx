@@ -3,6 +3,9 @@ import { Alert } from "react-native";
 import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services/chatService";
 import { wsService } from "../src/services/websocket";
 import { getAppUserId } from "../src/utils/sessionUser";
+import { getUserUiAssets } from "../src/api/uiAssetsApi";
+
+const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
 import {
   View,
   Text,
@@ -40,6 +43,7 @@ export default function ChatBox({ user = {}, onBack }) {
     name = "User",
     avatar = null,
     lastMsg = "",
+    level = null,
   } = user;
 
   const [showBanner, setShowBanner] = useState(true);
@@ -47,6 +51,7 @@ export default function ChatBox({ user = {}, onBack }) {
   const [messages, setMessages] = useState([]);
   const [myUserId, setMyUserId] = useState(null);
   const [showEmojiBox, setShowEmojiBox] = useState(false);
+  const [otherUserHasNewFrame, setOtherUserHasNewFrame] = useState(false);
   const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom } = useKeyboardInset();
   const scrollRef = useRef(null);
   const [composerHeight, setComposerHeight] = useState(136);
@@ -64,7 +69,6 @@ export default function ChatBox({ user = {}, onBack }) {
 
     const initChat = async () => {
       try {
-        
         await wsService.connect();
         const currentUserId = await getAppUserId();
         if (cancelled) return;
@@ -73,12 +77,26 @@ export default function ChatBox({ user = {}, onBack }) {
         const { messages: apiMessages } = await loadChatHistory(userId);
         if (cancelled) return;
         setMessages(apiMessages.map((m) => mapApiMessage(m, currentUserId)));
-        
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
 
         await markChatAsRead(userId);
       } catch {
         // APIs logged in chatApi
+      }
+
+      // Fetch new-user frame status for the badge
+      try {
+        const assets = await getUserUiAssets(userId);
+        const hasFrame = Boolean(
+          assets?.showNewUserFrame ??
+          assets?.hasNewUserFrame ??
+          assets?.data?.showNewUserFrame ??
+          assets?.data?.hasNewUserFrame ??
+          false
+        );
+        if (!cancelled) setOtherUserHasNewFrame(hasFrame);
+      } catch {
+        // non-critical
       }
     };
 
@@ -357,11 +375,28 @@ export default function ChatBox({ user = {}, onBack }) {
                         <Text style={styles.msgTime}>{formatTime(msg.time)}</Text>
                       </LinearGradient>
                     ) : (
-                      <View style={styles.msgBubbleThemInner}>
-                        <Text style={styles.msgTextThem}>{msg.text}</Text>
-                        <Text style={[styles.msgTime, { color: "rgba(255,255,255,0.35)" }]}>
-                          {formatTime(msg.time)}
-                        </Text>
+                      <View>
+                        {/* Lv. badge + NEW STAR badge row */}
+                        {level != null && (
+                          <View style={styles.msgBadgeRow}>
+                            <View style={styles.msgLvBadge}>
+                              <Text style={styles.msgLvText}>Lv.{level}</Text>
+                            </View>
+                            {otherUserHasNewFrame && (
+                              <Image
+                                source={NEW_START_BADGE}
+                                style={styles.msgNewStarBadge}
+                                resizeMode="contain"
+                              />
+                            )}
+                          </View>
+                        )}
+                        <View style={styles.msgBubbleThemInner}>
+                          <Text style={styles.msgTextThem}>{msg.text}</Text>
+                          <Text style={[styles.msgTime, { color: "rgba(255,255,255,0.35)" }]}>
+                            {formatTime(msg.time)}
+                          </Text>
+                        </View>
                       </View>
                     )}
                   </View>
@@ -734,6 +769,30 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  // Level + new star badge row above "them" bubbles
+  msgBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 3,
+    gap: 2,
+  },
+  msgLvBadge: {
+    backgroundColor: "#7c4dff",
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  msgLvText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  msgNewStarBadge: {
+    width: 52,
+    height: 24,
+    marginLeft: 2,
   },
 
   // Bottom action bar

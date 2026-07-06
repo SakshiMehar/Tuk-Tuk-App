@@ -33,6 +33,7 @@ import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import {
   avatarMap,
   avatarOptions,
+  getAvatarOptionsForGender,
   getAvatarSource,
   DEFAULT_AVATAR_ID,
 } from "../../src/data/avatarOptions";
@@ -48,11 +49,14 @@ import { openUserChat } from "../../src/utils/chatNavigation";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import { refreshWalletBalance } from "../../src/store/walletStore";
 import { submitFeedback } from "../../src/services/userSettingsService";
+import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
 import { s, ms } from "../../src/utils/responsive";
 
 const screen = Dimensions.get("window");
 
 const meImg = require("../../assets/images/me.png");
+const boyMeImg = require("../../assets/images/boyme.png");
+const NEW_START_BADGE = require("../../assets/Batches/newstart-batch.png");
 const menuPages = [
   [
     { icon: "gift",         label: "Get Rewards",  badge: true  },
@@ -104,6 +108,11 @@ export default function Profile() {
   const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
   const [menuPage, setMenuPage] = useState(0);
   const [activeTab, setActiveTab] = useState("Moment");
+  const [giftTab, setGiftTab] = useState("Receive");
+  const [giftEarnedCount, setGiftEarnedCount] = useState(0);
+  const [giftsReceived, setGiftsReceived] = useState([]);
+  const [giftsSent, setGiftsSent] = useState([]);
+  const [giftsLoading, setGiftsLoading] = useState(false);
   const menuRef = useRef(null);
 
   // Editable profile state
@@ -114,6 +123,7 @@ export default function Profile() {
   const [profilePicUrl, setProfilePicUrl] = useState(null);
   const [editVisible, setEditVisible] = useState(false);
   const [editName, setEditName] = useState("");
+  const [userGender, setUserGender] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [userId, setUserId] = useState(null);
   const [newUserFrameSource, setNewUserFrameSource] = useState(null);
@@ -144,7 +154,7 @@ export default function Profile() {
   const [postSaving, setPostSaving] = useState(false);
   const [profileTabLoading, setProfileTabLoading] = useState(false);
   const [statsLoading, setStatsLoading] = useState(true);
-  const tabDataLoadedRef = useRef({ Moment: false, Profile: false });
+  const tabDataLoadedRef = useRef({ Moment: false, Profile: false, Gift: false });
   const refreshSavedUsers = useCallback(async () => {
     setSavedUsersLoading(true);
     try {
@@ -211,6 +221,7 @@ export default function Profile() {
     }
     setUseLocalAvatar(user.useLocalAvatar !== false);
     setProfilePicUrl(user.profilePicUrl ?? user.avatarUrl ?? null);
+    if (user.gender) setUserGender(user.gender);
     const frameSource = await syncNewUserFrameForSession();
     setNewUserFrameSource(frameSource);
     const levelData = await syncUserLevelForSession();
@@ -311,6 +322,32 @@ export default function Profile() {
       if (tabDataLoadedRef.current.Profile) return;
       tabDataLoadedRef.current.Profile = true;
       loadProfileTabData();
+      return;
+    }
+    if (activeTab === "Gift") {
+      if (tabDataLoadedRef.current.Gift) return;
+      tabDataLoadedRef.current.Gift = true;
+      setGiftsLoading(true);
+      Promise.allSettled([getGiftsReceived(), getGiftsSent()]).then(([receivedRes, sentRes]) => {
+        if (receivedRes.status === "fulfilled") {
+          const data = receivedRes.value;
+          console.log("[Gift] Received response:", JSON.stringify(data, null, 2));
+          const list = Array.isArray(data) ? data : (data?.data ?? data?.gifts ?? data?.list ?? []);
+          setGiftsReceived(list);
+          setGiftEarnedCount(list.length);
+        } else {
+          console.error("[Gift] Received fetch error:", receivedRes.reason?.message ?? receivedRes.reason);
+        }
+        if (sentRes.status === "fulfilled") {
+          const data = sentRes.value;
+          console.log("[Gift] Sent response:", JSON.stringify(data, null, 2));
+          const list = Array.isArray(data) ? data : (data?.data ?? data?.gifts ?? data?.list ?? []);
+          setGiftsSent(list);
+        } else {
+          console.error("[Gift] Sent fetch error:", sentRes.reason?.message ?? sentRes.reason);
+        }
+        setGiftsLoading(false);
+      });
     }
   }, [activeTab, loadMyPosts, loadProfileTabData]);
 
@@ -1364,7 +1401,7 @@ export default function Profile() {
         {/* ── CHARACTER IMAGE ── */}
         <View style={styles.characterWrapper}>
           <Image
-            source={meImg}
+            source={userGender === "Male" ? boyMeImg : meImg}
             style={styles.characterImg}
             resizeMode="contain"
           />
@@ -1400,7 +1437,7 @@ export default function Profile() {
           {/* Top section: avatar left + name/id/badges right */}
           <View style={styles.profileTopSection}>
 
-            {/* Avatar with frame */}
+            {/* Avatar with frame + verified badge below */}
             <View style={styles.profilePicWrapper}>
               <ProfileAvatarWithFrame
                 avatarSource={avatarSource}
@@ -1409,10 +1446,17 @@ export default function Profile() {
                 avatarStyle={styles.profilePic}
                 wrapperStyle={styles.profilePicFrameWrap}
               />
+              <Image
+                source={require("../../assets/Batches/verified-batch.png")}
+                style={styles.verifiedBadge}
+                resizeMode="contain"
+              />
             </View>
 
             {/* Name + ID + badges */}
             <View style={styles.profileInfoCol}>
+
+              {/* Row 1: Username + Edit */}
               <View style={styles.nameRow}>
                 <Text style={styles.userName} numberOfLines={1}>{name}</Text>
                 <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={handleOpenEditProfile}>
@@ -1421,24 +1465,35 @@ export default function Profile() {
                 </TouchableOpacity>
               </View>
 
-              {/* ID + level badge inline */}
+              {/* Row 2: ID + gender symbol right next to it */}
               <View style={styles.idRow}>
                 <Text allowFontScaling={false} style={styles.userId}>ID: {userId ?? "—"}</Text>
-                {userLevel != null ? (
+                {userGender === "Male" && (
+                  <Text style={styles.genderSymbolMale}>♂</Text>
+                )}
+                {userGender === "Female" && (
+                  <Text style={styles.genderSymbolFemale}>♀</Text>
+                )}
+              </View>
+
+              {/* Row 3: Level badge + New Star badge below ID */}
+              <View style={styles.profileLevelWrap}>
+                {userLevel != null && (
                   <Image
                     source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel)}
                     style={styles.levelBadge}
                     resizeMode="contain"
                   />
-                ) : null}
+                )}
+                {newUserFrameSource && (
+                  <Image
+                    source={NEW_START_BADGE}
+                    style={styles.profileNewStarBadge}
+                    resizeMode="contain"
+                  />
+                )}
               </View>
 
-              {/* Verified badge */}
-              <Image
-                source={require("../../assets/Batches/verified-batch.png")}
-                style={styles.verifiedBadge}
-                resizeMode="contain"
-              />
             </View>
           </View>
 
@@ -1627,11 +1682,62 @@ export default function Profile() {
         )}
 
         {activeTab === "Gift" && (
-          <View style={styles.momentSection}>
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>🎁</Text>
-              <Text style={styles.emptyText}>Gifts coming soon</Text>
+          <View style={styles.giftSection}>
+            {/* Header: Gift title + Earned count */}
+            <View style={styles.giftHeader}>
+              <Text style={styles.giftHeaderTitle}>Gift</Text>
+              <TouchableOpacity style={styles.giftEarnedBtn} activeOpacity={0.7}>
+                <Text style={styles.giftEarnedText}>Earned {giftEarnedCount} </Text>
+                <FontAwesome name="chevron-right" size={11} color="#a78bfa" />
+              </TouchableOpacity>
             </View>
+
+            {/* Segmented slider: Receive | Send */}
+            <View style={styles.giftSlider}>
+              {["Receive", "Send"].map((tab) => (
+                <TouchableOpacity
+                  key={tab}
+                  activeOpacity={0.85}
+                  onPress={() => setGiftTab(tab)}
+                  style={[styles.giftSliderBtn, giftTab === tab && styles.giftSliderBtnActive]}
+                >
+                  {giftTab === tab && (
+                    <LinearGradient
+                      colors={["#7c4dff", "#a855f7"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  )}
+                  <Text style={[styles.giftSliderBtnText, giftTab === tab && styles.giftSliderBtnTextActive]}>
+                    {tab}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Content area */}
+            {giftsLoading ? (
+              <ActivityIndicator color="#a78bfa" style={{ marginVertical: 32 }} />
+            ) : (giftTab === "Receive" ? giftsReceived : giftsSent).length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>🎁</Text>
+                <Text style={styles.emptyText}>
+                  {giftTab === "Receive" ? "No gifts received yet" : "No gifts sent yet"}
+                </Text>
+              </View>
+            ) : (
+              (giftTab === "Receive" ? giftsReceived : giftsSent).map((item, idx) => (
+                <View key={String(item?.id ?? item?.giftCode ?? idx)} style={styles.giftItemRow}>
+                  <Text style={styles.giftItemName}>{item?.giftName ?? item?.name ?? item?.giftCode ?? "Gift"}</Text>
+                  <Text style={styles.giftItemMeta}>
+                    {giftTab === "Receive"
+                      ? (item?.senderName ?? item?.fromUser ?? "Someone")
+                      : (item?.receiverName ?? item?.toUser ?? "Someone")}
+                  </Text>
+                </View>
+              ))
+            )}
           </View>
         )}
 
@@ -1703,7 +1809,7 @@ export default function Profile() {
 
               <Text style={styles.sectionSmall}>Choose avatar</Text>
               <View style={styles.avatarRow}>
-                {avatarOptions.map((id) => (
+                {getAvatarOptionsForGender(userGender).map((id) => (
                   <TouchableOpacity
                     key={id}
                     onPress={() => setEditAvatarId(id)}
@@ -1965,15 +2071,13 @@ const styles = StyleSheet.create({
   },
   profileTopSection: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 14,
     marginBottom: 14,
   },
   profilePicWrapper: {
-    width: Math.round(s(72) * 1.23) + 4,
-    height: Math.round(s(72) * 1.23) + 4,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     flexShrink: 0,
   },
   profilePicFrameWrap: {
@@ -2023,20 +2127,41 @@ const styles = StyleSheet.create({
   idRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
   },
   userId: {
     color: "rgba(255,255,255,0.75)",
     fontSize: ms(12),
   },
+  genderSymbolMale: {
+    color: "#4a7fff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  genderSymbolFemale: {
+    color: "#ff4aaa",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  verifiedBadge: {
+    width: 80,
+    height: 22,
+    marginTop: 6,
+    alignSelf: "center",
+  },
+  profileLevelWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
   levelBadge: {
     width: 36,
     height: 18,
   },
-  verifiedBadge: {
-    width: 90,
-    height: 26,
-    marginTop: 0,
+  profileNewStarBadge: {
+    width: 52,
+    height: 24,
   },
   cardDivider: {
     height: 1,
@@ -3426,5 +3551,77 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.55)",
     fontSize: 13,
     textAlign: "center",
+  },
+
+  // Gift section
+  giftSection: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  giftHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  giftHeaderTitle: {
+    color: "white",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  giftEarnedBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  giftEarnedText: {
+    color: "#a78bfa",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  giftSlider: {
+    flexDirection: "row",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 16,
+    gap: 4,
+  },
+  giftSliderBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 11,
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  giftSliderBtnActive: {},
+  giftSliderBtnText: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  giftSliderBtnTextActive: {
+    color: "white",
+    fontWeight: "800",
+  },
+  giftItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  giftItemName: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+    flex: 1,
+  },
+  giftItemMeta: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
   },
 });

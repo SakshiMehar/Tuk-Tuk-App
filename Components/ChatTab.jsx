@@ -22,12 +22,14 @@ import { loadConversations } from "../src/services/chatService";
 import { wsService } from "../src/services/websocket";
 import { openUserChat } from "../src/utils/chatNavigation";
 import ComingSoonModal from "./ComingSoonModal";
+import ProfileConnectionsModal from "./ProfileConnectionsModal";
 import {
   loadFollowing,
   loadFollowers,
   followUser,
   isSameUser,
 } from "../src/services/relationshipService";
+import { loadProfileStats } from "../src/services/profileStatsService";
 import { getAppUserId } from "../src/utils/sessionUser";
 
 const RECOMMEND_RING_COLORS = ["#7c4dff", "#ff4ea3"];
@@ -56,17 +58,17 @@ const featureCards = [
   {
     id: "fc3",
     label: "Followers",
-    avatar: "https://randomuser.me/api/portraits/men/32.jpg",
-    colors: null,
-    badge: 67,
+    emoji: "🫂",
+    colors: ["#00693e", "#00c853"],
+    badge: null,
     borderColors: ["#00c853", "#69f0ae"],
   },
   {
     id: "fc4",
     label: "Visitors",
-    avatar: "https://randomuser.me/api/portraits/women/44.jpg",
-    colors: null,
-    badge: 84,
+    emoji: "👀",
+    colors: ["#7a0f4d", "#f953c6"],
+    badge: null,
     borderColors: ["#f953c6", "#b91d73"],
   },
   {
@@ -148,6 +150,8 @@ export default function ChatTab() {
   const [conversations, setConversations] = useState([]);
   const [chatsLoading, setChatsLoading] = useState(true);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
+  const [connectionsModalType, setConnectionsModalType] = useState(null); // null | "followers" | "visitors"
+  const [profileStats, setProfileStats] = useState({ followersCount: 0, visitorCount: 0 });
 
   const fetchChats = useCallback(() => {
     setChatsLoading(true);
@@ -179,6 +183,18 @@ export default function ChatTab() {
       fetchChats();
       wsService.connect().catch(() => {});
     }, [fetchChats])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      loadProfileStats()
+        .then((stats) => {
+          if (!cancelled) setProfileStats(stats);
+        })
+        .catch(() => {});
+      return () => { cancelled = true; };
+    }, [])
   );
 
   useEffect(() => {
@@ -224,6 +240,25 @@ export default function ChatTab() {
     () => new Set(followingList.map((u) => String(u.userId ?? u.id))),
     [followingList]
   );
+
+  const displayFeatureCards = useMemo(
+    () =>
+      featureCards.map((card) => {
+        if (card.id === "fc3") return { ...card, badge: profileStats.followersCount || null };
+        if (card.id === "fc4") return { ...card, badge: profileStats.visitorCount || null };
+        return card;
+      }),
+    [profileStats]
+  );
+
+  const handleFeatureCardPress = (card) => {
+    if (card.label === "Followers") setConnectionsModalType("followers");
+    else if (card.label === "Visitors") setConnectionsModalType("visitors");
+    else if (card.label === "Game") setComingSoonFeature("Game");
+    else if (card.label === "Voice Party") router.push("/(tabs)/party");
+    else if (card.label === "Nearby") router.push("/nearby");
+    else if (card.label === "Moments") router.push("/(tabs)/profile");
+  };
 
   const contactMenuItems = useMemo(
     () =>
@@ -612,12 +647,12 @@ export default function ChatTab() {
           style={styles.featureScroll}
           contentContainerStyle={styles.featureContent}
         >
-          {featureCards.map((card) => (
+          {displayFeatureCards.map((card) => (
             <TouchableOpacity
               key={card.id}
               style={styles.featureCard}
               activeOpacity={0.8}
-              onPress={card.label === "Game" ? () => setComingSoonFeature("Game") : undefined}
+              onPress={() => handleFeatureCardPress(card)}
             >
               {/* Gradient border ring */}
               <LinearGradient
@@ -720,6 +755,15 @@ export default function ChatTab() {
       <ComingSoonModal
         feature={comingSoonFeature}
         onClose={() => setComingSoonFeature(null)}
+      />
+
+      <ProfileConnectionsModal
+        visible={connectionsModalType !== null}
+        type={connectionsModalType}
+        onClose={() => {
+          setConnectionsModalType(null);
+          loadProfileStats().then(setProfileStats).catch(() => {});
+        }}
       />
     </View>
   );

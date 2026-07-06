@@ -1,4 +1,4 @@
-import { getOfflineRechargeAgent } from "../api/rechargeApi";
+import { getDiamondStockManager } from "../api/rechargeApi";
 import { getUser } from "../store/authStore";
 import { resolveUserCountryName, syncUserCountryToServer } from "./userCountryService";
 
@@ -46,6 +46,6 @@ export const loadOfflineRechargeAgent = async () => {
     countryCode: user?.countryCode,
   }).catch(() => {});
 
-  const data = await getOfflineRechargeAgent({ countryName });
+  const data = await getDiamondStockManager();
   return parseOfflineRechargeAgent(data);
 };

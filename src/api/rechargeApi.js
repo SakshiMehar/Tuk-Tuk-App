@@ -1,13 +1,11 @@
 import API, { authRequestConfig, refreshTokenCache } from "./axios";
 
-/** GET /api/app/offline-recharge/agent — assigned recharge agent details */
-export const getOfflineRechargeAgent = async ({ countryName, country } = {}) => {
+/** GET /api/app/diamond-stock-manager/diamond-stock-manager — purchasable diamond packages. */
+export const getDiamondStockManager = async () => {
   await refreshTokenCache();
-  const resolved = String(countryName || country || "").trim();
-  const params = resolved ? { countryName: resolved, country: resolved } : undefined;
-  const response = await API.get("/api/app/offline-recharge/agent", {
-    ...(await authRequestConfig()),
-    ...(params ? { params } : {}),
-  });
+  const response = await API.get(
+    "/api/app/diamond-stock-manager/diamond-stock-manager",
+    await authRequestConfig()
+  );
   return response.data;
 };

@@ -146,14 +146,6 @@ export const removeUserFromServer = async (targetUserId) => {
   return response.data;
 };
 
-export const getMyDiamondCreditRequests = async () => {
-  const url = "/api/app/diamond-credit-requests/me";
-  
-  const response = await API.get(url, await authRequestConfig());
-  
-  return response.data;
-};
-
 /** GET /api/app/daily-tasks — today's reward tasks with progress and claim state. */
 export const getDailyTasks = async () => {
   const { headers } = await buildAuthedConfig("get-daily-tasks");

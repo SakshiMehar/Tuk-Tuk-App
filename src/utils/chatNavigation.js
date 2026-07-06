@@ -13,6 +13,8 @@ export const buildChatBoxParams = (user) => {
     user?.profileImage;
   if (avatar) params.avatar = String(avatar);
   if (user?.lastMsg) params.lastMsg = String(user.lastMsg);
+  const level = user?.level ?? user?.userLevel ?? user?.lvl;
+  if (level != null) params.level = String(level);
   return params;
 };
 

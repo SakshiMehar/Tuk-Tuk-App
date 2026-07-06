@@ -37,7 +37,10 @@ import {
   isSameUser,
 } from "../../src/services/relationshipService";
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
-import { getUser } from "../../src/store/authStore";
+import { getUser, updateUser } from "../../src/store/authStore";
+import { patchMyProfile } from "../../src/api/profileApi";
+import { syncUserCountryToServer } from "../../src/services/userCountryService";
+import { COUNTRY_OPTIONS, findCountryByName } from "../../src/data/countryOptions";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
@@ -62,6 +65,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import Toast from "../../Components/Toast";
 import ComingSoonModal from "../../Components/ComingSoonModal";
+import ReportReasonModal from "../../Components/ReportReasonModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
 import { openUserChat } from "../../src/utils/chatNavigation";
@@ -231,7 +235,7 @@ const MENU_ACTIONS = [
 ];
 
 // ── Post more-menu bottom sheet ───────────────────────────────
-const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete, currentUserId }) => {
+const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete, onReport, currentUserId }) => {
   // Show delete if: post was created by this user (flag), OR userId matches current user
   const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
   const menuActions = isOwnPost
@@ -287,10 +291,7 @@ const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete,
         }
         break;
       case "report":
-        try {
-          await reportUser(targetUserId);
-        } catch (e) {
-        }
+        onReport?.(targetUserId, post?.name);
         break;
       case "delete":
         onDelete?.(post?.id);
@@ -298,7 +299,7 @@ const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete,
       default:
         break;
     }
-  }, [post, onClose, onBlock]);
+  }, [post, onClose, onBlock, onReport]);
 
   if (!post) return null;
 
@@ -1957,6 +1958,7 @@ export default function Home() {
   const [notifVisible, setNotifVisible] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
   const [moreMenuPost, setMoreMenuPost] = useState(null);
+  const [reportTarget, setReportTarget] = useState(null);
   const [commentPostId, setCommentPostId] = useState(null);
   const [postSheetVisible, setPostSheetVisible] = useState(false);
   const [likedPostIds, setLikedPostIds] = useState([]);
@@ -1974,6 +1976,11 @@ export default function Home() {
   const [sessionNewUserFrameSource, setSessionNewUserFrameSource] = useState(null);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
   const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
+  const [genderPickerVisible, setGenderPickerVisible] = useState(false);
+  const [genderSaving, setGenderSaving] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
+  const [countrySearch, setCountrySearch] = useState("");
 
   const syncSessionAvatar = useCallback(async () => {
     try {
@@ -1992,6 +1999,35 @@ export default function Home() {
       syncSessionAvatar();
     }, [syncSessionAvatar])
   );
+
+  // Show gender picker once if user hasn't set their gender yet
+  useEffect(() => {
+    getUser().then((user) => {
+      if (!user?.gender) setGenderPickerVisible(true);
+    }).catch(() => {});
+  }, []);
+
+  // Saves gender + country from the "Who are you?" picker straight to the
+  // session user and both profile endpoints, so Account screen reflects it
+  // immediately (same fields/shape as the Account screen's own country save).
+  const saveGenderSelection = useCallback(async (gender) => {
+    setGenderSaving(true);
+    try {
+      const match = selectedCountry ? findCountryByName(selectedCountry) : null;
+      const countryFields = match
+        ? { country: match.name, countryCode: match.code, countryName: match.name }
+        : {};
+      await updateUser({ gender, ...countryFields });
+      await patchMyProfile({ gender, ...countryFields }).catch(() => {});
+      if (match) {
+        await syncUserCountryToServer({ country: match.name, countryCode: match.code }).catch(() => {});
+      }
+    } finally {
+      setGenderSaving(false);
+      setGenderPickerVisible(false);
+      setSelectedCountry("");
+    }
+  }, [selectedCountry]);
 
   useFocusEffect(
     useCallback(() => {
@@ -2444,6 +2480,18 @@ export default function Home() {
     }
   }, [currentUserId]);
 
+  const handleReportSubmit = useCallback(async (reason) => {
+    if (!reportTarget?.userId) return;
+    try {
+      await reportUser(reportTarget.userId, reason);
+      setReportTarget(null);
+      setToastMessage("Report submitted. Thank you for letting us know.");
+      setToastVisible(true);
+    } catch (e) {
+      throw new Error(e?.message || "Could not submit report. Please try again.");
+    }
+  }, [reportTarget]);
+
   const handleDeletePost = useCallback(async (postId) => {
     if (!postId) return;
     // Optimistically remove from feed immediately
@@ -2889,7 +2937,16 @@ export default function Home() {
         onClose={handleMoreClose}
         onBlock={handleBlockUser}
         onDelete={handleDeletePost}
+        onReport={(userId, name) => setReportTarget({ userId, name })}
         currentUserId={currentUserId}
+      />
+
+      {/* ── REPORT REASON MODAL ── */}
+      <ReportReasonModal
+        visible={reportTarget !== null}
+        targetLabel={reportTarget?.name ? `@${reportTarget.name}` : "this user"}
+        onClose={() => setReportTarget(null)}
+        onSubmit={handleReportSubmit}
       />
 
       <Toast
@@ -2911,6 +2968,172 @@ export default function Home() {
         onClose={() => setDiamondRechargeVisible(false)}
         currentDiamonds={walletDiamonds}
       />
+
+      {/* ── Gender Picker (shown once if gender not set) ── */}
+      <Modal
+        visible={genderPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.genderOverlay}>
+          <LinearGradient
+            colors={["#1a0a3e", "#0d0618", "#1a0a3e"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.genderCard}
+          >
+            <View style={styles.genderGlow} />
+
+            <Text style={styles.genderHeaderTitle}>Who are you?</Text>
+            <Text style={styles.genderHeaderSub}>
+              Choose your identity to personalize{"\n"}avatars and your experience
+            </Text>
+
+            {/* ── Select Country button ── */}
+            <TouchableOpacity
+              style={styles.countryPickerBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                setCountryDropdownOpen((o) => !o);
+                setCountrySearch("");
+              }}
+            >
+              <Text style={styles.countryPickerBtnText}>
+                {selectedCountry ? `🌍  ${selectedCountry}` : "🌍  Select Country"}
+              </Text>
+              <Text style={styles.countryPickerArrow}>
+                {countryDropdownOpen ? "▲" : "▼"}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Inline country dropdown */}
+            {countryDropdownOpen && (
+              <View style={styles.countryDropdown}>
+                <View style={styles.countrySearchWrap}>
+                  <TextInput
+                    style={styles.countrySearchInput}
+                    placeholder="Search country..."
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    value={countrySearch}
+                    onChangeText={setCountrySearch}
+                    autoCorrect={false}
+                  />
+                </View>
+                <ScrollView
+                  style={styles.countryList}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                >
+                  {COUNTRY_OPTIONS.filter((c) =>
+                    c.name.toLowerCase().includes(countrySearch.toLowerCase())
+                  ).map((country) => (
+                    <TouchableOpacity
+                      key={country.name}
+                      activeOpacity={0.75}
+                      style={[
+                        styles.countryRow,
+                        selectedCountry === country.name && styles.countryRowSelected,
+                      ]}
+                      onPress={() => {
+                        setSelectedCountry(country.name);
+                        setCountryDropdownOpen(false);
+                        setCountrySearch("");
+                      }}
+                    >
+                      <Text style={[
+                        styles.countryRowText,
+                        selectedCountry === country.name && styles.countryRowTextSelected,
+                      ]}>
+                        {country.flag}  {country.name}
+                      </Text>
+                      {selectedCountry === country.name && (
+                        <Text style={styles.countryRowCheck}>✓</Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Boy / Girl cards */}
+            {!countryDropdownOpen && (
+              <>
+                <View style={styles.genderAvatarRow}>
+                  {/* Boy */}
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    disabled={genderSaving}
+                    style={styles.genderAvatarBtn}
+                    onPress={() => saveGenderSelection("Male")}
+                  >
+                    <LinearGradient
+                      colors={["#0d2b6b", "#1a4fbf", "#4a7fff"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.genderAvatarCard}
+                    >
+                      <View style={styles.genderAvatarImgWrap}>
+                        <Image
+                          source={require("../../assets/Avatar/avatar1.webp")}
+                          style={styles.genderAvatarImg}
+                          contentFit="cover"
+                        />
+                        <View style={styles.genderAvatarGlowBlue} />
+                      </View>
+                      <View style={styles.genderLabelRow}>
+                        <Text style={styles.genderAvatarSign}>♂</Text>
+                        <Text style={styles.genderAvatarLabel}>Boy</Text>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {/* Girl */}
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    disabled={genderSaving}
+                    style={styles.genderAvatarBtn}
+                    onPress={() => saveGenderSelection("Female")}
+                  >
+                    <LinearGradient
+                      colors={["#6b0d3a", "#bf1a6e", "#ff4aaa"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.genderAvatarCard}
+                    >
+                      <View style={styles.genderAvatarImgWrap}>
+                        <Image
+                          source={require("../../assets/Avatar/avatar5.webp")}
+                          style={styles.genderAvatarImg}
+                          contentFit="cover"
+                        />
+                        <View style={styles.genderAvatarGlowPink} />
+                      </View>
+                      <View style={styles.genderLabelRow}>
+                        <Text style={styles.genderAvatarSign}>♀</Text>
+                        <Text style={styles.genderAvatarLabel}>Girl</Text>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Other option */}
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  disabled={genderSaving}
+                  style={styles.genderOtherBtn}
+                  onPress={() => saveGenderSelection("Other")}
+                >
+                  <Text style={styles.genderOtherText}>
+                    {genderSaving ? "Saving…" : "Prefer not to say"}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </LinearGradient>
+        </View>
+      </Modal>
 
       {/* ── Searched user profile ── */}
       <Modal
@@ -3015,6 +3238,215 @@ const styles = StyleSheet.create({
   searchProfileMsgBtn: { borderRadius: 14, overflow: "hidden", marginTop: 4 },
   searchProfileMsgGradient: { paddingVertical: 13, alignItems: "center" },
   searchProfileMsgTxt: { color: "white", fontSize: 15, fontWeight: "800" },
+
+  // ── Gender picker modal ──
+  genderOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.82)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 22,
+  },
+  genderCard: {
+    width: "100%",
+    maxWidth: 370,
+    borderRadius: 28,
+    overflow: "hidden",
+    paddingTop: 36,
+    paddingBottom: 10,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.35)",
+    // Outer card shadow (Android elevation)
+    elevation: 24,
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.55,
+    shadowRadius: 24,
+  },
+  // Purple glow blob at the top of the card
+  genderGlow: {
+    position: "absolute",
+    top: -40,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: "rgba(124,77,255,0.18)",
+    alignSelf: "center",
+  },
+  genderHeaderTitle: {
+    color: "#ffffff",
+    fontSize: 26,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: 0.3,
+    marginBottom: 8,
+  },
+  genderHeaderSub: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 28,
+  },
+  genderAvatarRow: {
+    flexDirection: "row",
+    gap: 16,
+    width: "100%",
+    marginBottom: 18,
+  },
+  genderAvatarBtn: {
+    flex: 1,
+    borderRadius: 22,
+    // Card shadow
+    elevation: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+  },
+  genderAvatarCard: {
+    borderRadius: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+    gap: 14,
+    overflow: "hidden",
+  },
+  genderAvatarImgWrap: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+  },
+  genderAvatarImg: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  // Blue halo behind boy avatar
+  genderAvatarGlowBlue: {
+    position: "absolute",
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: "rgba(74,127,255,0.28)",
+    zIndex: -1,
+  },
+  // Pink halo behind girl avatar
+  genderAvatarGlowPink: {
+    position: "absolute",
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: "rgba(255,74,170,0.28)",
+    zIndex: -1,
+  },
+  genderLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  genderAvatarSign: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 18,
+    fontWeight: "300",
+  },
+  genderAvatarLabel: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
+  genderOtherBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    marginBottom: 6,
+  },
+  genderOtherText: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    textDecorationLine: "underline",
+  },
+  countryPickerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    backgroundColor: "rgba(124,77,255,0.18)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.4)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  countryPickerBtnText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+  },
+  countryPickerArrow: {
+    color: "#a78bfa",
+    fontSize: 11,
+    marginLeft: 8,
+  },
+  countryDropdown: {
+    width: "100%",
+    backgroundColor: "rgba(20,8,40,0.95)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+    marginBottom: 14,
+    overflow: "hidden",
+  },
+  countrySearchWrap: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(124,77,255,0.2)",
+    paddingHorizontal: 12,
+  },
+  countrySearchInput: {
+    color: "white",
+    fontSize: 14,
+    paddingVertical: 10,
+  },
+  countryList: {
+    maxHeight: 190,
+  },
+  countryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  countryRowSelected: {
+    backgroundColor: "rgba(124,77,255,0.22)",
+  },
+  countryRowText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  countryRowTextSelected: {
+    color: "#c4b5fd",
+    fontWeight: "700",
+  },
+  countryRowCheck: {
+    color: "#a78bfa",
+    fontSize: 15,
+    fontWeight: "800",
+  },
 
   // Background orbs (same as login)
   orbPink: {

@@ -332,6 +332,12 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
+  sendSeatHeartbeat(roomId: string): void {
+    this._assertConnected();
+    const destination = `/app/room/${roomId}/seat/heartbeat`;
+    this.client!.publish({ destination, body: JSON.stringify({}) });
+  }
+
   onRoomChat(roomId: string, handler: Handler<RoomChatPayload>): () => void {
     return this._onRoomTopic(roomId, 'chat', handler as Handler<unknown>);
   }

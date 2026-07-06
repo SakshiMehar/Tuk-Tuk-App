@@ -30,6 +30,7 @@ import { syncUserCountryToServer } from "../src/services/userCountryService";
 import {
   avatarMap,
   avatarOptions,
+  getAvatarOptionsForGender,
   getAvatarSource,
   DEFAULT_AVATAR_ID,
 } from "../src/data/avatarOptions";
@@ -478,7 +479,7 @@ export default function Account() {
                     showsVerticalScrollIndicator={false}
                     nestedScrollEnabled
                   >
-                    {avatarOptions.map((id) => (
+                    {getAvatarOptionsForGender(profile.gender).map((id) => (
                       <TouchableOpacity
                         key={id}
                         style={[

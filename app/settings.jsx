@@ -12,6 +12,7 @@ import {
   Switch,
   TextInput,
   ActivityIndicator,
+  Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -272,6 +273,28 @@ export default function Settings() {
     } finally {
       setFeedbackSubmitting(false);
     }
+  };
+
+  const SUPPORT_EMAIL = "support@tuktukapp.com";
+  const SUPPORT_WHATSAPP = "919784222556";
+
+  const handleEmailSupport = () => {
+    const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Tuk-Tuk Support Request")}&body=${encodeURIComponent("Hi Tuk-Tuk Support Team,\n\n")}`;
+    Linking.openURL(url).catch(() =>
+      Alert.alert("Email Support", `No email app found.\nPlease write to us at:\n${SUPPORT_EMAIL}`)
+    );
+  };
+
+  const handleWhatsAppSupport = () => {
+    const message = encodeURIComponent("Hi Tuk-Tuk Support, I need help with:");
+    // Use whatsapp:// scheme — works reliably on Android without package visibility issues
+    const waDeepLink = `whatsapp://send?phone=${SUPPORT_WHATSAPP}&text=${message}`;
+    Linking.openURL(waDeepLink).catch(() => {
+      // Fallback: open wa.me in browser (also opens WhatsApp if installed)
+      Linking.openURL(`https://wa.me/${SUPPORT_WHATSAPP}?text=${message}`).catch(() =>
+        Alert.alert("WhatsApp not found", "Please install WhatsApp or contact us via Email Support.")
+      );
+    });
   };
 
   const resetDeleteAccountForm = () => {
@@ -1086,17 +1109,17 @@ export default function Settings() {
 
               {/* Contact Support */}
               <Text style={styles.helpSectionLabel}>Contact Support</Text>
-              <TouchableOpacity style={styles.contactRow} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.contactRow} activeOpacity={0.8} onPress={handleEmailSupport}>
                 <View style={[styles.contactIcon, { backgroundColor: "rgba(59,130,246,0.15)" }]}>
                   <Ionicons name="mail-outline" size={20} color="#60a5fa" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.contactLabel}>Email Support</Text>
-                  <Text style={styles.contactValue}>support@tuktukapp.com</Text>
+                  <Text style={styles.contactValue}>{SUPPORT_EMAIL}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.contactRow} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.contactRow} activeOpacity={0.8} onPress={handleWhatsAppSupport}>
                 <View style={[styles.contactIcon, { backgroundColor: "rgba(37,211,102,0.15)" }]}>
                   <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
                 </View>

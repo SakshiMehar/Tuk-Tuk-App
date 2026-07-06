@@ -53,22 +53,6 @@ export const getPartyGiftCatalog = async () => {
   }
 };
 
-/** @deprecated Use getPartyGiftCatalog for party room tabs */
-export const getGiftCatalog = async (category) => {
-  const path = "/api/app/gifts/catalog";
-  const params = category ? { category: String(category) } : undefined;
-  logRequest("GET", path, params);
-  try {
-    const { headers } = await buildAuthedConfig("gifts/catalog");
-    const response = await API.get(path, { headers, params });
-    logResponse("GET", path, response.data);
-    return response.data;
-  } catch (error) {
-    logError("GET", path, error);
-    throw error;
-  }
-};
-
 /** GET /api/app/gifts/inventory — user's backpack */
 export const getGiftInventory = async () => {
   const path = "/api/app/gifts/inventory";
@@ -151,22 +135,32 @@ export const sendGiftInRoom = async ({
   }
 };
 
-/** @deprecated Use sendGiftInRoom for party room backpack sends */
-export const giveGift = async ({ giftCode, receiverId, quantity = 1 }) => {
-  const path = "/api/app/gifts/give";
-  const body = {
-    giftCode: String(giftCode),
-    receiverId: Number(receiverId),
-    quantity: Math.max(1, Number(quantity) || 1),
-  };
-  logRequest("POST", path, body);
+/** GET /api/app/gifts/gift-receive — gifts received by the current user */
+export const getGiftsReceived = async () => {
+  const path = "/api/app/gifts/gift-receive";
+  logRequest("GET", path);
   try {
-    const { token, headers } = await buildAuthedConfig("gifts/give");
-    const response = await API.post(path, { ...body, token }, { headers });
-    logResponse("POST", path, response.data);
+    const { headers } = await buildAuthedConfig("gifts/gift-receive");
+    const response = await API.get(path, { headers });
+    logResponse("GET", path, response.data);
     return response.data;
   } catch (error) {
-    logError("POST", path, error);
+    logError("GET", path, error);
+    throw error;
+  }
+};
+
+/** GET /api/app/gifts/gift-send — gifts sent by the current user */
+export const getGiftsSent = async () => {
+  const path = "/api/app/gifts/gift-send";
+  logRequest("GET", path);
+  try {
+    const { headers } = await buildAuthedConfig("gifts/gift-send");
+    const response = await API.get(path, { headers });
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
     throw error;
   }
 };

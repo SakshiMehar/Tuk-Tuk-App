@@ -70,28 +70,9 @@ export const firebasePhoneAuth = async (idToken, phoneNumber, name) => {
   return response.data;
 };
 
-export const emailLogin = async (email, password) => {
-  const response = await API.post("/api/auth/login", { email, password });
-  logAuthResponse("POST /api/auth/login", response.data);
-  return response.data;
-};
-
 export const googleLogin = async (idToken, name) => {
   const response = await API.post("/api/auth/google-login", { idToken, name });
   logAuthResponse("POST /api/auth/google-login", response.data);
-  return response.data;
-};
-
-export const facebookLogin = async (accessToken) => {
-  const response = await API.post("/api/auth/facebook-login", { accessToken });
-  logAuthResponse("POST /api/auth/facebook-login", response.data);
-  return response.data;
-};
-
-export const facebookFirebaseLogin = async (idToken, name) => {
-  const body = { idToken, ...(name ? { name } : {}) };
-  const response = await API.post("/api/auth/facebook-login", body);
-  logAuthResponse("POST /api/auth/facebook-login (firebase)", response.data);
   return response.data;
 };
 
@@ -105,12 +86,6 @@ export const firebaseFacebookAuth = async (idToken, phoneNumber, name) => {
     ["/api/auth/firebase-facebook", "/api/auth/facebook-login"],
     body
   );
-};
-
-export const appleLogin = async (identityToken) => {
-  const response = await API.post("/api/auth/apple-login", { identityToken });
-  logAuthResponse("POST /api/auth/apple-login", response.data);
-  return response.data;
 };
 
 export const logout = async () => {

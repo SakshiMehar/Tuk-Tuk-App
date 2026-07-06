@@ -14,12 +14,9 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  DIAMOND_RECHARGE_PACKAGES,
-  formatDiamonds,
-  formatInr,
-} from "../src/data/diamondRechargeCatalog";
+import { formatDiamonds, formatInr } from "../src/data/diamondRechargeCatalog";
 import { loadOfflineRechargeAgent } from "../src/services/offlineRechargeService";
+import { loadDiamondStockPackages } from "../src/services/diamondStockService";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { useRouter } from "expo-router";
 
@@ -36,16 +33,36 @@ export default function DiamondRechargeModal({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const bottomPad = Math.max(insets.bottom, 12);
-  const [selectedId, setSelectedId] = useState(DIAMOND_RECHARGE_PACKAGES[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [packages, setPackages] = useState([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
+  const [packagesError, setPackagesError] = useState(null);
   const [agent, setAgent] = useState(null);
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentError, setAgentError] = useState(null);
   const [userId, setUserId] = useState(null);
 
   const selectedPackage = useMemo(
-    () => DIAMOND_RECHARGE_PACKAGES.find((pkg) => pkg.id === selectedId) ?? null,
-    [selectedId]
+    () => packages.find((pkg) => pkg.id === selectedId) ?? null,
+    [packages, selectedId]
   );
+
+  const fetchPackages = useCallback(async () => {
+    setPackagesLoading(true);
+    setPackagesError(null);
+    try {
+      const list = await loadDiamondStockPackages();
+      setPackages(list);
+      setSelectedId((prev) =>
+        list.some((pkg) => pkg.id === prev) ? prev : (list[0]?.id ?? null)
+      );
+    } catch (err) {
+      setPackages([]);
+      setPackagesError(err?.message || "Could not load diamond packages.");
+    } finally {
+      setPackagesLoading(false);
+    }
+  }, []);
 
   const fetchAgent = useCallback(async () => {
     setAgentLoading(true);
@@ -67,11 +84,9 @@ export default function DiamondRechargeModal({
 
   useEffect(() => {
     if (!visible) return;
-    if (!selectedId && DIAMOND_RECHARGE_PACKAGES[0]) {
-      setSelectedId(DIAMOND_RECHARGE_PACKAGES[0].id);
-    }
+    fetchPackages();
     fetchAgent();
-  }, [visible, fetchAgent, selectedId]);
+  }, [visible, fetchPackages, fetchAgent]);
 
   const buildRechargeMessage = () => {
     if (!selectedPackage) return "";
@@ -158,29 +173,43 @@ export default function DiamondRechargeModal({
               contentContainerStyle={styles.scrollContent}
             >
               <Text style={styles.sectionLabel}>Select package</Text>
-              {DIAMOND_RECHARGE_PACKAGES.map((pkg) => {
-                const active = pkg.id === selectedId;
-                return (
-                  <TouchableOpacity
-                    key={pkg.id}
-                    style={[styles.packageRow, active && styles.packageRowActive]}
-                    activeOpacity={0.85}
-                    onPress={() => setSelectedId(pkg.id)}
-                  >
-                    <View style={styles.packageLeft}>
-                      <Text style={styles.packageDiamonds}>
-                        💎 {Number(pkg.diamonds).toLocaleString("en-IN")}
-                      </Text>
-                      <Text style={styles.packageInr}>{formatInr(pkg.inr)}</Text>
-                    </View>
-                    {active ? (
-                      <Ionicons name="checkmark-circle" size={22} color="#a78bfa" />
-                    ) : (
-                      <Ionicons name="ellipse-outline" size={22} color="rgba(255,255,255,0.25)" />
-                    )}
+              {packagesLoading ? (
+                <View style={styles.agentLoading}>
+                  <ActivityIndicator color="#a78bfa" />
+                  <Text style={styles.agentLoadingText}>Loading packages...</Text>
+                </View>
+              ) : packagesError ? (
+                <View style={styles.agentLoading}>
+                  <Text style={styles.agentErrorText}>{packagesError}</Text>
+                  <TouchableOpacity style={styles.retryBtn} onPress={fetchPackages} activeOpacity={0.85}>
+                    <Text style={styles.retryText}>Retry</Text>
                   </TouchableOpacity>
-                );
-              })}
+                </View>
+              ) : (
+                packages.map((pkg) => {
+                  const active = pkg.id === selectedId;
+                  return (
+                    <TouchableOpacity
+                      key={pkg.id}
+                      style={[styles.packageRow, active && styles.packageRowActive]}
+                      activeOpacity={0.85}
+                      onPress={() => setSelectedId(pkg.id)}
+                    >
+                      <View style={styles.packageLeft}>
+                        <Text style={styles.packageDiamonds}>
+                          💎 {Number(pkg.diamonds).toLocaleString("en-IN")}
+                        </Text>
+                        <Text style={styles.packageInr}>{formatInr(pkg.inr)}</Text>
+                      </View>
+                      {active ? (
+                        <Ionicons name="checkmark-circle" size={22} color="#a78bfa" />
+                      ) : (
+                        <Ionicons name="ellipse-outline" size={22} color="rgba(255,255,255,0.25)" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
 
               <Text style={styles.sectionLabel}>Recharge agent</Text>
               <View style={styles.agentCard}>
