@@ -1,7 +1,6 @@
 import {
   getHomeInit,
   getFeedPosts,
-  getNotifications,
   getDailyGifts,
   getWallet,
   getWalletTransactions,
@@ -249,27 +248,22 @@ const hasMoreFrom = (data) => {
 // Uses Promise.allSettled so a failing secondary call (gifts, wallet, etc.)
 // never prevents the feed and profile from loading.
 export const getHomeData = async () => {
-  const [initResult, feedResult, notifResult, giftsResult, walletResult, activeCountResult] =
+  const [initResult, feedResult, giftsResult, walletResult, activeCountResult] =
     await Promise.allSettled([
       getHomeInit(),
       getFeedPosts("for_you", 1, 10),
-      getNotifications(),
       getDailyGifts(),
       getWallet(),
       getActiveUsersCount(),
     ]);
 
-  // Core data — if init or feed fail the home screen should still handle it gracefully
-  const initData       = initResult.status       === "fulfilled" ? initResult.value       : null;
-  const feedData       = feedResult.status       === "fulfilled" ? feedResult.value       : null;
-  const notifData      = notifResult.status      === "fulfilled" ? notifResult.value      : null;
-  const giftsData      = giftsResult.status      === "fulfilled" ? giftsResult.value      : null;
-  const walletData     = walletResult.status     === "fulfilled" ? walletResult.value     : null;
-  const activeCountData= activeCountResult.status=== "fulfilled" ? activeCountResult.value: null;
+  const initData        = initResult.status        === "fulfilled" ? initResult.value        : null;
+  const feedData        = feedResult.status        === "fulfilled" ? feedResult.value        : null;
+  const giftsData       = giftsResult.status       === "fulfilled" ? giftsResult.value       : null;
+  const walletData      = walletResult.status      === "fulfilled" ? walletResult.value      : null;
+  const activeCountData = activeCountResult.status === "fulfilled" ? activeCountResult.value : null;
 
   const gifts = Array.isArray(giftsData) ? giftsData : (giftsData?.gifts ?? []);
-  const notifList = notifData?.notifications?.content
-    ?? (Array.isArray(notifData?.notifications) ? notifData.notifications : []);
   const token = await getToken();
   const userProfile = normalizeUserProfile(initData?.userProfile, token);
   const recommendedUsers = listFrom(initData, "recommendedUsers").map(normalizeRecommendedUser);
@@ -292,8 +286,8 @@ export const getHomeData = async () => {
     trendingTags:      initData?.trendingTags        ?? [],
     feedPosts,
     feedHasMore:       feedData?.hasMore             ?? false,
-    notifications:     notifList,
-    unreadCount:       notifData?.unreadCount        ?? 0,
+    notifications:     [],
+    unreadCount:       0,
     gifts,
     wallet:            walletData                    ?? null,
   };

@@ -22,7 +22,10 @@ import {
   loadRelationshipStatus,
 } from "../src/services/relationshipService";
 
+import { ms } from "../src/utils/responsive";
+
 const { width: W, height: H } = Dimensions.get("window");
+// Two-column grid card width — accounts for 14px side padding and 10px gap
 const CARD_W = (W - 14 * 2 - 10) / 2;
 
 // ── Locations ────────────────────────────────────────────────

@@ -84,25 +84,17 @@ export const syncUserLevelForSession = async () => {
   }
 
   if (level == null) {
-    return { level: null, badgeSource: null };
+    // Default to level 1 — every user has at least level 1
+    level = DEFAULT_USER_LEVEL;
   }
 
-  let badgeUrl = user?.levelBadgeUrl ?? profile?.levelBadgeUrl ?? null;
-  if (badgeUrl) {
-    badgeUrl = resolveRemoteProfilePicUrl(badgeUrl) ?? badgeUrl;
-  } else {
-    badgeUrl = await fetchLevelBadgeAssetUrl(level);
-  }
+  let badgeUrl = null; // Always use local assets — remote badge URLs are not reliable
 
-  const needsUpdate =
-    user?.level !== level ||
-    (badgeUrl && badgeUrl !== user?.levelBadgeUrl);
+  const needsUpdate = user?.level !== level;
 
   if (needsUpdate) {
-    await updateUser({
-      level,
-      ...(badgeUrl ? { levelBadgeUrl: badgeUrl } : {}),
-    });
+    // Clear any stale remote badge URL — we use local assets now
+    await updateUser({ level, levelBadgeUrl: null });
   }
 
   const updated = await getUser();

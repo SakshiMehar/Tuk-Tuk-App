@@ -111,7 +111,23 @@ API.interceptors.response.use(
     const status = error?.response?.status;
     const requestUrl = `${error?.config?.baseURL ?? ""}${error?.config?.url ?? ""}`;
 
-    console.error("[axios] request failed:", status, requestUrl, error?.response?.data);
+    // Suppress noisy but expected 409 seat-occupied conflicts — the calling
+    // code handles them via retry logic, no need to log them as errors.
+    const isSeatOccupied =
+      status === 409 &&
+      /\/seat\/\d+\/claim/i.test(requestUrl);
+
+    if (!isSeatOccupied) {
+      console.error(
+        "[axios] request failed:",
+        status,
+        requestUrl,
+        error?.response?.data,
+        "code:", error?.code,
+        "message:", error?.message,
+        "timedOut:", error?.request?._timedOut
+      );
+    }
 
     // ── 401: token expired / missing ────────────────────────────
     // Skip auth endpoints so wrong-password errors propagate normally.

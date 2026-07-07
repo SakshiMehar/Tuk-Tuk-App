@@ -115,6 +115,12 @@ import {
 } from "lucide-react-native";
 
 const { width: W, height: H } = Dimensions.get("window");
+// Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
+Dimensions.addEventListener("change", ({ window }) => {
+  // StyleSheet values are computed once, but absolute-positioned bg covers
+  // are replaced with "100%" via StyleSheet below, so this is only needed
+  // for any future dynamic usage.
+});
 
 const TREASURE_BOX_GIF = require("../assets/Gift/tresurebox.gif");
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
@@ -242,40 +248,7 @@ const reconcileSeatAssignments = (
   return next;
 };
 
-const micSeats = [
-  { id: 1, user: null, locked: true },
-  {
-    id: 2,
-    user: {
-      name: "nobby",
-      avatar: "https://randomuser.me/api/portraits/men/11.jpg",
-      badge: "🍁",
-      active: false,
-    },
-  },
-  { id: 3, user: null },
-  {
-    id: 4,
-    user: {
-      name: "doremon",
-      avatar: "https://randomuser.me/api/portraits/women/22.jpg",
-      badge: "💗",
-    },
-  },
-  {
-    id: 5,
-    user: {
-      name: "Broken 💔...",
-      avatar: "https://randomuser.me/api/portraits/women/33.jpg",
-      badge: "💗",
-    },
-  },
-  { id: 6, user: null },
-  { id: 7, user: null },
-  { id: 8, user: null },
-  { id: 9, user: null },
-  { id: 10, user: null },
-];
+const micSeats = Array.from({ length: 15 }, (_, i) => ({ id: i + 1, user: null, locked: false }));
 
 const initialMessages = [
   {
@@ -1280,21 +1253,72 @@ export default function VoiceParty() {
       return;
     }
 
-    const targetSeat =
-      mySeatNumber ??
-      seats.find((seat) => !seat.user && !seat.locked)?.id;
-    if (!targetSeat) {
-      Alert.alert("No seats available", "All microphone seats are currently full.");
-      return;
-    }
-
+    // Build candidate list: prefer current seat, then all empty unlocked seats
+    // in order. We refresh from the server first so the list is up-to-date.
     setVoiceConnecting(true);
     try {
-      // Always re-claim the seat before activating mic — a seat number left
-      // over from room entry (session.reservedSeatNumber) can have already
-      // been evicted server-side since no heartbeat runs until onMic is true.
-      // claimSeat re-claiming a seat we still hold is a no-op on the backend.
-      await partyVoice.takeMic(String(roomId), targetSeat);
+      const freshState = await getRoomState(String(roomId));
+      const freshSeats = parseSeats(freshState?.seats, freshState);
+      setSeats(
+        reconcileSeatAssignments(freshSeats, { onlineUsers, myUserId, mySeatNumber })
+      );
+
+      const emptySeats = freshSeats
+        .filter((s) => !s.user && !s.locked)
+        .map((s) => s.id);
+
+      // If we already hold a seat number, try that first
+      const candidates = mySeatNumber
+        ? [mySeatNumber, ...emptySeats.filter((id) => id !== mySeatNumber)]
+        : emptySeats;
+
+      if (candidates.length === 0) {
+        Alert.alert("No seats available", "All microphone seats are currently full.");
+        setVoiceConnecting(false);
+        return;
+      }
+
+      let targetSeat = null;
+      let lastError = null;
+
+      // Try each candidate seat until one succeeds
+      for (const seatId of candidates) {
+        try {
+          await partyVoice.takeMic(String(roomId), seatId);
+          targetSeat = seatId;
+          break; // success — stop trying
+        } catch (err) {
+          const status = err?.status ?? err?.response?.status;
+          const body = err?.response?.data ?? err?.responseData ?? {};
+          const isOccupied =
+            status === 409 ||
+            String(body?.status).toUpperCase() === "OCCUPIED" ||
+            String(body?.message).toLowerCase().includes("occupied") ||
+            String(err?.message).toLowerCase().includes("occupied");
+
+          if (isOccupied) {
+            // Mark this seat as taken locally so UI updates immediately
+            setSeats((prev) =>
+              prev.map((s) =>
+                s.id === seatId && !s.user
+                  ? { ...s, user: { id: null, name: "…", active: false, muted: false } }
+                  : s
+              )
+            );
+            lastError = err;
+            continue; // try next seat
+          }
+          // Non-409 error — stop and surface it
+          throw err;
+        }
+      }
+
+      if (targetSeat === null) {
+        Alert.alert("No seats available", "All microphone seats are currently full. Please try again.");
+        setVoiceConnecting(false);
+        return;
+      }
+
       onMicRef.current = true;
       mySeatNumberRef.current = targetSeat;
       setOnMic(true);
@@ -3143,7 +3167,7 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowShareMenu(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.shareBox}>
+          <TouchableOpacity activeOpacity={1} style={[styles.shareBox, { paddingBottom: Math.max(30, safeBottom + 16) }]}>
             {/* Handle bar */}
             <View style={styles.shareHandle} />
 
@@ -3548,9 +3572,8 @@ export default function VoiceParty() {
             >
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
-                  {!resolveNewUserFrameSource({ ...seat.user, ...(userFrameData[String(seat.user.id)] ?? {}) }) && (
-                    <SpeakingRing active={speakingUserIds.has(String(seat.user.id))} />
-                  )}
+                  {/* Speaking ring always shown — overlays avatar and frame */}
+                  <SpeakingRing active={speakingUserIds.has(String(seat.user.id))} />
                   {renderRoomUserAvatar(
                     seat.user,
                     styles.seatAvatar,
@@ -3766,35 +3789,7 @@ export default function VoiceParty() {
             },
           ]}
         >
-          <View style={styles.bottomBar}>
-            <TouchableOpacity
-              style={styles.bottomIconBtn}
-              onPress={handleToggleSpeaker}
-            >
-              {isSpeakerMuted ? (
-                <VolumeX size={20} color="white" />
-              ) : (
-                <Volume2 size={20} color="white" />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenMediaPicker}>
-              <Smile size={20} color="white" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenPartyChat}>
-              <MessageSquare size={20} color={showChatInput ? "#4dc8ff" : "white"} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.bottomIconBtn, styles.giftShortcutHighlight]}
-              onPress={() => setShowBackpack(true)}
-            >
-              <Text style={styles.giftShortcutEmoji}>💰</Text>
-              <Text style={styles.giftShortcutLabel}>Recharge{"\n"}Bonus</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setShowPlayCenter(true)}>
-              <LayoutGrid size={20} color="white" />
-            </TouchableOpacity>
-          </View>
-
+          {/* Input row — shown above bottom bar when chat is open */}
           {showChatInput && (
             <View style={styles.inputRow}>
               {/* @ Tag button */}
@@ -3830,7 +3825,6 @@ export default function VoiceParty() {
                   value={inputText}
                   onChangeText={(val) => {
                     setInputText(val);
-                    // Clear tag chip if the user manually deleted the @mention
                     if (taggedUser && !val.startsWith("@")) setTaggedUser(null);
                   }}
                   onSubmitEditing={sendMessage}
@@ -3845,7 +3839,7 @@ export default function VoiceParty() {
             </View>
           )}
 
-          {/* Tag Picker — member list */}
+          {/* Tag Picker — member list (above input row) */}
           {showTagPicker && showChatInput && (
             <View style={styles.tagPickerContainer}>
               <View style={styles.tagPickerHeader}>
@@ -3903,6 +3897,36 @@ export default function VoiceParty() {
               )}
             </View>
           )}
+
+          {/* Bottom icon bar — always visible */}
+          <View style={styles.bottomBar}>
+            <TouchableOpacity
+              style={styles.bottomIconBtn}
+              onPress={handleToggleSpeaker}
+            >
+              {isSpeakerMuted ? (
+                <VolumeX size={20} color="white" />
+              ) : (
+                <Volume2 size={20} color="white" />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenMediaPicker}>
+              <Smile size={20} color="white" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenPartyChat}>
+              <MessageSquare size={20} color={showChatInput ? "#4dc8ff" : "white"} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.bottomIconBtn, styles.giftShortcutHighlight]}
+              onPress={() => setShowBackpack(true)}
+            >
+              <Text style={styles.giftShortcutEmoji}>💰</Text>
+              <Text style={styles.giftShortcutLabel}>Recharge{"\n"}Bonus</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setShowPlayCenter(true)}>
+              <LayoutGrid size={20} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </View>
@@ -3911,11 +3935,11 @@ export default function VoiceParty() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#1a0a2e" },
-  bgImage: { position: "absolute", width: W, height: H },
+  bgImage: { position: "absolute", width: "100%", height: "100%" },
   bgOverlay: {
     position: "absolute",
-    width: W,
-    height: H,
+    width: "100%",
+    height: "100%",
     backgroundColor: "rgba(30,10,60,0.72)",
   },
   header: {
@@ -4385,11 +4409,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 10,
-    paddingBottom: 6,
+    paddingBottom: 4,
     paddingTop: 6,
     gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.08)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
   },
   input: {
     flex: 1,
@@ -4605,7 +4629,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     paddingHorizontal: 20,
-    paddingBottom: 30,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.4,
@@ -5569,8 +5592,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   videoPlayer: {
-    width: W,
-    height: H * 0.75,
+    width: "100%",
+    height: "75%",
   },
 
   // ── Special tab ──

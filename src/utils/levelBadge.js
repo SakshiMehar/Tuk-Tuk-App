@@ -2,16 +2,17 @@ import { resolveRemoteProfilePicUrl } from "../services/meProfileService";
 import { resolveImageSource } from "./videoSource";
 
 const LOCAL_LEVEL_BADGES = {
-  1: require("../../assets/level/level1.png"),
-  2: require("../../assets/level/level2.png"),
-  3: require("../../assets/level/level3.png"),
-  4: require("../../assets/level/level4.png"),
-  5: require("../../assets/level/level5.png"),
-  6: require("../../assets/level/level6.png"),
+  1:  require("../../assets/level/level1.png"),
+  2:  require("../../assets/level/level2.png"),
+  3:  require("../../assets/level/level3.png"),
+  4:  require("../../assets/level/level4.png"),
+  5:  require("../../assets/level/level5.png"),
+  6:  require("../../assets/level/level6.png"),
   10: require("../../assets/level/level10.png"),
   11: require("../../assets/level/level11.png"),
   12: require("../../assets/level/level12.png"),
   13: require("../../assets/level/level13.png"),
+  14: require("../../assets/level/level14.png"),
   15: require("../../assets/level/level15.png"),
   16: require("../../assets/level/level16.png"),
   20: require("../../assets/level/level20.png"),
@@ -60,10 +61,16 @@ export const resolveLocalLevelBadge = (level = DEFAULT_USER_LEVEL) =>
   LOCAL_LEVEL_BADGES[DEFAULT_USER_LEVEL];
 
 export const resolveLevelBadgeSource = (user, levelOverride = null) => {
-  const level = normalizeUserLevel(levelOverride ?? user?.level, null);
-  if (!level) return null;
+  const level = normalizeUserLevel(levelOverride ?? user?.level, DEFAULT_USER_LEVEL);
 
+  // Always prefer local bundled badge assets — they are always available offline
+  // and don't depend on a remote URL being valid.
+  const local = resolveLocalLevelBadge(level);
+  if (local) return local;
+
+  // Only fall back to remote if no local asset exists for this level
   const remote = resolveRemoteProfilePicUrl(user?.levelBadgeUrl);
   if (remote) return resolveImageSource(remote);
-  return resolveLocalLevelBadge(level);
+
+  return resolveLocalLevelBadge(DEFAULT_USER_LEVEL);
 };

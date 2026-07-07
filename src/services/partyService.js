@@ -112,7 +112,7 @@ export const parseSeats = (seatsSource, stateData) => {
   const seatsObj = seatsSource ?? stateData?.seats ?? {};
   const entries = Object.entries(seatsObj);
   if (!entries.length) {
-    return Array.from({ length: 10 }, (_, i) => ({
+    return Array.from({ length: 15 }, (_, i) => ({
       id: i + 1,
       user: null,
       locked: false,

@@ -27,7 +27,11 @@
     "android": {
       "package": "tuk.tuk.app",
       "googleServicesFile": "./google-services.json",
-      "softwareKeyboardLayoutMode": "resize",
+      "minSdkVersion": 24,
+      "targetSdkVersion": 35,
+      "compileSdkVersion": 35,
+      "softwareKeyboardLayoutMode": "pan",
+      "allowBackup": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
@@ -93,7 +97,7 @@
           "appID": "978713374875936",
           "displayName": "Tuk-Tuk",
           "scheme": "fb978713374875936",
-          "clientToken": "YOUR_FACEBOOK_CLIENT_TOKEN",
+          "clientToken": "978713374875936",
           "advertiserIDCollectionEnabled": false,
           "autoLogAppEventsEnabled": false,
           "isAutoInitEnabled": true

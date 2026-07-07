@@ -10,9 +10,9 @@ import {
   TextInput,
   FlatList,
   StatusBar,
-  SafeAreaView,
   ActivityIndicator,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Search, UserPlus, X, Check, ChevronDown, AlignJustify } from "lucide-react-native";
 import { useRouter } from "expo-router";
@@ -33,6 +33,8 @@ import { loadProfileStats } from "../src/services/profileStatsService";
 import { getAppUserId } from "../src/utils/sessionUser";
 
 const RECOMMEND_RING_COLORS = ["#7c4dff", "#ff4ea3"];
+
+import { ms } from "../src/utils/responsive";
 
 const { width: W } = Dimensions.get("window");
 

@@ -50,7 +50,6 @@ const persistNewUserFrame = async ({ frameUrl = null, profile = null } = {}) => 
 export const applyNewUserFrameForLogin = async (authData) => {
   const user = await getUser();
   let profile = null;
-  let framePayload = null;
 
   try {
     profile = await loadMyProfile();
@@ -58,25 +57,16 @@ export const applyNewUserFrameForLogin = async (authData) => {
     // Profile may lag right after registration.
   }
 
-  try {
-    framePayload = await getNewUserFrame();
-  } catch {
-    // Fall back to bundled frame asset when API is unavailable.
-  }
-
-  const frameUrl = parseNewUserFrameResponse(framePayload);
-  const apiAssigned = parseNewUserFrameAssignment(framePayload);
   const shouldApply =
-    shouldUserHaveNewUserFrame(authData, profile, user) || apiAssigned;
+    shouldUserHaveNewUserFrame(authData, profile, user);
 
   if (!shouldApply) {
-    return resolveNewUserFrameSource(user);
+    return null;
   }
 
-  return persistNewUserFrame({
-    frameUrl: frameUrl ? resolveRemoteProfilePicUrl(frameUrl) ?? frameUrl : null,
-    profile,
-  });
+  // Always use local bundled asset — clear any stale remote URL
+  await updateUser({ hasNewUserFrame: true, newUserFrameUrl: null });
+  return resolveNewUserFrameSource(await getUser());
 };
 
 export const syncNewUserFrameForSession = async () => {
@@ -87,7 +77,7 @@ export const syncNewUserFrameForSession = async () => {
   try {
     profile = await loadMyProfile();
   } catch {
-    return resolveNewUserFrameSource(user);
+    // Use cached user data if profile fetch fails
   }
 
   const shouldApply =
@@ -96,24 +86,15 @@ export const syncNewUserFrameForSession = async () => {
     isRecentlyCreatedAccount(profile?.createdAt ?? user?.createdAt);
 
   if (!shouldApply) {
-    return resolveNewUserFrameSource(user);
+    return null;
   }
 
-  if (profile?.hasNewUserFrame && !userHasNewUserFrame(user)) {
-    await updateUser({ hasNewUserFrame: true });
+  // Mark the user as having the new user frame — always use local asset
+  if (!userHasNewUserFrame(user)) {
+    await updateUser({ hasNewUserFrame: true, newUserFrameUrl: null });
   }
 
-  const existingUrl = user?.newUserFrameUrl ?? profile?.newUserFrameUrl ?? null;
-  if (existingUrl) {
-    const normalized = resolveRemoteProfilePicUrl(existingUrl) ?? existingUrl;
-    if (normalized !== user?.newUserFrameUrl) {
-      await updateUser({ hasNewUserFrame: true, newUserFrameUrl: normalized });
-    }
-    return resolveNewUserFrameSource(await getUser());
-  }
-
-  const frameUrl = await fetchNewUserFrameAssetUrl();
-  return persistNewUserFrame({ frameUrl, profile });
+  return resolveNewUserFrameSource(await getUser());
 };
 
 export const syncNewUserFrameFromSession = syncNewUserFrameForSession;

@@ -1476,15 +1476,13 @@ export default function Profile() {
                 )}
               </View>
 
-              {/* Row 3: Level badge + New Star badge below ID */}
+              {/* Row 3: Level badge + New Star badge — tight gap */}
               <View style={styles.profileLevelWrap}>
-                {userLevel != null && (
-                  <Image
-                    source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel)}
-                    style={styles.levelBadge}
-                    resizeMode="contain"
-                  />
-                )}
+                <Image
+                  source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel ?? 1)}
+                  style={styles.levelBadge}
+                  resizeMode="contain"
+                />
                 {newUserFrameSource && (
                   <Image
                     source={NEW_START_BADGE}
@@ -2146,22 +2144,22 @@ const styles = StyleSheet.create({
   verifiedBadge: {
     width: 80,
     height: 22,
-    marginTop: 6,
+    marginTop: 1,
     alignSelf: "center",
   },
   profileLevelWrap: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 2,
     marginTop: 2,
   },
   levelBadge: {
-    width: 36,
-    height: 18,
+    width: 56,
+    height: 20,
   },
   profileNewStarBadge: {
-    width: 52,
-    height: 24,
+    width: 48,
+    height: 20,
   },
   cardDivider: {
     height: 1,

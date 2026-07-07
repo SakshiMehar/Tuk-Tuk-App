@@ -60,7 +60,7 @@ export const userHasNewUserFrame = (user) => Boolean(user?.hasNewUserFrame);
 
 export const resolveNewUserFrameSource = (user) => {
   if (!userHasNewUserFrame(user)) return null;
-  const remote = resolveRemoteProfilePicUrl(user?.newUserFrameUrl);
-  if (remote) return resolveImageSource(remote);
+  // Always use the local bundled frame asset — it is always available offline
+  // and doesn't depend on a remote URL being valid.
   return LOCAL_NEW_USER_FRAME;
 };

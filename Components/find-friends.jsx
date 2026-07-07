@@ -20,6 +20,8 @@ import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
 import { followUser } from "../src/services/relationshipService";
 
+import { ms } from "../src/utils/responsive";
+
 const { width: W, height: H } = Dimensions.get("window");
 
 // ── Step data ──────────────────────────────────────────────

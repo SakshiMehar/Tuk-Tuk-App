@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Alert, DeviceEventEmitter } from "react-native";
+import { Alert, DeviceEventEmitter, Text, TextInput } from "react-native";
 import { Stack, router } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { initFirebase } from "../src/lib/firebase";
@@ -9,6 +9,18 @@ import {
   initPushNotificationListeners,
 } from "../src/services/pushNotificationService";
 import { openUserChat } from "../src/utils/chatNavigation";
+
+// ── Global font-scale guard ────────────────────────────────────────────────
+// Prevents Android "Large Font" / "Huge Font" accessibility settings from
+// breaking the app layout. Cap at 1.3× so the UI stays intact while still
+// respecting moderate accessibility preferences.
+// This runs once at module load, before any component mounts.
+if (Text.defaultProps == null) Text.defaultProps = {};
+Text.defaultProps.maxFontSizeMultiplier = 1.3;
+
+if (TextInput.defaultProps == null) TextInput.defaultProps = {};
+TextInput.defaultProps.maxFontSizeMultiplier = 1.3;
+// ──────────────────────────────────────────────────────────────────────────
 
 // NOTE: Splash screen is handled manually inside app/index.jsx
 // using Animated transitions. SplashScreen.preventAutoHideAsync()

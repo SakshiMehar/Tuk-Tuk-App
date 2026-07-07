@@ -8,6 +8,7 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
+  useWindowDimensions,
   Modal,
   TextInput,
   KeyboardAvoidingView,
@@ -69,11 +70,14 @@ import ReportReasonModal from "../../Components/ReportReasonModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
 import { openUserChat } from "../../src/utils/chatNavigation";
-import { s, vs, ms } from "../../src/utils/responsive";
+import { s, vs, ms, useResponsive } from "../../src/utils/responsive";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const H_PAD = 14;
 const CARD_GAP = 10;
+// Module-level fallbacks using Dimensions — used in StyleSheet.create and
+// stable module-level arrays. The Home component recomputes these reactively
+// via useWindowDimensions for any layout that updates on re-render.
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2 * 0.88;
 const BANNER_SLIDE_WIDTH = SCREEN_WIDTH - H_PAD * 2;
 
@@ -1726,12 +1730,12 @@ const HomeHeader = memo(({
           <View style={styles.appNameWrapper}>
             {/* Thin #7f3f89 outline — 8 directions at 1px */}
             {[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]].map(([dx, dy], i) => (
-              <Text key={i} numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
+              <Text key={i} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} allowFontScaling={false} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
                 Tuk Tuk
               </Text>
             ))}
             {/* White text on top */}
-            <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.appName}>Tuk Tuk</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} allowFontScaling={false} style={styles.appName}>Tuk Tuk</Text>
           </View>
         </View>
         <View style={styles.headerIcons}>
@@ -1925,6 +1929,10 @@ const HomeHeader = memo(({
 // ─────────────────────────────────────────────────────────────
 export default function Home() {
   const router = useRouter();
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
+  // Compute layout-dependent constants reactively based on actual screen width
+  const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2 * 0.88;
+  const BANNER_SLIDE_WIDTH = SCREEN_WIDTH - H_PAD * 2;
   const feedListRef = useRef(null);
   useScrollToTop(feedListRef);
   const [selectedTab, setSelectedTab] = useState("For You");
@@ -3532,12 +3540,11 @@ const styles = StyleSheet.create({
     fontSize: ms(22),
     fontWeight: "900",
     color: "white",
-    lineHeight: ms(26),
+    lineHeight: ms(28),
   },
   appNameWrapper: {
     position: "relative",
-    alignSelf: "flex-start",
-    maxWidth: "100%",
+    width: "100%",
   },
   appNameOutline: {
     color: "#7f3f89",

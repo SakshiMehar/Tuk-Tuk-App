@@ -1,7 +1,5 @@
 import { Platform, PermissionsAndroid } from "react-native";
 import messaging from "@react-native-firebase/messaging";
-import { getToken as getAuthToken } from "../store/authStore";
-import { registerDeviceToken } from "../api/notificationApi";
 
 let listenersInitialized = false;
 let currentDeviceToken = null;
@@ -27,30 +25,16 @@ export const requestNotificationPermission = async () => {
   );
 };
 
-const sendTokenToBackend = async (deviceToken) => {
-  if (!deviceToken) return;
-  const authToken = await getAuthToken();
-  if (!authToken) return; // Not logged in yet — registerForPushNotifications() runs again after login.
-  try {
-    await registerDeviceToken(deviceToken, Platform.OS);
-  } catch {
-    // Non-critical — will retry on next app open or login.
-  }
-};
-
 /**
- * Requests permission, fetches the FCM token, and registers it with the backend.
- * Safe to call repeatedly (app boot, after login, on token refresh) — it's a no-op
- * if permission is denied or no session token exists yet.
+ * Requests OS permission and fetches the FCM token.
+ * Device token registration with the backend has been removed.
  */
 export const registerForPushNotifications = async () => {
   try {
     const granted = await requestNotificationPermission();
     if (!granted) return null;
-
     const deviceToken = await messaging().getToken();
     currentDeviceToken = deviceToken;
-    await sendTokenToBackend(deviceToken);
     return deviceToken;
   } catch {
     return null;
@@ -80,9 +64,8 @@ export const initPushNotificationListeners = ({
     });
   });
 
-  const unsubscribeOnTokenRefresh = messaging().onTokenRefresh((deviceToken) => {
-    currentDeviceToken = deviceToken;
-    sendTokenToBackend(deviceToken);
+  const unsubscribeOnTokenRefresh = messaging().onTokenRefresh((token) => {
+    currentDeviceToken = token;
   });
 
   // Tapped a notification while the app was backgrounded (not killed).

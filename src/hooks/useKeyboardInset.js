@@ -2,18 +2,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Dimensions, Keyboard, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const { height: WINDOW_HEIGHT } = Dimensions.get("window");
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
+// Read dimensions lazily so edge-to-edge layout changes are captured correctly
+const getDims = () => ({
+  windowHeight: Dimensions.get("window").height,
+  screenHeight: Dimensions.get("screen").height,
+});
+
+// Keep a live snapshot updated when dimensions change (foldables, multi-window)
+let _dims = getDims();
+Dimensions.addEventListener("change", () => {
+  _dims = getDims();
+});
 
 /** Android 3-button / gesture nav area when safe-area inset is 0 (MIUI, etc.). */
 export const getAndroidNavBarInset = () =>
-  Math.max(0, SCREEN_HEIGHT - WINDOW_HEIGHT);
+  Math.max(0, _dims.screenHeight - _dims.windowHeight);
 
 export const getKeyboardLift = (event) => {
   const coords = event?.endCoordinates ?? event ?? {};
   const height = Number(coords.height ?? 0);
   const screenY = Number(coords.screenY ?? 0);
-  const liftFromTop = screenY > 0 ? Math.max(0, WINDOW_HEIGHT - screenY) : 0;
+  const liftFromTop = screenY > 0 ? Math.max(0, _dims.windowHeight - screenY) : 0;
   const measured = Math.max(height, liftFromTop);
   if (measured <= 0) return 0;
   return Platform.OS === "ios" ? measured + 4 : measured;

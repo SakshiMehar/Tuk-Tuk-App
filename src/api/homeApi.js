@@ -61,25 +61,7 @@
 //      nextPage: number
 //    }
 //
-// 3. GET /api/notifications?page=1&limit=20
-//    Auth: Bearer token required
-//    Response:
-//    {
-//      notifications: Array<{
-//        id: string,
-//        type: "like" | "follow" | "gift" | "comment" | "party" | "system" | "reward",
-//        icon: string,                 // emoji
-//        title: string,
-//        subtitle: string,
-//        time: string,                 // human-readable: "2m ago"
-//        timestamp: string,            // ISO 8601 for client-side sorting
-//        avatar: string | null,        // null for system notifications
-//        unread: boolean
-//      }>,
-//      unreadCount: number
-//    }
-//
-// 4. GET /api/gifts/daily
+// 3. GET /api/gifts/daily
 //    Auth: Bearer token required
 //    Response:
 //    {
@@ -95,10 +77,7 @@
 //      }>
 //    }
 //
-// 5. POST /api/notifications/mark-read
-//    Auth: Bearer token required
-//    Body: { notificationIds: string[] | "all" }
-//    Response: { success: boolean }
+// 4. (Removed) POST /api/notifications/mark-read
 //
 // ── NOTES FOR BACKEND ────────────────────────────────────────
 // - All endpoints require Authorization: Bearer <jwt> header
@@ -147,21 +126,7 @@ export const getFeedPosts = async (tab = "for_you", page = 1, limit = 10) => {
   return response.data;
 };
 
-// ── 3. Notifications ──────────────────────────────────────────
-export const getNotifications = async (page = 1, limit = 20) => {
-  if (USE_MOCK) {
-    return {
-      notifications: mockData.notifications,
-      unreadCount: mockData.notifications.filter((n) => n.unread).length,
-    };
-  }
-  const response = await API.get(
-    `/api/notifications?page=${page}&limit=${limit}`
-  );
-  return response.data;
-};
-
-// ── 4. Daily Gifts ────────────────────────────────────────────
+// ── 3. Daily Gifts ────────────────────────────────────────────
 export const getDailyGifts = async () => {
   if (USE_MOCK) {
     return { gifts: mockData.gifts };
@@ -193,23 +158,8 @@ export const searchUsersByPath = async (query) => {
   return response.data;
 };
 
-// ── 7c. User by ID ────────────────────────────────────────────
-// GET /api/app/users/{userId}
-export const getUserById = async (userId) => {
-  const url = `/api/app/users/${encodeURIComponent(userId)}`;
-  
-  const response = await API.get(url, await authRequestConfig());
-  
-  return response.data;
-};
+// ── 7c. User by ID — re-exported from userApi to avoid duplication ───────────
+export { getUserById } from "./userApi";
 
-// ── 8. Mark Notifications Read ────────────────────────────────
-export const markNotificationsRead = async (ids = "all") => {
-  if (USE_MOCK) {
-    return { success: true };
-  }
-  const response = await API.post("/api/notifications/mark-read", {
-    notificationIds: ids,
-  });
-  return response.data;
-};
+// ── 8. Mark Notifications Read — removed (endpoint not supported) ──────────
+export const markNotificationsRead = async () => ({ success: true });

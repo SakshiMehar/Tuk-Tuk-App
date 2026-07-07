@@ -24,8 +24,13 @@ import {
 import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
 
+import { useWindowDimensions } from "react-native";
+import { ms } from "../src/utils/responsive";
+
+// Use current window width at module time (portrait-locked app, safe to do once)
 const { width: W, height: H } = Dimensions.get("window");
-const CARD_W = W * 0.72;
+// Clamp card size so it looks good on both small (320px) and large (480px) screens
+const CARD_W = Math.min(W * 0.72, 320);
 const CARD_H = CARD_W * 1.3;
 
 const PHASE = { IDLE: "idle", SEARCHING: "searching", MATCHED: "matched" };

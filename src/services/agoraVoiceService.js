@@ -22,7 +22,11 @@ let joinWaiters = [];
 let leaveWaiters = [];
 let tokenRenewalHandler = null;
 let statusListeners = new Set();
+let speakingListeners = new Set();   // { uid: number, isSpeaking: boolean }
 let connectionState = ConnectionStateType.ConnectionStateDisconnected;
+
+// Volume threshold — Agora reports 0–255; anything above this is "speaking"
+const SPEAKING_VOLUME_THRESHOLD = 20;
 
 const JOIN_TIMEOUT_MS = 15000;
 const LEAVE_TIMEOUT_MS = 5000;
@@ -34,6 +38,16 @@ const notifyStatusListeners = () => {
       listener(snapshot);
     } catch {
       // ignore listener errors
+    }
+  });
+};
+
+const notifySpeakingListeners = (uid, isSpeaking) => {
+  speakingListeners.forEach((listener) => {
+    try {
+      listener({ uid, isSpeaking });
+    } catch {
+      // ignore
     }
   });
 };
@@ -253,10 +267,21 @@ const ensureEngine = (appId) => {
         notifyStatusListeners();
       }
     },
+    onAudioVolumeIndication: (_connection, speakers, _speakerNumber, _totalVolume) => {
+      if (!Array.isArray(speakers)) return;
+      speakers.forEach((speaker) => {
+        const uid = Number(speaker?.uid ?? speaker?.userId ?? 0);
+        const volume = Number(speaker?.volume ?? 0);
+        const isSpeaking = volume > SPEAKING_VOLUME_THRESHOLD;
+        notifySpeakingListeners(uid, isSpeaking);
+      });
+    },
   });
 
   engine.enableAudio();
   engine.setDefaultAudioRouteToSpeakerphone(true);
+  // Enable real-time audio volume reporting every 200ms — drives the speaking ring
+  engine.enableAudioVolumeIndication(200, 3, true);
   return engine;
 };
 
@@ -269,6 +294,18 @@ export const subscribeVoiceStatus = (listener) => {
   statusListeners.add(listener);
   listener(getVoiceDiagnostics());
   return () => statusListeners.delete(listener);
+};
+
+/**
+ * Subscribe to real-time speaking events from Agora audio volume indication.
+ * callback({ uid: number, isSpeaking: boolean })
+ * uid = 0 means the local user (self).
+ * Returns an unsubscribe function.
+ */
+export const subscribeSpeaking = (callback) => {
+  if (typeof callback !== "function") return () => {};
+  speakingListeners.add(callback);
+  return () => speakingListeners.delete(callback);
 };
 
 export const getVoiceDiagnostics = () => ({
@@ -467,6 +504,7 @@ export const destroyVoiceEngine = () => {
   remoteAudioMuted = false;
   connectionState = ConnectionStateType.ConnectionStateDisconnected;
   tokenRenewalHandler = null;
+  speakingListeners.clear();
   settleJoinWaiters(new Error("Voice engine destroyed."));
   settleLeaveWaiters();
   notifyStatusListeners();
