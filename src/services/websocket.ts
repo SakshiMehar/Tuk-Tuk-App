@@ -78,6 +78,25 @@ export interface RoomSpeakingPayload {
   [key: string]: unknown;
 }
 
+export interface FamilyChatPayload {
+  id?: number | string;
+  familyGroupId?: string;
+  message: string;
+  senderId?: string;
+  senderName?: string;
+  createdAt?: string;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
+export interface FamilyChatSummaryPayload {
+  familyGroupId?: string;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  messageCount?: number;
+  [key: string]: unknown;
+}
+
 export type RoomTopic =
   | 'chat'
   | 'chat-summary'
@@ -86,6 +105,8 @@ export type RoomTopic =
   | 'gift-animation'
   | 'closed'
   | 'moderation';
+
+export type FamilyTopic = 'chat' | 'chat-summary';
 
 type Handler<T> = (payload: T) => void;
 
@@ -98,6 +119,8 @@ const ROOM_TOPICS: RoomTopic[] = [
   'closed',
   'moderation',
 ];
+
+const FAMILY_TOPICS: FamilyTopic[] = ['chat', 'chat-summary'];
 
 // ── Service ────────────────────────────────────────────────────────────────────
 
@@ -114,6 +137,9 @@ class WebSocketService {
   private liveRoomsHandlers = new Set<Handler<unknown>>();
 
   private roomHandlers = new Map<string, Map<RoomTopic, Set<Handler<unknown>>>>();
+
+  private joinedFamilies = new Set<string>();
+  private familyHandlers = new Map<string, Map<FamilyTopic, Set<Handler<unknown>>>>();
 
   private typingTimer: ReturnType<typeof setTimeout> | null = null;
   private connectPromise: Promise<void> | null = null;
@@ -186,6 +212,8 @@ class WebSocketService {
   disconnect(): void {
     this.joinedRooms.forEach((roomId) => this._unsubscribeRoom(roomId));
     this.joinedRooms.clear();
+    this.joinedFamilies.forEach((familyGroupId) => this._unsubscribeFamily(familyGroupId));
+    this.joinedFamilies.clear();
     this._unsubscribeAll();
     this.client?.deactivate();
     this.client = null;
@@ -205,6 +233,7 @@ class WebSocketService {
     this._sub('rooms-live', '/topic/rooms/live', this.liveRoomsHandlers);
 
     this.joinedRooms.forEach((roomId) => this._subscribeRoomTopics(roomId));
+    this.joinedFamilies.forEach((familyGroupId) => this._subscribeFamilyTopics(familyGroupId));
   }
 
   private _subscribeUserChats(): void {
@@ -282,6 +311,7 @@ class WebSocketService {
     this.subscriptions.forEach((sub) => sub.unsubscribe());
     this.subscriptions.clear();
     this.roomHandlers.clear();
+    this.familyHandlers.clear();
   }
 
   private _getRoomHandlerSet(roomId: string, topic: RoomTopic): Set<Handler<unknown>> {
@@ -293,6 +323,61 @@ class WebSocketService {
       roomMap.set(topic, new Set());
     }
     return roomMap.get(topic)!;
+  }
+
+  private _familySubKey(familyGroupId: string, topic: FamilyTopic): string {
+    return `family:${familyGroupId}:${topic}`;
+  }
+
+  private _subscribeFamilyTopics(familyGroupId: string): void {
+    if (!this.client || !this.connected) return;
+
+    FAMILY_TOPICS.forEach((topic) => {
+      const key = this._familySubKey(familyGroupId, topic);
+      if (this.subscriptions.has(key)) return;
+
+      const destination = `/topic/family/${familyGroupId}/${topic}`;
+      const handlers = this._getFamilyHandlerSet(familyGroupId, topic);
+
+      const sub = this.client!.subscribe(destination, (frame: IMessage) => {
+        const payload = JSON.parse(frame.body);
+        handlers.forEach((h) => h(payload));
+      });
+      this.subscriptions.set(key, sub);
+    });
+  }
+
+  private _unsubscribeFamily(familyGroupId: string): void {
+    FAMILY_TOPICS.forEach((topic) => {
+      const key = this._familySubKey(familyGroupId, topic);
+      this.subscriptions.get(key)?.unsubscribe();
+      this.subscriptions.delete(key);
+    });
+    this.familyHandlers.delete(familyGroupId);
+  }
+
+  private _getFamilyHandlerSet(familyGroupId: string, topic: FamilyTopic): Set<Handler<unknown>> {
+    if (!this.familyHandlers.has(familyGroupId)) {
+      this.familyHandlers.set(familyGroupId, new Map());
+    }
+    const familyMap = this.familyHandlers.get(familyGroupId)!;
+    if (!familyMap.has(topic)) {
+      familyMap.set(topic, new Set());
+    }
+    return familyMap.get(topic)!;
+  }
+
+  private _onFamilyTopic(
+    familyGroupId: string,
+    topic: FamilyTopic,
+    handler: Handler<unknown>,
+  ): () => void {
+    const handlers = this._getFamilyHandlerSet(familyGroupId, topic);
+    handlers.add(handler);
+    if (this.connected && this.joinedFamilies.has(familyGroupId)) {
+      this._subscribeFamilyTopics(familyGroupId);
+    }
+    return () => handlers.delete(handler);
   }
 
   private _assertConnected(): void {
@@ -369,6 +454,40 @@ class WebSocketService {
   onLiveRooms(handler: Handler<unknown>): () => void {
     this.liveRoomsHandlers.add(handler);
     return () => this.liveRoomsHandlers.delete(handler);
+  }
+
+  // ── Family chat ───────────────────────────────────────────────────────────
+
+  joinFamily(familyGroupId: string): void {
+    if (!familyGroupId) return;
+    const id = String(familyGroupId);
+    this.joinedFamilies.add(id);
+    if (this.connected) {
+      this._subscribeFamilyTopics(id);
+    }
+  }
+
+  leaveFamily(familyGroupId: string): void {
+    this.joinedFamilies.delete(familyGroupId);
+    this._unsubscribeFamily(familyGroupId);
+  }
+
+  async sendFamilyMessage(familyGroupId: string, message: string, extra: Record<string, unknown> = {}): Promise<void> {
+    if (!this.connected) {
+      await this.connect();
+    }
+    this._assertConnected();
+    const destination = `/app/family/${familyGroupId}/chat`;
+    const body = JSON.stringify({ message, content: message, text: message, ...extra });
+    this.client!.publish({ destination, body });
+  }
+
+  onFamilyChat(familyGroupId: string, handler: Handler<FamilyChatPayload>): () => void {
+    return this._onFamilyTopic(familyGroupId, 'chat', handler as Handler<unknown>);
+  }
+
+  onFamilyChatSummary(familyGroupId: string, handler: Handler<FamilyChatSummaryPayload>): () => void {
+    return this._onFamilyTopic(familyGroupId, 'chat-summary', handler as Handler<unknown>);
   }
 
   private _onRoomTopic(

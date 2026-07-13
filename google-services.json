@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "969637468541-om3utbdhf61h5trr6ps93sdmgr0fh2a1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tuk.tuk.app",
+            "certificate_hash": "6f5d6d530d82a3d318dc72885a4d3498824cda97"
+          }
+        },
+        {
           "client_id": "969637468541-p9o344dbp6nmocr1ehd2e83dhii36ntj.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

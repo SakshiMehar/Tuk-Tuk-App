@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -14,6 +15,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import * as ImagePicker from "expo-image-picker";
 import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
@@ -50,6 +52,13 @@ import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import { refreshWalletBalance } from "../../src/store/walletStore";
 import { submitFeedback } from "../../src/services/userSettingsService";
 import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
+import {
+  loadFamilyLists,
+  createFamilyGroup,
+  joinFamilyGroup,
+  loadFamilyDetail,
+} from "../../src/services/familyService";
+import FamilyChatModal from "../../Components/FamilyChatModal";
 import { s, ms } from "../../src/utils/responsive";
 
 const screen = Dimensions.get("window");
@@ -91,6 +100,854 @@ const menuPages = [
 ];
 
 const BOTTOM_TABS = ["Moment", "Profile", "Honor", "Gift"];
+
+// ── FamilyContent ─────────────────────────────────────────────────────────────
+// Extracted as a proper component so hooks (useState) can be used legally.
+const FAMILY_TABS = ["New family", "Existing family"];
+const DEFAULT_FAMILY_ICON = require("../../assets/images/icon.png");
+
+function FamilyContent() {
+  const [familyTab, setFamilyTab] = useState("New family");
+  const [familySearch, setFamilySearch] = useState("");
+  const [showFamilySearch, setShowFamilySearch] = useState(false);
+  const [showCreateRules, setShowCreateRules] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [familyName, setFamilyName] = useState("");
+  const [familyAnnouncement, setFamilyAnnouncement] = useState("");
+  const [familyCover, setFamilyCover] = useState(null);
+  const [existingFamilies, setExistingFamilies] = useState([]);
+  const [newFamilies, setNewFamilies] = useState([]);
+  const [familiesLoading, setFamiliesLoading] = useState(true);
+  const [creatingFamily, setCreatingFamily] = useState(false);
+  const [chatFamily, setChatFamily] = useState(null);
+  const insets = useSafeAreaInsets();
+  const safeBottom = Math.max(insets.bottom, 8);
+
+  const refreshFamilies = useCallback(async () => {
+    setFamiliesLoading(true);
+    try {
+      const { existingFamilies: existing, newFamilies: created } = await loadFamilyLists();
+      setExistingFamilies(existing);
+      setNewFamilies(created);
+    } catch (error) {
+      console.error("[FamilyContent] Failed to load /api/v1/families", error);
+    } finally {
+      setFamiliesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshFamilies();
+  }, [refreshFamilies]);
+
+  const pickFamilyCover = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Gallery access is required to set a family cover.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setFamilyCover(result.assets[0].uri);
+    }
+  }, []);
+
+  const handleJoinFamily = useCallback(async (family) => {
+    try {
+      const result = await joinFamilyGroup(family.id);
+      console.log("[FamilyContent] joinFamily result", result);
+      Alert.alert("Joined", `You've joined ${family.name}.`);
+      refreshFamilies();
+    } catch (error) {
+      console.error("[FamilyContent] joinFamily failed", error);
+      Alert.alert("Couldn't join", error?.message || "Please try again.");
+    }
+  }, [refreshFamilies]);
+
+  const handleOpenFamily = useCallback(async (family) => {
+    try {
+      const detail = await loadFamilyDetail(family.id);
+      console.log("[FamilyContent] family detail", detail);
+      setChatFamily(detail);
+    } catch (error) {
+      console.error("[FamilyContent] getFamilyDetail failed", error);
+      // Fall back to the summary already on hand (list load already succeeded)
+      // so the chat still opens even if the detail endpoint fails.
+      setChatFamily(family);
+    }
+  }, []);
+
+  const handleCreateFamily = useCallback(async () => {
+    if (!familyName.trim() || creatingFamily) return;
+    setCreatingFamily(true);
+    try {
+      const created = await createFamilyGroup({
+        name: familyName.trim(),
+        announcement: familyAnnouncement.trim(),
+        coverUri: familyCover,
+      });
+      console.log("[FamilyContent] createFamily result", created);
+      setNewFamilies((prev) => [created, ...prev]);
+      setShowCreateForm(false);
+      setFamilyTab("New family");
+      setFamilyName("");
+      setFamilyAnnouncement("");
+      setFamilyCover(null);
+    } catch (error) {
+      console.error("[FamilyContent] createFamily failed", error);
+      Alert.alert("Couldn't create family", error?.message || "Please try again.");
+    } finally {
+      setCreatingFamily(false);
+    }
+  }, [familyName, familyAnnouncement, familyCover, creatingFamily]);
+
+  const allFamilies = familyTab === "Existing family" ? existingFamilies : newFamilies;
+  const families = allFamilies.filter((f) =>
+    f.name.toLowerCase().includes(familySearch.toLowerCase())
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Tab row + search icon */}
+      <View style={familyStyles.tabRow}>
+        {FAMILY_TABS.map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            style={familyStyles.tabItem}
+            activeOpacity={0.8}
+            onPress={() => { setFamilyTab(tab); setShowFamilySearch(false); setFamilySearch(""); }}
+          >
+            <Text style={[familyStyles.tabText, familyTab === tab && familyStyles.tabTextActive]}>
+              {tab}
+            </Text>
+            {familyTab === tab && <View style={familyStyles.tabUnderline} />}
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity
+          style={familyStyles.searchIcon}
+          activeOpacity={0.8}
+          onPress={() => setShowFamilySearch((v) => !v)}
+        >
+          <Ionicons name="search" size={20} color={showFamilySearch ? "#a78bfa" : "rgba(255,255,255,0.65)"} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Search bar */}
+      {showFamilySearch && (
+        <View style={familyStyles.searchBar}>
+          <Ionicons name="search" size={15} color="rgba(255,255,255,0.35)" style={{ marginRight: 6 }} />
+          <TextInput
+            style={familyStyles.searchInput}
+            placeholder="Search family..."
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            value={familySearch}
+            onChangeText={setFamilySearch}
+            autoFocus
+          />
+          {familySearch.length > 0 && (
+            <TouchableOpacity onPress={() => setFamilySearch("")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={15} color="rgba(255,255,255,0.35)" />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* List */}
+      <ScrollView
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={familyStyles.listContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {familiesLoading ? (
+          <View style={familyStyles.emptyWrap}>
+            <ActivityIndicator color="#a78bfa" />
+          </View>
+        ) : families.length === 0 ? (
+          <View style={familyStyles.emptyWrap}>
+            <Text style={{ fontSize: 48, marginBottom: 10 }}>👪</Text>
+            <Text style={familyStyles.emptyText}>No families found</Text>
+          </View>
+        ) : (
+          families.map((family) => (
+            <TouchableOpacity
+              key={family.id}
+              style={familyStyles.card}
+              activeOpacity={0.85}
+              onPress={() => handleOpenFamily(family)}
+            >
+              <View style={familyStyles.iconWrap}>
+                <Image
+                  source={family.icon ? { uri: family.icon } : DEFAULT_FAMILY_ICON}
+                  style={familyStyles.icon}
+                />
+              </View>
+              <View style={familyStyles.info}>
+                <View style={familyStyles.nameRow}>
+                  <Text style={familyStyles.name} numberOfLines={1}>{family.name}</Text>
+                  {family.tag && (
+                    <View style={familyStyles.officialBadge}>
+                      <Text style={familyStyles.officialText}>{family.tag}</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={familyStyles.metaRow}>
+                  <Ionicons name="people" size={12} color="rgba(255,255,255,0.45)" />
+                  <Text style={familyStyles.meta}>{family.members} members</Text>
+                  <View style={familyStyles.dot} />
+                  <Text style={familyStyles.meta}>Lv.{family.level}</Text>
+                </View>
+              </View>
+              {family.owner ? (
+                <View style={[familyStyles.joinBtn, familyStyles.joinedBtn]}>
+                  <Text style={familyStyles.joinedText}>Owner</Text>
+                </View>
+              ) : family.member ? (
+                <View style={[familyStyles.joinBtn, familyStyles.joinedBtn]}>
+                  <Text style={familyStyles.joinedText}>Joined</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={familyStyles.joinBtn}
+                  activeOpacity={0.8}
+                  onPress={() => handleJoinFamily(family)}
+                >
+                  <Text style={familyStyles.joinText}>Join</Text>
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
+
+      {/* Create Family sticky button */}
+      <View style={[familyStyles.createWrap, { paddingBottom: safeBottom + 12 }]}>
+        <TouchableOpacity style={familyStyles.createBtn} activeOpacity={0.85} onPress={() => setShowCreateRules(true)}>
+          <LinearGradient
+            colors={["#7c4dff", "#a855f7"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={familyStyles.createGrad}
+          >
+            <Text style={familyStyles.createText}>+ Create Family</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+
+      {/* Create Family Rules Modal */}
+      <Modal
+        visible={showCreateRules}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCreateRules(false)}
+      >
+        <TouchableOpacity
+          style={familyStyles.rulesOverlay}
+          activeOpacity={1}
+          onPress={() => setShowCreateRules(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={[familyStyles.rulesSheet, { paddingBottom: safeBottom + 16 }]}>
+            {/* Handle bar */}
+            <View style={familyStyles.rulesHandle} />
+
+            {/* Icon */}
+            <View style={familyStyles.rulesIconWrap}>
+              <Text style={{ fontSize: 44 }}>👪</Text>
+            </View>
+
+            {/* Title */}
+            <Text style={familyStyles.rulesTitle}>Create a Family</Text>
+            <Text style={familyStyles.rulesSub}>Before you create, please read the rules</Text>
+
+            {/* Divider */}
+            <View style={familyStyles.rulesDivider} />
+
+            {/* Rules list */}
+            <View style={familyStyles.rulesList}>
+              {[
+                { icon: "💎", text: "Spend 30 diamonds to create a family" },
+                { icon: "👑", text: "You will become the family owner" },
+                { icon: "👥", text: "Invite members to grow your family" },
+                { icon: "🏆", text: "Complete family tasks to earn rewards" },
+                { icon: "⚠️", text: "Violating platform rules will result in family dissolution" },
+              ].map((rule, i) => (
+                <View key={i} style={familyStyles.ruleRow}>
+                  <Text style={familyStyles.ruleIcon}>{rule.icon}</Text>
+                  <Text style={familyStyles.ruleText}>{rule.text}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Cost pill */}
+            <View style={familyStyles.costPill}>
+              <Text style={familyStyles.costEmoji}>💎</Text>
+              <Text style={familyStyles.costText}>Cost: </Text>
+              <Text style={familyStyles.costAmount}>30 Diamonds</Text>
+            </View>
+
+            {/* Continue button */}
+            <TouchableOpacity
+              style={familyStyles.continueBtn}
+              activeOpacity={0.85}
+              onPress={() => { setShowCreateRules(false); setShowCreateForm(true); }}
+            >
+              <LinearGradient
+                colors={["#7c4dff", "#a855f7"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={familyStyles.continueGrad}
+              >
+                <Text style={familyStyles.continueText}>Continue</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* Cancel */}
+            <TouchableOpacity
+              style={familyStyles.cancelBtn}
+              activeOpacity={0.8}
+              onPress={() => setShowCreateRules(false)}
+            >
+              <Text style={familyStyles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Create Family Form Modal ── */}
+      <Modal
+        visible={showCreateForm}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setShowCreateForm(false)}
+      >
+        <View style={familyStyles.formScreen}>
+          {/* Header */}
+          <View style={[familyStyles.formHeader, { paddingTop: insets.top + 10 }]}>
+            <TouchableOpacity
+              style={familyStyles.formBackBtn}
+              onPress={() => setShowCreateForm(false)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="arrow-back" size={20} color="white" />
+            </TouchableOpacity>
+            <Text style={familyStyles.formTitle}>Create Family</Text>
+            <View style={{ width: 38 }} />
+          </View>
+
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={[familyStyles.formContent, { paddingBottom: safeBottom + 100 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Family Cover */}
+            <Text style={familyStyles.formLabel}>Family cover</Text>
+            <TouchableOpacity style={familyStyles.coverPicker} activeOpacity={0.8} onPress={pickFamilyCover}>
+              {familyCover ? (
+                <Image source={{ uri: familyCover }} style={familyStyles.coverImage} />
+              ) : (
+                <View style={familyStyles.coverPlaceholder}>
+                  <Ionicons name="add" size={32} color="rgba(167,139,250,0.6)" />
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Family Name */}
+            <Text style={familyStyles.formLabel}>Family name</Text>
+            <View style={familyStyles.inputWrap}>
+              <TextInput
+                style={familyStyles.formInput}
+                placeholder=""
+                placeholderTextColor="rgba(255,255,255,0.2)"
+                value={familyName}
+                onChangeText={(t) => t.length <= 30 && setFamilyName(t)}
+                maxLength={30}
+              />
+              <Text style={familyStyles.inputCounter}>{familyName.length}/30</Text>
+            </View>
+
+            {/* Family Announcement */}
+            <Text style={familyStyles.formLabel}>Family announcement</Text>
+            <View style={[familyStyles.inputWrap, familyStyles.textAreaWrap]}>
+              <TextInput
+                style={[familyStyles.formInput, familyStyles.textArea]}
+                placeholder=""
+                placeholderTextColor="rgba(255,255,255,0.2)"
+                value={familyAnnouncement}
+                onChangeText={(t) => t.length <= 100 && setFamilyAnnouncement(t)}
+                maxLength={100}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
+              <Text style={[familyStyles.inputCounter, familyStyles.textAreaCounter]}>
+                {familyAnnouncement.length}/100
+              </Text>
+            </View>
+          </ScrollView>
+
+          {/* Confirm button */}
+          <View style={[familyStyles.formFooter, { paddingBottom: safeBottom + 12 }]}>
+            <TouchableOpacity
+              style={[
+                familyStyles.confirmBtn,
+                !familyName.trim() && familyStyles.confirmBtnDisabled,
+              ]}
+              activeOpacity={0.85}
+              disabled={!familyName.trim() || creatingFamily}
+              onPress={handleCreateFamily}
+            >
+              <LinearGradient
+                colors={familyName.trim() ? ["#7c4dff", "#a855f7"] : ["#2a1a4a", "#2a1a4a"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={familyStyles.confirmGrad}
+              >
+                {creatingFamily ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={familyStyles.confirmText}>Confirm  💎 30</Text>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <FamilyChatModal
+        visible={!!chatFamily}
+        family={chatFamily}
+        onClose={() => setChatFamily(null)}
+      />
+    </View>
+  );
+}
+
+const familyStyles = StyleSheet.create({
+  tabRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 16,
+  },
+  tabItem: {
+    paddingVertical: 13,
+    paddingHorizontal: 2,
+    marginRight: 18,
+    position: "relative",
+  },
+  tabText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  tabTextActive: {
+    color: "white",
+    fontWeight: "800",
+  },
+  tabUnderline: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2.5,
+    backgroundColor: "#7c4dff",
+    borderRadius: 2,
+  },
+  searchIcon: {
+    marginLeft: "auto",
+    padding: 6,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 10,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.2)",
+  },
+  searchInput: {
+    flex: 1,
+    color: "white",
+    fontSize: 14,
+    paddingVertical: 0,
+  },
+  listContent: {
+    padding: 16,
+    paddingBottom: 96,
+    gap: 10,
+  },
+  emptyWrap: {
+    alignItems: "center",
+    paddingTop: 52,
+  },
+  emptyText: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16,
+    padding: 12,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.12)",
+  },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: "rgba(124,77,255,0.15)",
+    borderWidth: 1.5,
+    borderColor: "rgba(124,77,255,0.35)",
+  },
+  icon: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  info: {
+    flex: 1,
+    gap: 5,
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  name: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
+    flexShrink: 1,
+  },
+  officialBadge: {
+    backgroundColor: "rgba(124,77,255,0.3)",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.45)",
+  },
+  officialText: {
+    color: "#c4b5fd",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  meta: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 12,
+  },
+  dot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "rgba(255,255,255,0.25)",
+  },
+  joinBtn: {
+    backgroundColor: "rgba(124,77,255,0.2)",
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.45)",
+  },
+  joinText: {
+    color: "#c4b5fd",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  joinedBtn: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  joinedText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  createWrap: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    backgroundColor: "rgba(10,4,20,0.96)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+  },
+  createBtn: {
+    borderRadius: 28,
+    overflow: "hidden",
+  },
+  createGrad: {
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  createText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+
+  // ── Create Rules Modal ──────────────────────────────────────────────────
+  rulesOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  rulesSheet: {
+    backgroundColor: "#130828",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  rulesHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(167,139,250,0.4)",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  rulesIconWrap: {
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  rulesTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "900",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  rulesSub: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  rulesDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    marginBottom: 16,
+  },
+  rulesList: {
+    gap: 12,
+    marginBottom: 20,
+  },
+  ruleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  ruleIcon: {
+    fontSize: 18,
+    width: 26,
+    textAlign: "center",
+  },
+  ruleText: {
+    flex: 1,
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  costPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(124,77,255,0.2)",
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.4)",
+    gap: 6,
+    marginBottom: 20,
+  },
+  costEmoji: { fontSize: 18 },
+  costText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  costAmount: {
+    color: "#c4b5fd",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  continueBtn: {
+    borderRadius: 28,
+    overflow: "hidden",
+    marginBottom: 10,
+  },
+  continueGrad: {
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  continueText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  cancelBtn: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  cancelText: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+
+  // ── Create Family Form Screen ───────────────────────────────────────────
+  formScreen: {
+    flex: 1,
+    backgroundColor: "#0d0618",
+  },
+  formHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  formBackBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  formTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  formContent: {
+    padding: 20,
+    gap: 6,
+  },
+  formLabel: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  coverPicker: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: "rgba(124,77,255,0.4)",
+    borderStyle: "dashed",
+  },
+  coverPlaceholder: {
+    flex: 1,
+    backgroundColor: "rgba(124,77,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  coverImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  inputWrap: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.2)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  formInput: {
+    flex: 1,
+    color: "white",
+    fontSize: 15,
+    paddingVertical: 0,
+  },
+  inputCounter: {
+    color: "rgba(255,255,255,0.3)",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  textAreaWrap: {
+    alignItems: "flex-end",
+    flexDirection: "column",
+    paddingBottom: 8,
+  },
+  textArea: {
+    minHeight: 90,
+    width: "100%",
+    textAlignVertical: "top",
+  },
+  textAreaCounter: {
+    marginTop: 6,
+  },
+  formFooter: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    backgroundColor: "rgba(13,6,24,0.97)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.07)",
+  },
+  confirmBtn: {
+    borderRadius: 28,
+    overflow: "hidden",
+  },
+  confirmBtnDisabled: {
+    opacity: 0.5,
+  },
+  confirmGrad: {
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+});
 
 export default function Profile() {
   const router = useRouter();
@@ -951,21 +1808,7 @@ export default function Profile() {
 
     // ── FAMILY ────────────────────────────────────────────────────────────────
     if (label === "Family") {
-      return (
-        <View style={styles.mmEmptyCenter}>
-          <Text style={{ fontSize: 64 }}>🏠</Text>
-          <Text style={styles.mmEmptyTitle}>No Family Yet</Text>
-          <Text style={styles.mmEmptySub}>Create or join a family to grow together, earn family rewards, and unlock exclusive perks.</Text>
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Create Family</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.mmOutlineBtn, { marginTop: 10 }]} activeOpacity={0.8}>
-            <Text style={styles.mmOutlineBtnText}>Join a Family</Text>
-          </TouchableOpacity>
-        </View>
-      );
+      return <FamilyContent />;
     }
 
     // ── MATCHMAKER ────────────────────────────────────────────────────────────
@@ -2849,6 +3692,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
+
+  // ── Family UI styles moved to familyStyles (separate StyleSheet above Profile component) ──
   mmFeatureRow: {
     flexDirection: "row",
     alignItems: "center",

@@ -16,6 +16,7 @@ import {
   DeviceEventEmitter,
   BackHandler,
   PermissionsAndroid,
+  Keyboard,
 } from "react-native";
 import Animated, {
   useSharedValue,
@@ -1172,14 +1173,28 @@ export default function VoiceParty() {
     router.back();
   }, [roomId, onMic, mySeatNumber, router]);
 
-  // Intercept Android hardware back button — run the same full exit flow.
+  // Intercept Android hardware back button — close any open chat input /
+  // pickers first; only exit the room when none of those are open.
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (showTagPicker) {
+        setShowTagPicker(false);
+        return true;
+      }
+      if (showEmojiPicker) {
+        setShowEmojiPicker(false);
+        return true;
+      }
+      if (showChatInput) {
+        setShowChatInput(false);
+        Keyboard.dismiss();
+        return true;
+      }
       handleExitRoom();
       return true; // prevent default navigation
     });
     return () => sub.remove();
-  }, [handleExitRoom]);
+  }, [handleExitRoom, showChatInput, showEmojiPicker, showTagPicker]);
 
   // Listen Rewards — tick every second while in the room.
   // Component unmounts on exit so counters reset automatically.
@@ -1543,6 +1558,7 @@ export default function VoiceParty() {
     setInputText("");
     setTaggedUser(null);
     setShowChatInput(false);
+    Keyboard.dismiss();
     await appendOutgoingMessage(text);
 
     try {
