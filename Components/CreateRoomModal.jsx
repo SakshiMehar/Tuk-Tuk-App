@@ -17,6 +17,7 @@ import { X } from "lucide-react-native";
 import { getUser } from "../src/store/authStore";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { createAndEnterPartyRoom } from "../src/services/partyService";
+import { refreshWalletBalance } from "../src/store/walletStore";
 
 const THEME = {
   bg: "#0f0720",
@@ -79,6 +80,7 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
           ? { profileImageUrl: user.profilePicUrl ?? user.avatarUrl }
           : {}),
       });
+      refreshWalletBalance();
       onClose();
       onEntered?.(String(session.roomId ?? userId));
     } catch (err) {

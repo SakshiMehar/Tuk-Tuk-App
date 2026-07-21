@@ -1,5 +1,13 @@
 import { logout as apiLogout, deleteAccount as apiDeleteAccount } from "../api/authApi";
-import { saveSession, clearSession, setTermsAccepted, getUser, updateUser } from "../store/authStore";
+import {
+  saveSession,
+  clearSession,
+  setTermsAccepted,
+  getUser,
+  updateUser,
+  getPendingInviteCode,
+  clearPendingInviteCode,
+} from "../store/authStore";
 import { normalizeAuthResponse } from "../utils/authResponse";
 import { resolveAppUserId } from "../utils/sessionUser";
 import { refreshTokenCache, clearTokenCache } from "../api/axios";
@@ -7,6 +15,7 @@ import { wsService } from "./websocket";
 import { loadMyProfile } from "./meProfileService";
 import { applyNewUserFrameForLogin } from "./newUserFrameService";
 import { applyInitialUserLevelForLogin } from "./userLevelService";
+import { redeemInviteCode } from "./inviteFriendsService";
 
 export const endLocalSession = async () => {
   wsService.disconnect();
@@ -61,12 +70,28 @@ export const hydrateSessionUserFromProfile = async () => {
   }
 };
 
+/** Login page → invite code entered → login/register → JWT issued → redeem it here,
+ *  automatically, before the caller navigates to home. Covers every login path since
+ *  they all funnel through establishSessionFromApi. Best-effort: a failed/missing code
+ *  never blocks login — it's just cleared so a stale code isn't retried forever. */
+const applyPendingInviteCodeIfAny = async () => {
+  const code = await getPendingInviteCode();
+  if (!code) return;
+  try {
+    await redeemInviteCode(code);
+  } catch (err) {
+    console.log("[authSessionService] invite code redeem failed:", err?.message ?? err);
+  } finally {
+    await clearPendingInviteCode();
+  }
+};
+
 /** Call backend auth endpoint, persist JWT + user. */
 export const establishSessionFromApi = async (apiCall, credential) => {
   const data = await apiCall(credential);
   const { token, user } = normalizeAuthResponse(data);
   const resolvedUserId = resolveAppUserId(user, token);
-  
+
   if (!token) {
     throw new Error("Authentication succeeded but no token was returned.");
   }
@@ -76,6 +101,7 @@ export const establishSessionFromApi = async (apiCall, credential) => {
   await applyNewUserFrameForLogin(data);
   await applyInitialUserLevelForLogin(data);
   await setTermsAccepted(true);
+  await applyPendingInviteCodeIfAny();
   try {
     await wsService.connect();
   } catch {

@@ -1,5 +1,6 @@
 import {
   createFamily as createFamilyApi,
+  updateFamilyCover as updateFamilyCoverApi,
   getFamilies as getFamiliesApi,
   getFamilyDetail as getFamilyDetailApi,
   joinFamily as joinFamilyApi,
@@ -109,28 +110,30 @@ export const loadFamilyLists = async () => {
 };
 
 /**
- * POST /api/v1/families — create a family group and return it normalized for the UI.
+ * Create a family group, then upload its cover photo:
+ *   1. POST /api/v1/families           — JSON only, no image
+ *   2. PATCH /api/v1/families/{id}/cover — multipart field "icon" (if coverUri given)
  *
- * `coverUri` from the gallery picker is a local `file://` path. The backend
- * rejects multipart on this endpoint and `iconUrl` must be an already-hosted
- * URL, so a local file is NOT sent — there's no upload endpoint yet to turn
- * it into one. It only gets forwarded here once it's already http(s) (e.g.
- * if a future picker lets the user pick from an already-hosted gallery).
+ * `coverUri` from the gallery picker is a local `file://` path — the PATCH
+ * step uploads it directly, no pre-hosted URL required.
  */
 export const createFamilyGroup = async ({ name, announcement, coverUri }) => {
-  const iconUrl = /^https?:\/\//i.test(coverUri ?? "") ? coverUri : null;
-  if (coverUri && !iconUrl) {
-    console.warn(
-      "[FamilyContent] Cover photo is a local file — not sent to POST /api/v1/families " +
-      "(no upload endpoint exists yet; backend only accepts an already-hosted iconUrl)."
-    );
+  const currentUserId = await getCurrentUserIdSafe();
+
+  const created = await createFamilyApi({ name, description: announcement });
+  console.log("[FamilyService] POST /api/v1/families response:", created);
+
+  const familyGroupId = created?.id ?? created?.familyGroupId ?? created?._id;
+
+  if (!coverUri || !familyGroupId) {
+    return normalizeFamilyGroup(created, 0, currentUserId);
   }
 
-  const [data, currentUserId] = await Promise.all([
-    createFamilyApi({ name, description: announcement, iconUrl }),
-    getCurrentUserIdSafe(),
-  ]);
-  return normalizeFamilyGroup(data, 0, currentUserId);
+  const fileName = coverUri.split("/").pop()?.split("?")[0] || "cover.jpg";
+  const updated = await updateFamilyCoverApi(familyGroupId, { uri: coverUri, fileName });
+  console.log(`[FamilyService] PATCH /api/v1/families/${familyGroupId}/cover response:`, updated);
+
+  return normalizeFamilyGroup(updated, 0, currentUserId);
 };
 
 /** GET /api/v1/families/{familyGroupId} */

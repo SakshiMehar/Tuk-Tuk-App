@@ -4,6 +4,7 @@ import {
   View,
   Text,
   Image,
+  ImageBackground,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
@@ -32,6 +33,11 @@ import {
 } from "../../src/services/rewardTaskService";
 import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
+import WalletRechargeSection from "../../Components/WalletRechargeSection";
+import GetRewardsPanel from "../../Components/GetRewardsPanel";
+import MonthlyCardPanel from "../../Components/MonthlyCardPanel";
+import TukTukPassPanel from "../../Components/TukTukPassPanel";
+import VipCenterPanel from "../../Components/VipCenterPanel";
 import {
   avatarMap,
   avatarOptions,
@@ -45,13 +51,13 @@ import { syncUserLevelForSession } from "../../src/services/userLevelService";
 import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
-import { loadWalletData } from "../../src/services/walletService";
 import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
 import { openUserChat } from "../../src/utils/chatNavigation";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import { refreshWalletBalance } from "../../src/store/walletStore";
 import { submitFeedback } from "../../src/services/userSettingsService";
 import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
+import { resolveImageSource } from "../../src/utils/videoSource";
 import {
   loadFamilyLists,
   createFamilyGroup,
@@ -192,19 +198,20 @@ function FamilyContent() {
         coverUri: familyCover,
       });
       console.log("[FamilyContent] createFamily result", created);
-      setNewFamilies((prev) => [created, ...prev]);
       setShowCreateForm(false);
       setFamilyTab("New family");
       setFamilyName("");
       setFamilyAnnouncement("");
       setFamilyCover(null);
+      await refreshFamilies();
+      await refreshWalletBalance();
     } catch (error) {
       console.error("[FamilyContent] createFamily failed", error);
       Alert.alert("Couldn't create family", error?.message || "Please try again.");
     } finally {
       setCreatingFamily(false);
     }
-  }, [familyName, familyAnnouncement, familyCover, creatingFamily]);
+  }, [familyName, familyAnnouncement, familyCover, creatingFamily, refreshFamilies]);
 
   const allFamilies = familyTab === "Existing family" ? existingFamilies : newFamilies;
   const families = allFamilies.filter((f) =>
@@ -1002,8 +1009,6 @@ export default function Profile() {
   const [savedUsers, setSavedUsers] = useState([]);
   const [savedUsersLoading, setSavedUsersLoading] = useState(false);
   const [removingSavedUserId, setRemovingSavedUserId] = useState(null);
-  const [walletTransactions, setWalletTransactions] = useState([]);
-  const [walletLoading, setWalletLoading] = useState(false);
   const [myPosts, setMyPosts] = useState([]);
   const [myPostsLoading, setMyPostsLoading] = useState(false);
   const [editingPost, setEditingPost] = useState(null);
@@ -1032,26 +1037,7 @@ export default function Profile() {
 
   useEffect(() => {
     if (activeMenu?.label !== "Wallet") return;
-
-    let cancelled = false;
-    setWalletLoading(true);
     refreshWalletBalance();
-    loadWalletData()
-      .then((data) => {
-        if (cancelled) return;
-        setWalletTransactions(data.transactions);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setWalletTransactions([]);
-      })
-      .finally(() => {
-        if (!cancelled) setWalletLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
   }, [activeMenu]);
 
   const loadMyPosts = useCallback(async () => {
@@ -1434,44 +1420,9 @@ export default function Profile() {
     // ── MENU UI COMMENTED OUT ─────────────────────────────────────────────────
    
 
-    // ── GET REWARDS ───────────────────────────────────────────────────────────
+    // ── GET REWARDS (invite friends → diamonds) ───────────────────────────────
     if (label === "Get Rewards") {
-      const days = [
-        { day: "Mon", reward: "10💎", claimed: true },
-        { day: "Tue", reward: "20💎", claimed: true },
-        { day: "Wed", reward: "15🪙", claimed: true },
-        { day: "Thu", reward: "30💎", claimed: false, today: true },
-        { day: "Fri", reward: "25💎", claimed: false },
-        { day: "Sat", reward: "50💎", claimed: false },
-        { day: "Sun", reward: "100💎", claimed: false },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(168,85,247,0.1)"]} style={styles.mmHeroBox}>
-            <Text style={{ fontSize: 48 }}>🎁</Text>
-            <Text style={styles.mmHeroTitle}>Day 3 Streak!</Text>
-            <Text style={styles.mmHeroSub}>Keep logging in daily to earn bigger rewards</Text>
-          </LinearGradient>
-          <View style={styles.mmDayGrid}>
-            {days.map((d) => (
-              <View key={d.day} style={[styles.mmDayCell, d.today && styles.mmDayCellActive, d.claimed && styles.mmDayCellClaimed]}>
-                <Text style={styles.mmDayName}>{d.day}</Text>
-                <Text style={{ fontSize: 16, marginVertical: 4 }}>{d.claimed ? "✅" : d.today ? "🎯" : "🔒"}</Text>
-                <Text style={styles.mmDayVal}>{d.reward}</Text>
-              </View>
-            ))}
-          </View>
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Claim Today's Reward  30💎</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <View style={styles.mmInfoRow}>
-            <Ionicons name="trophy-outline" size={16} color="#fbbf24" />
-            <Text style={styles.mmInfoText}>Complete 7 days for a 500💎 bonus!</Text>
-          </View>
-        </ScrollView>
-      );
+      return <GetRewardsPanel active={activeMenu?.label === "Get Rewards"} />;
     }
 
     // ── TASK ──────────────────────────────────────────────────────────────────
@@ -1568,28 +1519,7 @@ export default function Profile() {
 
     // ── MONTHLY CARD ──────────────────────────────────────────────────────────
     if (label === "Monthly Card") {
-      const perks = ["100💎 daily for 30 days", "Exclusive Monthly Card frame", "2× XP boost for 30 days", "Priority room entry", "Ad-free experience"];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.mmCardHero}>
-            <Text style={styles.mmCardHeroLabel}>MONTHLY CARD</Text>
-            <Text style={styles.mmCardHeroPrice}>₹199 / month</Text>
-            <Text style={styles.mmCardHeroSub}>3,000💎 total value</Text>
-          </LinearGradient>
-          <Text style={styles.mmSectionLabel}>What you get</Text>
-          {perks.map((p) => (
-            <View key={p} style={styles.mmPerkRow}>
-              <Ionicons name="checkmark-circle" size={20} color="#a78bfa" />
-              <Text style={styles.mmPerkText}>{p}</Text>
-            </View>
-          ))}
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Subscribe Now</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
-      );
+      return <MonthlyCardPanel />;
     }
 
     // ── STORE ─────────────────────────────────────────────────────────────────
@@ -1653,54 +1583,7 @@ export default function Profile() {
     if (label === "Wallet") {
       return (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmWalletCard}>
-            <Text style={styles.mmWalletLabel}>Total Balance</Text>
-            {walletLoading ? (
-              <ActivityIndicator color="#fff" style={{ marginVertical: 16 }} />
-            ) : (
-              <>
-                <View style={styles.mmWalletBalRow}>
-                  <Text style={{ fontSize: 26 }}>💎</Text>
-                  <Text style={styles.mmWalletAmount}>
-                    {"  "}
-                    {walletDiamonds.toLocaleString()} Diamonds
-                  </Text>
-                </View>
-                <View style={styles.mmWalletBalRow}>
-                  <Text style={{ fontSize: 20 }}>🪙</Text>
-                  <Text style={[styles.mmWalletAmount, { fontSize: 18 }]}>
-                    {"  "}
-                    {walletCoins.toLocaleString()} Coins
-                  </Text>
-                </View>
-              </>
-            )}
-            <TouchableOpacity style={styles.mmWalletTopUp} activeOpacity={0.8}>
-              <Text style={styles.mmWalletTopUpText}>+ Top Up</Text>
-            </TouchableOpacity>
-          </LinearGradient>
-          <Text style={styles.mmSectionLabel}>Recent Transactions</Text>
-          {walletLoading ? (
-            <ActivityIndicator color="#a78bfa" style={{ marginTop: 20 }} />
-          ) : walletTransactions.length === 0 ? (
-            <View style={styles.savedEmptyBox}>
-              <Text style={styles.savedEmptyEmoji}>💳</Text>
-              <Text style={styles.savedEmptyTitle}>No transactions yet</Text>
-              <Text style={styles.savedEmptyText}>
-                Your diamond and coin activity will show up here.
-              </Text>
-            </View>
-          ) : (
-            walletTransactions.map((t) => (
-              <View key={t.id} style={styles.mmTxnRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.mmTxnLabel}>{t.label}</Text>
-                  <Text style={styles.mmTxnDate}>{t.date}</Text>
-                </View>
-                <Text style={[styles.mmTxnAmount, { color: t.color }]}>{t.amount}</Text>
-              </View>
-            ))
-          )}
+          <WalletRechargeSection currentDiamonds={walletDiamonds} currentCoins={walletCoins} />
         </ScrollView>
       );
     }
@@ -1740,32 +1623,7 @@ export default function Profile() {
 
     // ── VIP ───────────────────────────────────────────────────────────────────
     if (label === "VIP") {
-      const tiers = [
-        { level: "VIP 1", req: "1,000 pts", colors: ["#cd7f32", "#a0522d"], emoji: "🥉" },
-        { level: "VIP 2", req: "5,000 pts", colors: ["#9ca3af", "#6b7280"], emoji: "🥈" },
-        { level: "VIP 3", req: "15,000 pts", colors: ["#fbbf24", "#f59e0b"], emoji: "🥇" },
-        { level: "VIP 4", req: "50,000 pts", colors: ["#7c4dff", "#a855f7"], emoji: "💜" },
-        { level: "VIP 5", req: "200,000 pts", colors: ["#ec4899", "#f43f5e"], emoji: "👑" },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <View style={styles.mmVIPCurrentBox}>
-            <Text style={styles.mmVIPCurrentLabel}>Your VIP Status</Text>
-            <Text style={styles.mmVIPCurrentVal}>Not VIP Yet</Text>
-            <Text style={styles.mmVIPCurrentSub}>Top up diamonds to earn VIP points</Text>
-          </View>
-          {tiers.map((t) => (
-            <LinearGradient key={t.level} colors={t.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmVIPTier}>
-              <Text style={{ fontSize: 24 }}>{t.emoji}</Text>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.mmVIPTierName}>{t.level}</Text>
-                <Text style={styles.mmVIPTierReq}>{t.req} to unlock</Text>
-              </View>
-              <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.65)" />
-            </LinearGradient>
-          ))}
-        </ScrollView>
-      );
+      return <VipCenterPanel />;
     }
 
     // ── COUPON ────────────────────────────────────────────────────────────────
@@ -1897,28 +1755,7 @@ export default function Profile() {
 
     // ── TUKTUK PASS ───────────────────────────────────────────────────────────
     if (label === "TukTuk Pass") {
-      const benefits = ["Daily 50💎 for 7 days", "Exclusive pass holder frame", "Skip ads for 7 days", "Priority customer support", "Early access to new features"];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.mmPassCard}>
-            <Text style={styles.mmPassTitle}>TUKTUK PASS</Text>
-            <Text style={styles.mmPassPrice}>₹99 / week</Text>
-            <Text style={styles.mmPassSub}>350💎 total value</Text>
-          </LinearGradient>
-          <Text style={styles.mmSectionLabel}>Pass Benefits</Text>
-          {benefits.map((b) => (
-            <View key={b} style={styles.mmPerkRow}>
-              <Ionicons name="checkmark-circle" size={18} color="#a78bfa" />
-              <Text style={styles.mmPerkText}>{b}</Text>
-            </View>
-          ))}
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Get TukTuk Pass</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
-      );
+      return <TukTukPassPanel />;
     }
 
     // ── LEVEL ─────────────────────────────────────────────────────────────────
@@ -2568,43 +2405,53 @@ export default function Profile() {
                 </Text>
               </View>
             ) : (
-              (giftTab === "Receive" ? giftsReceived : giftsSent).map((item, idx) => (
-                <View key={String(item?.id ?? item?.giftCode ?? idx)} style={styles.giftItemRow}>
-                  <Text style={styles.giftItemName}>{item?.giftName ?? item?.name ?? item?.giftCode ?? "Gift"}</Text>
+              (giftTab === "Receive" ? giftsReceived : giftsSent).map((item, idx) => {
+                const giftImageUrl = item?.gift?.imageUrl ?? item?.imageUrl;
+                const giftName = item?.gift?.name ?? item?.giftName ?? item?.name ?? "Gift";
+                const quantity = Number(item?.quantity) || 1;
+                return (
+                <View key={String(item?.transactionId ?? item?.id ?? idx)} style={styles.giftItemRow}>
+                  {giftImageUrl ? (
+                    <Image source={resolveImageSource(giftImageUrl)} style={styles.giftItemImage} />
+                  ) : (
+                    <View style={[styles.giftItemImage, styles.giftItemImageFallback]}>
+                      <Text style={{ fontSize: 20 }}>{item?.gift?.emoji ?? "🎁"}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.giftItemName}>
+                    {giftName}
+                    {quantity > 1 ? ` ×${quantity}` : ""}
+                  </Text>
                   <Text style={styles.giftItemMeta}>
                     {giftTab === "Receive"
-                      ? (item?.senderName ?? item?.fromUser ?? "Someone")
-                      : (item?.receiverName ?? item?.toUser ?? "Someone")}
+                      ? (item?.senderName ?? (item?.fromUserId ? `User ${item.fromUserId}` : "Someone"))
+                      : (item?.receiverName ?? (item?.toUserId ? `User ${item.toUserId}` : "Someone"))}
                   </Text>
                 </View>
-              ))
+                );
+              })
             )}
           </View>
         )}
 
       </ScrollView>
-      {/* ── MENU DETAIL MODAL ── */}
-      <Modal visible={!!activeMenu} transparent animationType="slide" onRequestClose={() => setActiveMenu(null)}>
-        <View style={styles.mmOverlay}>
-          <TouchableOpacity style={styles.mmBackdrop} activeOpacity={1} onPress={() => setActiveMenu(null)} />
-          <View style={styles.mmPanel}>
-            <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
-            {/* Handle */}
-            <View style={styles.mmHandle} />
-            {/* Header */}
-            <View style={styles.mmHeader}>
-              <View style={styles.mmHeaderIcon}>
-                <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
-              </View>
-              <Text style={styles.mmHeaderTitle}>{activeMenu?.label}</Text>
-              <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
-                <Ionicons name="close" size={20} color="white" />
-              </TouchableOpacity>
+      {/* ── MENU DETAIL MODAL (full screen) ── */}
+      <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
+        <View style={styles.mmPanel}>
+          <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+          {/* Header */}
+          <View style={[styles.mmHeader, { paddingTop: insets.top + 10 }]}>
+            <View style={styles.mmHeaderIcon}>
+              <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
             </View>
-            <View style={styles.mmDivider} />
-            {/* Dynamic content */}
-            {renderMenuContent()}
+            <Text style={styles.mmHeaderTitle}>{activeMenu?.label}</Text>
+            <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
+              <Ionicons name="close" size={20} color="white" />
+            </TouchableOpacity>
           </View>
+          <View style={styles.mmDivider} />
+          {/* Dynamic content */}
+          {renderMenuContent()}
         </View>
       </Modal>
 
@@ -3428,30 +3275,8 @@ const styles = StyleSheet.create({
   },
 
   // ── MENU MODAL SHELL ───────────────────────────────────────────────────────
-  mmOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  mmBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.65)",
-  },
   mmPanel: {
-    height: "88%",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    overflow: "hidden",
-    borderTopWidth: 1,
-    borderColor: "rgba(124,77,255,0.35)",
-  },
-  mmHandle: {
-    width: 42,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 8,
+    flex: 1,
   },
   mmHeader: {
     flexDirection: "row",
@@ -3488,7 +3313,6 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "rgba(255,255,255,0.07)",
     marginHorizontal: 16,
-    marginBottom: 4,
   },
 
   // ── SHARED MM COMPONENTS ──────────────────────────────────────────────────
@@ -3709,7 +3533,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // ── GET REWARDS ───────────────────────────────────────────────────────────
+  // ── SHARED HERO BOX (Saved / Task) ────────────────────────────────────────
   mmHeroBox: {
     borderRadius: 20,
     padding: 24,
@@ -3729,85 +3553,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
-  mmDayGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    justifyContent: "center",
-    marginVertical: 16,
-  },
-  mmDayCell: {
-    width: 44,
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  mmDayCellActive: {
-    backgroundColor: "rgba(124,77,255,0.25)",
-    borderColor: "#7c4dff",
-  },
-  mmDayCellClaimed: {
-    backgroundColor: "rgba(74,222,128,0.08)",
-    borderColor: "rgba(74,222,128,0.2)",
-  },
-  mmDayName: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  mmDayVal: {
-    color: "white",
-    fontSize: 9,
-    fontWeight: "700",
-    textAlign: "center",
-  },
 
-  // ── MONTHLY CARD / PASS ────────────────────────────────────────────────────
-  mmCardHero: {
-    borderRadius: 20,
-    padding: 28,
-    alignItems: "center",
-    gap: 6,
-  },
-  mmCardHeroLabel: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 2,
-  },
-  mmCardHeroPrice: {
-    color: "white",
-    fontSize: 28,
-    fontWeight: "900",
-  },
-  mmCardHeroSub: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 13,
-  },
-  mmPassCard: {
-    borderRadius: 20,
-    padding: 28,
-    alignItems: "center",
-    gap: 6,
-  },
-  mmPassTitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 2,
-  },
-  mmPassPrice: {
-    color: "white",
-    fontSize: 28,
-    fontWeight: "900",
-  },
-  mmPassSub: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 13,
-  },
 
   // ── STORE ─────────────────────────────────────────────────────────────────
   mmStoreGrid: {
@@ -3900,62 +3646,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // ── WALLET ────────────────────────────────────────────────────────────────
-  mmWalletCard: {
-    borderRadius: 20,
-    padding: 24,
-    gap: 8,
-    alignItems: "center",
-  },
-  mmWalletLabel: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 13,
-    fontWeight: "600",
-    letterSpacing: 0.5,
-  },
-  mmWalletBalRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  mmWalletAmount: {
-    color: "white",
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  mmWalletTopUp: {
-    marginTop: 8,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-  },
-  mmWalletTopUpText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  mmTxnRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-  },
-  mmTxnLabel: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  mmTxnDate: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  mmTxnAmount: {
-    fontSize: 15,
-    fontWeight: "800",
-  },
-
   // ── PREMIUM ───────────────────────────────────────────────────────────────
   mmPremiumHero: {
     borderRadius: 20,
@@ -3971,49 +3661,6 @@ const styles = StyleSheet.create({
   mmPremiumHeroSub: {
     color: "rgba(255,255,255,0.8)",
     fontSize: 13,
-  },
-
-  // ── VIP ───────────────────────────────────────────────────────────────────
-  mmVIPCurrentBox: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 18,
-    padding: 18,
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    marginBottom: 14,
-  },
-  mmVIPCurrentLabel: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  mmVIPCurrentVal: {
-    color: "white",
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  mmVIPCurrentSub: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 12,
-  },
-  mmVIPTier: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 8,
-  },
-  mmVIPTierName: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  mmVIPTierReq: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 12,
-    marginTop: 2,
   },
 
   // ── HONOR LEVEL ───────────────────────────────────────────────────────────
@@ -4456,6 +4103,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  giftItemImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  giftItemImageFallback: {
+    backgroundColor: "rgba(124,77,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   giftItemName: {
     color: "white",

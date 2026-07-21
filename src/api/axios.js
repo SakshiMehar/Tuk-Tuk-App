@@ -117,7 +117,14 @@ API.interceptors.response.use(
       status === 409 &&
       /\/seat\/\d+\/claim/i.test(requestUrl);
 
-    if (!isSeatOccupied) {
+    // Suppress 404s on invite-friends endpoints — backend hasn't shipped
+    // this feature yet (client is wired ahead of the API); calling code
+    // already degrades to an empty/"not live yet" state.
+    const isPendingInviteFriendsApi =
+      status === 404 &&
+      /\/api\/app\/invite-friends\//i.test(requestUrl);
+
+    if (!isSeatOccupied && !isPendingInviteFriendsApi) {
       console.error(
         "[axios] request failed:",
         status,

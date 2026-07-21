@@ -7,7 +7,7 @@ const trimTrailingSlash = (url) => (url ?? "").replace(/\/+$/, "");
 
 /** Backend REST API origin (no trailing slash). */
 export const API_BASE_URL = trimTrailingSlash(
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://vending-helpless-slaw.ngrok-free.dev"
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://api.tuktuk.live"
 );
 
 export const API_TIMEOUT_MS = Number(

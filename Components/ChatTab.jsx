@@ -21,8 +21,10 @@ import { getRecommendedUsers } from "../src/services/homeService";
 import { loadConversations } from "../src/services/chatService";
 import { wsService } from "../src/services/websocket";
 import { openUserChat } from "../src/utils/chatNavigation";
+import { loadFamilyLists, loadFamilyDetail } from "../src/services/familyService";
 import ComingSoonModal from "./ComingSoonModal";
 import ProfileConnectionsModal from "./ProfileConnectionsModal";
+import FamilyChatModal from "./FamilyChatModal";
 import {
   loadFollowing,
   loadFollowers,
@@ -124,11 +126,6 @@ const contactsData = {
     { id: "fw3", name: "Amit yadav ji",  handle: "@amit_yadav",    avatar: "https://randomuser.me/api/portraits/men/11.jpg",    online: true,  verified: true  },
     { id: "fw4", name: "Deep Singh",     handle: "@deepsingh",     avatar: "https://randomuser.me/api/portraits/men/67.jpg",    online: false, verified: true  },
   ],
-  family: [
-    { id: "fm1", name: "Mom 💖",         handle: "@family_mom",    avatar: "https://randomuser.me/api/portraits/women/60.jpg",  online: true,  verified: false },
-    { id: "fm2", name: "Bhai Sahab",     handle: "@bhai_sahab",    avatar: "https://randomuser.me/api/portraits/men/60.jpg",    online: false, verified: false },
-    { id: "fm3", name: "Choti Didi",     handle: "@choti_didi",    avatar: "https://randomuser.me/api/portraits/women/70.jpg",  online: true,  verified: false },
-  ],
 };
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -154,6 +151,9 @@ export default function ChatTab() {
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
   const [connectionsModalType, setConnectionsModalType] = useState(null); // null | "followers" | "visitors"
   const [profileStats, setProfileStats] = useState({ followersCount: 0, visitorCount: 0 });
+  const [familyGroups, setFamilyGroups] = useState([]);
+  const [familyGroupsLoading, setFamilyGroupsLoading] = useState(false);
+  const [chatFamily, setChatFamily] = useState(null);
 
   const fetchChats = useCallback(() => {
     setChatsLoading(true);
@@ -237,6 +237,35 @@ export default function ChatTab() {
       loadRelationshipLists();
     }
   }, [activeTopTab, contactsPage, loadRelationshipLists]);
+
+  const loadFamilyGroups = useCallback(async () => {
+    setFamilyGroupsLoading(true);
+    try {
+      const { existingFamilies, newFamilies } = await loadFamilyLists();
+      const merged = [...existingFamilies, ...newFamilies].filter((f) => f.member);
+      const deduped = Array.from(new Map(merged.map((f) => [String(f.id), f])).values());
+      setFamilyGroups(deduped);
+    } catch {
+      setFamilyGroups([]);
+    } finally {
+      setFamilyGroupsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTopTab === "Contacts" && contactsPage === "family") {
+      loadFamilyGroups();
+    }
+  }, [activeTopTab, contactsPage, loadFamilyGroups]);
+
+  const handleOpenFamilyGroup = useCallback(async (family) => {
+    try {
+      const detail = await loadFamilyDetail(family.id);
+      setChatFamily(detail);
+    } catch {
+      setChatFamily(family);
+    }
+  }, []);
 
   const followingIdSet = useMemo(
     () => new Set(followingList.map((u) => String(u.userId ?? u.id))),
@@ -516,7 +545,66 @@ export default function ChatTab() {
               </View>
             </View>
 
+            {/* Real family groups (group chats the user belongs to) */}
+            {contactsPage === "family" && (
+              <View style={styles.familyGroupsSection}>
+                <Text style={styles.familyGroupsHeader}>Your Family Groups</Text>
+                <View style={styles.contactList}>
+                  {familyGroupsLoading ? (
+                    <View style={styles.chatsLoading}>
+                      <ActivityIndicator size="small" color="#a78bfa" />
+                      <Text style={styles.chatsLoadingText}>Loading...</Text>
+                    </View>
+                  ) : familyGroups.filter((f) =>
+                      f.name.toLowerCase().includes(contactSearch.toLowerCase())
+                    ).length === 0 ? (
+                    <View style={styles.emptyContacts}>
+                      <Text style={styles.emptyContactsEmoji}>👪</Text>
+                      <Text style={styles.emptyContactsText}>You haven't joined a family group yet</Text>
+                    </View>
+                  ) : (
+                    familyGroups
+                      .filter((f) => f.name.toLowerCase().includes(contactSearch.toLowerCase()))
+                      .map((family, idx, arr) => (
+                        <TouchableOpacity
+                          key={family.id}
+                          style={[styles.contactItem, idx === arr.length - 1 && { borderBottomWidth: 0 }]}
+                          activeOpacity={0.75}
+                          onPress={() => handleOpenFamilyGroup(family)}
+                        >
+                          <View style={styles.contactAvatarWrap}>
+                            <LinearGradient colors={["#7c4dff", "#4a6cf7"]} style={styles.contactAvatarRing}>
+                              {family.icon ? (
+                                <Image source={{ uri: family.icon }} style={styles.contactAvatar} />
+                              ) : (
+                                <View style={[styles.contactAvatar, styles.contactAvatarPlaceholder]}>
+                                  <Text style={styles.contactInitial}>{family.name?.[0]?.toUpperCase() ?? "F"}</Text>
+                                </View>
+                              )}
+                            </LinearGradient>
+                          </View>
+                          <View style={styles.contactInfo}>
+                            <Text style={styles.contactName} numberOfLines={1}>{family.name}</Text>
+                            <Text style={styles.contactHandle} numberOfLines={1}>{family.members} members</Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.msgBtn}
+                            activeOpacity={0.8}
+                            onPress={() => handleOpenFamilyGroup(family)}
+                          >
+                            <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.msgBtnGrad}>
+                              <Text style={styles.msgBtnText}>Open Chat</Text>
+                            </LinearGradient>
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      ))
+                  )}
+                </View>
+              </View>
+            )}
+
             {/* Contact list */}
+            {contactsPage !== "family" && (
             <View style={styles.contactList}>
               {contactsLoading && (contactsPage === "followers" || contactsPage === "following") ? (
                 <View style={styles.chatsLoading}>
@@ -612,6 +700,7 @@ export default function ChatTab() {
                 </View>
               )}
             </View>
+            )}
           </View>
         )}
 
@@ -766,6 +855,12 @@ export default function ChatTab() {
           setConnectionsModalType(null);
           loadProfileStats().then(setProfileStats).catch(() => {});
         }}
+      />
+
+      <FamilyChatModal
+        visible={!!chatFamily}
+        family={chatFamily}
+        onClose={() => setChatFamily(null)}
       />
     </View>
   );
@@ -1253,6 +1348,19 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   contactSearchInput: { flex: 1, color: "white", fontSize: 14, padding: 0 },
+
+  // Family groups section (real family group chats, shown above mock family contacts)
+  familyGroupsSection: { marginTop: 4 },
+  familyGroupsHeader: {
+    color: "rgba(167,139,250,0.7)",
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 6,
+  },
 
   // Contact list
   contactList: {

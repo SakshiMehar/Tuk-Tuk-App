@@ -13,6 +13,7 @@ const resetVoiceUid = () => {
 const TOKEN_KEY = "@auth_token";
 const USER_KEY  = "@auth_user";
 const TERMS_ACCEPTED_KEY = "@terms_accepted";
+const PENDING_INVITE_CODE_KEY = "@pending_invite_code";
 
 // ── Save token + user after any successful login ────────────
 export const saveSession = async (token, user) => {
@@ -56,6 +57,27 @@ export const hasAcceptedTerms = async () => {
 
 export const clearTermsAccepted = async () => {
   await AsyncStorage.removeItem(TERMS_ACCEPTED_KEY);
+};
+
+// Captured from the login screen's optional "invite code" field. Stored
+// locally only — there is no backend endpoint yet to redeem it against the
+// inviter's account. Kept around so that once one exists, it can be read
+// here and applied right after the first successful login.
+export const setPendingInviteCode = async (code) => {
+  const trimmed = String(code ?? "").trim();
+  if (!trimmed) {
+    await AsyncStorage.removeItem(PENDING_INVITE_CODE_KEY);
+    return;
+  }
+  await AsyncStorage.setItem(PENDING_INVITE_CODE_KEY, trimmed);
+};
+
+export const getPendingInviteCode = async () => {
+  return AsyncStorage.getItem(PENDING_INVITE_CODE_KEY);
+};
+
+export const clearPendingInviteCode = async () => {
+  await AsyncStorage.removeItem(PENDING_INVITE_CODE_KEY);
 };
 
 // ── Read stored user object ─────────────────────────────────

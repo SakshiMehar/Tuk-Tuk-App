@@ -5,6 +5,7 @@
 // POST   /api/v1/families                              create family group
 // GET    /api/v1/families                               family section list (existingFamilies, newFamilies)
 // GET    /api/v1/families/{familyGroupId}                single family detail
+// PATCH  /api/v1/families/{familyGroupId}/cover          upload/replace cover, multipart field: icon
 // POST   /api/v1/families/{familyGroupId}/join           current user joins family
 // POST   /api/v1/families/{familyGroupId}/members        owner adds members { userIds: [1,2] }
 // GET    /api/v1/families/{familyGroupId}/messages       family chat history
@@ -13,7 +14,8 @@
 // Auth: Authorization: Bearer <JWT>  |  Content-Type: application/json
 // ============================================================
 
-import API, { authRequestConfig } from "./axios";
+import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
+import { API_BASE_URL, isNgrokBaseUrl } from "../config/env";
 
 const LOG_TAG = "[FamilyAPI]";
 
@@ -32,17 +34,34 @@ const logError = (method, path, error) => {
   );
 };
 
+const fallbackMimeType = (uri) => {
+  const ext = uri?.split("?")?.[0]?.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase();
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "heic") return "image/heic";
+  if (ext === "heif") return "image/heif";
+  return "image/jpeg";
+};
+
+const parseResponseBody = async (response) => {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
 /**
- * POST /api/v1/families — create family group. Body: { name, description, iconUrl }.
- * The backend rejects multipart/form-data on this endpoint ("Content-Type ...
- * is not supported"), so `iconUrl` must already be a hosted URL — there is no
- * endpoint yet to upload a locally-picked photo and get one back. See
- * familyService.createFamilyGroup, which only forwards iconUrl when it's
- * already http(s) and otherwise omits it.
+ * POST /api/v1/families — create family group. Body: { name, description }.
+ * No image here — the cover photo is uploaded separately via
+ * PATCH /api/v1/families/{familyGroupId}/cover once the group exists (see
+ * updateFamilyCover below and familyService.createFamilyGroup for the flow).
  */
-export const createFamily = async ({ name, description, iconUrl } = {}) => {
+export const createFamily = async ({ name, description } = {}) => {
   const path = "/api/v1/families";
-  const body = { name, description, iconUrl };
+  const body = { name, description };
   logRequest("POST", path, body);
   try {
     const response = await API.post(path, body, await authRequestConfig());
@@ -50,6 +69,55 @@ export const createFamily = async ({ name, description, iconUrl } = {}) => {
     return response.data;
   } catch (error) {
     logError("POST", path, error);
+    throw error;
+  }
+};
+
+/**
+ * PATCH /api/v1/families/{familyGroupId}/cover — multipart field: icon.
+ * Uploads/replaces the family's cover photo. Returns the updated family
+ * object (includes the freshly-hosted iconUrl). Uses raw fetch, not the
+ * shared axios instance — same convention as uploadMyProfilePic/createPost
+ * for multipart bodies in this codebase.
+ */
+export const updateFamilyCover = async (familyGroupId, { uri, mimeType, fileName } = {}) => {
+  const path = `/api/v1/families/${familyGroupId}/cover`;
+
+  await refreshTokenCache();
+  const token = await getBearerToken();
+  if (!token) throw new Error("Please log in again to continue.");
+
+  const form = new FormData();
+  form.append("icon", {
+    uri,
+    type: mimeType ?? fallbackMimeType(uri),
+    name: fileName ?? "cover.jpg",
+  });
+
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
+  };
+
+  logRequest("PATCH", path, { icon: fileName ?? uri });
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "PATCH",
+      headers,
+      body: form,
+    });
+    const data = await parseResponseBody(response);
+    if (!response.ok) {
+      const message = data?.message ?? data?.error ?? `Cover upload failed (${response.status})`;
+      const err = new Error(message);
+      err.status = response.status;
+      err.responseData = data;
+      throw err;
+    }
+    logResponse("PATCH", path, data);
+    return data;
+  } catch (error) {
+    logError("PATCH", path, error);
     throw error;
   }
 };

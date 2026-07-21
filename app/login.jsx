@@ -6,6 +6,7 @@ import {
   ScrollView,
   StatusBar,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   ActivityIndicator,
@@ -15,7 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import { guestLogin, googleLogin } from "../src/api/authApi";
 import { getUsersCount } from "../src/api/userApi";
-import { hasAcceptedTerms, setTermsAccepted, updateUser } from "../src/store/authStore";
+import { hasAcceptedTerms, setTermsAccepted, setPendingInviteCode, updateUser } from "../src/store/authStore";
 import { establishSessionFromApi } from "../src/services/authSessionService";
 import {
   configureFacebookSdk,
@@ -41,6 +42,7 @@ export default function Login() {
   const [facebookLoading, setFacebookLoading] = useState(false);
   const [facebookWebView, setFacebookWebView] = useState(null);
   const [userCount, setUserCount] = useState(null);
+  const [inviteCode, setInviteCode] = useState("");
 
   useEffect(() => {
     configureGoogleSignIn();
@@ -73,6 +75,20 @@ export default function Login() {
     return true;
   };
 
+  // Stashed locally so it survives the trip to phone-login/OTP too — there's no
+  // backend endpoint yet to actually redeem it against the inviter's account.
+  const persistInviteCode = () => setPendingInviteCode(inviteCode);
+
+  const handleApplyInviteCode = async () => {
+    const trimmed = inviteCode.trim();
+    if (!trimmed) {
+      Alert.alert("Invite code", "Enter a code first.");
+      return;
+    }
+    await persistInviteCode();
+    Alert.alert("Saved", `Invite code "${trimmed}" will be applied once you sign in.`);
+  };
+
   const toggleAccepted = async () => {
     const next = !accepted;
     setAccepted(next);
@@ -86,6 +102,7 @@ export default function Login() {
 
   const handleGoogleLogin = async () => {
     if (!requireAccepted()) return;
+    await persistInviteCode();
     setGoogleLoading(true);
     try {
       const idToken = await signInWithGoogle();
@@ -104,6 +121,7 @@ export default function Login() {
 
   const handleFacebookLogin = async () => {
     if (!requireAccepted()) return;
+    await persistInviteCode();
     setFacebookLoading(true);
     try {
       await signInWithFacebook({
@@ -125,13 +143,15 @@ export default function Login() {
     }
   };
 
-  const handlePhoneLogin = () => {
+  const handlePhoneLogin = async () => {
     if (!requireAccepted()) return;
+    await persistInviteCode();
     router.push("/enter-mobile");
   };
 
   const handleGuestLogin = async () => {
     if (!requireAccepted()) return;
+    await persistInviteCode();
     setGuestLoading(true);
     try {
       await establishSessionFromApi(guestLogin);
@@ -340,6 +360,47 @@ export default function Login() {
                 </Text>
             }
           </TouchableOpacity>
+
+          {/* Invite code (optional) */}
+          <View style={{
+            flexDirection: "row", alignItems: "center", width: "100%",
+            backgroundColor: "rgba(255,255,255,0.05)", borderRadius: s(14),
+            borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+            paddingLeft: s(16), paddingRight: s(6), marginBottom: vs(20),
+          }}>
+            <FontAwesome5 name="gift" size={ms(16)} color="rgba(255,255,255,0.45)" style={{ marginRight: s(12) }} />
+            <TextInput
+              value={inviteCode}
+              onChangeText={(text) => setInviteCode(text.toUpperCase())}
+              placeholder="Have an invite code? (optional)"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={12}
+              style={{
+                flex: 1, color: "white", fontSize: ms(14),
+                paddingVertical: vs(14),
+              }}
+            />
+            <TouchableOpacity
+              onPress={handleApplyInviteCode}
+              activeOpacity={0.8}
+              disabled={!inviteCode.trim()}
+              style={{
+                backgroundColor: inviteCode.trim() ? "rgba(255,0,128,0.25)" : "rgba(255,255,255,0.06)",
+                borderRadius: s(10),
+                paddingHorizontal: s(14),
+                paddingVertical: vs(9),
+              }}
+            >
+              <Text style={{
+                color: inviteCode.trim() ? "#ff69b4" : "rgba(255,255,255,0.3)",
+                fontSize: ms(13), fontWeight: "700",
+              }}>
+                Apply
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Terms Checkbox */}
           <View style={{

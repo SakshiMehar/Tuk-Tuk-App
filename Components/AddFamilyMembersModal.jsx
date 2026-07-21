@@ -13,7 +13,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { fetchSavedUsersFromServer } from "../src/services/favoritesService";
+import { loadFollowing } from "../src/services/relationshipService";
 import { addMembersToFamilyGroup } from "../src/services/familyService";
 
 export default function AddFamilyMembersModal({ visible, family, onClose, onAdded }) {
@@ -29,11 +29,11 @@ export default function AddFamilyMembersModal({ visible, family, onClose, onAdde
     setLoading(true);
     setError(null);
     try {
-      const list = await fetchSavedUsersFromServer();
+      const list = await loadFollowing();
       setCandidates(list.filter((u) => u.userId));
     } catch (err) {
-      console.error("[AddFamilyMembersModal] Failed to load saved users", err);
-      setError(err?.message || "Could not load your saved users.");
+      console.error("[AddFamilyMembersModal] Failed to load following list", err);
+      setError(err?.message || "Could not load people you follow.");
       setCandidates([]);
     } finally {
       setLoading(false);
@@ -107,8 +107,8 @@ export default function AddFamilyMembersModal({ visible, family, onClose, onAdde
           {checked && <Ionicons name="checkmark" size={14} color="white" />}
         </View>
         <View style={styles.avatarWrap}>
-          {item.avatarUrl ? (
-            <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+          {item.avatar ? (
+            <Image source={{ uri: item.avatar }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarFallback}>
               <Ionicons name="person" size={20} color="#a78bfa" />
@@ -141,7 +141,7 @@ export default function AddFamilyMembersModal({ visible, family, onClose, onAdde
           </View>
 
           <Text style={styles.subtitle}>
-            Select from your saved users to add to {family?.name || "this family"}
+            Select from people you follow to add to {family?.name || "this family"}
           </Text>
 
           {!loading && !error && candidates.length > 0 && (
@@ -161,7 +161,7 @@ export default function AddFamilyMembersModal({ visible, family, onClose, onAdde
           {loading ? (
             <View style={styles.center}>
               <ActivityIndicator size="large" color="#a78bfa" />
-              <Text style={styles.loadingText}>Loading saved users...</Text>
+              <Text style={styles.loadingText}>Loading people you follow...</Text>
             </View>
           ) : error ? (
             <View style={styles.center}>
@@ -181,9 +181,9 @@ export default function AddFamilyMembersModal({ visible, family, onClose, onAdde
               ListEmptyComponent={
                 <View style={styles.empty}>
                   <Text style={styles.emptyEmoji}>👥</Text>
-                  <Text style={styles.emptyTitle}>No saved users yet</Text>
+                  <Text style={styles.emptyTitle}>Not following anyone yet</Text>
                   <Text style={styles.emptySub}>
-                    Save users from their profile — they'll appear here to add as members
+                    Follow people from their profile — they'll appear here to add as members
                   </Text>
                 </View>
               }
