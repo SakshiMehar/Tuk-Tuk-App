@@ -8,6 +8,7 @@ import {
 } from "../utils/levelBadge";
 import { loadMyProfile, resolveRemoteProfilePicUrl } from "./meProfileService";
 import { shouldUserHaveNewUserFrame } from "./newUserFrameService";
+import { loadGamificationProfile } from "./gamificationService";
 
 const resolveLevelFromSources = (user, profile) =>
   normalizeUserLevel(user?.level ?? profile?.level, null);
@@ -63,9 +64,38 @@ export const applyInitialUserLevelForLogin = async (authData) => {
   return persistUserLevel({ level, badgeUrl });
 };
 
+/** Persists `level` on the local user record (if changed) and returns the shared
+ *  { level, badgeSource } shape every caller (profile.jsx, WalletUserCard, UserLevelPanel)
+ *  already expects. `xp` is the full gamification profile, only populated when that
+ *  endpoint succeeded — extra data for callers that want it (e.g. UserLevelPanel's XP
+ *  gauge), ignored by callers that don't. */
+const persistAndBuildResult = async (user, level, xp = null) => {
+  const needsUpdate = user?.level !== level;
+  if (needsUpdate) {
+    // Clear any stale remote badge URL — we use local assets now
+    await updateUser({ level, levelBadgeUrl: null });
+  }
+  const updated = await getUser();
+  return {
+    level: updated?.level ?? level,
+    badgeSource: resolveLevelBadgeSource(updated, level),
+    xp,
+  };
+};
+
 export const syncUserLevelForSession = async () => {
   const user = await getUser();
-  if (!user) return { level: null, badgeSource: null };
+  if (!user) return { level: null, badgeSource: null, xp: null };
+
+  // The gamification profile is the authoritative level/XP source now — prefer it,
+  // and fall back to the old profile-derived level below if it's not available yet.
+  try {
+    const gamification = await loadGamificationProfile();
+    const level = normalizeUserLevel(gamification?.level, DEFAULT_USER_LEVEL);
+    return await persistAndBuildResult(user, level, gamification);
+  } catch {
+    // Gamification endpoint not live/reachable — fall through to profile-derived level.
+  }
 
   let profile = null;
   try {
@@ -75,6 +105,7 @@ export const syncUserLevelForSession = async () => {
     return {
       level,
       badgeSource: level ? resolveLevelBadgeSource(user, level) : null,
+      xp: null,
     };
   }
 
@@ -88,18 +119,5 @@ export const syncUserLevelForSession = async () => {
     level = DEFAULT_USER_LEVEL;
   }
 
-  let badgeUrl = null; // Always use local assets — remote badge URLs are not reliable
-
-  const needsUpdate = user?.level !== level;
-
-  if (needsUpdate) {
-    // Clear any stale remote badge URL — we use local assets now
-    await updateUser({ level, levelBadgeUrl: null });
-  }
-
-  const updated = await getUser();
-  return {
-    level: updated?.level ?? level,
-    badgeSource: resolveLevelBadgeSource(updated, level),
-  };
+  return persistAndBuildResult(user, level, null);
 };

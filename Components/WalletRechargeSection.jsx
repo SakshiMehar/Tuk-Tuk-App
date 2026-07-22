@@ -1,8 +1,12 @@
-import { useMemo, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Linking } from "react-native";
+import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { formatInr } from "../src/data/diamondRechargeCatalog";
+import { loadDiamondStockPackages } from "../src/services/diamondStockService";
+import { loadOfflineRechargeAgent } from "../src/services/offlineRechargeService";
+import { getAppUserId } from "../src/utils/sessionUser";
 import WalletUserCard from "./WalletUserCard";
 
 const formatCompact = (value) => {
@@ -17,35 +21,113 @@ const CURRENCY_TABS = [
   { key: "crown", label: "Crown" },
 ];
 
-// Static placeholder packages for now — no backend call wired up yet.
-const PLACEHOLDER_PACKAGES = [
-  { id: "p1", diamonds: 300, inr: 3 },
-  { id: "p2", diamonds: 980, inr: 9 },
-  { id: "p3", diamonds: 1980, inr: 18 },
-  { id: "p4", diamonds: 6000, inr: 28 },
-  { id: "p5", diamonds: 15000, inr: 57 },
-  { id: "p6", diamonds: 150000, inr: 577 },
-];
-
 const notWiredYet = () => Alert.alert("Not available yet", "This isn't wired up to the backend yet.");
+
+const sanitizePhone = (value) => String(value ?? "").replace(/[^\d+]/g, "");
+
+const isCountryRequiredError = (message) =>
+  /country name is required|set your country/i.test(String(message ?? ""));
+
+const buildRechargeMessage = (pkg, userId) =>
+  `Hi, I want to recharge Tuk-Tuk diamonds.\n` +
+  (pkg ? `Package: ${formatInr(pkg.inr)} for ${formatCompact(pkg.diamonds)} diamonds\n` : "") +
+  (userId ? `User ID: ${userId}\n` : "") +
+  `Please share payment details.`;
 
 /**
  * Recharge store — tabs (Diamonds/Golds/Crown), balance, user-level card,
  * promo banner, coupon row, and package grid. Embeddable inline (e.g. inside
  * the profile "Wallet" menu sheet) — no outer Modal of its own.
  *
- * Presentational only for now — no API calls (packages/agent/coupon) are
- * wired up. currentDiamonds/currentCoins are the only real data, passed in
- * from the existing wallet balance hook.
+ * Diamond packages and the offline-recharge agent are real backend data
+ * (same endpoints DiamondRechargeModal uses). Coupons and the Golds/Crown
+ * tab actions are still stubs — no backend for those yet.
  */
 export default function WalletRechargeSection({ currentDiamonds = 0, currentCoins = 0 }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("diamonds");
-  const [selectedId, setSelectedId] = useState(PLACEHOLDER_PACKAGES[0].id);
+  const [selectedId, setSelectedId] = useState(null);
+  const [packages, setPackages] = useState([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
+  const [packagesError, setPackagesError] = useState(null);
+  const [agent, setAgent] = useState(null);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [userId, setUserId] = useState(null);
 
   const selectedPackage = useMemo(
-    () => PLACEHOLDER_PACKAGES.find((pkg) => pkg.id === selectedId) ?? null,
-    [selectedId]
+    () => packages.find((pkg) => pkg.id === selectedId) ?? null,
+    [packages, selectedId]
   );
+
+  const fetchPackages = useCallback(async () => {
+    setPackagesLoading(true);
+    setPackagesError(null);
+    try {
+      const list = await loadDiamondStockPackages();
+      setPackages(list);
+      setSelectedId((prev) => (list.some((pkg) => pkg.id === prev) ? prev : list[0]?.id ?? null));
+    } catch (err) {
+      setPackages([]);
+      setPackagesError(err?.message || "Could not load diamond packages.");
+    } finally {
+      setPackagesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPackages();
+  }, [fetchPackages]);
+
+  // Fetches (and caches) the offline-recharge agent on first contact/recharge tap —
+  // no need to load it up front since Golds/Crown tabs never need it.
+  const ensureAgent = useCallback(async () => {
+    if (agent) return { agentData: agent, resolvedUserId: userId };
+    setAgentLoading(true);
+    try {
+      const [agentData, resolvedUserId] = await Promise.all([
+        loadOfflineRechargeAgent(),
+        getAppUserId(),
+      ]);
+      setAgent(agentData);
+      setUserId(resolvedUserId);
+      return { agentData, resolvedUserId };
+    } catch (err) {
+      const message = err?.message || "Could not load recharge agent.";
+      if (isCountryRequiredError(message)) {
+        Alert.alert("Country required", message, [
+          { text: "Cancel", style: "cancel" },
+          { text: "Set country", onPress: () => router.push("/account") },
+        ]);
+      } else {
+        Alert.alert("Contact unavailable", message);
+      }
+      return null;
+    } finally {
+      setAgentLoading(false);
+    }
+  }, [agent, userId, router]);
+
+  const contactAgentOnWhatsApp = useCallback(async (pkg) => {
+    const result = await ensureAgent();
+    if (!result) return;
+    const { agentData, resolvedUserId } = result;
+    const phone = sanitizePhone(agentData?.whatsapp || agentData?.phone);
+    if (!phone) {
+      Alert.alert("Contact unavailable", "No WhatsApp number is available for the recharge agent.");
+      return;
+    }
+    const message = encodeURIComponent(buildRechargeMessage(pkg, resolvedUserId));
+    const url = `https://wa.me/${phone.replace(/^\+/, "")}?text=${message}`;
+    const canOpen = await Linking.canOpenURL(url);
+    if (!canOpen) {
+      Alert.alert("WhatsApp", "Could not open WhatsApp on this device.");
+      return;
+    }
+    Linking.openURL(url);
+  }, [ensureAgent]);
+
+  const handleContactUs = () => contactAgentOnWhatsApp(selectedPackage);
+  const handleRechargeNow = () => contactAgentOnWhatsApp(selectedPackage);
 
   return (
     <View>
@@ -128,9 +210,20 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
             <Text style={styles.promoBannerText}>BIG REWARDS FOR FIRST RECHARGING!</Text>
           </LinearGradient>
 
-          <TouchableOpacity style={styles.contactRow} activeOpacity={0.8} onPress={notWiredYet}>
-            <Text style={styles.contactRowText}>Contact us</Text>
-            <Ionicons name="chevron-forward" size={16} color="#a78bfa" />
+          <TouchableOpacity
+            style={styles.contactRow}
+            activeOpacity={0.8}
+            disabled={agentLoading}
+            onPress={handleContactUs}
+          >
+            {agentLoading ? (
+              <ActivityIndicator color="#a78bfa" size="small" />
+            ) : (
+              <>
+                <Text style={styles.contactRowText}>Contact us</Text>
+                <Ionicons name="chevron-forward" size={16} color="#a78bfa" />
+              </>
+            )}
           </TouchableOpacity>
 
           <Text style={styles.sectionTitle}>
@@ -148,32 +241,46 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
 
           <View style={{ height: 12 }} />
 
-          <View style={styles.packageGrid}>
-            {PLACEHOLDER_PACKAGES.map((pkg) => {
-              const active = pkg.id === selectedId;
-              return (
-                <TouchableOpacity
-                  key={pkg.id}
-                  style={[styles.packageCard, active && styles.packageCardActive]}
-                  activeOpacity={0.85}
-                  onPress={() => setSelectedId(pkg.id)}
-                >
-                  <Text style={styles.packageIcon}>💎</Text>
-                  <Text style={styles.packageAmount}>{formatCompact(pkg.diamonds)}</Text>
-                  <View style={[styles.packagePriceStrip, active && styles.packagePriceStripActive]}>
-                    <Text style={styles.packagePriceText}>{formatInr(pkg.inr)}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          {packagesLoading ? (
+            <View style={styles.packagesStatusBox}>
+              <ActivityIndicator color="#a78bfa" />
+              <Text style={styles.packagesStatusText}>Loading packages...</Text>
+            </View>
+          ) : packagesError ? (
+            <View style={styles.packagesStatusBox}>
+              <Text style={styles.packagesErrorText}>{packagesError}</Text>
+              <TouchableOpacity style={styles.retryBtn} onPress={fetchPackages} activeOpacity={0.85}>
+                <Text style={styles.retryBtnText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.packageGrid}>
+              {packages.map((pkg) => {
+                const active = pkg.id === selectedId;
+                return (
+                  <TouchableOpacity
+                    key={pkg.id}
+                    style={[styles.packageCard, active && styles.packageCardActive]}
+                    activeOpacity={0.85}
+                    onPress={() => setSelectedId(pkg.id)}
+                  >
+                    <Text style={styles.packageIcon}>💎</Text>
+                    <Text style={styles.packageAmount}>{formatCompact(pkg.diamonds)}</Text>
+                    <View style={[styles.packagePriceStrip, active && styles.packagePriceStripActive]}>
+                      <Text style={styles.packagePriceText}>{formatInr(pkg.inr)}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
 
           <View style={{ height: 14 }} />
           <TouchableOpacity
-            style={[styles.primaryBtnWrap, !selectedPackage && styles.btnDisabled]}
+            style={[styles.primaryBtnWrap, (!selectedPackage || agentLoading) && styles.btnDisabled]}
             activeOpacity={0.85}
-            disabled={!selectedPackage}
-            onPress={notWiredYet}
+            disabled={!selectedPackage || agentLoading}
+            onPress={handleRechargeNow}
           >
             <LinearGradient
               colors={["#f472b6", "#fb923c"]}
@@ -181,9 +288,13 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
               end={{ x: 1, y: 0 }}
               style={styles.primaryBtn}
             >
-              <Text style={styles.primaryBtnText}>
-                {selectedPackage ? `Recharge ${formatInr(selectedPackage.inr)} Now` : "Select a package"}
-              </Text>
+              {agentLoading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.primaryBtnText}>
+                  {selectedPackage ? `Recharge ${formatInr(selectedPackage.inr)} Now` : "Select a package"}
+                </Text>
+              )}
             </LinearGradient>
           </TouchableOpacity>
         </>
@@ -246,6 +357,26 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 18,
     fontWeight: "800",
+  },
+  packagesStatusBox: {
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 24,
+  },
+  packagesErrorText: {
+    color: "#f87171",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  retryBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: "rgba(124,77,255,0.25)",
+  },
+  retryBtnText: {
+    color: "white",
+    fontWeight: "700",
   },
   comingSoonSub: {
     color: "rgba(255,255,255,0.55)",

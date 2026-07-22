@@ -29,6 +29,7 @@ export const getInviteFriendsMe = async () => {
 export const getInviteFriendsConfig = async () => {
   const { headers } = await buildAuthedConfig("invite-friends/config");
   const response = await API.get("/api/app/invite-friends/config", { headers });
+  console.log("[inviteFriendsApi] GET /api/app/invite-friends/config -> RAW", JSON.stringify(response.data, null, 2));
   return response.data;
 };
 

@@ -38,6 +38,9 @@ import GetRewardsPanel from "../../Components/GetRewardsPanel";
 import MonthlyCardPanel from "../../Components/MonthlyCardPanel";
 import TukTukPassPanel from "../../Components/TukTukPassPanel";
 import VipCenterPanel from "../../Components/VipCenterPanel";
+import UserLevelPanel from "../../Components/UserLevelPanel";
+import RoomPremiumPanel from "../../Components/RoomPremiumPanel";
+import BackpackPanel from "../../Components/BackpackPanel";
 import {
   avatarMap,
   avatarOptions,
@@ -1699,58 +1702,12 @@ export default function Profile() {
 
     // ── BACKPACK ──────────────────────────────────────────────────────────────
     if (label === "Backpack") {
-      const items = [
-        { emoji: "🎭", label: "Avatar Frame", qty: 1 },
-        { emoji: "✨", label: "Entry Effect", qty: 0 },
-        { emoji: "🎵", label: "Bubble Theme", qty: 0 },
-        { emoji: "🏅", label: "Room Badge", qty: 2 },
-        { emoji: "👑", label: "VIP Effect", qty: 0 },
-        { emoji: "🌈", label: "Profile BG", qty: 1 },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <View style={styles.mmBackpackGrid}>
-            {items.map((it) => (
-              <View key={it.label} style={[styles.mmBackpackItem, it.qty === 0 && { opacity: 0.38 }]}>
-                <Text style={{ fontSize: 32, marginBottom: 6 }}>{it.emoji}</Text>
-                <Text style={styles.mmBackpackLabel}>{it.label}</Text>
-                {it.qty > 0
-                  ? <View style={styles.mmBackpackBadge}><Text style={styles.mmBackpackBadgeText}>×{it.qty}</Text></View>
-                  : <Text style={styles.mmBackpackEmpty}>None</Text>}
-              </View>
-            ))}
-          </View>
-        </ScrollView>
-      );
+      return <BackpackPanel />;
     }
 
     // ── ROOM PREMIUM ─────────────────────────────────────────────────────────
     if (label === "Room Premium") {
-      const themes = [
-        { label: "Galaxy", colors: ["#1a0a2e", "#7c4dff"], emoji: "🌌" },
-        { label: "Neon City", colors: ["#0f2027", "#00c6ff"], emoji: "🏙️" },
-        { label: "Cherry Blossom", colors: ["#7c1c4e", "#ec4899"], emoji: "🌸" },
-        { label: "Ocean Deep", colors: ["#021b79", "#0575e6"], emoji: "🌊" },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <Text style={styles.mmSectionLabel}>Premium Room Themes</Text>
-          {themes.map((t) => (
-            <TouchableOpacity key={t.label} activeOpacity={0.8}>
-              <LinearGradient colors={t.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmThemeRow}>
-                <Text style={{ fontSize: 28 }}>{t.emoji}</Text>
-                <Text style={styles.mmThemeName}>{t.label}</Text>
-                <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.7)" />
-              </LinearGradient>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Upgrade Room</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
-      );
+      return <RoomPremiumPanel />;
     }
 
     // ── TUKTUK PASS ───────────────────────────────────────────────────────────
@@ -1760,36 +1717,7 @@ export default function Profile() {
 
     // ── LEVEL ─────────────────────────────────────────────────────────────────
     if (label === "Level") {
-      const milestones = [
-        { lv: 5, perk: "Custom nickname color" },
-        { lv: 10, perk: "Profile animation unlock" },
-        { lv: 20, perk: "Exclusive level badge" },
-        { lv: 50, perk: "VIP room access" },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <View style={styles.mmLevelHero}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmLevelBadge}>
-              <Text style={styles.mmLevelNum}>{userLevel ?? 1}</Text>
-            </LinearGradient>
-            <Text style={styles.mmLevelTitle}>Level {userLevel ?? 1}</Text>
-            <Text style={styles.mmLevelXP}>0 / 200 XP to next level</Text>
-            <View style={[styles.mmProgressBar, { width: "100%", marginTop: 10 }]}>
-              <View style={[styles.mmProgressFill, { width: "3%" }]} />
-            </View>
-          </View>
-          <Text style={styles.mmSectionLabel}>Level Milestones</Text>
-          {milestones.map((m) => (
-            <View key={m.lv} style={styles.mmTaskRow}>
-              <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmLevelPerkBadge}>
-                <Text style={styles.mmLevelPerkNum}>Lv{m.lv}</Text>
-              </LinearGradient>
-              <Text style={[styles.mmTaskText, { flex: 1, marginLeft: 12 }]}>{m.perk}</Text>
-              <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.35)" />
-            </View>
-          ))}
-        </ScrollView>
-      );
+      return <UserLevelPanel />;
     }
 
     // ── INSTAGRAM / FACEBOOK ──────────────────────────────────────────────────
@@ -3739,105 +3667,6 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     alignItems: "center",
     justifyContent: "center",
-  },
-
-  // ── BACKPACK ──────────────────────────────────────────────────────────────
-  mmBackpackGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    justifyContent: "space-between",
-  },
-  mmBackpackItem: {
-    width: "30%",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 16,
-    alignItems: "center",
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  mmBackpackLabel: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
-    fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 6,
-  },
-  mmBackpackBadge: {
-    backgroundColor: "#7c4dff",
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  mmBackpackBadgeText: {
-    color: "white",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  mmBackpackEmpty: {
-    color: "rgba(255,255,255,0.3)",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-
-  // ── ROOM PREMIUM ─────────────────────────────────────────────────────────
-  mmThemeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 8,
-    gap: 14,
-  },
-  mmThemeName: {
-    flex: 1,
-    color: "white",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  // ── LEVEL ─────────────────────────────────────────────────────────────────
-  mmLevelHero: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 20,
-    padding: 24,
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  mmLevelBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  mmLevelNum: {
-    color: "white",
-    fontSize: 32,
-    fontWeight: "900",
-  },
-  mmLevelTitle: {
-    color: "white",
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  mmLevelXP: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: 13,
-  },
-  mmLevelPerkBadge: {
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  mmLevelPerkNum: {
-    color: "white",
-    fontSize: 11,
-    fontWeight: "800",
   },
 
   // ── SOCIAL CONNECT ────────────────────────────────────────────────────────

@@ -32,17 +32,31 @@ const normalizeSummary = (data) => {
 };
 
 const normalizeMilestone = (m) => ({
-  id: m?.id ?? `${m?.amount ?? 0}-${m?.description ?? ""}`,
-  amount: Number(m?.amount ?? m?.rewardDiamonds ?? 0),
-  description: m?.description ?? m?.label ?? "",
+  id: m?.key ?? m?.id ?? `${m?.rewardDiamonds ?? 0}-${m?.description ?? ""}`,
+  amount: Number(m?.rewardDiamonds ?? m?.amount ?? m?.diamonds ?? m?.reward ?? 0),
+  description: m?.description ?? m?.title ?? m?.label ?? m?.text ?? "",
 });
 
-const normalizeTier = (tier, index = 0) => ({
-  id: tier?.id ?? `tier-${index}`,
-  title: tier?.title ?? tier?.label ?? "",
-  totalReward: Number(tier?.totalReward ?? tier?.totalRewardDiamonds ?? 0),
-  milestones: Array.isArray(tier?.milestones) ? tier.milestones.map(normalizeMilestone) : [],
-});
+const milestonesFromTier = (tier) => {
+  const list = tier?.milestones ?? tier?.milestoneList ?? tier?.rewards ?? tier?.steps ?? [];
+  return Array.isArray(list) ? list.map(normalizeMilestone) : [];
+};
+
+const normalizeTier = (tier, index = 0) => {
+  const milestones = milestonesFromTier(tier);
+  // The real payload doesn't send a pre-summed total — the tier's "44,500💎 every
+  // month" style total is just its milestones added together.
+  const totalReward = Number(
+    tier?.totalReward ?? tier?.totalRewardDiamonds ?? tier?.totalDiamonds ?? tier?.total ??
+    milestones.reduce((sum, m) => sum + m.amount, 0)
+  );
+  return {
+    id: tier?.key ?? tier?.id ?? tier?.tierId ?? `tier-${index}`,
+    title: tier?.title ?? tier?.label ?? tier?.name ?? tier?.tierName ?? "",
+    totalReward,
+    milestones,
+  };
+};
 
 const normalizeRule = (rule, index = 0) => ({
   id: rule?.id ?? `rule-${index}`,
@@ -50,10 +64,24 @@ const normalizeRule = (rule, index = 0) => ({
   detail: rule?.detail ?? rule?.description ?? "",
 });
 
-const normalizeConfig = (data) => ({
-  rules: Array.isArray(data?.rules) ? data.rules.map(normalizeRule) : [],
-  tiers: Array.isArray(data?.tiers) ? data.tiers.map(normalizeTier) : [],
-});
+// The /config payload may arrive wrapped (`{ data: {...} }`, `{ result: {...} }`, etc.)
+// and the tier ladder may be keyed as `tiers`, `rewardTierLadder`, `rewardTiers`,
+// `tierLadder`, or `cards` — unwrap defensively rather than assuming one exact shape.
+const unwrapConfigRoot = (data) => data?.data ?? data?.result ?? data?.config ?? data ?? {};
+
+const tiersFromConfigRoot = (root) => {
+  const list =
+    root?.tiers ?? root?.rewardTierLadder ?? root?.rewardTiers ?? root?.tierLadder ?? root?.cards ?? [];
+  return Array.isArray(list) ? list : [];
+};
+
+const normalizeConfig = (data) => {
+  const root = unwrapConfigRoot(data);
+  return {
+    rules: Array.isArray(root?.rules) ? root.rules.map(normalizeRule) : [],
+    tiers: tiersFromConfigRoot(root).map(normalizeTier),
+  };
+};
 
 const normalizeActivityItem = (item, index = 0) => ({
   id: item?.id ?? `activity-${index}`,

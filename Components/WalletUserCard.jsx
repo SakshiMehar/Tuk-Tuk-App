@@ -8,10 +8,15 @@ import { syncUserLevelForSession } from "../src/services/userLevelService";
  * Dark user-info card for the wallet/recharge screen — avatar, username, and
  * level progress, matching the reference design. Self-loads the current user;
  * pass `onPress` to make it act as a button (e.g. open the recharge modal).
+ *
+ * xpCurrent/xpTarget are optional overrides (e.g. VipCenterPanel passes VIP-tier
+ * progress, a different concept from account level). When omitted, the card
+ * self-loads the real account-level XP from the gamification profile instead.
  */
-export default function WalletUserCard({ onPress, xpCurrent = 0, xpTarget = 1000 }) {
+export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
   const [user, setUser] = useState(null);
   const [level, setLevel] = useState(1);
+  const [gamificationXp, setGamificationXp] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -23,6 +28,7 @@ export default function WalletUserCard({ onPress, xpCurrent = 0, xpTarget = 1000
       if (cancelled) return;
       setUser(storedUser);
       setLevel(levelResult?.level ?? 1);
+      setGamificationXp(levelResult?.xp ?? null);
     })();
     return () => {
       cancelled = true;
@@ -31,7 +37,19 @@ export default function WalletUserCard({ onPress, xpCurrent = 0, xpTarget = 1000
 
   const avatarSource = resolveProfileAvatarSource(user);
   const username = user?.name || "User";
-  const progress = xpTarget > 0 ? Math.min(1, Math.max(0, xpCurrent / xpTarget)) : 0;
+
+  const hasExplicitXp = xpCurrent !== undefined && xpTarget !== undefined;
+  const resolvedXpCurrent = hasExplicitXp
+    ? xpCurrent
+    : gamificationXp
+    ? Math.max(0, gamificationXp.totalXp - gamificationXp.currentLevelXpStart)
+    : 0;
+  const resolvedXpTarget = hasExplicitXp
+    ? xpTarget
+    : gamificationXp
+    ? Math.max(1, gamificationXp.nextLevelXpTarget - gamificationXp.currentLevelXpStart)
+    : 1000;
+  const progress = resolvedXpTarget > 0 ? Math.min(1, Math.max(0, resolvedXpCurrent / resolvedXpTarget)) : 0;
 
   const Wrapper = onPress ? TouchableOpacity : View;
 
@@ -43,7 +61,7 @@ export default function WalletUserCard({ onPress, xpCurrent = 0, xpTarget = 1000
           {username}
         </Text>
         <Text style={styles.xpText}>
-          {xpCurrent.toLocaleString("en-IN")}/{xpTarget.toLocaleString("en-IN")}
+          {resolvedXpCurrent.toLocaleString("en-IN")}/{resolvedXpTarget.toLocaleString("en-IN")}
         </Text>
         <View style={styles.progressRow}>
           <View style={styles.progressTrack}>

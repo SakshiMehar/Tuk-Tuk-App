@@ -276,31 +276,44 @@ export default function GetRewardsPanel({ active }) {
         if (!cancelled) setInviteSummary(null);
       });
 
-    // Config/activity endpoints aren't confirmed live yet — fall back to
-    // preview data on 404 so the rest of the screen still renders.
-    const configActivityPromise = Promise.all([
-      loadInviteFriendsConfig(),
-      loadInviteFriendsActivity(),
-    ])
-      .then(([config, activity]) => {
+    // Config and activity are independent — a failure in one (e.g. a real
+    // non-404 error, or a shape mismatch) must never wipe out the other.
+    const configPromise = loadInviteFriendsConfig()
+      .then((config) => {
         if (cancelled) return;
+        console.log("[GetRewardsPanel] invite-friends/config parsed ->", JSON.stringify(config, null, 2));
+        if (!config?.tiers?.length) {
+          console.log("[GetRewardsPanel] config has no tiers — check the raw API response shape against normalizeConfig/normalizeTier in inviteFriendsService.js");
+        }
         setInviteConfig(config);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.log("[GetRewardsPanel] invite-friends/config failed:", err?.status, err?.message);
+        if (err?.status === 404) {
+          setInviteConfig(INVITE_FRIENDS_PREVIEW_CONFIG);
+          return;
+        }
+        setInviteConfig(null);
+      });
+
+    const activityPromise = loadInviteFriendsActivity()
+      .then((activity) => {
+        if (cancelled) return;
         setInviteActivity(activity);
         setInviteActivityIndex(0);
       })
       .catch((err) => {
         if (cancelled) return;
         if (err?.status === 404) {
-          setInviteConfig(INVITE_FRIENDS_PREVIEW_CONFIG);
           setInviteActivity(INVITE_FRIENDS_PREVIEW_ACTIVITY);
           setInviteActivityIndex(0);
           return;
         }
-        setInviteConfig(null);
         setInviteActivity([]);
       });
 
-    Promise.all([summaryPromise, configActivityPromise]).finally(() => {
+    Promise.all([summaryPromise, configPromise, activityPromise]).finally(() => {
       if (!cancelled) setInviteLoading(false);
     });
 
@@ -391,13 +404,6 @@ export default function GetRewardsPanel({ active }) {
           style={styles.invHeroImage}
           resizeMode="cover"
         />
-        <TouchableOpacity
-          style={styles.invHeroFaqPill}
-          activeOpacity={0.8}
-          onPress={() => Alert.alert("FAQ", "Tap any rule below to see full details.")}
-        >
-          <Text style={styles.invFaqPillText}>? FAQ</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.mmScroll}>
@@ -828,18 +834,6 @@ const styles = StyleSheet.create({
     left: 0,
     width: "100%",
     height: "100%",
-  },
-  invHeroFaqPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(20,8,40,0.75)",
-    borderWidth: 1,
-    borderColor: "rgba(232,121,249,0.5)",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 14,
   },
   invTicker: {
     flexDirection: "row",
