@@ -121,7 +121,7 @@ export const loadConversations = async () => {
   const data = await getChats();
   const conversations = Array.isArray(data) ? data : listFrom(data, "chats");
   const list = conversations.map(normalizeConversation);
-  
+
   return list;
 };
 

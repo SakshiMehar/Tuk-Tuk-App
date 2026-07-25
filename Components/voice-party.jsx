@@ -404,6 +404,10 @@ export default function VoiceParty() {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
   const [messages, setMessages] = useState([]);
+  // Current name/avatar fetched per-userId for chat senders who aren't in the
+  // room's live participant/seat lists — see resolveChatSenderName/Avatar below.
+  const [userProfileCache, setUserProfileCache] = useState({});
+  const avatarLookupAttemptedRef = useRef(new Set());
   const [inputText, setInputText] = useState("");
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [taggedUser, setTaggedUser] = useState(null); // { id, name, username }
@@ -705,6 +709,67 @@ export default function VoiceParty() {
     },
     [onlineUsers]
   );
+
+  // Chat messages store the sender's name/avatar as a snapshot from when they were
+  // SENT (that's how the backend persists them) — so a later username change never
+  // updates old messages at the source. Resolve the CURRENT name/avatar instead,
+  // from whatever's freshest: the room's live participant/seat lists, then the
+  // per-user lookup cache populated by the effect below (for senders who've since
+  // left the room — the profile lookup works for anyone, online or not).
+  const resolveChatSenderAvatar = useCallback(
+    (userId) => {
+      if (userId == null) return null;
+      const idStr = String(userId);
+      const fromOnline = onlineUsers.find((user) => user?.id != null && String(user.id) === idStr);
+      if (fromOnline?.avatar) return fromOnline.avatar;
+      const fromSeat = seats.find((seat) => seat?.user?.id != null && String(seat.user.id) === idStr);
+      if (fromSeat?.user?.avatar) return fromSeat.user.avatar;
+      return userProfileCache[idStr]?.avatarUrl ?? null;
+    },
+    [onlineUsers, seats, userProfileCache]
+  );
+
+  const resolveChatSenderName = useCallback(
+    (userId, fallbackName) => {
+      if (userId == null) return fallbackName;
+      const idStr = String(userId);
+      const fromOnline = onlineUsers.find((user) => user?.id != null && String(user.id) === idStr);
+      if (fromOnline?.name) return fromOnline.name;
+      const fromSeat = seats.find((seat) => seat?.user?.id != null && String(seat.user.id) === idStr);
+      if (fromSeat?.user?.name) return fromSeat.user.name;
+      return userProfileCache[idStr]?.name ?? fallbackName;
+    },
+    [onlineUsers, seats, userProfileCache]
+  );
+
+  // For any chat sender not currently in the room's live participant/seat lists —
+  // meaning we only have the stale name/avatar snapshotted on the message itself —
+  // fetch their current profile once (by userId, works whether they're in the room
+  // or not) and cache it so every one of their messages, old and new, picks it up.
+  useEffect(() => {
+    messages.forEach((msg) => {
+      if (msg.system || msg.userId == null) return;
+      const idStr = String(msg.userId);
+      if (avatarLookupAttemptedRef.current.has(idStr)) return;
+
+      const fromOnline = onlineUsers.find((user) => user?.id != null && String(user.id) === idStr);
+      if (fromOnline) return;
+      const fromSeat = seats.find((seat) => seat?.user?.id != null && String(seat.user.id) === idStr);
+      if (fromSeat?.user) return;
+
+      avatarLookupAttemptedRef.current.add(idStr);
+      loadUserDetail(idStr)
+        .then((detail) => {
+          setUserProfileCache((prev) => ({
+            ...prev,
+            [idStr]: { avatarUrl: detail?.avatarUrl ?? null, name: detail?.name ?? null },
+          }));
+        })
+        .catch(() => {
+          setUserProfileCache((prev) => ({ ...prev, [idStr]: null }));
+        });
+    });
+  }, [messages, onlineUsers, seats]);
 
   const giftRecipientOptions = useMemo(() => {
     const byId = new Map();
@@ -3673,25 +3738,52 @@ export default function VoiceParty() {
                 </TouchableOpacity>
               </View>
 
-              {messages.map((msg) =>
-                msg.system ? (
-                  <View key={msg.id} style={styles.systemMsg}>
-                    <Text style={styles.systemMsgText}>{msg.text}</Text>
-                  </View>
-                ) : (
+              {messages.map((msg) => {
+                if (msg.system) {
+                  return (
+                    <View key={msg.id} style={styles.systemMsg}>
+                      <Text style={styles.systemMsgText}>{msg.text}</Text>
+                    </View>
+                  );
+                }
+
+                // The message's own user/avatar fields are a snapshot from when it
+                // was sent — resolve the sender's CURRENT name/avatar instead, so a
+                // later username/avatar change is reflected on old messages too.
+                const senderName = resolveChatSenderName(msg.userId, msg.user);
+                const senderAvatar = resolveChatSenderAvatar(msg.userId) ?? msg.avatar;
+
+                return (
                   <View key={msg.id} style={styles.chatMsg}>
-                    {msg.avatar ? (
-                      <Image source={{ uri: msg.avatar }} style={styles.chatAvatar} />
-                    ) : (
-                      <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
-                        <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>
-                          {msg.user?.[0]?.toUpperCase() ?? "?"}
-                        </Text>
-                      </View>
-                    )}
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() =>
+                        handleUserAvatarPress({ id: msg.userId, name: senderName, avatar: senderAvatar })
+                      }
+                    >
+                      {senderAvatar ? (
+                        <Image
+                          source={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
+                          style={styles.chatAvatar}
+                        />
+                      ) : (
+                        <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
+                          <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>
+                            {senderName?.[0]?.toUpperCase() ?? "?"}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
                     <View style={styles.chatBubble}>
                       <View style={styles.chatMeta}>
-                        <Text style={styles.chatUser}>{msg.user}</Text>
+                        <TouchableOpacity
+                          activeOpacity={0.75}
+                          onPress={() =>
+                            handleUserAvatarPress({ id: msg.userId, name: senderName, avatar: senderAvatar })
+                          }
+                        >
+                          <Text style={styles.chatUser}>{senderName}</Text>
+                        </TouchableOpacity>
                         <View style={styles.lvBadge}>
                           <Text style={styles.lvText}>Lv.{msg.level}</Text>
                         </View>
@@ -3718,8 +3810,8 @@ export default function VoiceParty() {
                       )}
                     </View>
                   </View>
-                )
-              )}
+                );
+              })}
             </ScrollView>
           </View>
 

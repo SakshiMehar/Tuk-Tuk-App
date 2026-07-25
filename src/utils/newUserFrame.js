@@ -64,3 +64,30 @@ export const resolveNewUserFrameSource = (user) => {
   // and doesn't depend on a remote URL being valid.
   return LOCAL_NEW_USER_FRAME;
 };
+
+export const isRecentlyCreatedAccount = (createdAt, maxDays = 14) => {
+  if (!createdAt) return false;
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return false;
+  return Date.now() - created.getTime() < maxDays * 24 * 60 * 60 * 1000;
+};
+
+/**
+ * Generic "is this a new user" check for entities other than the logged-in
+ * user (e.g. a post author) — same signal fields as shouldUserHaveNewUserFrame,
+ * but for a plain data object rather than the session user.
+ */
+export const entityHasNewUserFrame = (entity) =>
+  Boolean(
+    entity?.hasNewUserFrame ??
+      entity?.newUserFrame ??
+      entity?.showNewUserFrame ??
+      entity?.isNewUser ??
+      entity?.newUser ??
+      entity?.firstLogin ??
+      entity?.isFirstLogin ??
+      entity?.isNew
+  ) || isRecentlyCreatedAccount(entity?.createdAt);
+
+export const resolveEntityNewUserFrameSource = (entity) =>
+  entityHasNewUserFrame(entity) ? LOCAL_NEW_USER_FRAME : null;

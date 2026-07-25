@@ -153,9 +153,8 @@ export const loadNearbyWithLocation = async ({
 };
 
 export const loadUserDetail = async (userId) => {
-  
   const data = await getUserById(userId);
   const profile = normalizeUserDetail(data);
-  
+  console.log(`[nearbyService] loadUserDetail(${userId}) avatarUrl ->`, profile?.avatarUrl ?? null);
   return profile;
 };

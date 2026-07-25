@@ -18,6 +18,7 @@ import { getActiveUsersCount } from "../api/userApi";
 import { getToken } from "../store/authStore";
 import { resolveAppUserId } from "../utils/sessionUser";
 import { API_BASE_URL } from "../config/env";
+import { entityHasNewUserFrame } from "../utils/newUserFrame";
 
 // Backend returns relative paths like "/uploads/feed/abc.jpg".
 // React Native Image requires a full https:// URL.
@@ -109,9 +110,6 @@ const normalizeRecommendedUser = (user) => {
 };
 
 export const normalizePost = (post) => {
-  if (__DEV__) {
-    console.log("[normalizePost] raw keys:", Object.keys(post ?? {}), "| author key:", Object.keys(post?.user ?? post?.author ?? post?.poster ?? post?.member ?? {}));
-  }
   const author =
     post?.user ??
     post?.author ??
@@ -211,6 +209,14 @@ export const normalizePost = (post) => {
     // when the backend field is missing or the type is not set explicitly.
     hasVideo: Boolean(isVideo || toAbsoluteUrl(videoUrl)),
     likeCount: post?.likeCount ?? post?.likes ?? post?.totalLikes ?? 0,
+    authorHasNewUserFrame: entityHasNewUserFrame({
+      hasNewUserFrame: post?.hasNewUserFrame ?? author?.hasNewUserFrame,
+      newUserFrame: post?.newUserFrame ?? author?.newUserFrame,
+      showNewUserFrame: post?.showNewUserFrame ?? author?.showNewUserFrame,
+      isNewUser: post?.isNewUser ?? author?.isNewUser,
+      newUser: post?.newUser ?? author?.newUser,
+      createdAt: firstText(author?.createdAt, author?.created_at, author?.registeredAt, author?.joinedAt),
+    }),
   };
 
   return result;

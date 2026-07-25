@@ -6,15 +6,9 @@ import {
   parseNewUserFrameResponse,
   resolveNewUserFrameSource,
   userHasNewUserFrame,
+  isRecentlyCreatedAccount,
 } from "../utils/newUserFrame";
 import { loadMyProfile, resolveRemoteProfilePicUrl } from "./meProfileService";
-
-const isRecentlyCreatedAccount = (createdAt, maxDays = 14) => {
-  if (!createdAt) return false;
-  const created = new Date(createdAt);
-  if (Number.isNaN(created.getTime())) return false;
-  return Date.now() - created.getTime() < maxDays * 24 * 60 * 60 * 1000;
-};
 
 export const shouldUserHaveNewUserFrame = (authData, profile, user) =>
   extractIsNewUser(authData) ||

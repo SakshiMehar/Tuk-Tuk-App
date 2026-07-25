@@ -79,6 +79,17 @@ export const parseWalletBalance = (data) => ({
   updatedAt: firstValue(data?.updatedAt, data?.lastUpdated) ?? null,
 });
 
+/** Fetches one page of transactions only — skips the wallet/me call when the
+ *  caller already has a live balance (e.g. from useWalletBalance). */
+export const loadWalletTransactionsPage = async (page = 0, size = 20) => {
+  const transactionsData = await getWalletTransactions(page, size);
+  return {
+    transactions: listFrom(transactionsData).map(normalizeTransaction),
+    hasMore: transactionsData?.last === false || transactionsData?.hasMore === true,
+    totalElements: transactionsData?.totalElements ?? null,
+  };
+};
+
 export const loadWalletData = async ({ page = 0, size = 20 } = {}) => {
   const [balanceData, transactionsData] = await Promise.all([
     getWalletMe(),

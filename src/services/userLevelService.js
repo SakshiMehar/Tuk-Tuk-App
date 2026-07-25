@@ -8,7 +8,7 @@ import {
 } from "../utils/levelBadge";
 import { loadMyProfile, resolveRemoteProfilePicUrl } from "./meProfileService";
 import { shouldUserHaveNewUserFrame } from "./newUserFrameService";
-import { loadGamificationProfile } from "./gamificationService";
+import { loadGamificationLevel, loadGamificationProfile } from "./gamificationService";
 
 const resolveLevelFromSources = (user, profile) =>
   normalizeUserLevel(user?.level ?? profile?.level, null);
@@ -86,6 +86,16 @@ const persistAndBuildResult = async (user, level, xp = null) => {
 export const syncUserLevelForSession = async () => {
   const user = await getUser();
   if (!user) return { level: null, badgeSource: null, xp: null };
+
+  // Fire the dedicated level endpoint too and log its raw response — every
+  // caller of this function (profile.jsx, WalletUserCard, UserLevelPanel,
+  // VipCenterPanel) is "where level is used", so this runs there as well.
+  // Non-fatal: it only logs for now, it doesn't feed the returned result yet.
+  try {
+    await loadGamificationLevel();
+  } catch (err) {
+    console.log("[userLevelService] GET /api/app/gamification/me/level failed ->", err?.message || err);
+  }
 
   // The gamification profile is the authoritative level/XP source now — prefer it,
   // and fall back to the old profile-derived level below if it's not available yet.

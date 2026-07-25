@@ -94,12 +94,12 @@ export const getActiveUsersCount = async () => {
 
 export const getUserById = async (userId) => {
   const id = String(userId);
-  
+
   const response = await API.get(
     `/api/app/users/${id}`,
     await authRequestConfig()
   );
-  
+  console.log(`[userApi] GET /api/app/users/${id} -> RAW`, JSON.stringify(response.data));
   return response.data;
 };
 

@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Linking } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Linking } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { formatInr } from "../src/data/diamondRechargeCatalog";
-import { loadDiamondStockPackages } from "../src/services/diamondStockService";
+import { DIAMOND_PACKAGE_TIERS } from "../src/data/diamondPackageTiers";
 import { loadOfflineRechargeAgent } from "../src/services/offlineRechargeService";
 import { getAppUserId } from "../src/utils/sessionUser";
 import WalletUserCard from "./WalletUserCard";
+import WalletDetailsModal from "./WalletDetailsModal";
+
+const REWARD_GEMS_IMAGE = require("../assets/Treasure/reward-gems.png");
 
 const formatCompact = (value) => {
   const n = Number(value) || 0;
@@ -39,44 +42,24 @@ const buildRechargeMessage = (pkg, userId) =>
  * promo banner, coupon row, and package grid. Embeddable inline (e.g. inside
  * the profile "Wallet" menu sheet) — no outer Modal of its own.
  *
- * Diamond packages and the offline-recharge agent are real backend data
- * (same endpoints DiamondRechargeModal uses). Coupons and the Golds/Crown
- * tab actions are still stubs — no backend for those yet.
+ * Diamond packages are a static local catalog (DIAMOND_PACKAGE_TIERS); the
+ * offline-recharge agent contact is real backend data. Coupons and the
+ * Golds/Crown tab actions are still stubs — no backend for those yet.
  */
 export default function WalletRechargeSection({ currentDiamonds = 0, currentCoins = 0 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("diamonds");
-  const [selectedId, setSelectedId] = useState(null);
-  const [packages, setPackages] = useState([]);
-  const [packagesLoading, setPackagesLoading] = useState(false);
-  const [packagesError, setPackagesError] = useState(null);
+  const [selectedId, setSelectedId] = useState(DIAMOND_PACKAGE_TIERS[0]?.id ?? null);
+  const packages = DIAMOND_PACKAGE_TIERS;
   const [agent, setAgent] = useState(null);
   const [agentLoading, setAgentLoading] = useState(false);
   const [userId, setUserId] = useState(null);
+  const [detailsVisible, setDetailsVisible] = useState(false);
 
   const selectedPackage = useMemo(
     () => packages.find((pkg) => pkg.id === selectedId) ?? null,
     [packages, selectedId]
   );
-
-  const fetchPackages = useCallback(async () => {
-    setPackagesLoading(true);
-    setPackagesError(null);
-    try {
-      const list = await loadDiamondStockPackages();
-      setPackages(list);
-      setSelectedId((prev) => (list.some((pkg) => pkg.id === prev) ? prev : list[0]?.id ?? null));
-    } catch (err) {
-      setPackages([]);
-      setPackagesError(err?.message || "Could not load diamond packages.");
-    } finally {
-      setPackagesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchPackages();
-  }, [fetchPackages]);
 
   // Fetches (and caches) the offline-recharge agent on first contact/recharge tap —
   // no need to load it up front since Golds/Crown tabs never need it.
@@ -150,13 +133,24 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
             </Text>
           </View>
           <TouchableOpacity
+            style={styles.detailsBtn}
             activeOpacity={0.8}
-            onPress={() => Alert.alert("Details", "Full transaction history is below in Recent Transactions.")}
+            onPress={() => setDetailsVisible(true)}
           >
-            <Text style={styles.detailsLink}>Details ›</Text>
+            <Ionicons name="receipt-outline" size={14} color="#e879f9" />
+            <Text style={styles.detailsBtnText}>Details</Text>
+            <Ionicons name="chevron-forward" size={14} color="#e879f9" />
           </TouchableOpacity>
         </View>
       )}
+
+      <WalletDetailsModal
+        visible={detailsVisible}
+        onClose={() => setDetailsVisible(false)}
+        currency={activeTab}
+        totalDiamonds={currentDiamonds}
+        totalCoins={currentCoins}
+      />
 
       <View style={{ height: 14 }} />
       <WalletUserCard />
@@ -241,39 +235,38 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
 
           <View style={{ height: 12 }} />
 
-          {packagesLoading ? (
-            <View style={styles.packagesStatusBox}>
-              <ActivityIndicator color="#a78bfa" />
-              <Text style={styles.packagesStatusText}>Loading packages...</Text>
-            </View>
-          ) : packagesError ? (
-            <View style={styles.packagesStatusBox}>
-              <Text style={styles.packagesErrorText}>{packagesError}</Text>
-              <TouchableOpacity style={styles.retryBtn} onPress={fetchPackages} activeOpacity={0.85}>
-                <Text style={styles.retryBtnText}>Retry</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.packageGrid}>
-              {packages.map((pkg) => {
-                const active = pkg.id === selectedId;
-                return (
-                  <TouchableOpacity
-                    key={pkg.id}
-                    style={[styles.packageCard, active && styles.packageCardActive]}
-                    activeOpacity={0.85}
-                    onPress={() => setSelectedId(pkg.id)}
-                  >
-                    <Text style={styles.packageIcon}>💎</Text>
-                    <Text style={styles.packageAmount}>{formatCompact(pkg.diamonds)}</Text>
-                    <View style={[styles.packagePriceStrip, active && styles.packagePriceStripActive]}>
-                      <Text style={styles.packagePriceText}>{formatInr(pkg.inr)}</Text>
+          <View style={styles.packageGrid}>
+            {packages.map((pkg) => {
+              const active = pkg.id === selectedId;
+              return (
+                <TouchableOpacity
+                  key={pkg.id}
+                  style={[styles.packageCard, active && styles.packageCardActive]}
+                  activeOpacity={0.85}
+                  onPress={() => setSelectedId(pkg.id)}
+                >
+                  {pkg.popular && (
+                    <View style={styles.popularRibbon}>
+                      <Text style={styles.popularRibbonText}>Popular</Text>
                     </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
+                  )}
+                  <Image source={REWARD_GEMS_IMAGE} style={styles.packageGemImage} resizeMode="contain" />
+                  <Text style={styles.packageName}>{pkg.name}</Text>
+                  <Text style={styles.packageAmount}>{pkg.diamonds.toLocaleString("en-IN")}</Text>
+                  <View style={[styles.packagePriceStrip, active && styles.packagePriceStripActive]}>
+                    <Text style={styles.packagePriceText}>{formatInr(pkg.inr)}</Text>
+                  </View>
+                  {pkg.exp != null && (
+                    <View style={styles.packageExpStrip}>
+                      <Text style={styles.packageExpText}>
+                        +{pkg.exp.toLocaleString("en-IN")} Exp
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           <View style={{ height: 14 }} />
           <TouchableOpacity
@@ -343,10 +336,21 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800",
   },
-  detailsLink: {
-    color: "rgba(255,255,255,0.6)",
+  detailsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(232,121,249,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(232,121,249,0.35)",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  detailsBtnText: {
+    color: "#e879f9",
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   comingSoonBox: {
     alignItems: "center",
@@ -357,26 +361,6 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 18,
     fontWeight: "800",
-  },
-  packagesStatusBox: {
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 24,
-  },
-  packagesErrorText: {
-    color: "#f87171",
-    fontSize: 13,
-    textAlign: "center",
-  },
-  retryBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: "rgba(124,77,255,0.25)",
-  },
-  retryBtnText: {
-    color: "white",
-    fontWeight: "700",
   },
   comingSoonSub: {
     color: "rgba(255,255,255,0.55)",
@@ -481,41 +465,73 @@ const styles = StyleSheet.create({
   },
   packageCard: {
     width: "31%",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "#fdf1d3",
     borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+    borderWidth: 2,
+    borderColor: "transparent",
     overflow: "hidden",
     alignItems: "center",
     paddingTop: 14,
   },
   packageCardActive: {
     borderColor: "#e879f9",
-    backgroundColor: "rgba(124,77,255,0.18)",
   },
-  packageIcon: {
-    fontSize: 26,
+  popularRibbon: {
+    position: "absolute",
+    top: 8,
+    right: -26,
+    width: 100,
+    backgroundColor: "#f59e0b",
+    transform: [{ rotate: "45deg" }],
+    alignItems: "center",
+    paddingVertical: 2,
+  },
+  popularRibbonText: {
+    color: "#3b1a08",
+    fontSize: 9,
+    fontWeight: "800",
+  },
+  packageGemImage: {
+    width: 48,
+    height: 36,
+  },
+  packageName: {
+    color: "#7c4a1e",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 6,
   },
   packageAmount: {
-    color: "white",
-    fontSize: 16,
+    color: "#2a1a06",
+    fontSize: 17,
     fontWeight: "800",
-    marginTop: 6,
+    marginTop: 2,
     marginBottom: 12,
   },
   packagePriceStrip: {
     width: "100%",
     alignItems: "center",
     paddingVertical: 8,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#f7dfa0",
   },
   packagePriceStripActive: {
-    backgroundColor: "rgba(232,121,249,0.3)",
+    backgroundColor: "#f0c869",
   },
   packagePriceText: {
-    color: "white",
+    color: "#7c4a1e",
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "800",
+  },
+  packageExpStrip: {
+    width: "100%",
+    alignItems: "center",
+    paddingVertical: 6,
+    backgroundColor: "rgba(0,0,0,0.75)",
+  },
+  packageExpText: {
+    color: "#fbbf24",
+    fontSize: 12,
+    fontWeight: "800",
   },
   primaryBtnWrap: {
     borderRadius: 999,

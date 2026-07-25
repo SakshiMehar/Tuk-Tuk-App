@@ -4,6 +4,7 @@ import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services
 import { wsService } from "../src/services/websocket";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
 
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
 import {
@@ -36,6 +37,15 @@ import {
 
 const { width: W } = Dimensions.get("window");
 const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", "😡", "👍", "🙏", "🎉", "❤️"];
+
+// Backend may send a bundled preset id (e.g. "avatar3") instead of a real
+// image URL — resolve those to the local asset, otherwise treat as a URI.
+const resolveAvatarSource = (avatar) => {
+  if (isBundledAvatarId(avatar)) return getAvatarSource(avatar);
+  return /ngrok-free\.dev|ngrok\.io/i.test(avatar)
+    ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri: avatar };
+};
 
 export default function ChatBox({ user = {}, onBack }) {
   const {
@@ -310,9 +320,7 @@ export default function ChatBox({ user = {}, onBack }) {
                 >
                   {avatar ? (
                     <Image
-                      source={/ngrok-free\.dev|ngrok\.io/i.test(avatar)
-                        ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
-                        : { uri: avatar }}
+                      source={resolveAvatarSource(avatar)}
                       style={styles.matchAvatar}
                     />
                   ) : (
@@ -347,9 +355,7 @@ export default function ChatBox({ user = {}, onBack }) {
                   {!msg.fromMe && (
                     avatar ? (
                       <Image
-                        source={/ngrok-free\.dev|ngrok\.io/i.test(avatar)
-                          ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
-                          : { uri: avatar }}
+                        source={resolveAvatarSource(avatar)}
                         style={styles.msgAvatar}
                       />
                     ) : (

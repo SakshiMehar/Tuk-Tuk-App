@@ -75,6 +75,33 @@ const screen = Dimensions.get("window");
 const meImg = require("../../assets/images/me.png");
 const boyMeImg = require("../../assets/images/boyme.png");
 const NEW_START_BADGE = require("../../assets/Batches/newstart-batch.png");
+const VERIFIED_BADGE = require("../../assets/Batches/verified-batch.png");
+
+// ── Profile info-card badge row (level / new star / verified / any future badge) ──
+// Every badge in that row shares this fixed height; only its own aspectRatio
+// (source image width / height) changes. That keeps every badge visually the
+// same scale automatically, no matter how many get added, since a badge that's
+// naturally wider/narrower just gets a proportionally wider/narrower box instead
+// of being stretched or leaving dead space (see the level-badge sizing bug this
+// fixed). Aspect ratios below are measured from the actual asset files.
+const PROFILE_BADGE_HEIGHT = s(24);
+const PROFILE_BADGE_ASPECT = {
+  level: 142 / 149,
+  newStar: 456 / 174,
+  verified: 438 / 179,
+};
+function ProfileBadge({ source, aspectRatio, style }) {
+  return (
+    <Image
+      source={source}
+      style={[
+        { height: PROFILE_BADGE_HEIGHT, width: PROFILE_BADGE_HEIGHT * aspectRatio },
+        style,
+      ]}
+      resizeMode="contain"
+    />
+  );
+}
 const menuPages = [
   [
     { icon: "gift",         label: "Get Rewards",  badge: true  },
@@ -2045,7 +2072,7 @@ export default function Profile() {
           {/* Top section: avatar left + name/id/badges right */}
           <View style={styles.profileTopSection}>
 
-            {/* Avatar with frame + verified badge below */}
+            {/* Avatar with frame */}
             <View style={styles.profilePicWrapper}>
               <ProfileAvatarWithFrame
                 avatarSource={avatarSource}
@@ -2053,11 +2080,6 @@ export default function Profile() {
                 size={s(72)}
                 avatarStyle={styles.profilePic}
                 wrapperStyle={styles.profilePicFrameWrap}
-              />
-              <Image
-                source={require("../../assets/Batches/verified-batch.png")}
-                style={styles.verifiedBadge}
-                resizeMode="contain"
               />
             </View>
 
@@ -2084,20 +2106,17 @@ export default function Profile() {
                 )}
               </View>
 
-              {/* Row 3: Level badge + New Star badge — tight gap */}
+              {/* Row 3: Level badge + New Star badge + Verified badge — same height,
+                  same gap for every badge. Wraps automatically if more get added. */}
               <View style={styles.profileLevelWrap}>
-                <Image
+                <ProfileBadge
                   source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel ?? 1)}
-                  style={styles.levelBadge}
-                  resizeMode="contain"
+                  aspectRatio={PROFILE_BADGE_ASPECT.level}
                 />
                 {newUserFrameSource && (
-                  <Image
-                    source={NEW_START_BADGE}
-                    style={styles.profileNewStarBadge}
-                    resizeMode="contain"
-                  />
+                  <ProfileBadge source={NEW_START_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.newStar} />
                 )}
+                <ProfileBadge source={VERIFIED_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
               </View>
 
             </View>
@@ -2365,7 +2384,7 @@ export default function Profile() {
       </ScrollView>
       {/* ── MENU DETAIL MODAL (full screen) ── */}
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
-        <View style={styles.mmPanel}>
+        <View style={[styles.mmPanel, { paddingBottom: insets.bottom }]}>
           <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
           {/* Header */}
           <View style={[styles.mmHeader, { paddingTop: insets.top + 10 }]}>
@@ -2759,25 +2778,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
   },
-  verifiedBadge: {
-    width: 80,
-    height: 22,
-    marginTop: 1,
-    alignSelf: "center",
-  },
   profileLevelWrap: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
-    gap: 2,
+    gap: s(4),
+    rowGap: s(4),
     marginTop: 2,
-  },
-  levelBadge: {
-    width: 56,
-    height: 20,
-  },
-  profileNewStarBadge: {
-    width: 48,
-    height: 20,
+    // Leaves the row free to grow downward if more badges get added later
+    // instead of overflowing past the info card's edge.
+    maxWidth: "100%",
   },
   cardDivider: {
     height: 1,

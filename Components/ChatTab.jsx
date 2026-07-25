@@ -33,10 +33,15 @@ import {
 } from "../src/services/relationshipService";
 import { loadProfileStats } from "../src/services/profileStatsService";
 import { getAppUserId } from "../src/utils/sessionUser";
+import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
+import { ms } from "../src/utils/responsive";
 
 const RECOMMEND_RING_COLORS = ["#7c4dff", "#ff4ea3"];
 
-import { ms } from "../src/utils/responsive";
+// Backend may send a bundled preset id (e.g. "avatar3") instead of a real
+// image URL — resolve those to the local asset, otherwise treat as a URI.
+const resolveAvatarSource = (avatar) =>
+  isBundledAvatarId(avatar) ? getAvatarSource(avatar) : { uri: avatar };
 
 const { width: W } = Dimensions.get("window");
 
@@ -377,7 +382,7 @@ export default function ChatTab() {
             end={{ x: 1, y: 1 }}
           >
             {item.avatar ? (
-              <Image source={{ uri: item.avatar }} style={styles.chatAvatar} />
+              <Image source={resolveAvatarSource(item.avatar)} style={styles.chatAvatar} />
             ) : (
               <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
                 <Text style={styles.chatInitial}>{item.name?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -634,7 +639,7 @@ export default function ChatTab() {
                         style={styles.contactAvatarRing}
                       >
                         {user.avatar ? (
-                          <Image source={{ uri: user.avatar }} style={styles.contactAvatar} />
+                          <Image source={resolveAvatarSource(user.avatar)} style={styles.contactAvatar} />
                         ) : (
                           <View style={[styles.contactAvatar, styles.contactAvatarPlaceholder]}>
                             <Text style={styles.contactInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -754,7 +759,7 @@ export default function ChatTab() {
               >
                 <View style={styles.featureInner}>
                   {card.avatar ? (
-                    <Image source={{ uri: card.avatar }} style={styles.featureAvatar} blurRadius={2} />
+                    <Image source={resolveAvatarSource(card.avatar)} style={styles.featureAvatar} blurRadius={2} />
                   ) : (
                     <LinearGradient colors={card.colors} style={styles.featureEmojiWrap}>
                       <Text style={styles.featureEmoji}>{card.emoji}</Text>
@@ -797,7 +802,7 @@ export default function ChatTab() {
                 end={{ x: 1, y: 1 }}
               >
                 {user.avatar ? (
-                  <Image source={{ uri: user.avatar }} style={styles.recommendAvatar} />
+                  <Image source={resolveAvatarSource(user.avatar)} style={styles.recommendAvatar} />
                 ) : (
                   <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
                     <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>

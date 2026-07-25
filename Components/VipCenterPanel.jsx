@@ -1,28 +1,63 @@
-import { useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Dimensions } from "react-native";
+import { useState, useEffect, useRef } from "react";
+import { View, Text, Image, TouchableOpacity, ScrollView, StyleSheet, Alert, Dimensions, Modal } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Polygon } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WalletUserCard from "./WalletUserCard";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import { resolveImageSource } from "../src/utils/videoSource";
+import { getUser } from "../src/store/authStore";
+import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CONTENT_PADDING = 16;
 const TIER_SLIDE_WIDTH = SCREEN_WIDTH - CONTENT_PADDING * 2;
 
 const VIP_TIERS = [
-  { id: 1, label: "VIP 1", exp: 1000 },
+  {
+    id: 1,
+    label: "VIP 1",
+    exp: 1000,
+    image: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip1/king-vip1.jpeg",
+  },
   { id: 2, label: "VIP 2", exp: 3000 },
   { id: 3, label: "VIP 3", exp: 8000 },
   { id: 4, label: "VIP 4", exp: 20000 },
 ];
 
-const DRESS_UP_ITEMS = [
-  { id: "bg", icon: "image", label: "Room BG" },
-  { id: "entrance", icon: "people", label: "Entrance", playable: true },
-  { id: "ring", icon: "person-circle", label: "Avatar Ring", playable: true },
-  { id: "frame", icon: "square-outline", label: "Profile Frame" },
-];
+// Each VIP tier has its own dress-up set — this row pages in sync with the tier crest above.
+const DRESS_UP_ITEMS_BY_TIER = {
+  1: [
+    {
+      id: "bg",
+      icon: "image",
+      label: "Room BG",
+      image: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip1/frame-vip1.jpeg",
+    },
+    { id: "entrance", icon: "people", label: "Entrance", playable: true },
+    { id: "ring", icon: "person-circle", label: "Avatar Ring", playable: true },
+    { id: "frame", icon: "square-outline", label: "Profile Frame" },
+  ],
+  2: [
+    { id: "bg", icon: "image", label: "Room BG" },
+    { id: "entrance", icon: "people", label: "Entrance", playable: true },
+    { id: "ring", icon: "person-circle", label: "Avatar Ring", playable: true },
+    { id: "frame", icon: "square-outline", label: "Profile Frame" },
+  ],
+  3: [
+    { id: "bg", icon: "image", label: "Room BG" },
+    { id: "entrance", icon: "people", label: "Entrance", playable: true },
+    { id: "ring", icon: "person-circle", label: "Avatar Ring", playable: true },
+    { id: "frame", icon: "square-outline", label: "Profile Frame" },
+  ],
+  4: [
+    { id: "bg", icon: "image", label: "Room BG" },
+    { id: "entrance", icon: "people", label: "Entrance", playable: true },
+    { id: "ring", icon: "person-circle", label: "Avatar Ring", playable: true },
+    { id: "frame", icon: "square-outline", label: "Profile Frame" },
+  ],
+};
 
 const PRIVILEGES = [
   { id: "badge", icon: "diamond", label: "VIP Badge", unlocked: true },
@@ -34,9 +69,43 @@ const PRIVILEGES = [
   { id: "customAvatar", icon: "person", label: "Customize avatar", unlocked: false },
   { id: "stickers", icon: "happy", label: "Exclusive stickers on MIC", unlocked: false },
   { id: "roomBg", icon: "image", label: "VIP Room Background", unlocked: false },
-  { id: "specialEnter", icon: "person-add", label: "Special enter", unlocked: false },
+  { id: "specialEnter", icon: "person-add", label: "Special Enter effect", unlocked: false },
   { id: "giftTrack", icon: "gift-outline", label: "VIP Gift Track", unlocked: false },
   { id: "profileCard", icon: "id-card", label: "Personal Profile Card", unlocked: false },
+  { id: "sendImageRoom", icon: "images", label: "Send image in room", unlocked: false },
+  { id: "vipOnlineListFrame", icon: "list", label: "VIP Online List Frame", unlocked: false },
+  { id: "customizeProfileBg", icon: "color-palette", label: "Customize profile background", unlocked: false },
+  { id: "unlimitedText", icon: "chatbox-ellipses", label: "Unlimited text", unlocked: false },
+  { id: "micProtection", icon: "mic-circle", label: "Mic Protection", unlocked: false },
+  { id: "roomActivityPromotion", icon: "megaphone", label: "Room activity promotion", unlocked: false },
+  { id: "addFriendsFunction", icon: "people-circle", label: "Add friends function", unlocked: false },
+  { id: "vipRoomBubble", icon: "chatbubble-ellipses-outline", label: "VIP Room Bubble", unlocked: false },
+  { id: "customizeRoomTheme", icon: "color-fill", label: "Customize room theme", unlocked: false },
+  { id: "frontRowUserList", icon: "arrow-up-circle", label: "Front row on User list", unlocked: false },
+  { id: "doubleSignInTasks", icon: "calendar", label: "Double sign in and tasks rewards", unlocked: false },
+  { id: "gifProfileBg", icon: "images-outline", label: "GIF profile background", unlocked: false },
+  { id: "gifAvatar", icon: "happy-outline", label: "GIF avatar", unlocked: false },
+  { id: "vipMiniCardBg", icon: "card-outline", label: "VIP Mini Card Bg", unlocked: false },
+  { id: "roomBroadcast", icon: "megaphone-outline", label: "Room Broadcast", unlocked: false },
+  { id: "coloredUsername", icon: "text", label: "Colored username", unlocked: false },
+  { id: "uniquePersonalId", icon: "finger-print", label: "Unique personal id", unlocked: false },
+  { id: "mysteriousVisitors", icon: "eye-off", label: "Mysterious vistors", unlocked: false },
+  { id: "customerServiceExpert", icon: "headset", label: "Customer service expert", unlocked: false },
+  { id: "unlimitedChat", icon: "chatbubbles-outline", label: "Unlimited chat", unlocked: false },
+  { id: "roomListFrame", icon: "albums-outline", label: "Room List Frame", unlocked: false },
+  { id: "globalBroadcast", icon: "globe", label: "Global Broadcast", unlocked: false },
+  { id: "vipMomentFrame", icon: "camera", label: "VIP Moment Frame", unlocked: false },
+  { id: "vipProfileAnimation", icon: "sparkles", label: "VIP Profile Animation", unlocked: false },
+  { id: "roomProtection", icon: "shield", label: "Room Protection", unlocked: false },
+  { id: "kickCard", icon: "exit-outline", label: "Kick Card", unlocked: false },
+  { id: "antiKickCard", icon: "shield-half", label: "Anti-Kick Card", unlocked: false },
+  { id: "vipChatListFrame", icon: "chatbox", label: "VIP Chat List Frame", unlocked: false },
+  { id: "vipMicAnimation", icon: "mic", label: "VIP Mic Animation", unlocked: false },
+  { id: "custRepSendGifts", icon: "gift", label: "Customer representative send gifts", unlocked: false },
+  { id: "namedGifts", icon: "pricetags", label: "Named gifts", unlocked: false },
+  { id: "blacklistImmunity", icon: "ban", label: "Blacklist Immunity", unlocked: false },
+  { id: "vipMicBubble", icon: "mic-outline", label: "Vip Mic Bubble", unlocked: false },
+  { id: "exclusiveCustomAvatarFrame", icon: "person-circle-outline", label: "Exclusive customize avatar frame", unlocked: false },
 ];
 
 const notWiredYet = () => Alert.alert("Not available yet", "This isn't wired up to the backend yet.");
@@ -59,24 +128,76 @@ export default function VipCenterPanel() {
   const insets = useSafeAreaInsets();
   const unlockedCount = PRIVILEGES.filter((p) => p.unlocked).length;
 
+  // Self avatar, for the "how this looks on your profile pic" preview popup below.
+  const [selfUser, setSelfUser] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    getUser().then((u) => {
+      if (!cancelled) setSelfUser(u);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const selfAvatarSource = resolveProfileAvatarSource(selfUser);
+
+  const [previewItem, setPreviewItem] = useState(null);
+  const handleDressItemPress = (item) => {
+    if (item.image) {
+      setPreviewItem(item);
+    } else {
+      notWiredYet();
+    }
+  };
+
+  // Keeps the "Level dressing up" row paged in lockstep with the VIP tier
+  // crest carousel above it — swiping either one carries the other along.
+  const [activeTierIndex, setActiveTierIndex] = useState(0);
+  const tierScrollRef = useRef(null);
+  const dressScrollRef = useRef(null);
+
+  const handleTierScrollEnd = (e) => {
+    const idx = Math.round(e.nativeEvent.contentOffset.x / TIER_SLIDE_WIDTH);
+    setActiveTierIndex(idx);
+  };
+  const handleDressScrollEnd = (e) => {
+    const idx = Math.round(e.nativeEvent.contentOffset.x / TIER_SLIDE_WIDTH);
+    setActiveTierIndex(idx);
+  };
+
+  useEffect(() => {
+    tierScrollRef.current?.scrollTo({ x: activeTierIndex * TIER_SLIDE_WIDTH, animated: true });
+    dressScrollRef.current?.scrollTo({ x: activeTierIndex * TIER_SLIDE_WIDTH, animated: true });
+  }, [activeTierIndex]);
+
   return (
     <View style={{ flex: 1 }}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        <WalletUserCard xpCurrent={0} xpTarget={VIP_TIERS[0].exp} />
+        <WalletUserCard />
 
         <ScrollView
+          ref={tierScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tierScrollContent}
           snapToInterval={TIER_SLIDE_WIDTH}
           decelerationRate="fast"
+          onMomentumScrollEnd={handleTierScrollEnd}
         >
           {VIP_TIERS.map((tier) => (
             <View key={tier.id} style={styles.tierSlide}>
-              <LinearGradient colors={["#7c4dff", "#e879f9"]} style={styles.tierCrest}>
-                <Ionicons name="shield" size={52} color="white" />
-                <Text style={styles.tierCrestLabel}>VIP{tier.id}</Text>
-              </LinearGradient>
+              {tier.image ? (
+                <Image
+                  source={resolveImageSource(tier.image)}
+                  style={styles.tierCrestImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <LinearGradient colors={["#7c4dff", "#e879f9"]} style={styles.tierCrest}>
+                  <Ionicons name="shield" size={52} color="white" />
+                  <Text style={styles.tierCrestLabel}>VIP{tier.id}</Text>
+                </LinearGradient>
+              )}
               <Text style={styles.tierName}>{tier.label}</Text>
               <Text style={styles.tierExp}>Exp {tier.exp.toLocaleString("en-IN")}</Text>
             </View>
@@ -85,20 +206,44 @@ export default function VipCenterPanel() {
 
         <SectionRibbon title="Level dressing up" />
         <ScrollView
+          ref={dressScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.dressRow}
+          snapToInterval={TIER_SLIDE_WIDTH}
+          decelerationRate="fast"
+          onMomentumScrollEnd={handleDressScrollEnd}
         >
-          {DRESS_UP_ITEMS.map((item) => (
-            <TouchableOpacity key={item.id} style={styles.dressItem} activeOpacity={0.8} onPress={notWiredYet}>
-              <LinearGradient colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]} style={StyleSheet.absoluteFill} />
-              <Ionicons name={item.icon} size={26} color="#e879f9" />
-              {item.playable ? (
-                <View style={styles.playBadge}>
-                  <Ionicons name="play" size={9} color="white" />
-                </View>
-              ) : null}
-            </TouchableOpacity>
+          {VIP_TIERS.map((tier) => (
+            <View key={tier.id} style={styles.dressPage}>
+              <View style={styles.dressRow}>
+                {(DRESS_UP_ITEMS_BY_TIER[tier.id] ?? []).map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.dressItem}
+                    activeOpacity={0.8}
+                    onPress={() => handleDressItemPress(item)}
+                  >
+                    {item.image ? (
+                      <Image
+                        source={resolveImageSource(item.image)}
+                        style={styles.dressItemImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <>
+                        <LinearGradient colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]} style={StyleSheet.absoluteFill} />
+                        <Ionicons name={item.icon} size={26} color="#e879f9" />
+                      </>
+                    )}
+                    {item.playable ? (
+                      <View style={styles.playBadge}>
+                        <Ionicons name="play" size={9} color="white" />
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
           ))}
         </ScrollView>
 
@@ -154,6 +299,41 @@ export default function VipCenterPanel() {
           </LinearGradient>
         </TouchableOpacity>
       </LinearGradient>
+
+      {/* Dress-up preview — shows the tapped item's frame/décor over the user's
+          own profile picture, centered on screen. */}
+      <Modal
+        visible={!!previewItem}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewItem(null)}
+      >
+        <TouchableOpacity
+          style={styles.previewBackdrop}
+          activeOpacity={1}
+          onPress={() => setPreviewItem(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.previewCard} onPress={() => {}}>
+            <LinearGradient colors={["#2a1257", "#1a0a2e"]} style={StyleSheet.absoluteFill} />
+            <TouchableOpacity
+              style={styles.previewCloseBtn}
+              activeOpacity={0.8}
+              onPress={() => setPreviewItem(null)}
+            >
+              <Ionicons name="close" size={20} color="white" />
+            </TouchableOpacity>
+
+            <ProfileAvatarWithFrame
+              avatarSource={selfAvatarSource}
+              frameSource={previewItem?.image ? resolveImageSource(previewItem.image) : null}
+              size={110}
+              wrapperStyle={styles.previewAvatarWrap}
+            />
+            <Text style={styles.previewLabel}>{previewItem?.label}</Text>
+            <Text style={styles.previewHint}>This is how it appears on your profile picture</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -168,6 +348,12 @@ const styles = StyleSheet.create({
   tierSlide: {
     width: TIER_SLIDE_WIDTH,
     alignItems: "center",
+  },
+  tierCrestImage: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    marginBottom: 10,
   },
   tierCrest: {
     width: 110,
@@ -221,7 +407,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
+  dressPage: {
+    width: TIER_SLIDE_WIDTH,
+  },
   dressRow: {
+    flexDirection: "row",
+    justifyContent: "center",
     gap: 10,
     paddingBottom: 4,
   },
@@ -234,6 +425,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+  },
+  dressItemImage: {
+    width: "100%",
+    height: "100%",
   },
   playBadge: {
     position: "absolute",
@@ -317,5 +512,48 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 15,
     fontWeight: "800",
+  },
+  previewBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.7)",
+    padding: 32,
+  },
+  previewCard: {
+    width: "100%",
+    maxWidth: 320,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(232,121,249,0.35)",
+    overflow: "hidden",
+    alignItems: "center",
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+  },
+  previewCloseBtn: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewAvatarWrap: {
+    marginBottom: 16,
+  },
+  previewLabel: {
+    color: "white",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  previewHint: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 6,
   },
 });

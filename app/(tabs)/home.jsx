@@ -43,6 +43,8 @@ import { patchMyProfile } from "../../src/api/profileApi";
 import { syncUserCountryToServer } from "../../src/services/userCountryService";
 import { COUNTRY_OPTIONS, findCountryByName } from "../../src/data/countryOptions";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
+import { isBundledAvatarId, getAvatarSource } from "../../src/data/avatarOptions";
+import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
@@ -1488,6 +1490,9 @@ const cs = StyleSheet.create({
 // actual image, causing blank image containers.
 const toImageSource = (uri) => {
   if (!uri) return null;
+  // Backend may send a bundled preset id (e.g. "avatar3") instead of a real
+  // image URL — resolve those to the local asset, otherwise treat as a URI.
+  if (isBundledAvatarId(uri)) return getAvatarSource(uri);
   const needsNgrokHeader = /ngrok-free\.dev|ngrok\.io/i.test(uri);
   return needsNgrokHeader
     ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
@@ -1503,7 +1508,9 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
       : post.avatar
         ? toImageSource(post.avatar)
         : null;
-  const postFrameSource = isOwnPost ? currentUserFrameSource : null;
+  const postFrameSource = isOwnPost
+    ? currentUserFrameSource
+    : resolveEntityNewUserFrameSource({ hasNewUserFrame: post.authorHasNewUserFrame });
   // Resolve media — prefer CDN URL, fall back to local URI picked from device
   const imageUri  = post.imageUrl      ?? post._localMediaUri ?? null;
   const hasImage  = imageUri && (post._mediaType !== "video" && !post.hasVideo);

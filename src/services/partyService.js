@@ -176,47 +176,67 @@ const resolveChatText = (msg) => {
   );
 };
 
-export const normalizeChatMessage = (msg, index = 0) => ({
-  id: firstValue(
-    msg?.id,
-    msg?.messageId,
-    msg?._id,
-    msg?.message?.id,
-    msg?.data?.id,
-    `msg-${index}`
-  ),
-  system: Boolean(msg?.system ?? msg?.type === "SYSTEM"),
-  userId: firstValue(
-    msg?.senderId,
-    msg?.userId,
-    msg?.sender?.id,
-    msg?.sender?.userId,
-    msg?.message?.senderId,
-    msg?.data?.senderId
-  ) ?? null,
-  user:
-    firstText(
-      msg?.senderName,
-      msg?.user,
-      msg?.username,
-      msg?.sender?.name,
-      msg?.message?.senderName,
-      msg?.data?.senderName
-    ) ?? "User",
-  avatar: firstText(
+export const normalizeChatMessage = (msg, index = 0) => {
+  const rawAvatar = firstText(
     msg?.avatar,
+    msg?.avatarUrl,
     msg?.senderAvatar,
+    msg?.senderAvatarUrl,
+    msg?.senderProfilePic,
+    msg?.senderProfileImageUrl,
+    msg?.profilePicUrl,
     msg?.sender?.avatar,
+    msg?.sender?.avatarUrl,
+    msg?.sender?.profilePicUrl,
+    msg?.sender?.profileImageUrl,
     msg?.message?.avatar,
-    msg?.data?.avatar
-  ),
-  text: resolveChatText(msg),
-  level: msg?.level ?? msg?.senderLevel ?? 1,
-  coins: msg?.coins ?? 0,
-  diamonds: msg?.diamonds ?? 0,
-  isGift: Boolean(msg?.isGift),
-  pending: Boolean(msg?.pending),
-});
+    msg?.message?.senderAvatar,
+    msg?.data?.avatar,
+    msg?.data?.senderAvatar
+  );
+
+  // Temporary diagnostic — confirms whether the backend sends any sender-avatar
+  // field on chat socket payloads at all (unlike seat/participant payloads, which
+  // do). Remove once confirmed.
+  console.log("[partyService] chat msg RAW ->", JSON.stringify(msg));
+  console.log("[partyService] chat msg avatar resolved ->", rawAvatar);
+
+  return {
+    id: firstValue(
+      msg?.id,
+      msg?.messageId,
+      msg?._id,
+      msg?.message?.id,
+      msg?.data?.id,
+      `msg-${index}`
+    ),
+    system: Boolean(msg?.system ?? msg?.type === "SYSTEM"),
+    userId: firstValue(
+      msg?.senderId,
+      msg?.userId,
+      msg?.sender?.id,
+      msg?.sender?.userId,
+      msg?.message?.senderId,
+      msg?.data?.senderId
+    ) ?? null,
+    user:
+      firstText(
+        msg?.senderName,
+        msg?.user,
+        msg?.username,
+        msg?.sender?.name,
+        msg?.message?.senderName,
+        msg?.data?.senderName
+      ) ?? "User",
+    avatar: normalizeAvatarField(rawAvatar),
+    text: resolveChatText(msg),
+    level: msg?.level ?? msg?.senderLevel ?? 1,
+    coins: msg?.coins ?? 0,
+    diamonds: msg?.diamonds ?? 0,
+    isGift: Boolean(msg?.isGift),
+    pending: Boolean(msg?.pending),
+  };
+};
 
 export const createLocalChatMessage = ({ text, user, avatar, extra = {} }) => ({
   id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,

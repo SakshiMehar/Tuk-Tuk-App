@@ -3,15 +3,16 @@ import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
+import { VIP_XP_THRESHOLD } from "../src/constants/vip";
 
 /**
  * Dark user-info card for the wallet/recharge screen — avatar, username, and
- * level progress, matching the reference design. Self-loads the current user;
+ * VIP XP progress, matching the reference design. Self-loads the current user;
  * pass `onPress` to make it act as a button (e.g. open the recharge modal).
  *
- * xpCurrent/xpTarget are optional overrides (e.g. VipCenterPanel passes VIP-tier
- * progress, a different concept from account level). When omitted, the card
- * self-loads the real account-level XP from the gamification profile instead.
+ * xpCurrent/xpTarget are optional overrides (e.g. a future higher VIP tier).
+ * When omitted, the card shows progress toward VIP_XP_THRESHOLD using the
+ * user's real gamification totalXp.
  */
 export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
   const [user, setUser] = useState(null);
@@ -39,16 +40,10 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
   const username = user?.name || "User";
 
   const hasExplicitXp = xpCurrent !== undefined && xpTarget !== undefined;
+  const resolvedXpTarget = hasExplicitXp ? xpTarget : VIP_XP_THRESHOLD;
   const resolvedXpCurrent = hasExplicitXp
     ? xpCurrent
-    : gamificationXp
-    ? Math.max(0, gamificationXp.totalXp - gamificationXp.currentLevelXpStart)
-    : 0;
-  const resolvedXpTarget = hasExplicitXp
-    ? xpTarget
-    : gamificationXp
-    ? Math.max(1, gamificationXp.nextLevelXpTarget - gamificationXp.currentLevelXpStart)
-    : 1000;
+    : Math.max(0, Math.min(gamificationXp?.totalXp ?? 0, resolvedXpTarget));
   const progress = resolvedXpTarget > 0 ? Math.min(1, Math.max(0, resolvedXpCurrent / resolvedXpTarget)) : 0;
 
   const Wrapper = onPress ? TouchableOpacity : View;
