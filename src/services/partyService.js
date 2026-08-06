@@ -10,6 +10,7 @@ import {
   getRoomChatMessages,
   createRoom as createRoomApi,
   createRoomForUser as createRoomForUserApi,
+  updateRoom as updateRoomApi,
   getPartyRanking as getPartyRankingApi,
   getFamilies as getFamiliesApi,
 } from "../api/partyApi";
@@ -57,7 +58,7 @@ const parseRoomsResponse = (data) => {
   );
 };
 
-const normalizeRoom = (room) => ({
+export const normalizeRoom = (room) => ({
   ...room,
   id: firstValue(room?.roomId, room?.id, room?._id),
   name: firstText(room?.name, room?.title, room?.roomName) ?? "Voice Room",
@@ -349,14 +350,7 @@ const postCreateRoom = async (roomId, createBody) => {
   } catch (err) {
     const status = err?.status ?? err?.response?.status;
     if (status === 404 || status === 405 || status === 400) {
-      return createRoomForUserApi(roomId, {
-        name: createBody.name,
-        title: createBody.title,
-        profileImageUrl: createBody.profileImageUrl,
-        inviteUserIds: createBody.inviteUserIds,
-        memberIds: createBody.memberIds,
-        invitedUserIds: createBody.invitedUserIds,
-      });
+      return createRoomForUserApi(roomId, createBody);
     }
     throw err;
   }
@@ -367,65 +361,134 @@ export const createPartyRoom = async (payload = {}) => {
 
   const {
     roomId: requestedRoomId,
-    inviteUserIds,
-    memberIds,
-    invitedUserIds,
+    // Legacy/default behavior: exactly one persistent room per user, with the
+    // room id forced to equal the user's id. Pass personalRoom: false to
+    // instead mint a brand-new room every call (a host can then have more
+    // than one room open at once) — requires backend support, see below.
+    personalRoom = true,
     ...rest
   } = payload;
 
-  const roomId = String(requestedRoomId ?? rest.userId ?? rest.id ?? "");
-  if (!roomId) {
+  // In new-room mode, requestedRoomId is a caller-chosen VANITY room id, not
+  // a user id — never derive creatorId from it there (only personalRoom mode,
+  // where room id = user id, ever conflates the two).
+  const creatorId = String(
+    rest.userId ?? rest.id ?? (personalRoom ? requestedRoomId : null) ?? ""
+  );
+  if (!creatorId) {
     throw new Error("User id is required to create a room.");
   }
 
-  const invites = inviteUserIds ?? memberIds ?? invitedUserIds ?? [];
-  const inviteList = Array.isArray(invites)
-    ? invites.map((id) => String(id)).filter(Boolean)
-    : [];
-
   const roomName = rest.name ?? "My Room";
+
+  // Confirmed POST /api/v1/tuktuk/rooms/create contract — just these fields.
+  // The backend infers the creator from the auth token; no roomId/creatorId/
+  // hostId/userId/invite-list fields belong in this body.
   const createBody = {
-    ...rest,
     name: roomName,
-    title: roomName,
-    roomId,
-    id: roomId,
-    creatorId: roomId,
-    hostId: roomId,
-    userId: roomId,
-    inviteUserIds: inviteList,
-    memberIds: inviteList,
-    invitedUserIds: inviteList,
+    ...(rest.profileImageUrl ? { profileImageUrl: rest.profileImageUrl } : {}),
+    ...(rest.body ? { body: rest.body } : {}),
+    ...(rest.category ? { category: rest.category } : {}),
+    ...(rest.roomType ? { roomType: rest.roomType } : {}),
   };
 
-  try {
-    const created = await postCreateRoom(roomId, createBody);
-    return {
-      roomId: parseCreatedRoomId(created, roomId),
-      created,
-      alreadyExists: false,
-    };
-  } catch (err) {
-    const msg = String(err?.message ?? "");
-    const status = err?.status ?? err?.response?.status;
-    const conflict =
-      status === 409 || /already exists|duplicate|conflict/i.test(msg);
+  if (personalRoom) {
+    const roomId = creatorId;
 
-    if (conflict) {
-      const exists = await roomExistsOnServer(roomId);
-      if (exists) {
-        return { roomId, created: null, alreadyExists: true };
+    try {
+      const created = await postCreateRoom(roomId, createBody);
+      // Always follow the create with an update — the create endpoint isn't
+      // reliably persisting every field (see the earlier name-not-saving
+      // issue), so PATCH is the source of truth for the room's actual
+      // name/photo/etc. regardless of what create echoed back.
+      try {
+        await updateRoomApi(roomId, createBody);
+      } catch {
+        // Non-fatal — still enter the room even if this update fails.
       }
-    }
+      return {
+        roomId: parseCreatedRoomId(created, roomId),
+        created,
+        alreadyExists: false,
+      };
+    } catch (err) {
+      const msg = String(err?.message ?? "");
+      const status = err?.status ?? err?.response?.status;
+      const conflict =
+        status === 409 || /already exists|duplicate|conflict/i.test(msg);
 
-    throw err;
+      if (conflict) {
+        const exists = await roomExistsOnServer(roomId);
+        if (exists) {
+          // The room already exists (room id = user id, so this happens on
+          // every "Create & Enter" after the first) — apply the freshly
+          // entered name/photo to it instead of silently discarding them.
+          try {
+            await updateRoomApi(roomId, createBody);
+          } catch {
+            // Non-fatal — still enter the room even if this update fails.
+          }
+          return { roomId, created: null, alreadyExists: true };
+        }
+      }
+
+      throw err;
+    }
   }
+
+  // New-room mode — if the caller supplied a desired vanity room id, include
+  // it; otherwise the confirmed body above is sent as-is and the backend
+  // mints a fresh id. Whether the backend honors a caller-chosen id hasn't
+  // been confirmed — test and adjust.
+  const desiredRoomId = requestedRoomId ? String(requestedRoomId).trim() : null;
+  const created = await createRoomApi(
+    desiredRoomId ? { ...createBody, roomId: desiredRoomId, id: desiredRoomId } : createBody
+  );
+  const rawId = firstValue(
+    created?.roomId,
+    created?.id,
+    created?.room?.roomId,
+    created?.room?.id,
+    created?.data?.roomId,
+    created?.data?.id,
+    created?.result?.roomId,
+    created?.result?.id
+  );
+  if (!rawId) {
+    throw new Error(
+      "Room creation did not return a room id. The backend must generate and return a unique room id (distinct from creatorId) for new-room creation."
+    );
+  }
+
+  // Always follow the create with an update — see the personalRoom branch
+  // above for why (create doesn't reliably persist every field).
+  try {
+    await updateRoomApi(String(rawId), createBody);
+  } catch {
+    // Non-fatal — still enter the room even if this update fails.
+  }
+
+  return { roomId: String(rawId), created, alreadyExists: false };
 };
 
 /** Create room then join — use from Create & Enter before navigating to voice party */
 export const createAndEnterPartyRoom = async (payload = {}) => {
   const { roomId } = await createPartyRoom(payload);
   return enterRoomSession(roomId);
+};
+
+/** Uploads a locally-picked photo as the room's profile/cover image via
+ *  PATCH /api/v1/tuktuk/rooms/{roomId} (see updateRoom in partyApi.js).
+ *  Returns the freshly-hosted image URL, or null if the response doesn't
+ *  carry one back. */
+export const updateRoomCoverPhoto = async (roomId, { uri, mimeType, fileName } = {}) => {
+  const updated = await updateRoomApi(roomId, { imageUri: uri, mimeType, fileName });
+  return firstText(
+    updated?.profileImageUrl,
+    updated?.imageUrl,
+    updated?.room?.profileImageUrl,
+    updated?.data?.profileImageUrl
+  );
 };
 
 /** @deprecated Prefer createPartyRoom + enterRoomSession separately */

@@ -71,6 +71,7 @@ export const parseMeProfile = (data) => {
     name: firstText(raw.name, raw.nickname, raw.displayName) ?? "",
     email: raw.email ?? null,
     phoneNumber: raw.phoneNumber ?? null,
+    gender: firstText(raw.gender, raw.sex) ?? null,
     country: firstText(raw.country, raw.countryName) ?? "",
     countryName: firstText(raw.countryName, raw.country) ?? "",
     countryCode: raw.countryCode ?? "",

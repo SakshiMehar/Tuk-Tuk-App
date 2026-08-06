@@ -41,6 +41,7 @@ import VipCenterPanel from "../../Components/VipCenterPanel";
 import UserLevelPanel from "../../Components/UserLevelPanel";
 import RoomPremiumPanel from "../../Components/RoomPremiumPanel";
 import BackpackPanel from "../../Components/BackpackPanel";
+import PremiumPanel from "../../Components/PremiumPanel";
 import {
   avatarMap,
   avatarOptions,
@@ -51,6 +52,7 @@ import {
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import { syncUserLevelForSession } from "../../src/services/userLevelService";
+import { loadMyVipAssets } from "../../src/services/vipService";
 import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
@@ -89,6 +91,8 @@ const PROFILE_BADGE_ASPECT = {
   level: 142 / 149,
   newStar: 456 / 174,
   verified: 438 / 179,
+  // Placeholder square ratio until the real viplogo1.png dimensions are confirmed.
+  vip: 1,
 };
 function ProfileBadge({ source, aspectRatio, style }) {
   return (
@@ -110,7 +114,7 @@ const menuPages = [
     { icon: "store",        label: "Store",        badge: true  },
     { icon: "users",        label: "Relationship", badge: true  },
     { icon: "wallet",       label: "Wallet",       badge: false },
-    { icon: "shield-alt",   label: "Premium",      badge: true  },
+    { icon: "medal",        label: "Premium",      badge: true  },
     { icon: "bookmark",     label: "Saved",        badge: false },
   ],
   [
@@ -1023,6 +1027,13 @@ export default function Profile() {
   const [newUserFrameSource, setNewUserFrameSource] = useState(null);
   const [userLevel, setUserLevel] = useState(1);
   const [levelBadgeSource, setLevelBadgeSource] = useState(null);
+  const [vipAssets, setVipAssets] = useState({
+    unlocked: false,
+    profileFrame: null,
+    entryFrame: null,
+    chatFrame: null,
+    logo: null,
+  });
   const avatarSource = resolveProfileAvatarSource({
     avatarId,
     profilePicUrl,
@@ -1100,6 +1111,7 @@ export default function Profile() {
     const levelData = await syncUserLevelForSession();
     if (levelData?.level != null) setUserLevel(levelData.level);
     setLevelBadgeSource(levelData?.badgeSource ?? null);
+    setVipAssets(await loadMyVipAssets(levelData?.xp?.totalXp));
 
     try {
       await refreshTokenCache();
@@ -1169,6 +1181,7 @@ export default function Profile() {
       const levelData = await syncUserLevelForSession();
       if (levelData?.level != null) setUserLevel(levelData.level);
       setLevelBadgeSource(levelData?.badgeSource ?? null);
+      setVipAssets(await loadMyVipAssets(levelData?.xp?.totalXp));
     } catch {
       // Keep cached local values if the profile tab fetch fails.
     } finally {
@@ -1618,37 +1631,9 @@ export default function Profile() {
       );
     }
 
-    // ── PREMIUM ───────────────────────────────────────────────────────────────
+    // ── PREMIUM (gem-tier wealth system) ────────────────────────────────────────
     if (label === "Premium") {
-      const features = [
-        { icon: "eye-off-outline", label: "Invisible mode", free: false },
-        { icon: "infinite-outline", label: "Unlimited matches", free: false },
-        { icon: "star-outline", label: "Priority in search", free: false },
-        { icon: "chatbubble-ellipses-outline", label: "Unlimited messages", free: true },
-        { icon: "person-outline", label: "See profile visitors", free: false },
-        { icon: "shield-checkmark-outline", label: "Verified badge", free: false },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.mmPremiumHero}>
-            <Ionicons name="shield-checkmark" size={44} color="white" />
-            <Text style={styles.mmPremiumHeroTitle}>Go Premium</Text>
-            <Text style={styles.mmPremiumHeroSub}>Unlock the full Tuk-Tuk experience</Text>
-          </LinearGradient>
-          {features.map((f) => (
-            <View key={f.label} style={styles.mmFeatureRow}>
-              <Ionicons name={f.icon} size={20} color="#a78bfa" />
-              <Text style={styles.mmFeatureLabel}>{f.label}</Text>
-              <Ionicons name={f.free ? "checkmark-circle" : "lock-closed"} size={20} color={f.free ? "#4ade80" : "#f87171"} />
-            </View>
-          ))}
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#ec4899"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Upgrade for ₹299/month</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
-      );
+      return <PremiumPanel />;
     }
 
     // ── VIP ───────────────────────────────────────────────────────────────────
@@ -2076,7 +2061,7 @@ export default function Profile() {
             <View style={styles.profilePicWrapper}>
               <ProfileAvatarWithFrame
                 avatarSource={avatarSource}
-                frameSource={newUserFrameSource}
+                frameSource={vipAssets.profileFrame ?? newUserFrameSource}
                 size={s(72)}
                 avatarStyle={styles.profilePic}
                 wrapperStyle={styles.profilePicFrameWrap}
@@ -2115,6 +2100,9 @@ export default function Profile() {
                 />
                 {newUserFrameSource && (
                   <ProfileBadge source={NEW_START_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.newStar} />
+                )}
+                {vipAssets.unlocked && vipAssets.logo && (
+                  <ProfileBadge source={{ uri: vipAssets.logo }} aspectRatio={PROFILE_BADGE_ASPECT.vip} />
                 )}
                 <ProfileBadge source={VERIFIED_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
               </View>
@@ -3456,20 +3444,6 @@ const styles = StyleSheet.create({
   },
 
   // ── Family UI styles moved to familyStyles (separate StyleSheet above Profile component) ──
-  mmFeatureRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 13,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-  },
-  mmFeatureLabel: {
-    flex: 1,
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 14,
-    fontWeight: "600",
-  },
 
   // ── SHARED HERO BOX (Saved / Task) ────────────────────────────────────────
   mmHeroBox: {
@@ -3582,23 +3556,6 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.5)",
     fontSize: 12,
     marginTop: 2,
-  },
-
-  // ── PREMIUM ───────────────────────────────────────────────────────────────
-  mmPremiumHero: {
-    borderRadius: 20,
-    padding: 28,
-    alignItems: "center",
-    gap: 8,
-  },
-  mmPremiumHeroTitle: {
-    color: "white",
-    fontSize: 24,
-    fontWeight: "900",
-  },
-  mmPremiumHeroSub: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 13,
   },
 
   // ── HONOR LEVEL ───────────────────────────────────────────────────────────

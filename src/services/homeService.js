@@ -215,7 +215,6 @@ export const normalizePost = (post) => {
       showNewUserFrame: post?.showNewUserFrame ?? author?.showNewUserFrame,
       isNewUser: post?.isNewUser ?? author?.isNewUser,
       newUser: post?.newUser ?? author?.newUser,
-      createdAt: firstText(author?.createdAt, author?.created_at, author?.registeredAt, author?.joinedAt),
     }),
   };
 

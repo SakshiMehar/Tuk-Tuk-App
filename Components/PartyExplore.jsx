@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useScrollToTop } from "@react-navigation/native";
+import { useScrollToTop, useFocusEffect } from "@react-navigation/native";
 import {
   Search,
   Home,
@@ -31,6 +31,7 @@ import {
   loadManagedRooms,
   loadPartyRanking,
   loadFamilies,
+  normalizeRoom,
 } from "../src/services/partyService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import ComingSoonModal from "./ComingSoonModal";
@@ -224,6 +225,20 @@ export default function PartyExplore() {
   // ── Create room modal ──
   const [createRoomVisible, setCreateRoomVisible] = useState(false);
 
+  // Bumped every time this screen regains focus (e.g. after exiting a room)
+  // so the room lists below refetch instead of only ever loading once at mount.
+  const [focusTick, setFocusTick] = useState(0);
+  const isFirstFocusRef = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocusRef.current) {
+        isFirstFocusRef.current = false;
+        return;
+      }
+      setFocusTick((v) => v + 1);
+    }, [])
+  );
+
   useEffect(() => {
     if (activeTopTab !== "Explore") return;
     let cancelled = false;
@@ -239,7 +254,7 @@ export default function PartyExplore() {
         if (!cancelled) setRoomsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [activeTopTab]);
+  }, [activeTopTab, focusTick]);
 
   useEffect(() => {
     if (activeTopTab !== "Related") return;
@@ -262,7 +277,7 @@ export default function PartyExplore() {
         if (!cancelled) setRelatedLoading(false);
       });
     return () => { cancelled = true; };
-  }, [activeTopTab, activeRelatedTab]);
+  }, [activeTopTab, activeRelatedTab, focusTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -338,8 +353,23 @@ export default function PartyExplore() {
     setCreateRoomVisible(true);
   };
 
-  const handleCreateRoomEntered = (roomId) => {
+  const handleCreateRoomEntered = (roomId, room) => {
     setCreateRoomVisible(false);
+
+    if (room) {
+      // Show the room immediately instead of waiting on the next
+      // recommendations/managed-rooms fetch to pick it up.
+      const normalized = normalizeRoom({ ...room, id: room.id ?? roomId, roomId: room.id ?? roomId });
+      const upsert = (prev) => [
+        normalized,
+        ...prev.filter((r) => String(r.id) !== String(normalized.id)),
+      ];
+      setRooms(upsert);
+      if (activeRelatedTab === "Managed" || activeRelatedTab === "Recently") {
+        setRelatedRooms(upsert);
+      }
+    }
+
     router.push({
       pathname: "/voice-party",
       params: { roomId: String(roomId) },

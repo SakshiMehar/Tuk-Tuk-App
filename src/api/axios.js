@@ -138,8 +138,15 @@ API.interceptors.response.use(
 
     // ── 401: token expired / missing ────────────────────────────
     // Skip auth endpoints so wrong-password errors propagate normally.
+    // Only auto-logout on 401s from core, auth-critical endpoints (your own
+    // profile) — a 401 there reliably means the token itself is dead. A 401
+    // from any OTHER endpoint used to wipe the session too, which meant a
+    // single half-finished/buggy route could force a real logout even
+    // though the token was still perfectly valid. Those now just propagate
+    // as a normal rejected request for the caller to handle.
     const isAuthEndpoint = /\/api\/auth\//i.test(requestUrl);
-    if (status === 401 && !isAuthEndpoint && !_s.handlingUnauth) {
+    const isCoreProfileEndpoint = /\/api\/app\/users\/me\/profile/i.test(requestUrl);
+    if (status === 401 && !isAuthEndpoint && isCoreProfileEndpoint && !_s.handlingUnauth) {
       _s.handlingUnauth = true;
       _s.token = null;
       // Wipe stored session so the app starts clean on next launch.

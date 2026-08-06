@@ -51,6 +51,7 @@ export const hydrateSessionUserFromProfile = async () => {
 
     await updateUser({
       ...(profile.name ? { name: profile.name } : {}),
+      ...(profile.gender ? { gender: profile.gender } : {}),
       ...(profile.avatarId
         ? { avatarId: profile.avatarId, avatar: profile.avatarId }
         : {}),

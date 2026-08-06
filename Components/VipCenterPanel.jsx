@@ -9,55 +9,69 @@ import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import { resolveImageSource } from "../src/utils/videoSource";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
+import {
+  VIP_TIER1_FALLBACK_ASSETS,
+  VIP_TIER2_ASSETS,
+  VIP_TIER3_ASSETS,
+  VIP_TIER4_ASSETS,
+  VIP_TIER5_ASSETS,
+  VIP_TIER6_ASSETS,
+  VIP_TIER7_ASSETS,
+  VIP_TIER8_ASSETS,
+  VIP_PROFILE_FRAME_LAYOUT,
+} from "../src/constants/vip";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CONTENT_PADDING = 16;
 const TIER_SLIDE_WIDTH = SCREEN_WIDTH - CONTENT_PADDING * 2;
 
+// EXP thresholds for tiers 5-8 are placeholders (continuing the existing
+// 1000/3000/8000/20000 progression) — replace once the real values are known.
 const VIP_TIERS = [
-  {
-    id: 1,
-    label: "VIP 1",
-    exp: 1000,
-    image: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip1/king-vip1.jpeg",
-  },
-  { id: 2, label: "VIP 2", exp: 3000 },
-  { id: 3, label: "VIP 3", exp: 8000 },
-  { id: 4, label: "VIP 4", exp: 20000 },
+  { id: 1, label: "VIP 1", exp: 1000, image: VIP_TIER1_FALLBACK_ASSETS.logo },
+  { id: 2, label: "VIP 2", exp: 3000, image: VIP_TIER2_ASSETS.logo },
+  { id: 3, label: "VIP 3", exp: 8000, image: VIP_TIER3_ASSETS.logo },
+  { id: 4, label: "VIP 4", exp: 20000, image: VIP_TIER4_ASSETS.logo },
+  { id: 5, label: "VIP 5", exp: 50000, image: VIP_TIER5_ASSETS.logo },
+  { id: 6, label: "VIP 6", exp: 120000, image: VIP_TIER6_ASSETS.logo },
+  { id: 7, label: "VIP 7", exp: 300000, image: VIP_TIER7_ASSETS.logo },
+  { id: 8, label: "VIP 8", exp: 700000, image: VIP_TIER8_ASSETS.logo },
 ];
 
-// Each VIP tier has its own dress-up set — this row pages in sync with the tier crest above.
-const DRESS_UP_ITEMS_BY_TIER = {
-  1: [
-    {
-      id: "bg",
-      icon: "image",
-      label: "Room BG",
-      image: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip1/frame-vip1.jpeg",
-    },
-    { id: "entrance", icon: "people", label: "Entrance", playable: true },
-    { id: "ring", icon: "person-circle", label: "Avatar Ring", playable: true },
-    { id: "frame", icon: "square-outline", label: "Profile Frame" },
-  ],
-  2: [
-    { id: "bg", icon: "image", label: "Room BG" },
-    { id: "entrance", icon: "people", label: "Entrance", playable: true },
-    { id: "ring", icon: "person-circle", label: "Avatar Ring", playable: true },
-    { id: "frame", icon: "square-outline", label: "Profile Frame" },
-  ],
-  3: [
-    { id: "bg", icon: "image", label: "Room BG" },
-    { id: "entrance", icon: "people", label: "Entrance", playable: true },
-    { id: "ring", icon: "person-circle", label: "Avatar Ring", playable: true },
-    { id: "frame", icon: "square-outline", label: "Profile Frame" },
-  ],
-  4: [
-    { id: "bg", icon: "image", label: "Room BG" },
-    { id: "entrance", icon: "people", label: "Entrance", playable: true },
-    { id: "ring", icon: "person-circle", label: "Avatar Ring", playable: true },
-    { id: "frame", icon: "square-outline", label: "Profile Frame" },
-  ],
+const TIER_ASSETS_BY_ID = {
+  1: VIP_TIER1_FALLBACK_ASSETS,
+  2: VIP_TIER2_ASSETS,
+  3: VIP_TIER3_ASSETS,
+  4: VIP_TIER4_ASSETS,
+  5: VIP_TIER5_ASSETS,
+  6: VIP_TIER6_ASSETS,
+  7: VIP_TIER7_ASSETS,
+  8: VIP_TIER8_ASSETS,
 };
+
+// Each VIP tier has its own dress-up set — this row pages in sync with the
+// tier crest above. All four assets (logo/profileFrame/entryFrame/chatFrame)
+// are now provided for every tier 1-8 — see TIER_ASSETS_BY_ID / src/constants/vip.js
+// for any tier still missing one, which falls back to an icon placeholder.
+const DRESS_UP_ITEMS_BY_TIER = Object.fromEntries(
+  VIP_TIERS.map((tier) => {
+    const assets = TIER_ASSETS_BY_ID[tier.id] ?? {};
+    return [
+      tier.id,
+      [
+        { id: "logo", icon: "ribbon", label: "VIP Logo", image: assets.logo },
+        { id: "frame", icon: "square-outline", label: "Profile Frame", image: assets.profileFrame },
+        {
+          id: "entrance",
+          icon: "people",
+          label: "Entrance",
+          image: assets.entryFrame,
+        },
+        { id: "chatframe", icon: "chatbubble-ellipses", label: "Chat Frame", image: assets.chatFrame },
+      ],
+    ];
+  })
+);
 
 const PRIVILEGES = [
   { id: "badge", icon: "diamond", label: "VIP Badge", unlocked: true },
@@ -141,12 +155,20 @@ export default function VipCenterPanel() {
   }, []);
   const selfAvatarSource = resolveProfileAvatarSource(selfUser);
 
+  // "Profile Frame" gets the full avatar-composite preview (it's the only item
+  // that actually overlays the user's own photo); every other tile just pops
+  // up its raw image.
   const [previewItem, setPreviewItem] = useState(null);
+  const [previewImageItem, setPreviewImageItem] = useState(null);
   const handleDressItemPress = (item) => {
-    if (item.image) {
+    if (!item.image) {
+      notWiredYet();
+      return;
+    }
+    if (item.id === "frame") {
       setPreviewItem(item);
     } else {
-      notWiredYet();
+      setPreviewImageItem(item);
     }
   };
 
@@ -223,17 +245,15 @@ export default function VipCenterPanel() {
                     activeOpacity={0.8}
                     onPress={() => handleDressItemPress(item)}
                   >
+                    <LinearGradient colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]} style={StyleSheet.absoluteFill} />
                     {item.image ? (
                       <Image
                         source={resolveImageSource(item.image)}
                         style={styles.dressItemImage}
-                        resizeMode="cover"
+                        resizeMode="contain"
                       />
                     ) : (
-                      <>
-                        <LinearGradient colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]} style={StyleSheet.absoluteFill} />
-                        <Ionicons name={item.icon} size={26} color="#e879f9" />
-                      </>
+                      <Ionicons name={item.icon} size={26} color="#e879f9" />
                     )}
                     {item.playable ? (
                       <View style={styles.playBadge}>
@@ -328,9 +348,53 @@ export default function VipCenterPanel() {
               frameSource={previewItem?.image ? resolveImageSource(previewItem.image) : null}
               size={110}
               wrapperStyle={styles.previewAvatarWrap}
+              frameScale={VIP_PROFILE_FRAME_LAYOUT.frameScale}
+              frameResizeMode={VIP_PROFILE_FRAME_LAYOUT.frameResizeMode}
+              frameOffsetX={VIP_PROFILE_FRAME_LAYOUT.frameOffsetX}
+              frameOffsetY={VIP_PROFILE_FRAME_LAYOUT.frameOffsetY}
+              frameBleed={VIP_PROFILE_FRAME_LAYOUT.frameBleed}
+              avatarBoost={VIP_PROFILE_FRAME_LAYOUT.avatarBoost}
+              avatarOffsetY={VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY}
             />
             <Text style={styles.previewLabel}>{previewItem?.label}</Text>
             <Text style={styles.previewHint}>This is how it appears on your profile picture</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Plain image popup for every dress-up tile other than Profile Frame —
+          just shows the asset itself, no avatar compositing. */}
+      <Modal
+        visible={!!previewImageItem}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImageItem(null)}
+      >
+        <TouchableOpacity
+          style={styles.previewBackdrop}
+          activeOpacity={1}
+          onPress={() => setPreviewImageItem(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.previewCard} onPress={() => {}}>
+            <LinearGradient colors={["#2a1257", "#1a0a2e"]} style={StyleSheet.absoluteFill} />
+            <TouchableOpacity
+              style={styles.previewCloseBtn}
+              activeOpacity={0.8}
+              onPress={() => setPreviewImageItem(null)}
+            >
+              <Ionicons name="close" size={20} color="white" />
+            </TouchableOpacity>
+
+            {previewImageItem?.image && (
+              <View style={styles.previewPlainImageWrap}>
+                <Image
+                  source={resolveImageSource(previewImageItem.image)}
+                  style={styles.previewPlainImage}
+                  resizeMode="contain"
+                />
+              </View>
+            )}
+            <Text style={styles.previewLabel}>{previewImageItem?.label}</Text>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -544,6 +608,17 @@ const styles = StyleSheet.create({
   },
   previewAvatarWrap: {
     marginBottom: 16,
+  },
+  previewPlainImageWrap: {
+    width: "100%",
+    height: 160,
+    borderRadius: 14,
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  previewPlainImage: {
+    width: "100%",
+    height: "100%",
   },
   previewLabel: {
     color: "white",

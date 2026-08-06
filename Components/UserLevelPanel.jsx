@@ -6,6 +6,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
+import { loadMyVipAssets } from "../src/services/vipService";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
 const LEVEL_TABS = ["Active Level", "Wealth Level", "Charm Level", "Game Level"];
 
@@ -84,6 +87,7 @@ export default function UserLevelPanel() {
   const [user, setUser] = useState(null);
   const [level, setLevel] = useState(0);
   const [xp, setXp] = useState(null);
+  const [vipProfileFrame, setVipProfileFrame] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +97,9 @@ export default function UserLevelPanel() {
       setUser(storedUser);
       setLevel(levelResult?.level ?? 0);
       setXp(levelResult?.xp ?? null);
+
+      const vipAssets = await loadMyVipAssets(levelResult?.xp?.totalXp).catch(() => null);
+      if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
     })();
     return () => {
       cancelled = true;
@@ -143,7 +150,23 @@ export default function UserLevelPanel() {
           <View style={styles.arcCenter} pointerEvents="none">
             <View style={styles.avatarWrap}>
               <View style={styles.avatarGlow} />
-              <Image source={avatarSource} style={styles.avatar} />
+              <ProfileAvatarWithFrame
+                avatarSource={avatarSource}
+                frameSource={vipProfileFrame}
+                size={76}
+                avatarStyle={styles.avatar}
+                {...(vipProfileFrame
+                  ? {
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
+                  : {})}
+              />
             </View>
             <LevelBadge level={level} />
             {xp?.equippedBadge ? (

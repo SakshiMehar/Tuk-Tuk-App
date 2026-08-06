@@ -3,7 +3,9 @@ import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
-import { VIP_XP_THRESHOLD } from "../src/constants/vip";
+import { loadMyVipAssets } from "../src/services/vipService";
+import { VIP_XP_THRESHOLD, VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
 /**
  * Dark user-info card for the wallet/recharge screen — avatar, username, and
@@ -18,6 +20,7 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
   const [user, setUser] = useState(null);
   const [level, setLevel] = useState(1);
   const [gamificationXp, setGamificationXp] = useState(null);
+  const [vipProfileFrame, setVipProfileFrame] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +33,9 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
       setUser(storedUser);
       setLevel(levelResult?.level ?? 1);
       setGamificationXp(levelResult?.xp ?? null);
+
+      const vipAssets = await loadMyVipAssets(levelResult?.xp?.totalXp).catch(() => null);
+      if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
     })();
     return () => {
       cancelled = true;
@@ -50,7 +56,24 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
 
   return (
     <Wrapper style={styles.card} activeOpacity={0.85} onPress={onPress}>
-      <Image source={avatarSource} style={styles.avatar} />
+      <ProfileAvatarWithFrame
+        avatarSource={avatarSource}
+        frameSource={vipProfileFrame}
+        size={56}
+        avatarStyle={styles.avatar}
+        placeholderInitial={username[0]?.toUpperCase() ?? "?"}
+        {...(vipProfileFrame
+          ? {
+              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+            }
+          : {})}
+      />
       <View style={styles.infoCol}>
         <Text style={styles.username} numberOfLines={1}>
           {username}

@@ -18,7 +18,7 @@
       "env": {
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "969637468541-g2tea78vrhg915eklstvv4q612223129.apps.googleusercontent.com",
         "EXPO_PUBLIC_AGORA_APP_ID": "9335973f2f82473889e5901433fde683",
-        "EXPO_PUBLIC_API_BASE_URL": "https://vending-helpless-slaw.ngrok-free.dev"
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.tuktuk.live"
       },
       "android": {
         "buildType": "apk"

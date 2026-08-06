@@ -65,13 +65,6 @@ export const resolveNewUserFrameSource = (user) => {
   return LOCAL_NEW_USER_FRAME;
 };
 
-export const isRecentlyCreatedAccount = (createdAt, maxDays = 14) => {
-  if (!createdAt) return false;
-  const created = new Date(createdAt);
-  if (Number.isNaN(created.getTime())) return false;
-  return Date.now() - created.getTime() < maxDays * 24 * 60 * 60 * 1000;
-};
-
 /**
  * Generic "is this a new user" check for entities other than the logged-in
  * user (e.g. a post author) — same signal fields as shouldUserHaveNewUserFrame,
@@ -87,7 +80,7 @@ export const entityHasNewUserFrame = (entity) =>
       entity?.firstLogin ??
       entity?.isFirstLogin ??
       entity?.isNew
-  ) || isRecentlyCreatedAccount(entity?.createdAt);
+  );
 
 export const resolveEntityNewUserFrameSource = (entity) =>
   entityHasNewUserFrame(entity) ? LOCAL_NEW_USER_FRAME : null;

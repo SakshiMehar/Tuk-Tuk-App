@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
+  Image,
   Modal,
   TouchableOpacity,
   StyleSheet,
@@ -13,10 +14,14 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { X } from "lucide-react-native";
+import * as ImagePicker from "expo-image-picker";
+import { X, Camera } from "lucide-react-native";
 import { getUser } from "../src/store/authStore";
 import { getAppUserId } from "../src/utils/sessionUser";
-import { createAndEnterPartyRoom } from "../src/services/partyService";
+import {
+  createAndEnterPartyRoom,
+  updateRoomCoverPhoto,
+} from "../src/services/partyService";
 import { refreshWalletBalance } from "../src/store/walletStore";
 
 const THEME = {
@@ -32,11 +37,13 @@ const THEME = {
 export default function CreateRoomModal({ visible, onClose, onEntered }) {
   const insets = useSafeAreaInsets();
   const [roomName, setRoomName] = useState("");
+  const [roomPhotoUri, setRoomPhotoUri] = useState(null);
   const [userId, setUserId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   const resetForm = useCallback(() => {
     setRoomName("");
+    setRoomPhotoUri(null);
   }, []);
 
   const loadModalData = useCallback(async () => {
@@ -59,6 +66,23 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
     loadModalData();
   }, [visible, loadModalData, resetForm]);
 
+  const handlePickRoomPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Gallery access is required to set a room photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setRoomPhotoUri(result.assets[0].uri);
+    }
+  };
+
   const handleCreate = async () => {
     const trimmedName = roomName.trim();
     if (!trimmedName) {
@@ -73,16 +97,36 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
     setSubmitting(true);
     try {
       const user = await getUser();
+      // Room id always equals the user's own id — no custom/vanity id, so
+      // personalRoom stays at its default (true).
       const session = await createAndEnterPartyRoom({
-        roomId: userId,
+        userId,
         name: trimmedName,
         ...(user?.profilePicUrl || user?.avatarUrl
           ? { profileImageUrl: user.profilePicUrl ?? user.avatarUrl }
           : {}),
       });
+
+      // Upload the picked room photo, if any, now that the room exists.
+      // Non-fatal — the room is already created, so a failed photo upload
+      // shouldn't block entering it.
+      if (roomPhotoUri) {
+        try {
+          const uploadedUrl = await updateRoomCoverPhoto(session.roomId, { uri: roomPhotoUri });
+          if (uploadedUrl) {
+            session.room = { ...session.room, profileImageUrl: uploadedUrl };
+          }
+        } catch (photoErr) {
+          Alert.alert(
+            "Room photo not saved",
+            photoErr?.message || "The room was created, but the photo could not be uploaded."
+          );
+        }
+      }
+
       refreshWalletBalance();
       onClose();
-      onEntered?.(String(session.roomId ?? userId));
+      onEntered?.(String(session.roomId ?? userId), session.room);
     } catch (err) {
       const msg = err?.message || "Please try again.";
       Alert.alert(
@@ -109,17 +153,39 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
 
             <View style={styles.header}>
               <View>
-                <Text style={styles.title}>Create My Room</Text>
-                <Text style={styles.subtitle}>Your room ID will match your user ID</Text>
+                <Text style={styles.title}>Create Room</Text>
+                <Text style={styles.subtitle}>Start a new voice room</Text>
               </View>
               <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={12}>
                 <X size={20} color={THEME.purpleLight} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.roomIdBox}>
-              <Text style={styles.roomIdLabel}>Room ID</Text>
-              <Text style={styles.roomIdValue}>{userId ?? "—"}</Text>
+            <View style={styles.photoRow}>
+              <TouchableOpacity
+                style={styles.photoPicker}
+                activeOpacity={0.8}
+                onPress={handlePickRoomPhoto}
+              >
+                {roomPhotoUri ? (
+                  <>
+                    <Image source={{ uri: roomPhotoUri }} style={styles.photoImage} />
+                    <View style={styles.photoBadge}>
+                      <Camera size={14} color="white" />
+                    </View>
+                  </>
+                ) : (
+                  <View style={[styles.photoImage, styles.photoPlaceholder]}>
+                    <Camera size={26} color={THEME.purpleLight} />
+                  </View>
+                )}
+              </TouchableOpacity>
+              <Text style={styles.photoHint}>Tap to set a room photo (optional)</Text>
+            </View>
+
+            <Text style={styles.fieldLabel}>Room ID</Text>
+            <View style={[styles.input, styles.readOnlyInput]}>
+              <Text style={styles.readOnlyText}>{userId ?? "—"}</Text>
             </View>
 
             <Text style={styles.fieldLabel}>Room name</Text>
@@ -202,27 +268,44 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(124,77,255,0.12)",
   },
-  roomIdBox: {
-    flexDirection: "row",
+  photoRow: {
     alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "rgba(124,77,255,0.1)",
-    borderRadius: 12,
+    marginBottom: 18,
+  },
+  photoPicker: {
+    width: 72,
+    height: 72,
+    marginBottom: 8,
+  },
+  photoImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  photoPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: THEME.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 16,
+    borderStyle: "dashed",
   },
-  roomIdLabel: {
+  photoBadge: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: THEME.purple,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: THEME.card,
+  },
+  photoHint: {
     color: THEME.textMuted,
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  roomIdValue: {
-    color: THEME.purpleLight,
-    fontSize: 16,
-    fontWeight: "800",
+    fontSize: 12,
   },
   fieldLabel: {
     color: THEME.purpleLight,
@@ -240,6 +323,14 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontSize: 15,
     marginBottom: 20,
+  },
+  readOnlyInput: {
+    backgroundColor: "rgba(255,255,255,0.03)",
+    justifyContent: "center",
+  },
+  readOnlyText: {
+    color: THEME.textMuted,
+    fontSize: 15,
   },
   actions: {
     flexDirection: "row",

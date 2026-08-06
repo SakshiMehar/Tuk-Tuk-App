@@ -46,6 +46,13 @@ import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 import { isBundledAvatarId, getAvatarSource } from "../../src/data/avatarOptions";
 import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
+import { loadMyVipAssets } from "../../src/services/vipService";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER1_FALLBACK_ASSETS,
+  VIP_TIER1_ENTRY_FRAME_SLICES,
+} from "../../src/constants/vip";
+import { resolveImageSource } from "../../src/utils/videoSource";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
@@ -1703,6 +1710,9 @@ const HomeHeader = memo(({
   walletDiamonds,
   sessionAvatarSource,
   sessionNewUserFrameSource,
+  vipEntryFrameSource,
+  vipEntryFrameSlices,
+  vipProfileFrameSource,
   stats,
   unreadNotifications,
   recommendedUsers,
@@ -1725,11 +1735,22 @@ const HomeHeader = memo(({
         <View style={styles.avatarWrapper}>
           <ProfileAvatarWithFrame
             avatarSource={sessionAvatarSource ?? (userProfile?.avatarUrl ? { uri: userProfile.avatarUrl } : null)}
-            frameSource={sessionNewUserFrameSource}
+            frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
             size={s(62)}
             avatarStyle={styles.headerAvatar}
             placeholderInitial={(userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"}
             imageComponent={Image}
+            {...(vipProfileFrameSource
+              ? {
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
+              : {})}
           />
           <View style={styles.onlineDot} />
         </View>
@@ -1773,6 +1794,44 @@ const HomeHeader = memo(({
             </View>
           </TouchableOpacity>
         </View>
+        {/* VIP entrance frame — decorative overlay spanning the whole row,
+            shown once the user has crossed the VIP XP threshold. Rendered
+            last so it paints on top; its hollow ring/gaps are transparent
+            so the row's real content still shows through underneath.
+            Preferred form: 3 separate pieces (ring / stretchable middle rod
+            / badge) laid out with flexbox — the middle rod flexes to fill
+            whatever gap remains, so ring and badge never distort regardless
+            of the row's actual rendered width on a given device. Falls back
+            to a single (non-sliced) image, scaled to its own aspect ratio
+            and left-anchored over the avatar, when we don't have slices for
+            the specific entry frame in use (only tier 1's fallback asset is
+            sliced so far). */}
+        {vipEntryFrameSlices ? (
+          <View style={styles.vipEntryFrameSliceRow} pointerEvents="none">
+            <Image
+              source={vipEntryFrameSlices.ring}
+              style={styles.vipEntryFrameRing}
+              contentFit="contain"
+            />
+            <Image
+              source={vipEntryFrameSlices.rod}
+              style={styles.vipEntryFrameRod}
+              contentFit="fill"
+            />
+            <Image
+              source={vipEntryFrameSlices.badge}
+              style={styles.vipEntryFrameBadge}
+              contentFit="contain"
+            />
+          </View>
+        ) : vipEntryFrameSource ? (
+          <Image
+            source={vipEntryFrameSource}
+            style={styles.vipEntryFrameOverlay}
+            contentFit="contain"
+            pointerEvents="none"
+          />
+        ) : null}
       </View>
 
       <View style={styles.headerDivider} />
@@ -1989,6 +2048,9 @@ export default function Home() {
   const [toastVisible, setToastVisible] = useState(false);
   const [sessionAvatarSource, setSessionAvatarSource] = useState(null);
   const [sessionNewUserFrameSource, setSessionNewUserFrameSource] = useState(null);
+  const [vipEntryFrameSource, setVipEntryFrameSource] = useState(null);
+  const [vipEntryFrameSlices, setVipEntryFrameSlices] = useState(null);
+  const [vipProfileFrameSource, setVipProfileFrameSource] = useState(null);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
   const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
   const [genderPickerVisible, setGenderPickerVisible] = useState(false);
@@ -2006,6 +2068,36 @@ export default function Home() {
     } catch {
       setSessionAvatarSource(null);
       setSessionNewUserFrameSource(null);
+    }
+
+    try {
+      const vipAssets = await loadMyVipAssets();
+      if (vipAssets.unlocked && vipAssets.entryFrame) {
+        // Pre-sliced (ring/rod/badge) rendering only exists for the tier-1
+        // fallback asset so far — use it when that's what came back, since
+        // it renders far better than a single stretched image. Any other
+        // (real API-provided) entry frame falls back to the single-image
+        // overlay, since we don't have slice boundaries for those.
+        if (vipAssets.entryFrame === VIP_TIER1_FALLBACK_ASSETS.entryFrame) {
+          setVipEntryFrameSlices(VIP_TIER1_ENTRY_FRAME_SLICES);
+          setVipEntryFrameSource(null);
+        } else {
+          setVipEntryFrameSlices(null);
+          setVipEntryFrameSource(resolveImageSource(vipAssets.entryFrame));
+        }
+      } else {
+        setVipEntryFrameSlices(null);
+        setVipEntryFrameSource(null);
+      }
+      setVipProfileFrameSource(
+        vipAssets.unlocked && vipAssets.profileFrame
+          ? resolveImageSource(vipAssets.profileFrame)
+          : null
+      );
+    } catch {
+      setVipEntryFrameSlices(null);
+      setVipEntryFrameSource(null);
+      setVipProfileFrameSource(null);
     }
   }, []);
 
@@ -2595,6 +2687,9 @@ export default function Home() {
       walletDiamonds={walletDiamonds}
       sessionAvatarSource={sessionAvatarSource}
       sessionNewUserFrameSource={sessionNewUserFrameSource}
+      vipEntryFrameSource={vipEntryFrameSource}
+      vipEntryFrameSlices={vipEntryFrameSlices}
+      vipProfileFrameSource={vipProfileFrameSource}
       stats={stats}
       unreadNotifications={unreadNotifications}
       recommendedUsers={recommendedUsers}
@@ -2610,7 +2705,7 @@ export default function Home() {
       onComingSoon={setComingSoonFeature}
       router={router}
     />
-  ), [userProfile, walletDiamonds, sessionAvatarSource, sessionNewUserFrameSource, stats, unreadNotifications, recommendedUsers, selectedTab,
+  ), [userProfile, walletDiamonds, sessionAvatarSource, sessionNewUserFrameSource, vipEntryFrameSource, vipEntryFrameSlices, vipProfileFrameSource, stats, unreadNotifications, recommendedUsers, selectedTab,
       handleTabPress, openSearch, openNotif, openGifts, handleNearbyPress, router]);
 
   return (
@@ -3508,6 +3603,50 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: s(8),
+  },
+  // Sized at the source image's own ~1.5:1 aspect ratio (1536x1024) so
+  // contentFit="contain" never has to distort it. Anchored over the avatar
+  // with a little bleed, not stretched across the row — offsets are a
+  // starting estimate, nudge left/top if the ring doesn't sit exactly on
+  // the avatar once checked on a device.
+  vipEntryFrameOverlay: {
+    position: "absolute",
+    left: -s(10),
+    top: -s(13),
+    width: s(132),
+    height: s(88),
+  },
+  // 3-piece entrance frame (ring / stretchable rod / badge) — see
+  // VIP_TIER1_ENTRY_FRAME_SLICES. flex-start (not center) because each
+  // piece's own connecting-bar line sits at a different fraction of its own
+  // crop height; marginTop below was computed per-piece from those measured
+  // fractions so all 3 connecting lines land on the same horizontal line
+  // instead of each crop's visual center lining up (which would misalign
+  // them). All estimates from static image analysis — verify on a device.
+  vipEntryFrameSliceRow: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    overflow: "visible",
+  },
+  // Hole center sits at ~60% of this crop's width / ~49% of its height —
+  // shifted left via negative marginLeft so the hole lines up with the
+  // avatar (which starts at the row's left edge) instead of the ring's own
+  // left edge.
+  vipEntryFrameRing: {
+    width: s(109),
+    height: s(93),
+    marginLeft: -s(34),
+    marginTop: -s(9),
+  },
+  vipEntryFrameRod: {
+    flex: 1,
+    height: s(18),
+  },
+  vipEntryFrameBadge: {
+    width: s(78),
+    height: s(85),
+    marginTop: -s(15),
   },
   avatarWrapper: {
     position: "relative",

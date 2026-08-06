@@ -16,6 +16,8 @@ export default function RoomUserProfilePopup({
   visible,
   user,
   avatarSource = null,
+  frameSource = null,
+  logoSource = null,
   loading = false,
   isFollowing = false,
   followLoading = false,
@@ -62,6 +64,7 @@ export default function RoomUserProfilePopup({
                 <ProfileAvatarWithFrame
                   user={user}
                   avatarSource={resolvedAvatarSource}
+                  frameSource={frameSource}
                   size={80}
                   avatarStyle={styles.avatar}
                   placeholderStyle={styles.avatarFallback}
@@ -71,9 +74,14 @@ export default function RoomUserProfilePopup({
                 />
               </View>
 
-              <Text style={styles.name} numberOfLines={1}>
-                {displayName}
-              </Text>
+              <View style={styles.nameRow}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {displayName}
+                </Text>
+                {logoSource && (
+                  <Image source={{ uri: logoSource }} style={styles.vipLogo} resizeMode="contain" />
+                )}
+              </View>
               <Text style={styles.username} numberOfLines={1}>
                 @{username}
               </Text>
@@ -173,12 +181,24 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: "800",
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+    maxWidth: "100%",
+  },
   name: {
     color: "white",
     fontSize: 18,
     fontWeight: "800",
-    marginBottom: 4,
     maxWidth: "100%",
+    flexShrink: 1,
+  },
+  vipLogo: {
+    width: 22,
+    height: 22,
+    flexShrink: 0,
   },
   username: {
     color: "rgba(255,255,255,0.65)",

@@ -93,6 +93,8 @@ import { loadUserDetail } from "../src/services/nearbyService";
 import { resolveVideoSource, resolveImageSource } from "../src/utils/videoSource";
 import * as partyVoice from "../src/services/partyVoiceService";
 import * as agoraVoice from "../src/services/agoraVoiceService";
+import { loadMyVipAssets } from "../src/services/vipService";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 import {
   ArrowLeft,
   Share2,
@@ -404,6 +406,17 @@ export default function VoiceParty() {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
   const [messages, setMessages] = useState([]);
+  // The logged-in user's own VIP cosmetics (profile/entry/chat frame + logo) —
+  // unlocked once their gamification totalXp crosses VIP_XP_THRESHOLD. Only
+  // covers the CURRENT user for now; other participants' VIP status isn't
+  // available from the room/chat payloads yet.
+  const [myVipAssets, setMyVipAssets] = useState({
+    unlocked: false,
+    profileFrame: null,
+    entryFrame: null,
+    chatFrame: null,
+    logo: null,
+  });
   // Current name/avatar fetched per-userId for chat senders who aren't in the
   // room's live participant/seat lists — see resolveChatSenderName/Avatar below.
   const [userProfileCache, setUserProfileCache] = useState({});
@@ -912,7 +925,10 @@ export default function VoiceParty() {
       await refreshTokenCache();
       try {
         await syncNewUserFrameForSession();
-        await syncUserLevelForSession();
+        const levelData = await syncUserLevelForSession();
+        loadMyVipAssets(levelData?.xp?.totalXp)
+          .then((vip) => { if (!cancelled) setMyVipAssets(vip); })
+          .catch(() => {});
         let session;
         if (isRandomParty) {
           session = await enterRandomPartySession();
@@ -951,7 +967,10 @@ export default function VoiceParty() {
         }
         setOnlineUsers(session.onlineUsers);
         setOnlineCount(session.onlineCount);
-        setMessages(session.messages);
+        // Chat is session-local: start with a clean screen on every entry
+        // instead of replaying the room's persisted message history.
+        sessionMessageBaselineRef.current = session.messages.length;
+        setMessages([]);
 
         // Deferred reconcile — fetch a fresh room snapshot a few seconds after
         // entry so any ghost/stale seat users the backend cleaned up are removed.
@@ -1114,10 +1133,13 @@ export default function VoiceParty() {
     const unsubChat = wsService.onRoomChat(String(roomId), appendChatMessage);
     const unsubChatSummary = wsService.onRoomChatSummary(String(roomId), async (summary) => {
       const remoteCount = summary?.messageCount;
-      if (remoteCount == null || messageCountRef.current >= remoteCount) return;
+      const baseline = sessionMessageBaselineRef.current;
+      if (remoteCount == null || baseline + messageCountRef.current >= remoteCount) return;
       try {
         const data = await getRoomChatMessages(String(roomId));
-        setMessages(normalizeChatMessages(data));
+        // Only keep messages sent since this session started — never replay
+        // pre-entry history back onto the cleaned screen.
+        setMessages(normalizeChatMessages(data).slice(baseline));
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
       } catch {
         // logged in partyApi
@@ -1492,6 +1514,10 @@ export default function VoiceParty() {
   const [shareTab, setShareTab] = useState("Recently");
   const scrollRef = useRef(null);
   const messageCountRef = useRef(0);
+  // Total historical message count on the server at the moment this session
+  // entered the room — the chat catch-up sync below uses this so it only ever
+  // re-syncs messages sent DURING this session, never replays pre-entry history.
+  const sessionMessageBaselineRef = useRef(0);
 
   const shareTabs = ["Recently", "Friends", "Followers", "Room Followers"];
 
@@ -2078,7 +2104,13 @@ export default function VoiceParty() {
       ? { ...user, hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame, newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl }
       : user;
     const imageSource = resolveRoomUserAvatarSource(userWithFrame);
-    const frameSource = resolveNewUserFrameSource(userWithFrame);
+    // A mic seat is the user's "entry" into the room — the VIP entry frame
+    // takes priority over the New User frame there. Only known for the
+    // logged-in user right now; other participants' VIP status isn't
+    // available from the room payload yet.
+    const isSelf = userId != null && myUserId != null && userId === String(myUserId);
+    const vipEntryFrame = isSelf && myVipAssets.unlocked ? myVipAssets.entryFrame : null;
+    const frameSource = vipEntryFrame ?? resolveNewUserFrameSource(userWithFrame);
     const hasFrame = Boolean(frameSource);
 
     return (
@@ -2926,6 +2958,16 @@ export default function VoiceParty() {
         visible={Boolean(profilePopupUser || profilePopupLoading)}
         user={profilePopupUser}
         avatarSource={profilePopupAvatarSource}
+        frameSource={
+          isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
+            ? myVipAssets.profileFrame
+            : null
+        }
+        logoSource={
+          isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
+            ? myVipAssets.logo
+            : null
+        }
         loading={profilePopupLoading}
         isFollowing={profilePopupFollowing}
         followLoading={profileFollowLoading}
@@ -3541,7 +3583,12 @@ export default function VoiceParty() {
         <View style={styles.header}>
           {/* Room info + follow button */}
           <View style={styles.ownerSection}>
-            {hostUserLike ? (
+            {roomInfo?.profileImageUrl ? (
+              <Image
+                source={{ uri: roomInfo.profileImageUrl }}
+                style={styles.ownerAvatar}
+              />
+            ) : hostUserLike ? (
               renderRoomUserAvatar(
                 hostUserLike,
                 styles.ownerAvatar,
@@ -3550,11 +3597,7 @@ export default function VoiceParty() {
               )
             ) : (
               <Image
-                source={{
-                  uri:
-                    roomInfo?.profileImageUrl ??
-                    "https://randomuser.me/api/portraits/men/32.jpg",
-                }}
+                source={{ uri: "https://randomuser.me/api/portraits/men/32.jpg" }}
                 style={styles.ownerAvatar}
               />
             )}
@@ -3752,6 +3795,12 @@ export default function VoiceParty() {
                 // later username/avatar change is reflected on old messages too.
                 const senderName = resolveChatSenderName(msg.userId, msg.user);
                 const senderAvatar = resolveChatSenderAvatar(msg.userId) ?? msg.avatar;
+                // VIP chat cosmetics — only known for the logged-in user's own
+                // messages right now; other senders' VIP status isn't available
+                // from the chat payload yet.
+                const isSenderSelf =
+                  msg.userId != null && myUserId != null && String(msg.userId) === String(myUserId);
+                const isSenderVip = isSenderSelf && myVipAssets.unlocked;
 
                 return (
                   <View key={msg.id} style={styles.chatMsg}>
@@ -3762,10 +3811,26 @@ export default function VoiceParty() {
                       }
                     >
                       {senderAvatar ? (
-                        <Image
-                          source={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
-                          style={styles.chatAvatar}
-                        />
+                        isSenderVip ? (
+                          <ProfileAvatarWithFrame
+                            avatarSource={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
+                            frameSource={myVipAssets.profileFrame}
+                            size={32}
+                            avatarStyle={styles.chatAvatar}
+                            frameScale={VIP_PROFILE_FRAME_LAYOUT.frameScale}
+                            frameResizeMode={VIP_PROFILE_FRAME_LAYOUT.frameResizeMode}
+                            frameOffsetX={VIP_PROFILE_FRAME_LAYOUT.frameOffsetX}
+                            frameOffsetY={VIP_PROFILE_FRAME_LAYOUT.frameOffsetY}
+                            frameBleed={VIP_PROFILE_FRAME_LAYOUT.frameBleed}
+                            avatarBoost={VIP_PROFILE_FRAME_LAYOUT.avatarBoost}
+                            avatarOffsetY={VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY}
+                          />
+                        ) : (
+                          <Image
+                            source={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
+                            style={styles.chatAvatar}
+                          />
+                        )
                       ) : (
                         <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
                           <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>
@@ -3775,6 +3840,14 @@ export default function VoiceParty() {
                       )}
                     </TouchableOpacity>
                     <View style={styles.chatBubble}>
+                      {isSenderVip && myVipAssets.chatFrame && (
+                        <Image
+                          source={{ uri: myVipAssets.chatFrame }}
+                          style={StyleSheet.absoluteFillObject}
+                          resizeMode="stretch"
+                          pointerEvents="none"
+                        />
+                      )}
                       <View style={styles.chatMeta}>
                         <TouchableOpacity
                           activeOpacity={0.75}
@@ -3790,6 +3863,13 @@ export default function VoiceParty() {
                         {msg.userId != null && (userFrameData[String(msg.userId)]?.hasNewUserFrame ?? false) && (
                           <Image
                             source={NEW_START_BADGE}
+                            style={styles.newStartBadge}
+                            resizeMode="contain"
+                          />
+                        )}
+                        {isSenderVip && myVipAssets.logo && (
+                          <Image
+                            source={{ uri: myVipAssets.logo }}
                             style={styles.newStartBadge}
                             resizeMode="contain"
                           />
@@ -4338,6 +4418,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 8,
     flex: 1,
+    overflow: "hidden",
   },
   chatMeta: {
     flexDirection: "row",

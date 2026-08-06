@@ -18,9 +18,11 @@ export const resolveVideoSource = (uri) => {
   return url;
 };
 
-/** Image source with ngrok headers when needed. */
+/** Image source with ngrok headers when needed. Passes local require() asset
+ *  ids (numbers) straight through — only remote URLs get wrapped/stringified. */
 export const resolveImageSource = (uri) => {
   if (!uri) return null;
+  if (typeof uri === "number") return uri;
   const headers = ngrokMediaHeaders();
   return headers ? { uri: String(uri), headers } : { uri: String(uri) };
 };

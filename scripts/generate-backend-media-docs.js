@@ -6,7 +6,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const API_BASE = "https://neatly-twisted-agile.ngrok-free.dev";
+const API_BASE = "https://api.tuktuk.live";
 const MEDIA_PREFIX = "/api/public/media/";
 
 const publicUrl = (storagePath) => `${API_BASE}${MEDIA_PREFIX}${storagePath}`;

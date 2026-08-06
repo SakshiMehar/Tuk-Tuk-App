@@ -6,15 +6,13 @@ import {
   parseNewUserFrameResponse,
   resolveNewUserFrameSource,
   userHasNewUserFrame,
-  isRecentlyCreatedAccount,
 } from "../utils/newUserFrame";
 import { loadMyProfile, resolveRemoteProfilePicUrl } from "./meProfileService";
 
 export const shouldUserHaveNewUserFrame = (authData, profile, user) =>
   extractIsNewUser(authData) ||
   Boolean(profile?.hasNewUserFrame) ||
-  Boolean(user?.hasNewUserFrame) ||
-  isRecentlyCreatedAccount(profile?.createdAt ?? user?.createdAt);
+  Boolean(user?.hasNewUserFrame);
 
 export const fetchNewUserFrameAssetUrl = async () => {
   try {
@@ -76,8 +74,7 @@ export const syncNewUserFrameForSession = async () => {
 
   const shouldApply =
     Boolean(profile?.hasNewUserFrame) ||
-    userHasNewUserFrame(user) ||
-    isRecentlyCreatedAccount(profile?.createdAt ?? user?.createdAt);
+    userHasNewUserFrame(user);
 
   if (!shouldApply) {
     return null;

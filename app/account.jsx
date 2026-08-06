@@ -36,6 +36,8 @@ import {
 } from "../src/data/avatarOptions";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
+import { loadMyVipAssets } from "../src/services/vipService";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 import ProfileAvatarWithFrame from "../Components/ProfileAvatarWithFrame";
 import {
   COUNTRY_OPTIONS,
@@ -101,6 +103,7 @@ export default function Account() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
   const [newUserFrameSource, setNewUserFrameSource] = useState(null);
+  const [vipProfileFrame, setVipProfileFrame] = useState(null);
   const currentAvatar = resolveProfileAvatarSource({
     avatarId: profile.avatarId,
     useLocalAvatar: profile.useLocalAvatar,
@@ -281,6 +284,9 @@ export default function Account() {
           const frameSource = await syncNewUserFrameForSession();
           if (!cancelled) setNewUserFrameSource(frameSource);
 
+          const vipAssets = await loadMyVipAssets().catch(() => null);
+          if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
+
           const useLocalAvatar = Boolean(user?.useLocalAvatar);
           const storedProfile = {
             name: user?.nickname ?? user?.name ?? "",
@@ -375,10 +381,21 @@ export default function Account() {
               <View style={styles.avatarWrapper}>
                 <ProfileAvatarWithFrame
                   avatarSource={currentAvatar}
-                  frameSource={newUserFrameSource}
+                  frameSource={vipProfileFrame ?? newUserFrameSource}
                   size={104}
                   avatarStyle={styles.accountAvatar}
                   wrapperStyle={styles.accountAvatarFrameWrap}
+                  {...(vipProfileFrame
+                    ? {
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
+                    : {})}
                 />
               </View>
             </View>

@@ -13,7 +13,8 @@
 // Auth: Authorization: Bearer <JWT>  |  Content-Type: application/json
 // ============================================================
 
-import API, { authRequestConfig } from "./axios";
+import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
+import { API_BASE_URL, isNgrokBaseUrl } from "../config/env";
 
 const LOG_TAG = "[PartyAPI]";
 
@@ -30,6 +31,25 @@ const logError = (method, path, error) => {
     `${LOG_TAG} ✗ ${method} ${path}`,
     error?.response?.data ?? error?.message ?? error
   );
+};
+
+const fallbackMimeType = (uri) => {
+  const ext = uri?.split("?")?.[0]?.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase();
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "heic") return "image/heic";
+  if (ext === "heif") return "image/heif";
+  return "image/jpeg";
+};
+
+const parseResponseBody = async (response) => {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 };
 
 export const getRoomRecommendations = async () => {
@@ -101,6 +121,70 @@ export const createRoomForUser = async (roomId, body = {}) => {
     return response.data;
   } catch (error) {
     logError("POST", path, error);
+    throw error;
+  }
+};
+
+/**
+ * PATCH /api/v1/tuktuk/rooms/{roomId} — update room fields. Used here for
+ * setting the room's profile/cover photo after creation. NOTE: the multipart
+ * field name for the image ("image") is a best guess, matching this app's
+ * uploadMyProfilePic convention — adjust if the backend expects something
+ * else (e.g. "icon", matching the family-cover endpoint instead).
+ */
+export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fields } = {}) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}`;
+
+  if (!imageUri) {
+    logRequest("PATCH", path, fields);
+    try {
+      const response = await API.patch(path, fields, await authRequestConfig());
+      logResponse("PATCH", path, response.data);
+      return response.data;
+    } catch (error) {
+      logError("PATCH", path, error);
+      throw error;
+    }
+  }
+
+  await refreshTokenCache();
+  const token = await getBearerToken();
+  if (!token) throw new Error("Please log in again to continue.");
+
+  const form = new FormData();
+  form.append("image", {
+    uri: imageUri,
+    type: mimeType ?? fallbackMimeType(imageUri),
+    name: fileName ?? "room-cover.jpg",
+  });
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value != null) form.append(key, String(value));
+  });
+
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
+  };
+
+  logRequest("PATCH", path, { image: fileName ?? imageUri, ...fields });
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "PATCH",
+      headers,
+      body: form,
+    });
+    const data = await parseResponseBody(response);
+    if (!response.ok) {
+      const message = data?.message ?? data?.error ?? `Room update failed (${response.status})`;
+      const err = new Error(message);
+      err.status = response.status;
+      err.responseData = data;
+      throw err;
+    }
+    logResponse("PATCH", path, data);
+    return data;
+  } catch (error) {
+    logError("PATCH", path, error);
     throw error;
   }
 };

@@ -33,6 +33,9 @@ import {
   submitFeedback,
 } from "../src/services/userSettingsService";
 import ClearChatCacheModal from "../Components/ClearChatCacheModal";
+import ProfileAvatarWithFrame from "../Components/ProfileAvatarWithFrame";
+import { loadMyVipAssets } from "../src/services/vipService";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 
 const DELETE_ACCOUNT_REASONS = [
   "Privacy concerns",
@@ -120,10 +123,14 @@ export default function Settings() {
 
   const [loggingOut, setLoggingOut] = useState(false);
   const [currentUserAvatar, setCurrentUserAvatar] = useState(null);
+  const [vipProfileFrame, setVipProfileFrame] = useState(null);
 
   useEffect(() => {
     getUser().then((u) => {
       if (u) setCurrentUserAvatar(u.avatarUrl ?? u.avatar ?? u.profileImage ?? null);
+    }).catch(() => {});
+    loadMyVipAssets().then((vipAssets) => {
+      setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
     }).catch(() => {});
   }, []);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
@@ -570,13 +577,26 @@ export default function Settings() {
                   {/* Profile display area */}
                   <View style={styles.profileDisplayArea}>
                     <View style={styles.profileCircle}>
-                      <Image
-                        source={
+                      <ProfileAvatarWithFrame
+                        avatarSource={
                           currentUserAvatar
                             ? { uri: currentUserAvatar }
                             : require("../assets/images/splash-icon.png")
                         }
-                        style={styles.profileImage}
+                        frameSource={vipProfileFrame}
+                        size={112}
+                        avatarStyle={styles.profileImage}
+                        {...(vipProfileFrame
+                          ? {
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
+                          : {})}
                       />
                     </View>
                   </View>
@@ -1518,8 +1538,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   profileImage: {
-    width: "100%",
-    height: "100%",
+    width: 112,
+    height: 112,
     borderRadius: 56,
   },
   closeButtonMatch: {
