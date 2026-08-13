@@ -19,6 +19,7 @@ import { getToken } from "../store/authStore";
 import { resolveAppUserId } from "../utils/sessionUser";
 import { API_BASE_URL } from "../config/env";
 import { entityHasNewUserFrame } from "../utils/newUserFrame";
+import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
 
 // Backend returns relative paths like "/uploads/feed/abc.jpg".
 // React Native Image requires a full https:// URL.
@@ -106,6 +107,7 @@ const normalizeRecommendedUser = (user) => {
         profile?.photoUrl
       )) ?? null,
     isOnline: Boolean(user?.isOnline ?? user?.online ?? profile?.isOnline),
+    vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
   };
 };
 

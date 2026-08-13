@@ -47,11 +47,8 @@ import { isBundledAvatarId, getAvatarSource } from "../../src/data/avatarOptions
 import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import { loadMyVipAssets } from "../../src/services/vipService";
-import {
-  VIP_PROFILE_FRAME_LAYOUT,
-  VIP_TIER1_FALLBACK_ASSETS,
-  VIP_TIER1_ENTRY_FRAME_SLICES,
-} from "../../src/constants/vip";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
 import { resolveImageSource } from "../../src/utils/videoSource";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
@@ -350,10 +347,22 @@ const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete,
                     start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                     style={moreMenuStyles.friendRing}
                   >
-                    <Image
-                      source={toImageSource(item.avatar)}
-                      style={moreMenuStyles.friendAvatar}
-                      cachePolicy="memory-disk"
+                    <ProfileAvatarWithFrame
+                      avatarSource={toImageSource(item.avatar)}
+                      frameSource={item.vipProfileFrameUrl}
+                      size={52}
+                      avatarStyle={moreMenuStyles.friendAvatar}
+                      {...(item.vipProfileFrameUrl
+                        ? {
+                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                            frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                            frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                            frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                            avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                          }
+                        : {})}
                     />
                   </LinearGradient>
                   <Text style={moreMenuStyles.friendName} numberOfLines={1}>{item.name}</Text>
@@ -1506,7 +1515,7 @@ const toImageSource = (uri) => {
     : { uri };
 };
 
-const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, currentUserId, currentUserAvatarSource, currentUserFrameSource }) => {
+const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, currentUserId, currentUserAvatarSource, currentUserFrameSource, currentUserVipFrameSource }) => {
   const [imgFailed, setImgFailed] = useState(false);
   const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
   const postAvatarSource =
@@ -1515,8 +1524,9 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
       : post.avatar
         ? toImageSource(post.avatar)
         : null;
+  const isOwnVipFrame = isOwnPost && Boolean(currentUserVipFrameSource);
   const postFrameSource = isOwnPost
-    ? currentUserFrameSource
+    ? currentUserVipFrameSource ?? currentUserFrameSource
     : resolveEntityNewUserFrameSource({ hasNewUserFrame: post.authorHasNewUserFrame });
   // Resolve media — prefer CDN URL, fall back to local URI picked from device
   const imageUri  = post.imageUrl      ?? post._localMediaUri ?? null;
@@ -1535,6 +1545,17 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
             size={42}
             avatarStyle={styles.postAvatar}
             imageComponent={Image}
+            {...(isOwnVipFrame
+              ? {
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
+              : {})}
           />
         ) : (
           <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
@@ -1632,7 +1653,23 @@ const RecommendedUserItem = memo(({ user }) => (
       style={styles.recommendAvatarRing}
     >
       {user.avatar ? (
-        <Image source={toImageSource(user.avatar)} style={styles.recommendAvatar} cachePolicy="memory-disk" transition={150} />
+        <ProfileAvatarWithFrame
+          avatarSource={toImageSource(user.avatar)}
+          frameSource={user.vipProfileFrameUrl}
+          size={s(66)}
+          avatarStyle={{ borderRadius: 33 }}
+          {...(user.vipProfileFrameUrl
+            ? {
+                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+              }
+            : {})}
+        />
       ) : (
         <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
           <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -1710,8 +1747,6 @@ const HomeHeader = memo(({
   walletDiamonds,
   sessionAvatarSource,
   sessionNewUserFrameSource,
-  vipEntryFrameSource,
-  vipEntryFrameSlices,
   vipProfileFrameSource,
   stats,
   unreadNotifications,
@@ -1758,12 +1793,12 @@ const HomeHeader = memo(({
           <View style={styles.appNameWrapper}>
             {/* Thin #7f3f89 outline — 8 directions at 1px */}
             {[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]].map(([dx, dy], i) => (
-              <Text key={i} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} allowFontScaling={false} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
+              <Text key={i} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} allowFontScaling={false} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
                 Tuk Tuk
               </Text>
             ))}
             {/* White text on top */}
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} allowFontScaling={false} style={styles.appName}>Tuk Tuk</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} allowFontScaling={false} style={styles.appName}>Tuk Tuk</Text>
           </View>
         </View>
         <View style={styles.headerIcons}>
@@ -1794,44 +1829,6 @@ const HomeHeader = memo(({
             </View>
           </TouchableOpacity>
         </View>
-        {/* VIP entrance frame — decorative overlay spanning the whole row,
-            shown once the user has crossed the VIP XP threshold. Rendered
-            last so it paints on top; its hollow ring/gaps are transparent
-            so the row's real content still shows through underneath.
-            Preferred form: 3 separate pieces (ring / stretchable middle rod
-            / badge) laid out with flexbox — the middle rod flexes to fill
-            whatever gap remains, so ring and badge never distort regardless
-            of the row's actual rendered width on a given device. Falls back
-            to a single (non-sliced) image, scaled to its own aspect ratio
-            and left-anchored over the avatar, when we don't have slices for
-            the specific entry frame in use (only tier 1's fallback asset is
-            sliced so far). */}
-        {vipEntryFrameSlices ? (
-          <View style={styles.vipEntryFrameSliceRow} pointerEvents="none">
-            <Image
-              source={vipEntryFrameSlices.ring}
-              style={styles.vipEntryFrameRing}
-              contentFit="contain"
-            />
-            <Image
-              source={vipEntryFrameSlices.rod}
-              style={styles.vipEntryFrameRod}
-              contentFit="fill"
-            />
-            <Image
-              source={vipEntryFrameSlices.badge}
-              style={styles.vipEntryFrameBadge}
-              contentFit="contain"
-            />
-          </View>
-        ) : vipEntryFrameSource ? (
-          <Image
-            source={vipEntryFrameSource}
-            style={styles.vipEntryFrameOverlay}
-            contentFit="contain"
-            pointerEvents="none"
-          />
-        ) : null}
       </View>
 
       <View style={styles.headerDivider} />
@@ -2048,8 +2045,6 @@ export default function Home() {
   const [toastVisible, setToastVisible] = useState(false);
   const [sessionAvatarSource, setSessionAvatarSource] = useState(null);
   const [sessionNewUserFrameSource, setSessionNewUserFrameSource] = useState(null);
-  const [vipEntryFrameSource, setVipEntryFrameSource] = useState(null);
-  const [vipEntryFrameSlices, setVipEntryFrameSlices] = useState(null);
   const [vipProfileFrameSource, setVipProfileFrameSource] = useState(null);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
   const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
@@ -2072,31 +2067,12 @@ export default function Home() {
 
     try {
       const vipAssets = await loadMyVipAssets();
-      if (vipAssets.unlocked && vipAssets.entryFrame) {
-        // Pre-sliced (ring/rod/badge) rendering only exists for the tier-1
-        // fallback asset so far — use it when that's what came back, since
-        // it renders far better than a single stretched image. Any other
-        // (real API-provided) entry frame falls back to the single-image
-        // overlay, since we don't have slice boundaries for those.
-        if (vipAssets.entryFrame === VIP_TIER1_FALLBACK_ASSETS.entryFrame) {
-          setVipEntryFrameSlices(VIP_TIER1_ENTRY_FRAME_SLICES);
-          setVipEntryFrameSource(null);
-        } else {
-          setVipEntryFrameSlices(null);
-          setVipEntryFrameSource(resolveImageSource(vipAssets.entryFrame));
-        }
-      } else {
-        setVipEntryFrameSlices(null);
-        setVipEntryFrameSource(null);
-      }
       setVipProfileFrameSource(
         vipAssets.unlocked && vipAssets.profileFrame
           ? resolveImageSource(vipAssets.profileFrame)
           : null
       );
     } catch {
-      setVipEntryFrameSlices(null);
-      setVipEntryFrameSource(null);
       setVipProfileFrameSource(null);
     }
   }, []);
@@ -2355,6 +2331,7 @@ export default function Home() {
             level: u.level ?? null,
             vip: Boolean(u.vip),
             status: u.status ?? null,
+            vipProfileFrameUrl: u.vipProfileFrameUrl ?? extractVipProfileFrameUrl(u),
             colors: ["#3d1a6e", "#5b2d8e"],
           }));
         // Keep feature matches, replace any previous user rows.
@@ -2375,6 +2352,7 @@ export default function Home() {
       level: result.level,
       vip: result.vip,
       status: result.status,
+      vipProfileFrameUrl: result.vipProfileFrameUrl ?? null,
       isOnline: Boolean(result.subtitle && result.subtitle.includes("Online")),
     });
     setSearchProfileLoading(true);
@@ -2653,9 +2631,10 @@ export default function Home() {
         currentUserId={currentUserId}
         currentUserAvatarSource={sessionAvatarSource}
         currentUserFrameSource={sessionNewUserFrameSource}
+        currentUserVipFrameSource={vipProfileFrameSource}
       />
     );
-  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, currentUserId, sessionAvatarSource, sessionNewUserFrameSource]);
+  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, currentUserId, sessionAvatarSource, sessionNewUserFrameSource, vipProfileFrameSource]);
 
   const keyExtractor = useCallback((item) => String(item.id), []);
 
@@ -2687,8 +2666,6 @@ export default function Home() {
       walletDiamonds={walletDiamonds}
       sessionAvatarSource={sessionAvatarSource}
       sessionNewUserFrameSource={sessionNewUserFrameSource}
-      vipEntryFrameSource={vipEntryFrameSource}
-      vipEntryFrameSlices={vipEntryFrameSlices}
       vipProfileFrameSource={vipProfileFrameSource}
       stats={stats}
       unreadNotifications={unreadNotifications}
@@ -2705,7 +2682,7 @@ export default function Home() {
       onComingSoon={setComingSoonFeature}
       router={router}
     />
-  ), [userProfile, walletDiamonds, sessionAvatarSource, sessionNewUserFrameSource, vipEntryFrameSource, vipEntryFrameSlices, vipProfileFrameSource, stats, unreadNotifications, recommendedUsers, selectedTab,
+  ), [userProfile, walletDiamonds, sessionAvatarSource, sessionNewUserFrameSource, vipProfileFrameSource, stats, unreadNotifications, recommendedUsers, selectedTab,
       handleTabPress, openSearch, openNotif, openGifts, handleNearbyPress, router]);
 
   return (
@@ -2813,7 +2790,23 @@ export default function Home() {
                       }}
                     >
                       {result.type === "user" && result.avatar ? (
-                        <Image source={toImageSource(result.avatar)} style={styles.resultIconBox} contentFit="cover" />
+                        <ProfileAvatarWithFrame
+                          avatarSource={toImageSource(result.avatar)}
+                          frameSource={result.vipProfileFrameUrl}
+                          size={44}
+                          avatarStyle={styles.resultIconBox}
+                          {...(result.vipProfileFrameUrl
+                            ? {
+                                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                              }
+                            : {})}
+                        />
                       ) : (
                         <LinearGradient
                           colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
@@ -3266,7 +3259,23 @@ export default function Home() {
               style={styles.searchProfileHero}
             >
               {searchProfile?.avatar ? (
-                <Image source={toImageSource(searchProfile.avatar)} style={styles.searchProfileAvatar} contentFit="cover" />
+                <ProfileAvatarWithFrame
+                  avatarSource={toImageSource(searchProfile.avatar)}
+                  frameSource={searchProfile.vipProfileFrameUrl}
+                  size={110}
+                  avatarStyle={styles.searchProfileAvatar}
+                  {...(searchProfile.vipProfileFrameUrl
+                    ? {
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
+                    : {})}
+                />
               ) : (
                 <Text style={styles.searchProfileEmoji}>👤</Text>
               )}
@@ -3595,58 +3604,14 @@ const styles = StyleSheet.create({
     borderRadius: s(22),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: s(12),
+    paddingHorizontal: s(14),
     paddingVertical: vs(10),
     gap: vs(10),
   },
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(8),
-  },
-  // Sized at the source image's own ~1.5:1 aspect ratio (1536x1024) so
-  // contentFit="contain" never has to distort it. Anchored over the avatar
-  // with a little bleed, not stretched across the row — offsets are a
-  // starting estimate, nudge left/top if the ring doesn't sit exactly on
-  // the avatar once checked on a device.
-  vipEntryFrameOverlay: {
-    position: "absolute",
-    left: -s(10),
-    top: -s(13),
-    width: s(132),
-    height: s(88),
-  },
-  // 3-piece entrance frame (ring / stretchable rod / badge) — see
-  // VIP_TIER1_ENTRY_FRAME_SLICES. flex-start (not center) because each
-  // piece's own connecting-bar line sits at a different fraction of its own
-  // crop height; marginTop below was computed per-piece from those measured
-  // fractions so all 3 connecting lines land on the same horizontal line
-  // instead of each crop's visual center lining up (which would misalign
-  // them). All estimates from static image analysis — verify on a device.
-  vipEntryFrameSliceRow: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    overflow: "visible",
-  },
-  // Hole center sits at ~60% of this crop's width / ~49% of its height —
-  // shifted left via negative marginLeft so the hole lines up with the
-  // avatar (which starts at the row's left edge) instead of the ring's own
-  // left edge.
-  vipEntryFrameRing: {
-    width: s(109),
-    height: s(93),
-    marginLeft: -s(34),
-    marginTop: -s(9),
-  },
-  vipEntryFrameRod: {
-    flex: 1,
-    height: s(18),
-  },
-  vipEntryFrameBadge: {
-    width: s(78),
-    height: s(85),
-    marginTop: -s(15),
+    gap: s(6),
   },
   avatarWrapper: {
     position: "relative",
@@ -3683,10 +3648,10 @@ const styles = StyleSheet.create({
     lineHeight: ms(14),
   },
   appName: {
-    fontSize: ms(22),
+    fontSize: 15,
     fontWeight: "900",
     color: "white",
-    lineHeight: ms(28),
+    lineHeight: 19,
   },
   appNameWrapper: {
     position: "relative",
@@ -3698,51 +3663,51 @@ const styles = StyleSheet.create({
   headerIcons: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 3,
   },
   diamondPill: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(80,50,160,0.6)",
-    borderRadius: s(16),
-    paddingHorizontal: s(8),
-    paddingVertical: vs(5),
+    borderRadius: s(14),
+    paddingHorizontal: s(6),
+    paddingVertical: vs(4),
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.5)",
-    gap: s(3),
+    gap: s(2),
   },
-  diamondEmoji: { fontSize: ms(12) },
+  diamondEmoji: { fontSize: ms(10) },
   diamondCount: {
     color: "white",
-    fontSize: ms(12),
+    fontSize: ms(10),
     fontWeight: "700",
   },
   diamondPlusBtn: {
-    width: s(18),
-    height: s(18),
-    borderRadius: s(9),
+    width: s(15),
+    height: s(15),
+    borderRadius: s(8),
     backgroundColor: "#7c3aed",
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: s(2),
+    marginLeft: s(1),
   },
   diamondPlusText: {
     color: "white",
-    fontSize: ms(13),
+    fontSize: ms(11),
     fontWeight: "800",
-    lineHeight: ms(14),
+    lineHeight: ms(12),
   },
   headerIconBtn: {
-    width: s(34),
-    height: s(34),
-    borderRadius: s(17),
+    width: s(28),
+    height: s(28),
+    borderRadius: s(14),
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerIconEmoji: { fontSize: ms(16) },
+  headerIconEmoji: { fontSize: ms(13) },
   headerIconBadge: {
     position: "absolute",
     top: -3,

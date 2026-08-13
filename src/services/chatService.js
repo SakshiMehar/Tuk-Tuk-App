@@ -1,4 +1,5 @@
 import { getChats, getUserMessages, markUserMessagesRead } from "../api/chatApi";
+import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
@@ -104,6 +105,7 @@ const normalizeConversation = (conversation) => {
     verified: Boolean(conversation?.verified ?? peer?.verified ?? peer?.vip),
     live: Boolean(conversation?.live ?? conversation?.isLive ?? peer?.isLive),
     liked: Boolean(conversation?.liked),
+    vipProfileFrameUrl: extractVipProfileFrameUrl(conversation) ?? extractVipProfileFrameUrl(peer),
   };
 };
 

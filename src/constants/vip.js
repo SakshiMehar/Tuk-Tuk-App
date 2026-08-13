@@ -30,6 +30,36 @@ export const VIP_TIER1_ENTRY_FRAME_SLICES = {
   badge: require("../../assets/entranceFrames/slices/VipEntryFrame1_badge.png"),
 };
 
+/** Whole (non-sliced) chat-frame image per VIP tier, trimmed down to just the
+ *  border artwork. The raw S3 chatFrame PNGs draw their gold border across
+ *  only a band in the middle of a much taller/wider canvas (lots of fully
+ *  transparent margin above/below/around it) — stretching that raw canvas
+ *  straight onto a chat bubble squashed the border into the wrong part of
+ *  the box instead of framing it. Each of these is the SAME source S3 image
+ *  with that dead transparent margin cropped off (measured per tier via
+ *  alpha-channel bounding box), so a single plain `resizeMode="stretch"`
+ *  Image now lines the border up with the bubble's actual edges — one whole
+ *  image per tier, not split into pieces.
+ *
+ *  The crop keeps the FULL crown/gem flourish on the VIP badge, which in
+ *  every tier's source art sticks up (and slightly down) past the border
+ *  rectangle itself — cropping tightly to the rectangle alone chopped the
+ *  crown off. `topFrac`/`bottomFrac` say how much taller than the bubble
+ *  the image needs to render (as a fraction of the border-rail's own
+ *  height) so the rail still lines up exactly with the bubble's edges
+ *  while the crown/gem bleeds above/below it instead of being clipped —
+ *  see VipChatFrameBorder's use of these in voice-party.jsx. */
+export const VIP_CHAT_FRAME_FITTED_BY_TIER = {
+  1: { source: require("../../assets/chatFrames/fitted/VipChatFrame1.png"), topFrac: 0.163, bottomFrac: 0.0072 },
+  2: { source: require("../../assets/chatFrames/fitted/VipChatFrame2.png"), topFrac: 0.2107, bottomFrac: 0.01 },
+  3: { source: require("../../assets/chatFrames/fitted/VipChatFrame3.png"), topFrac: 0.1724, bottomFrac: 0.0108 },
+  4: { source: require("../../assets/chatFrames/fitted/VipChatFrame4.png"), topFrac: 0.23, bottomFrac: 0.0064 },
+  5: { source: require("../../assets/chatFrames/fitted/VipChatFrame5.png"), topFrac: 0.1873, bottomFrac: 0.0095 },
+  6: { source: require("../../assets/chatFrames/fitted/VipChatFrame6.png"), topFrac: 0.2201, bottomFrac: 0.0063 },
+  7: { source: require("../../assets/chatFrames/fitted/VipChatFrame7.png"), topFrac: 0.232, bottomFrac: 0.0083 },
+  8: { source: require("../../assets/chatFrames/fitted/VipChatFrame8.png"), topFrac: 0.2727, bottomFrac: 0.017 },
+};
+
 /** Tier-2 VIP cosmetic assets — profileFrame/chatFrame/logo confirmed RGBA. */
 export const VIP_TIER2_ASSETS = {
   profileFrame: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip2/VipProfileFrame2.png",
@@ -38,13 +68,11 @@ export const VIP_TIER2_ASSETS = {
   logo: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip2/viplogo2.png",
 };
 
-/** Tiers 3-8 — logo/profileFrame/chatFrame now provided for all six. NOTE
- *  (file inspection): the following have NO alpha channel (flat RGB) and will
- *  show a baked-in background until re-exported as RGBA:
- *   - chatFrame: tier 3, tier 8
- *   - profileFrame: tier 4, 5, 6, 7, 8
- *   - logo: tier 8
- *  Everything else below is confirmed RGBA. */
+/** Tiers 3-8 — logo/profileFrame/chatFrame now provided for all six.
+ *  All of profileFrame/chatFrame/logo across tiers 1-8 have been re-verified
+ *  (2026-08-13, direct download + alpha-channel inspection) as proper RGBA
+ *  with real transparency — the flat-RGB gap noted here previously has since
+ *  been fixed on the backend/S3 side. */
 export const VIP_TIER3_ASSETS = {
   entryFrame: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip3/VipEntryFrame3.png",
   logo: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip3/viplogo3.png",
@@ -81,6 +109,43 @@ export const VIP_TIER8_ASSETS = {
   logo: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip8/Viplogo8.png",
   profileFrame: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip8/VipProfileFrame8.png",
   chatFrame: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/vip-frame/vip8/VipChatFrame8.png",
+};
+
+/** Single source of truth for "which tier is this XP" — used both by the tier
+ *  carousel (VipCenterPanel) and by loadMyVipAssets (vipService) to pick which
+ *  tier's assets to show. Sorted ascending; exp thresholds for tiers 5-8 are
+ *  placeholders (continuing the 1000/3000/8000/20000 progression) until the
+ *  real values are known — update here, both places will pick it up. */
+export const VIP_TIER_THRESHOLDS = [
+  { tier: 1, exp: VIP_XP_THRESHOLD, assets: VIP_TIER1_FALLBACK_ASSETS },
+  { tier: 2, exp: 3000, assets: VIP_TIER2_ASSETS },
+  { tier: 3, exp: 8000, assets: VIP_TIER3_ASSETS },
+  { tier: 4, exp: 20000, assets: VIP_TIER4_ASSETS },
+  { tier: 5, exp: 50000, assets: VIP_TIER5_ASSETS },
+  { tier: 6, exp: 120000, assets: VIP_TIER6_ASSETS },
+  { tier: 7, exp: 300000, assets: VIP_TIER7_ASSETS },
+  { tier: 8, exp: 700000, assets: VIP_TIER8_ASSETS },
+];
+
+/** Reads the tier number straight off a vip-frame asset URL (e.g. ".../vip-frame/vip3/VipChatFrame3.png" -> 3).
+ *  Assets returned by the real /api/app/vip/me/* endpoints are the authoritative source of the user's tier —
+ *  resolveVipTierForXp() below is only a local XP-threshold guess, used before those endpoints are live/reachable,
+ *  and its thresholds can drift out of sync with whatever the backend actually uses. Preferring the tier baked
+ *  into the asset URL itself (when present) keeps tier-dependent UI like the chat frame consistent with the tier
+ *  already shown elsewhere (e.g. the seat's profile-frame badge), even if the XP-threshold guess disagrees. */
+export const resolveVipTierFromAssetUrl = (url) => {
+  const match = typeof url === "string" ? url.match(/\/vip-frame\/vip(\d+)\//i) : null;
+  return match ? Number(match[1]) : null;
+};
+
+/** Highest tier whose exp threshold `xp` clears, or null if below tier 1. */
+export const resolveVipTierForXp = (xp) => {
+  let current = null;
+  for (const entry of VIP_TIER_THRESHOLDS) {
+    if (xp >= entry.exp) current = entry;
+    else break;
+  }
+  return current;
 };
 
 /** ProfileAvatarWithFrame tuning for the VIP profile-frame ring. The component's

@@ -9,6 +9,7 @@ import { loadOfflineRechargeAgent } from "../src/services/offlineRechargeService
 import { getAppUserId } from "../src/utils/sessionUser";
 import WalletUserCard from "./WalletUserCard";
 import WalletDetailsModal from "./WalletDetailsModal";
+import DiamondRechargeModal from "./DiamondRechargeModal";
 
 const REWARD_GEMS_IMAGE = require("../assets/Treasure/reward-gems.png");
 
@@ -55,6 +56,7 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
   const [agentLoading, setAgentLoading] = useState(false);
   const [userId, setUserId] = useState(null);
   const [detailsVisible, setDetailsVisible] = useState(false);
+  const [rechargeModalVisible, setRechargeModalVisible] = useState(false);
 
   const selectedPackage = useMemo(
     () => packages.find((pkg) => pkg.id === selectedId) ?? null,
@@ -110,7 +112,6 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
   }, [ensureAgent]);
 
   const handleContactUs = () => contactAgentOnWhatsApp(selectedPackage);
-  const handleRechargeNow = () => contactAgentOnWhatsApp(selectedPackage);
 
   return (
     <View>
@@ -270,10 +271,9 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
 
           <View style={{ height: 14 }} />
           <TouchableOpacity
-            style={[styles.primaryBtnWrap, (!selectedPackage || agentLoading) && styles.btnDisabled]}
+            style={styles.primaryBtnWrap}
             activeOpacity={0.85}
-            disabled={!selectedPackage || agentLoading}
-            onPress={handleRechargeNow}
+            onPress={() => setRechargeModalVisible(true)}
           >
             <LinearGradient
               colors={["#f472b6", "#fb923c"]}
@@ -281,17 +281,17 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
               end={{ x: 1, y: 0 }}
               style={styles.primaryBtn}
             >
-              {agentLoading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text style={styles.primaryBtnText}>
-                  {selectedPackage ? `Recharge ${formatInr(selectedPackage.inr)} Now` : "Select a package"}
-                </Text>
-              )}
+              <Text style={styles.primaryBtnText}>Recharge Now</Text>
             </LinearGradient>
           </TouchableOpacity>
         </>
       )}
+
+      <DiamondRechargeModal
+        visible={rechargeModalVisible}
+        onClose={() => setRechargeModalVisible(false)}
+        currentDiamonds={currentDiamonds}
+      />
     </View>
   );
 }
@@ -547,8 +547,5 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "800",
     fontSize: 16,
-  },
-  btnDisabled: {
-    opacity: 0.5,
   },
 });

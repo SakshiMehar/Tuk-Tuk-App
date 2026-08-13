@@ -23,6 +23,13 @@ export default function ProfileAvatarWithFrame({
   imageComponent: ImageComponent = Image,
 }) {
   const resolvedFrame = frameSource ?? resolveNewUserFrameSource(user);
+  // RN's <Image> only accepts a require() number or an { uri } object as
+  // `source` — a bare string silently resolves to nothing (resolveAssetSource
+  // treats any non-null non-object source as a numeric asset id lookup).
+  // VIP frame URLs come through as plain strings, so normalize here once
+  // rather than requiring every call site to remember to wrap them.
+  const frameImageSource =
+    typeof resolvedFrame === "string" ? { uri: resolvedFrame } : resolvedFrame;
   const layout = NEW_USER_FRAME_LAYOUT;
   const resolvedFrameScale = frameScale ?? layout.frameScale;
   const resolvedFrameResizeMode = frameResizeMode ?? layout.frameResizeMode;
@@ -124,7 +131,7 @@ export default function ProfileAvatarWithFrame({
     >
       {avatarContent}
       <Image
-        source={resolvedFrame}
+        source={frameImageSource}
         style={[
           useExpandedFrame
             ? {

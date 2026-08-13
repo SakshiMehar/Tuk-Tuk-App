@@ -83,6 +83,7 @@ import { loadConversations } from "../src/services/chatService";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarUri, resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
@@ -94,7 +95,10 @@ import { resolveVideoSource, resolveImageSource } from "../src/utils/videoSource
 import * as partyVoice from "../src/services/partyVoiceService";
 import * as agoraVoice from "../src/services/agoraVoiceService";
 import { loadMyVipAssets } from "../src/services/vipService";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_CHAT_FRAME_FITTED_BY_TIER,
+} from "../src/constants/vip";
 import {
   ArrowLeft,
   Share2,
@@ -625,9 +629,11 @@ export default function VoiceParty() {
             response?.data?.newUserFrameUrl ??
             response?.data?.frameUrl ??
             null;
+          const vipProfileFrameUrl =
+            extractVipProfileFrameUrl(response) ?? extractVipProfileFrameUrl(response?.data);
           setUserFrameData((prev) => ({
             ...prev,
-            [userId]: { hasNewUserFrame: showFrame, newUserFrameUrl: frameUrl },
+            [userId]: { hasNewUserFrame: showFrame, newUserFrameUrl: frameUrl, vipProfileFrameUrl },
           }));
         })
         .catch((err) => {
@@ -2104,14 +2110,20 @@ export default function VoiceParty() {
       ? { ...user, hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame, newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl }
       : user;
     const imageSource = resolveRoomUserAvatarSource(userWithFrame);
-    // A mic seat is the user's "entry" into the room — the VIP entry frame
-    // takes priority over the New User frame there. Only known for the
-    // logged-in user right now; other participants' VIP status isn't
-    // available from the room payload yet.
+    // Mic seats show the same circular VIP profile-frame ring used everywhere
+    // else in the app — the entry frame (a wide horizontal banner asset) is
+    // only for the one-time "entered the room" moment, not a permanent seat
+    // decoration. Self uses the already-fetched myVipAssets; other seats use
+    // the seat's own ui-assets fetch (fetched.vipProfileFrameUrl) — the
+    // backend embeds this only when that user's own XP clears the threshold.
     const isSelf = userId != null && myUserId != null && userId === String(myUserId);
-    const vipEntryFrame = isSelf && myVipAssets.unlocked ? myVipAssets.entryFrame : null;
-    const frameSource = vipEntryFrame ?? resolveNewUserFrameSource(userWithFrame);
+    const selfVipProfileFrame = isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
+    const otherUserVipProfileFrame =
+      !isSelf && fetched.vipProfileFrameUrl ? { uri: fetched.vipProfileFrameUrl } : null;
+    const isVipProfileFrame = Boolean(selfVipProfileFrame || otherUserVipProfileFrame);
+    const frameSource = selfVipProfileFrame ?? otherUserVipProfileFrame ?? resolveNewUserFrameSource(userWithFrame);
     const hasFrame = Boolean(frameSource);
+    const activeFrameConfig = isVipProfileFrame ? VIP_PROFILE_FRAME_LAYOUT : frameConfig;
 
     return (
       <ProfileAvatarWithFrame
@@ -2119,11 +2131,13 @@ export default function VoiceParty() {
         avatarSource={imageSource}
         frameSource={frameSource}
         size={typeof size === "number" ? size : 48}
-        frameScale={hasFrame ? frameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale}
-        frameResizeMode={hasFrame ? frameConfig.frameResizeMode : "contain"}
-        frameOffsetX={hasFrame ? frameConfig.frameOffsetX : 0}
-        frameOffsetY={hasFrame ? frameConfig.frameOffsetY : 0}
-        frameBleed={hasFrame ? frameConfig.frameBleed : 0}
+        frameScale={hasFrame ? activeFrameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale}
+        frameResizeMode={hasFrame ? activeFrameConfig.frameResizeMode : "contain"}
+        frameOffsetX={hasFrame ? activeFrameConfig.frameOffsetX : 0}
+        frameOffsetY={hasFrame ? activeFrameConfig.frameOffsetY : 0}
+        frameBleed={hasFrame ? activeFrameConfig.frameBleed : 0}
+        avatarBoost={hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost}
+        avatarOffsetY={hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY}
         avatarStyle={imageStyle}
         placeholderStyle={placeholderStyle}
         initialStyle={initialStyle}
@@ -2961,6 +2975,12 @@ export default function VoiceParty() {
         frameSource={
           isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
+            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null
+        }
+        frameLayout={
+          (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked) ||
+          userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
+            ? VIP_PROFILE_FRAME_LAYOUT
             : null
         }
         logoSource={
@@ -3795,12 +3815,48 @@ export default function VoiceParty() {
                 // later username/avatar change is reflected on old messages too.
                 const senderName = resolveChatSenderName(msg.userId, msg.user);
                 const senderAvatar = resolveChatSenderAvatar(msg.userId) ?? msg.avatar;
-                // VIP chat cosmetics — only known for the logged-in user's own
-                // messages right now; other senders' VIP status isn't available
-                // from the chat payload yet.
+                // VIP chat cosmetics — the chat-bubble background frame and
+                // corner logo are only known for the logged-in user's own
+                // messages (myVipAssets), but the avatar ring itself is also
+                // shown for other senders when the backend embeds
+                // vipProfileFrameUrl on their message (their own XP >= threshold).
                 const isSenderSelf =
                   msg.userId != null && myUserId != null && String(msg.userId) === String(myUserId);
                 const isSenderVip = isSenderSelf && myVipAssets.unlocked;
+                const otherSenderVipProfileFrame =
+                  !isSenderSelf && msg.vipProfileFrameUrl ? { uri: msg.vipProfileFrameUrl } : null;
+                const senderProfileFrame = isSenderVip ? myVipAssets.profileFrame : otherSenderVipProfileFrame;
+                // Trimmed whole-image chat frame for this sender's tier (keyed
+                // by tier number, not by URL — the URL can vary once the real
+                // API is wired up). Falls back to the raw remote asset (old
+                // behavior) for any tier without a trimmed image yet.
+                const vipChatFrameAsset =
+                  isSenderVip ? VIP_CHAT_FRAME_FITTED_BY_TIER[myVipAssets.tier] : null;
+                // Re-wrapped as a bare {uri} (dropping the asset's known
+                // width/height) so resizeMode="stretch" fills the bubble's
+                // actual box exactly — with the width/height metadata local
+                // require()'d images carry, Fabric's Android image view
+                // partially preserves aspect ratio even under "stretch",
+                // rendering oversized and clipped. A plain uri (like the
+                // remote chatFrame fallback below already used) has no
+                // intrinsic size to preserve, so it stretches correctly.
+                const vipChatFrameSource = vipChatFrameAsset
+                  ? { uri: Image.resolveAssetSource(vipChatFrameAsset.source).uri }
+                  : null;
+                // The image is taller than the bubble by topFrac+bottomFrac
+                // (as fractions of the bubble's own height) and shifted up
+                // by topFrac, so the border rail still lines up exactly
+                // with the bubble's edges while the crown/gem art bleeds
+                // above/below instead of being cropped off.
+                const vipChatFrameStyle = vipChatFrameAsset
+                  ? {
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: `${-vipChatFrameAsset.topFrac * 100}%`,
+                      bottom: `${-vipChatFrameAsset.bottomFrac * 100}%`,
+                    }
+                  : null;
 
                 return (
                   <View key={msg.id} style={styles.chatMsg}>
@@ -3811,10 +3867,10 @@ export default function VoiceParty() {
                       }
                     >
                       {senderAvatar ? (
-                        isSenderVip ? (
+                        senderProfileFrame ? (
                           <ProfileAvatarWithFrame
                             avatarSource={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
-                            frameSource={myVipAssets.profileFrame}
+                            frameSource={senderProfileFrame}
                             size={32}
                             avatarStyle={styles.chatAvatar}
                             frameScale={VIP_PROFILE_FRAME_LAYOUT.frameScale}
@@ -3839,14 +3895,23 @@ export default function VoiceParty() {
                         </View>
                       )}
                     </TouchableOpacity>
-                    <View style={styles.chatBubble}>
-                      {isSenderVip && myVipAssets.chatFrame && (
+                    <View style={[styles.chatBubble, vipChatFrameSource && styles.chatBubbleVipPadding]}>
+                      {vipChatFrameSource ? (
                         <Image
-                          source={{ uri: myVipAssets.chatFrame }}
-                          style={StyleSheet.absoluteFillObject}
+                          source={vipChatFrameSource}
+                          style={vipChatFrameStyle}
                           resizeMode="stretch"
                           pointerEvents="none"
                         />
+                      ) : (
+                        isSenderVip && (myVipAssets.chatFrame || myVipAssets.logo) && (
+                          <Image
+                            source={{ uri: myVipAssets.chatFrame || myVipAssets.logo }}
+                            style={StyleSheet.absoluteFillObject}
+                            resizeMode="stretch"
+                            pointerEvents="none"
+                          />
+                        )
                       )}
                       <View style={styles.chatMeta}>
                         <TouchableOpacity
@@ -3863,13 +3928,6 @@ export default function VoiceParty() {
                         {msg.userId != null && (userFrameData[String(msg.userId)]?.hasNewUserFrame ?? false) && (
                           <Image
                             source={NEW_START_BADGE}
-                            style={styles.newStartBadge}
-                            resizeMode="contain"
-                          />
-                        )}
-                        {isSenderVip && myVipAssets.logo && (
-                          <Image
-                            source={{ uri: myVipAssets.logo }}
                             style={styles.newStartBadge}
                             resizeMode="contain"
                           />
@@ -4241,6 +4299,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.3)",
+    zIndex: 10,
+    elevation: 10,
   },
   audienceAvatarPlaceholder: {
     backgroundColor: "rgba(124,77,255,0.35)",
@@ -4347,6 +4407,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15,7,32,0.85)",
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 10,
+    elevation: 10,
   },
   rankBadge: {
     position: "absolute",
@@ -4419,6 +4481,16 @@ const styles = StyleSheet.create({
     padding: 8,
     flex: 1,
     overflow: "hidden",
+  },
+  // Extra clearance so message text doesn't sit flush against the VIP chat
+  // frame image's border art — without this, text can visually touch/cross
+  // the border instead of sitting inside it. overflow:visible (instead of
+  // chatBubble's default "hidden") lets the frame's crown/gem art bleed
+  // above/below the bubble instead of being clipped — see vipChatFrameStyle.
+  chatBubbleVipPadding: {
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    overflow: "visible",
   },
   chatMeta: {
     flexDirection: "row",
@@ -5656,7 +5728,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   bpEmptyEmoji: { fontSize: 48 },
-  bpEmptyText: { color: "rgba(255,255,255,0.35)", fontSize: 15, fontWeight: "500" },
 
   // Activity event sub-tabs
   bpActEventScroll: {

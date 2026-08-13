@@ -4,6 +4,7 @@ import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services
 import { wsService } from "../src/services/websocket";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
 
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
@@ -62,6 +63,7 @@ export default function ChatBox({ user = {}, onBack }) {
   const [myUserId, setMyUserId] = useState(null);
   const [showEmojiBox, setShowEmojiBox] = useState(false);
   const [otherUserHasNewFrame, setOtherUserHasNewFrame] = useState(false);
+  const [otherUserVipFrame, setOtherUserVipFrame] = useState(null);
   const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom } = useKeyboardInset();
   const scrollRef = useRef(null);
   const [composerHeight, setComposerHeight] = useState(136);
@@ -105,6 +107,9 @@ export default function ChatBox({ user = {}, onBack }) {
           false
         );
         if (!cancelled) setOtherUserHasNewFrame(hasFrame);
+
+        const vipFrameUrl = extractVipProfileFrameUrl(assets) ?? extractVipProfileFrameUrl(assets?.data);
+        if (!cancelled) setOtherUserVipFrame(vipFrameUrl);
       } catch {
         // non-critical
       }
@@ -318,16 +323,27 @@ export default function ChatBox({ user = {}, onBack }) {
                   colors={["#7c4dff", "#4a6cf7"]}
                   style={styles.matchAvatarRing}
                 >
-                  {avatar ? (
-                    <Image
-                      source={resolveAvatarSource(avatar)}
-                      style={styles.matchAvatar}
-                    />
-                  ) : (
-                    <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
-                      <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
-                    </View>
-                  )}
+                  <View style={styles.matchAvatarWrap}>
+                    {avatar ? (
+                      <Image
+                        source={resolveAvatarSource(avatar)}
+                        style={styles.matchAvatar}
+                      />
+                    ) : (
+                      <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
+                        <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                      </View>
+                    )}
+                    {otherUserVipFrame ? (
+                      // VIP profile frame overlay — scale/position may need visual tuning on device
+                      <Image
+                        source={{ uri: otherUserVipFrame }}
+                        style={styles.matchAvatarFrameOverlay}
+                        resizeMode="contain"
+                        pointerEvents="none"
+                      />
+                    ) : null}
+                  </View>
                 </LinearGradient>
                 <View style={styles.matchUserInfo}>
                   <Text style={styles.matchUserName}>{name}</Text>
@@ -353,16 +369,27 @@ export default function ChatBox({ user = {}, onBack }) {
                   ]}
                 >
                   {!msg.fromMe && (
-                    avatar ? (
-                      <Image
-                        source={resolveAvatarSource(avatar)}
-                        style={styles.msgAvatar}
-                      />
-                    ) : (
-                      <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
-                        <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
-                      </View>
-                    )
+                    <View style={styles.msgAvatarWrap}>
+                      {avatar ? (
+                        <Image
+                          source={resolveAvatarSource(avatar)}
+                          style={styles.msgAvatar}
+                        />
+                      ) : (
+                        <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
+                          <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                        </View>
+                      )}
+                      {otherUserVipFrame ? (
+                        // VIP profile frame overlay — scale/position may need visual tuning on device
+                        <Image
+                          source={{ uri: otherUserVipFrame }}
+                          style={styles.msgAvatarFrameOverlay}
+                          resizeMode="contain"
+                          pointerEvents="none"
+                        />
+                      ) : null}
+                    </View>
                   )}
                   <View
                     style={[
@@ -622,12 +649,24 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     padding: 2.5,
   },
+  matchAvatarWrap: {
+    width: "100%",
+    height: "100%",
+    position: "relative",
+  },
   matchAvatar: {
     width: "100%",
     height: "100%",
     borderRadius: 24,
     borderWidth: 2,
     borderColor: "#0f0720",
+  },
+  matchAvatarFrameOverlay: {
+    position: "absolute",
+    width: "130%",
+    height: "130%",
+    left: "-15%",
+    top: "-15%",
   },
   matchAvatarPlaceholder: {
     backgroundColor: "rgba(124,77,255,0.35)",
@@ -690,7 +729,15 @@ const styles = StyleSheet.create({
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   msgRowMe: { justifyContent: "flex-end" },
   msgRowThem: { justifyContent: "flex-start" },
+  msgAvatarWrap: { width: 32, height: 32, position: "relative" },
   msgAvatar: { width: 32, height: 32, borderRadius: 16 },
+  msgAvatarFrameOverlay: {
+    position: "absolute",
+    width: "130%",
+    height: "130%",
+    left: "-15%",
+    top: "-15%",
+  },
   msgAvatarPlaceholder: {
     backgroundColor: "rgba(124,77,255,0.35)",
     alignItems: "center",

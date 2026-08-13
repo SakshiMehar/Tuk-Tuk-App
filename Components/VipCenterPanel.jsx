@@ -6,18 +6,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WalletUserCard from "./WalletUserCard";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import DiamondRechargeModal from "./DiamondRechargeModal";
 import { resolveImageSource } from "../src/utils/videoSource";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
+import { useWalletBalance } from "../src/hooks/useWalletBalance";
 import {
-  VIP_TIER1_FALLBACK_ASSETS,
-  VIP_TIER2_ASSETS,
-  VIP_TIER3_ASSETS,
-  VIP_TIER4_ASSETS,
-  VIP_TIER5_ASSETS,
-  VIP_TIER6_ASSETS,
-  VIP_TIER7_ASSETS,
-  VIP_TIER8_ASSETS,
+  VIP_TIER_THRESHOLDS,
   VIP_PROFILE_FRAME_LAYOUT,
 } from "../src/constants/vip";
 
@@ -25,29 +20,19 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 const CONTENT_PADDING = 16;
 const TIER_SLIDE_WIDTH = SCREEN_WIDTH - CONTENT_PADDING * 2;
 
-// EXP thresholds for tiers 5-8 are placeholders (continuing the existing
-// 1000/3000/8000/20000 progression) — replace once the real values are known.
-const VIP_TIERS = [
-  { id: 1, label: "VIP 1", exp: 1000, image: VIP_TIER1_FALLBACK_ASSETS.logo },
-  { id: 2, label: "VIP 2", exp: 3000, image: VIP_TIER2_ASSETS.logo },
-  { id: 3, label: "VIP 3", exp: 8000, image: VIP_TIER3_ASSETS.logo },
-  { id: 4, label: "VIP 4", exp: 20000, image: VIP_TIER4_ASSETS.logo },
-  { id: 5, label: "VIP 5", exp: 50000, image: VIP_TIER5_ASSETS.logo },
-  { id: 6, label: "VIP 6", exp: 120000, image: VIP_TIER6_ASSETS.logo },
-  { id: 7, label: "VIP 7", exp: 300000, image: VIP_TIER7_ASSETS.logo },
-  { id: 8, label: "VIP 8", exp: 700000, image: VIP_TIER8_ASSETS.logo },
-];
+// Derived from the same VIP_TIER_THRESHOLDS loadMyVipAssets uses to pick a
+// user's actual tier, so this carousel's exp requirements can never drift
+// out of sync with what actually unlocks each tier's cosmetics.
+const VIP_TIERS = VIP_TIER_THRESHOLDS.map(({ tier, exp, assets }) => ({
+  id: tier,
+  label: `VIP ${tier}`,
+  exp,
+  image: assets.logo,
+}));
 
-const TIER_ASSETS_BY_ID = {
-  1: VIP_TIER1_FALLBACK_ASSETS,
-  2: VIP_TIER2_ASSETS,
-  3: VIP_TIER3_ASSETS,
-  4: VIP_TIER4_ASSETS,
-  5: VIP_TIER5_ASSETS,
-  6: VIP_TIER6_ASSETS,
-  7: VIP_TIER7_ASSETS,
-  8: VIP_TIER8_ASSETS,
-};
+const TIER_ASSETS_BY_ID = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets])
+);
 
 // Each VIP tier has its own dress-up set — this row pages in sync with the
 // tier crest above. All four assets (logo/profileFrame/entryFrame/chatFrame)
@@ -141,6 +126,8 @@ function SectionRibbon({ title }) {
 export default function VipCenterPanel() {
   const insets = useSafeAreaInsets();
   const unlockedCount = PRIVILEGES.filter((p) => p.unlocked).length;
+  const { diamonds: walletDiamonds } = useWalletBalance();
+  const [rechargeVisible, setRechargeVisible] = useState(false);
 
   // Self avatar, for the "how this looks on your profile pic" preview popup below.
   const [selfUser, setSelfUser] = useState(null);
@@ -313,12 +300,18 @@ export default function VipCenterPanel() {
         colors={["rgba(26,10,46,0.98)", "#1a0a2e"]}
         style={[styles.bottomBar, { paddingBottom: 16 + insets.bottom }]}
       >
-        <TouchableOpacity activeOpacity={0.85} onPress={notWiredYet}>
+        <TouchableOpacity activeOpacity={0.85} onPress={() => setRechargeVisible(true)}>
           <LinearGradient colors={["#7c4dff", "#e879f9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.rechargeBtn}>
             <Text style={styles.rechargeBtnText}>Recharge now</Text>
           </LinearGradient>
         </TouchableOpacity>
       </LinearGradient>
+
+      <DiamondRechargeModal
+        visible={rechargeVisible}
+        onClose={() => setRechargeVisible(false)}
+        currentDiamonds={walletDiamonds}
+      />
 
       {/* Dress-up preview — shows the tapped item's frame/décor over the user's
           own profile picture, centered on screen. */}

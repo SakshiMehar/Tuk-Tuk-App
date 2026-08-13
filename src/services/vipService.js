@@ -3,10 +3,11 @@ import {
   getMyVipEntryFrame,
   getMyVipChatFrame,
   getMyVipLogo,
+  getVipProfileFrameForUser,
 } from "../api/vipApi";
 import { loadGamificationProfile } from "./gamificationService";
 import { resolveRemoteProfilePicUrl } from "./meProfileService";
-import { VIP_XP_THRESHOLD, VIP_TIER1_FALLBACK_ASSETS } from "../constants/vip";
+import { resolveVipTierForXp, resolveVipTierFromAssetUrl } from "../constants/vip";
 
 const NO_VIP_ASSETS = {
   unlocked: false,
@@ -48,18 +49,45 @@ export const loadMyVipXp = async () => {
 /** Resolves the VIP cosmetic set for the current user. `totalXp` can be passed
  *  in if the caller already fetched it (e.g. via syncUserLevelForSession) to
  *  avoid a duplicate gamification request; otherwise it's fetched here.
- *  Below VIP_XP_THRESHOLD, every asset is null and `unlocked` is false — that's
- *  the gate callers should check before rendering any VIP frame/logo. */
+ *  Below tier 1's threshold, every asset is null and `unlocked` is false —
+ *  that's the gate callers should check before rendering any VIP frame/logo.
+ *  Above it, the tier is picked from VIP_TIER_THRESHOLDS by the user's actual
+ *  XP (not hardcoded to tier 1) — the API result (once confirmed) still takes
+ *  priority per asset, this tier's assets are only the fallback. */
 export const loadMyVipAssets = async (totalXp) => {
   const xp = totalXp ?? (await loadMyVipXp());
-  if (xp < VIP_XP_THRESHOLD) return NO_VIP_ASSETS;
+  const tierEntry = resolveVipTierForXp(xp);
+  if (!tierEntry) return NO_VIP_ASSETS;
 
+  const fallback = tierEntry.assets;
   const [profileFrame, entryFrame, chatFrame, logo] = await Promise.all([
-    fetchVipAsset(getMyVipProfileFrame, VIP_TIER1_FALLBACK_ASSETS.profileFrame),
-    fetchVipAsset(getMyVipEntryFrame, VIP_TIER1_FALLBACK_ASSETS.entryFrame),
-    fetchVipAsset(getMyVipChatFrame, VIP_TIER1_FALLBACK_ASSETS.chatFrame),
-    fetchVipAsset(getMyVipLogo, VIP_TIER1_FALLBACK_ASSETS.logo),
+    fetchVipAsset(getMyVipProfileFrame, fallback.profileFrame),
+    fetchVipAsset(getMyVipEntryFrame, fallback.entryFrame),
+    fetchVipAsset(getMyVipChatFrame, fallback.chatFrame),
+    fetchVipAsset(getMyVipLogo, fallback.logo),
   ]);
+  // Prefer the tier baked into the actual returned asset URLs over the
+  // XP-threshold guess — the real API result can legitimately be a
+  // different tier than what our local thresholds compute (e.g. thresholds
+  // here are placeholders for several tiers, see VIP_TIER_THRESHOLDS).
+  const tier =
+    resolveVipTierFromAssetUrl(chatFrame) ??
+    resolveVipTierFromAssetUrl(profileFrame) ??
+    tierEntry.tier;
 
-  return { unlocked: true, profileFrame, entryFrame, chatFrame, logo };
+  return { unlocked: true, tier, profileFrame, entryFrame, chatFrame, logo };
+};
+
+/** Another user's VIP profile-frame URL, fetched on demand — use only where a
+ *  surface doesn't already embed profileFrameImageUrl/profileFrameUrl on the
+ *  user/seat/message payload it returns (e.g. a single-user detail view).
+ *  Not for list screens — fetching per row would be an N+1 call storm. */
+export const fetchVipProfileFrameForUser = async (userId) => {
+  if (!userId) return null;
+  try {
+    const url = parseAssetUrl(await getVipProfileFrameForUser(userId));
+    return url ? resolveRemoteProfilePicUrl(url) ?? url : null;
+  } catch {
+    return null;
+  }
 };

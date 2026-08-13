@@ -8,6 +8,7 @@ import {
   getFollowers,
   getBlockedUsers,
 } from "../api/relationshipApi";
+import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
@@ -87,6 +88,7 @@ export const normalizeRelationshipUser = (user) => {
     handle: username ? (username.startsWith("@") ? username : `@${username}`) : "",
     verified: Boolean(user?.verified ?? user?.vip),
     online: Boolean(user?.isOnline ?? user?.online),
+    vipProfileFrameUrl: extractVipProfileFrameUrl(user),
   };
 };
 

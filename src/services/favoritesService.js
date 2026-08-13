@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getSavedUsers, removeUserFromServer, saveUserOnServer } from "../api/userApi";
 import { API_BASE_URL } from "../config/env";
+import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
 
 // Local cache mirrors server saves for quick star-state checks offline.
 // Profile → Saved menu uses GET /api/app/users/saved.
@@ -34,6 +35,7 @@ const normalizeEntry = (user) => {
       user?.profileImageUrl ??
       null,
     occupation: user?.occupation ?? null,
+    vipProfileFrameUrl: extractVipProfileFrameUrl(user),
     savedAt: Date.now(),
   };
 };

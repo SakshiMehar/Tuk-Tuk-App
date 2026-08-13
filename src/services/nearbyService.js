@@ -1,5 +1,6 @@
 import { getNearbyUsers, getUserById, updateMyLocation } from "../api/userApi";
 import { getDeviceCoordinates } from "../utils/deviceLocation";
+import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
@@ -99,6 +100,7 @@ export const normalizeNearbyUser = (user, index = 0) => {
     tags: Array.isArray(tags) ? tags.slice(0, 6) : [],
     online: Boolean(user?.online ?? user?.isOnline ?? profile?.online ?? profile?.isOnline),
     verified: Boolean(user?.verified ?? user?.isVerified ?? profile?.verified),
+    vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
     raw: user,
   };
 };

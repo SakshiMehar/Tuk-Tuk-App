@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet,
   StatusBar, Dimensions, FlatList, Animated, Modal,
-  ScrollView, TextInput, Image, ActivityIndicator,
+  ScrollView, TextInput, ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -21,6 +21,8 @@ import {
   unfollowUser,
   loadRelationshipStatus,
 } from "../src/services/relationshipService";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 
 import { ms } from "../src/utils/responsive";
 
@@ -171,7 +173,23 @@ function ProfileModal({
             <>
               <LinearGradient colors={user.bgColors} style={styles.profileModalHero}>
                 {user.avatarUrl ? (
-                  <Image source={{ uri: user.avatarUrl }} style={styles.profileModalAvatar} />
+                  <ProfileAvatarWithFrame
+                    avatarSource={{ uri: user.avatarUrl }}
+                    frameSource={user.vipProfileFrameUrl}
+                    size={160}
+                    avatarStyle={styles.profileModalAvatar}
+                    {...(user.vipProfileFrameUrl
+                      ? {
+                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                        }
+                      : {})}
+                  />
                 ) : (
                   <Text style={styles.profileModalEmoji}>{user.emoji}</Text>
                 )}
@@ -792,7 +810,23 @@ export default function Nearby() {
             <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={() => handleOpenProfile(item)}>
               <LinearGradient colors={item.bgColors} style={styles.cardBg}>
                 {item.avatarUrl ? (
-                  <Image source={{ uri: item.avatarUrl }} style={styles.cardAvatar} />
+                  <ProfileAvatarWithFrame
+                    avatarSource={{ uri: item.avatarUrl }}
+                    frameSource={item.vipProfileFrameUrl}
+                    size={CARD_W * 0.62}
+                    avatarStyle={styles.cardAvatar}
+                    {...(item.vipProfileFrameUrl
+                      ? {
+                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                        }
+                      : {})}
+                  />
                 ) : (
                   <Text style={styles.cardEmoji}>{item.emoji}</Text>
                 )}

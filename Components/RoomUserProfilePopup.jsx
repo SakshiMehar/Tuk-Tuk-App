@@ -17,6 +17,7 @@ export default function RoomUserProfilePopup({
   user,
   avatarSource = null,
   frameSource = null,
+  frameLayout = null,
   logoSource = null,
   loading = false,
   isFollowing = false,
@@ -71,6 +72,17 @@ export default function RoomUserProfilePopup({
                   initialStyle={styles.avatarInitial}
                   placeholderInitial={displayName?.[0]?.toUpperCase() ?? "?"}
                   imageComponent={Image}
+                  {...(frameLayout
+                    ? {
+                        frameScale: frameLayout.frameScale,
+                        frameResizeMode: frameLayout.frameResizeMode,
+                        frameOffsetX: frameLayout.frameOffsetX,
+                        frameOffsetY: frameLayout.frameOffsetY,
+                        frameBleed: frameLayout.frameBleed,
+                        avatarBoost: frameLayout.avatarBoost,
+                        avatarOffsetY: frameLayout.avatarOffsetY,
+                      }
+                    : {})}
                 />
               </View>
 

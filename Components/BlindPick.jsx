@@ -23,6 +23,7 @@ import {
 } from "../src/api/blindMatchApi";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 
 import { useWindowDimensions } from "react-native";
 import { ms } from "../src/utils/responsive";
@@ -68,6 +69,7 @@ const normalizeBlindMatchUser = (raw) => {
     bio: raw.bio ?? raw.about ?? raw.occupation ?? "",
     tags: Array.isArray(tags) ? tags : [],
     rating: raw.rating ?? raw.matchScore ?? null,
+    vipProfileFrameUrl: extractVipProfileFrameUrl(raw),
   };
 };
 
@@ -581,6 +583,15 @@ export default function BlindPick() {
               ]}
             >
               <Image source={{ uri: profile.avatar }} style={s.profileImg} />
+              {profile.vipProfileFrameUrl ? (
+                // VIP profile frame overlay on the full card photo — scale/position may need visual tuning on device
+                <Image
+                  source={{ uri: profile.vipProfileFrameUrl }}
+                  style={s.profileFrameOverlay}
+                  resizeMode="contain"
+                  pointerEvents="none"
+                />
+              ) : null}
               <LinearGradient
                 colors={["transparent", "rgba(13,6,24,0.95)"]}
                 style={s.profileGrad}
@@ -833,6 +844,13 @@ const s = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 18,
   },
   profileImg: { position: "absolute", width: "100%", height: "100%", resizeMode: "cover" },
+  profileFrameOverlay: {
+    position: "absolute",
+    top: "-8%",
+    left: "-8%",
+    width: "116%",
+    height: "116%",
+  },
   profileGrad: { position: "absolute", bottom: 0, left: 0, right: 0, height: "65%" },
   profileInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 18 },
 

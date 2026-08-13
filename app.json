@@ -108,7 +108,8 @@
         {
           "locationWhenInUsePermission": "Tuk-Tuk uses your location to show people nearby."
         }
-      ]
+      ],
+      "./plugins/withoutAgoraScreenShare.js"
     ],
     "experiments": {
       "typedRoutes": true,

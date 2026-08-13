@@ -19,6 +19,7 @@ import { getNextFriend, sendFriendAction, updateFindFriendsProfile } from "../sr
 import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
 import { followUser } from "../src/services/relationshipService";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 
 import { ms } from "../src/utils/responsive";
 
@@ -495,6 +496,15 @@ export default function FindFriends() {
                   <Text style={styles.matchImgFallbackEmoji}>👤</Text>
                 </View>
               )}
+              {extractVipProfileFrameUrl(card) ? (
+                // VIP profile frame overlay on the full card photo — scale/position may need visual tuning on device
+                <Image
+                  source={{ uri: extractVipProfileFrameUrl(card) }}
+                  style={styles.matchCardFrameOverlay}
+                  resizeMode="contain"
+                  pointerEvents="none"
+                />
+              ) : null}
               <LinearGradient
                 colors={["transparent", "rgba(13,6,24,0.95)"]}
                 style={styles.matchOverlay}
@@ -737,6 +747,13 @@ const styles = StyleSheet.create({
   },
   matchImg: { width: "100%", height: "100%" },
   matchImgFallback: { backgroundColor: "#2d1b4e", alignItems: "center", justifyContent: "center" },
+  matchCardFrameOverlay: {
+    position: "absolute",
+    top: "-8%",
+    left: "-8%",
+    width: "116%",
+    height: "116%",
+  },
   matchImgFallbackEmoji: { fontSize: 90 },
   matchOverlay: {
     position: "absolute", bottom: 0, left: 0, right: 0, height: "55%",

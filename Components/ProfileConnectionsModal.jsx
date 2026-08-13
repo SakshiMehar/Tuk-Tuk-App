@@ -5,7 +5,6 @@ import {
   Modal,
   TouchableOpacity,
   FlatList,
-  Image,
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
@@ -16,6 +15,8 @@ import { useRouter } from "expo-router";
 import { loadFollowing, loadFollowers } from "../src/services/relationshipService";
 import { loadProfileVisitsList } from "../src/services/profileStatsService";
 import { openUserChat } from "../src/utils/chatNavigation";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 
 const TITLES = {
   following: "Following",
@@ -84,7 +85,23 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
       >
         <View style={styles.avatarWrap}>
           {item.avatar ? (
-            <Image source={{ uri: item.avatar }} style={styles.avatarImg} />
+            <ProfileAvatarWithFrame
+              avatarSource={{ uri: item.avatar }}
+              frameSource={item.vipProfileFrameUrl}
+              size={48}
+              avatarStyle={styles.avatarImg}
+              {...(item.vipProfileFrameUrl
+                ? {
+                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                  }
+                : {})}
+            />
           ) : (
             <View style={styles.avatarFallback}>
               <Ionicons name="person" size={22} color="#a78bfa" />

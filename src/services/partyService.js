@@ -202,6 +202,20 @@ export const normalizeChatMessage = (msg, index = 0) => {
   console.log("[partyService] chat msg RAW ->", JSON.stringify(msg));
   console.log("[partyService] chat msg avatar resolved ->", rawAvatar);
 
+  // Backend embeds this directly on the message/sender only when that
+  // sender's own XP clears the VIP threshold — absent/null otherwise.
+  const rawVipProfileFrame = firstText(
+    msg?.profileFrameImageUrl,
+    msg?.profileFrameUrl,
+    msg?.vipProfileFrameUrl,
+    msg?.sender?.profileFrameImageUrl,
+    msg?.sender?.profileFrameUrl,
+    msg?.message?.profileFrameImageUrl,
+    msg?.message?.profileFrameUrl,
+    msg?.data?.profileFrameImageUrl,
+    msg?.data?.profileFrameUrl
+  );
+
   return {
     id: firstValue(
       msg?.id,
@@ -230,6 +244,9 @@ export const normalizeChatMessage = (msg, index = 0) => {
         msg?.data?.senderName
       ) ?? "User",
     avatar: normalizeAvatarField(rawAvatar),
+    vipProfileFrameUrl: rawVipProfileFrame
+      ? resolveRemoteProfilePicUrl(rawVipProfileFrame) ?? rawVipProfileFrame
+      : null,
     text: resolveChatText(msg),
     level: msg?.level ?? msg?.senderLevel ?? 1,
     coins: msg?.coins ?? 0,

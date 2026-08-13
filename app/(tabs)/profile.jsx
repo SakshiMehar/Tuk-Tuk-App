@@ -55,6 +55,7 @@ import { syncUserLevelForSession } from "../../src/services/userLevelService";
 import { loadMyVipAssets } from "../../src/services/vipService";
 import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
 import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
 import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
 import { openUserChat } from "../../src/utils/chatNavigation";
@@ -1422,11 +1423,24 @@ export default function Profile() {
                 onPress={() => handleOpenSavedUser(u)}
               >
                 {u.avatarUrl ? (
-                  <Image
-                    source={/ngrok-free\.dev|ngrok\.io/i.test(u.avatarUrl ?? "")
+                  <ProfileAvatarWithFrame
+                    avatarSource={/ngrok-free\.dev|ngrok\.io/i.test(u.avatarUrl ?? "")
                       ? { uri: u.avatarUrl, headers: { "ngrok-skip-browser-warning": "true" } }
                       : { uri: u.avatarUrl }}
-                    style={styles.savedAvatar}
+                    frameSource={u.vipProfileFrameUrl}
+                    size={48}
+                    avatarStyle={styles.savedAvatar}
+                    {...(u.vipProfileFrameUrl
+                      ? {
+                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                        }
+                      : {})}
                   />
                 ) : (
                   <View style={[styles.savedAvatar, styles.savedAvatarFallback]}>
@@ -1633,7 +1647,7 @@ export default function Profile() {
 
     // ── PREMIUM (gem-tier wealth system) ────────────────────────────────────────
     if (label === "Premium") {
-      return <PremiumPanel />;
+      return <PremiumPanel onClose={() => setActiveMenu(null)} />;
     }
 
     // ── VIP ───────────────────────────────────────────────────────────────────
@@ -2065,6 +2079,17 @@ export default function Profile() {
                 size={s(72)}
                 avatarStyle={styles.profilePic}
                 wrapperStyle={styles.profilePicFrameWrap}
+                {...(vipAssets.profileFrame
+                  ? {
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX - 2,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
+                  : {})}
               />
             </View>
 
@@ -2231,7 +2256,34 @@ export default function Profile() {
               myPosts.map((post) => (
                 <View key={String(post.id)} style={styles.momentPostCard}>
                   <View style={styles.momentPostHeader}>
-                    <Text style={styles.momentPostTitle}>My post #{post.id}</Text>
+                    <View style={styles.momentPostAuthor}>
+                      <ProfileAvatarWithFrame
+                        avatarSource={avatarSource}
+                        frameSource={vipAssets.profileFrame ?? newUserFrameSource}
+                        size={s(36)}
+                        avatarStyle={styles.momentPostAuthorAvatar}
+                        wrapperStyle={styles.momentPostAuthorAvatarWrap}
+                        {...(vipAssets.profileFrame
+                          ? {
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
+                          : {})}
+                      />
+                      <View style={styles.momentPostAuthorInfo}>
+                        <Text style={styles.momentPostTitle}>{name}</Text>
+                        <Image
+                          source={VERIFIED_BADGE}
+                          style={styles.momentPostAuthorBatch}
+                          resizeMode="contain"
+                        />
+                      </View>
+                    </View>
                     <TouchableOpacity
                       style={styles.momentPostEditBtn}
                       onPress={() => handleOpenEditPost(post)}
@@ -2374,17 +2426,21 @@ export default function Profile() {
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
         <View style={[styles.mmPanel, { paddingBottom: insets.bottom }]}>
           <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
-          {/* Header */}
-          <View style={[styles.mmHeader, { paddingTop: insets.top + 10 }]}>
-            <View style={styles.mmHeaderIcon}>
-              <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
-            </View>
-            <Text style={styles.mmHeaderTitle}>{activeMenu?.label}</Text>
-            <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
-              <Ionicons name="close" size={20} color="white" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.mmDivider} />
+          {/* Header — Premium renders its own custom header instead */}
+          {activeMenu?.label !== "Premium" && (
+            <>
+              <View style={[styles.mmHeader, { paddingTop: insets.top + 10 }]}>
+                <View style={styles.mmHeaderIcon}>
+                  <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
+                </View>
+                <Text style={styles.mmHeaderTitle}>{activeMenu?.label}</Text>
+                <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
+                  <Ionicons name="close" size={20} color="white" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.mmDivider} />
+            </>
+          )}
           {/* Dynamic content */}
           {renderMenuContent()}
         </View>
@@ -3032,10 +3088,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  momentPostAuthor: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  momentPostAuthorAvatarWrap: {},
+  momentPostAuthorAvatar: {
+    borderRadius: 18,
+  },
+  momentPostAuthorInfo: {
+    flexDirection: "column",
+    gap: 3,
+  },
   momentPostTitle: {
     color: "#c4b5fd",
     fontSize: 13,
     fontWeight: "700",
+  },
+  momentPostAuthorBatch: {
+    width: 52,
+    height: 21,
   },
   momentPostEditBtn: {
     flexDirection: "row",

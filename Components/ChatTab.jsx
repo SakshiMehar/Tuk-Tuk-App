@@ -35,6 +35,8 @@ import { loadProfileStats } from "../src/services/profileStatsService";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
 import { ms } from "../src/utils/responsive";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 
 const RECOMMEND_RING_COLORS = ["#7c4dff", "#ff4ea3"];
 
@@ -382,7 +384,23 @@ export default function ChatTab() {
             end={{ x: 1, y: 1 }}
           >
             {item.avatar ? (
-              <Image source={resolveAvatarSource(item.avatar)} style={styles.chatAvatar} />
+              <ProfileAvatarWithFrame
+                avatarSource={resolveAvatarSource(item.avatar)}
+                frameSource={item.vipProfileFrameUrl}
+                size={52}
+                avatarStyle={{ borderRadius: 26, borderWidth: 1.5, borderColor: "#0f0720" }}
+                {...(item.vipProfileFrameUrl
+                  ? {
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
+                  : {})}
+              />
             ) : (
               <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
                 <Text style={styles.chatInitial}>{item.name?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -639,7 +657,23 @@ export default function ChatTab() {
                         style={styles.contactAvatarRing}
                       >
                         {user.avatar ? (
-                          <Image source={resolveAvatarSource(user.avatar)} style={styles.contactAvatar} />
+                          <ProfileAvatarWithFrame
+                            avatarSource={resolveAvatarSource(user.avatar)}
+                            frameSource={user.vipProfileFrameUrl}
+                            size={46}
+                            avatarStyle={{ borderRadius: 23, borderWidth: 1.5, borderColor: "#0f0720" }}
+                            {...(user.vipProfileFrameUrl
+                              ? {
+                                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                                }
+                              : {})}
+                          />
                         ) : (
                           <View style={[styles.contactAvatar, styles.contactAvatarPlaceholder]}>
                             <Text style={styles.contactInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -802,7 +836,23 @@ export default function ChatTab() {
                 end={{ x: 1, y: 1 }}
               >
                 {user.avatar ? (
-                  <Image source={resolveAvatarSource(user.avatar)} style={styles.recommendAvatar} />
+                  <ProfileAvatarWithFrame
+                    avatarSource={resolveAvatarSource(user.avatar)}
+                    frameSource={user.vipProfileFrameUrl}
+                    size={66}
+                    avatarStyle={{ borderRadius: 34, borderWidth: 2, borderColor: "#0f0720" }}
+                    {...(user.vipProfileFrameUrl
+                      ? {
+                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                        }
+                      : {})}
+                  />
                 ) : (
                   <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
                     <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>

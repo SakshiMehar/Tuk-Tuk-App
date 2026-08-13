@@ -36,7 +36,13 @@ import {
 import { openUserChat } from "../src/utils/chatNavigation";
 import ComingSoonModal from "./ComingSoonModal";
 import CreateRoomModal from "./CreateRoomModal";
+import LevelGateModal from "./LevelGateModal";
 import exploreData from "../src/data/partyExploreData.json";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import { syncUserLevelForSession } from "../src/services/userLevelService";
+
+const MIN_CREATE_ROOM_LEVEL = 5;
 
 const { width: W } = Dimensions.get("window");
 const FEATURE_CARD_W = (W - 32 - 16) / 3;
@@ -225,6 +231,10 @@ export default function PartyExplore() {
   // ── Create room modal ──
   const [createRoomVisible, setCreateRoomVisible] = useState(false);
 
+  // ── Level gate (create room requires MIN_CREATE_ROOM_LEVEL) ──
+  const [levelGateVisible, setLevelGateVisible] = useState(false);
+  const [myLevel, setMyLevel] = useState(1);
+
   // Bumped every time this screen regains focus (e.g. after exiting a room)
   // so the room lists below refetch instead of only ever loading once at mount.
   const [focusTick, setFocusTick] = useState(0);
@@ -349,7 +359,14 @@ export default function PartyExplore() {
     router.push({ pathname: "/voice-party", params: { roomId } });
   };
 
-  const openCreateRoomModal = () => {
+  const openCreateRoomModal = async () => {
+    const { level } = await syncUserLevelForSession();
+    const resolvedLevel = level ?? 1;
+    if (resolvedLevel < MIN_CREATE_ROOM_LEVEL) {
+      setMyLevel(resolvedLevel);
+      setLevelGateVisible(true);
+      return;
+    }
     setCreateRoomVisible(true);
   };
 
@@ -570,7 +587,23 @@ export default function PartyExplore() {
                         style={styles.recommendRing}
                       >
                         {user.avatar ? (
-                          <Image source={{ uri: user.avatar }} style={styles.recommendAvatar} />
+                          <ProfileAvatarWithFrame
+                            avatarSource={{ uri: user.avatar }}
+                            frameSource={user.vipProfileFrameUrl}
+                            size={53}
+                            avatarStyle={{ borderRadius: 26, borderWidth: 2, borderColor: THEME.bg }}
+                            {...(user.vipProfileFrameUrl
+                              ? {
+                                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                                }
+                              : {})}
+                          />
                         ) : (
                           <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
                             <Text style={styles.recommendInitial}>
@@ -652,7 +685,23 @@ export default function PartyExplore() {
                         <Text style={styles.podiumMedal}>{cfg.medal}</Text>
                         <LinearGradient colors={cfg.ring} style={[styles.podiumRing, { width: cfg.size, height: cfg.size, borderRadius: cfg.size / 2 }]}>
                           {entry.avatar ? (
-                            <Image source={{ uri: entry.avatar }} style={styles.podiumAvatar} />
+                            <ProfileAvatarWithFrame
+                              avatarSource={{ uri: entry.avatar }}
+                              frameSource={entry.vipProfileFrameUrl}
+                              size={cfg.size - 6}
+                              avatarStyle={{ borderRadius: 999, borderWidth: 2, borderColor: THEME.bg }}
+                              {...(entry.vipProfileFrameUrl
+                                ? {
+                                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                                  }
+                                : {})}
+                            />
                           ) : (
                             <View style={[styles.podiumAvatar, styles.avatarPlaceholder]}>
                               <Text style={styles.avatarInitial}>{entry.name?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -671,7 +720,23 @@ export default function PartyExplore() {
                   <View key={String(entry.id)} style={styles.rankRow}>
                     <Text style={styles.rankNumber}>{entry.rank}</Text>
                     {entry.avatar ? (
-                      <Image source={{ uri: entry.avatar }} style={styles.rankAvatar} />
+                      <ProfileAvatarWithFrame
+                        avatarSource={{ uri: entry.avatar }}
+                        frameSource={entry.vipProfileFrameUrl}
+                        size={44}
+                        avatarStyle={styles.rankAvatar}
+                        {...(entry.vipProfileFrameUrl
+                          ? {
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
+                          : {})}
+                      />
                     ) : (
                       <View style={[styles.rankAvatar, styles.avatarPlaceholder]}>
                         <Text style={styles.avatarInitial}>{entry.name?.[0]?.toUpperCase() ?? "?"}</Text>
@@ -755,6 +820,13 @@ export default function PartyExplore() {
         visible={createRoomVisible}
         onClose={() => setCreateRoomVisible(false)}
         onEntered={handleCreateRoomEntered}
+      />
+
+      <LevelGateModal
+        visible={levelGateVisible}
+        requiredLevel={MIN_CREATE_ROOM_LEVEL}
+        currentLevel={myLevel}
+        onClose={() => setLevelGateVisible(false)}
       />
     </View>
   );

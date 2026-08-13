@@ -14,9 +14,9 @@ import {
 import { FontAwesome, FontAwesome5, AntDesign } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
-import { guestLogin, googleLogin } from "../src/api/authApi";
+import { googleLogin } from "../src/api/authApi";
 import { getUsersCount } from "../src/api/userApi";
-import { hasAcceptedTerms, setTermsAccepted, setPendingInviteCode, updateUser } from "../src/store/authStore";
+import { hasAcceptedTerms, setTermsAccepted, setPendingInviteCode } from "../src/store/authStore";
 import { establishSessionFromApi } from "../src/services/authSessionService";
 import {
   configureFacebookSdk,
@@ -37,7 +37,6 @@ const logo = require("../assets/images/splash-icon.png");
 export default function Login() {
   const router = useRouter();
   const [accepted, setAccepted]           = useState(false);
-  const [guestLoading, setGuestLoading]   = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [facebookLoading, setFacebookLoading] = useState(false);
   const [facebookWebView, setFacebookWebView] = useState(null);
@@ -147,24 +146,6 @@ export default function Login() {
     if (!requireAccepted()) return;
     await persistInviteCode();
     router.push("/enter-mobile");
-  };
-
-  const handleGuestLogin = async () => {
-    if (!requireAccepted()) return;
-    await persistInviteCode();
-    setGuestLoading(true);
-    try {
-      await establishSessionFromApi(guestLogin);
-      await updateUser({ isGuest: true, avatarId: null, avatar: null, profilePicUrl: null, avatarUrl: null });
-      await finishLogin();
-    } catch (err) {
-      Alert.alert(
-        "Guest Login",
-        err?.message || "Could not continue as guest. Please try again."
-      );
-    } finally {
-      setGuestLoading(false);
-    }
   };
 
   return (
@@ -338,28 +319,6 @@ export default function Login() {
               <FontAwesome5 name="phone-alt" size={ms(24)} color="white" />
             </TouchableOpacity>
           </View>
-
-          {/* Guest Login */}
-          <TouchableOpacity
-            onPress={handleGuestLogin}
-            disabled={guestLoading}
-            activeOpacity={0.7}
-            style={{
-              width: "100%", height: vs(52), borderRadius: s(14),
-              borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
-              backgroundColor: "rgba(255,255,255,0.05)",
-              flexDirection: "row", alignItems: "center", justifyContent: "center",
-              gap: s(10), marginBottom: vs(28),
-            }}
-          >
-            <FontAwesome5 name="user-secret" size={ms(18)} color="rgba(255,255,255,0.6)" />
-            {guestLoading
-              ? <ActivityIndicator color="rgba(255,255,255,0.6)" />
-              : <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: ms(15), fontWeight: "600" }}>
-                  Continue as Guest
-                </Text>
-            }
-          </TouchableOpacity>
 
           {/* Invite code (optional) */}
           <View style={{

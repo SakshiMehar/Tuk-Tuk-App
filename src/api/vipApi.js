@@ -9,6 +9,17 @@ export const getMyVipProfileFrame = async () => {
   return response.data;
 };
 
+/** GET /api/app/vip/:userId/profile-frame — another user's VIP profile frame.
+ *  Used as a fallback only where a surface doesn't already embed the frame
+ *  URL directly on the user/seat/message payload it returns. */
+export const getVipProfileFrameForUser = async (userId) => {
+  const response = await API.get(
+    `/api/app/vip/${userId}/profile-frame`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
 /** GET /api/app/vip/me/entry-frame */
 export const getMyVipEntryFrame = async () => {
   const response = await API.get(
