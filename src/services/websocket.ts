@@ -135,6 +135,8 @@ class WebSocketService {
   private presenceHandlers = new Set<Handler<PresencePayload>>();
   private receiptHandlers  = new Set<Handler<ReadReceiptPayload>>();
   private liveRoomsHandlers = new Set<Handler<unknown>>();
+  private reconnectHandlers = new Set<() => void>();
+  private hasConnectedOnce = false;
 
   private roomHandlers = new Map<string, Map<RoomTopic, Set<Handler<unknown>>>>();
 
@@ -218,6 +220,7 @@ class WebSocketService {
     this.client?.deactivate();
     this.client = null;
     this.connected = false;
+    this.hasConnectedOnce = false;
   }
 
   isConnected(): boolean {
@@ -227,13 +230,27 @@ class WebSocketService {
   // ── Internal ───────────────────────────────────────────────────────────────
 
   private _onConnect(): void {
+    const isReconnect = this.hasConnectedOnce;
     this.connected = true;
+    this.hasConnectedOnce = true;
 
     this._subscribeUserChats();
     this._sub('rooms-live', '/topic/rooms/live', this.liveRoomsHandlers);
 
     this.joinedRooms.forEach((roomId) => this._subscribeRoomTopics(roomId));
     this.joinedFamilies.forEach((familyGroupId) => this._subscribeFamilyTopics(familyGroupId));
+
+    // STOMP/SockJS doesn't replay missed messages to a resubscribing client,
+    // so anything broadcast while disconnected (e.g. a seat update) is lost
+    // unless callers explicitly re-sync their state here.
+    if (isReconnect) {
+      this.reconnectHandlers.forEach((h) => h());
+    }
+  }
+
+  onReconnect(handler: () => void): () => void {
+    this.reconnectHandlers.add(handler);
+    return () => this.reconnectHandlers.delete(handler);
   }
 
   private _subscribeUserChats(): void {

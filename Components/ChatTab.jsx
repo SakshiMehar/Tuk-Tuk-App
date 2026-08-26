@@ -21,6 +21,7 @@ import { getRecommendedUsers } from "../src/services/homeService";
 import { loadConversations } from "../src/services/chatService";
 import { wsService } from "../src/services/websocket";
 import { openUserChat } from "../src/utils/chatNavigation";
+import { openUserProfile } from "../src/utils/profileNavigation";
 import { loadFamilyLists, loadFamilyDetail } from "../src/services/familyService";
 import ComingSoonModal from "./ComingSoonModal";
 import ProfileConnectionsModal from "./ProfileConnectionsModal";
@@ -376,9 +377,13 @@ export default function ChatTab() {
         activeOpacity={0.75}
         onPress={() => handleOpenUserChat(item)}
       >
-        <View style={styles.chatAvatarWrap}>
+        <TouchableOpacity
+          style={styles.chatAvatarWrap}
+          activeOpacity={0.8}
+          onPress={() => openUserProfile(router, item)}
+        >
           <LinearGradient
-            colors={["#7c4dff", "#4a6cf7"]}
+            colors={item.vipProfileFrameUrl ? ["#0f0720", "#0f0720"] : ["#7c4dff", "#4a6cf7"]}
             style={styles.chatAvatarRing}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -414,7 +419,7 @@ export default function ChatTab() {
               </LinearGradient>
             </View>
           )}
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.chatContent}>
           <View style={styles.chatTopRow}>

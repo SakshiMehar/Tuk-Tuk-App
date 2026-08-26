@@ -191,9 +191,18 @@ const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
   });
 };
 
+// Presence (participants/onlineUsers) and seats are computed from separate
+// backend sources that aren't updated atomically, so a single broadcast can
+// carry a fresh seats map alongside a momentarily-stale presence list that's
+// simply missing a still-seated user. Requiring the mismatch to repeat across
+// consecutive updates (via staleSeatTracker) before clearing a seat avoids
+// wiping a connected user's avatar for other clients on a one-off glitch,
+// while still cleaning up genuine ghost seats after they persist.
+const STALE_SEAT_MISS_THRESHOLD = 2;
+
 const reconcileSeatAssignments = (
   parsedSeats,
-  { onlineUsers = null, myUserId = null, mySeatNumber = null } = {}
+  { onlineUsers = null, myUserId = null, mySeatNumber = null, staleSeatTracker = null } = {}
 ) => {
   const next = parsedSeats.map((seat) => ({ ...seat, user: seat.user ? { ...seat.user } : null }));
 
@@ -210,8 +219,21 @@ const reconcileSeatAssignments = (
   if (onlineIds) {
     for (let i = 0; i < next.length; i += 1) {
       const userId = next[i]?.user?.id != null ? String(next[i].user.id) : null;
-      if (userId && !onlineIds.has(userId)) {
+      if (!userId) continue;
+      if (onlineIds.has(userId)) {
+        staleSeatTracker?.delete(userId);
+        continue;
+      }
+      if (!staleSeatTracker) {
         next[i] = { ...next[i], user: null };
+        continue;
+      }
+      const misses = (staleSeatTracker.get(userId) ?? 0) + 1;
+      if (misses >= STALE_SEAT_MISS_THRESHOLD) {
+        next[i] = { ...next[i], user: null };
+        staleSeatTracker.delete(userId);
+      } else {
+        staleSeatTracker.set(userId, misses);
       }
     }
   }
@@ -442,6 +464,12 @@ export default function VoiceParty() {
   const exitedRef = useRef(false);
   const onMicRef = useRef(false);
   const mySeatNumberRef = useRef(null);
+  // Tracks consecutive presence-list misses per userId (see reconcileSeatAssignments).
+  const staleSeatTrackerRef = useRef(new Map());
+  // Bumped every time a live ui-state broadcast applies a seats update, so a
+  // REST getRoomState() snapshot in flight can detect it's been superseded
+  // by fresher socket data and skip overwriting it.
+  const seatSyncTokenRef = useRef(0);
   const buyingGiftRef = useRef(false);
   const roomIdRef = useRef(roomIdParam);
   const fetchedUiAssetIdsRef = useRef(new Set());
@@ -960,6 +988,7 @@ export default function VoiceParty() {
               onlineUsers: session.onlineUsers,
               myUserId,
               mySeatNumber: initialSeatNumber,
+              staleSeatTracker: staleSeatTrackerRef.current,
             })
           );
         } else {
@@ -968,6 +997,7 @@ export default function VoiceParty() {
               onlineUsers: session.onlineUsers,
               myUserId,
               mySeatNumber: null,
+              staleSeatTracker: staleSeatTrackerRef.current,
             })
           );
         }
@@ -982,9 +1012,14 @@ export default function VoiceParty() {
         // entry so any ghost/stale seat users the backend cleaned up are removed.
         setTimeout(async () => {
           if (cancelled) return;
+          const tokenAtRequest = seatSyncTokenRef.current;
           try {
             const freshState = await getRoomState(String(session.roomId));
             if (cancelled) return;
+            // A live ui-state broadcast already superseded this REST snapshot
+            // while it was in flight — applying it now would clobber fresher
+            // socket-driven seat data with stale REST data.
+            if (seatSyncTokenRef.current !== tokenAtRequest) return;
             const freshOnline = parseOnlineUsers(freshState, null);
             const freshSeats = parseSeats(freshState?.seats, freshState);
             if (freshOnline.length > 0) {
@@ -996,6 +1031,7 @@ export default function VoiceParty() {
                 onlineUsers: freshOnline.length > 0 ? freshOnline : null,
                 myUserId,
                 mySeatNumber: mySeatNumberRef.current,
+                staleSeatTracker: staleSeatTrackerRef.current,
               })
             );
           } catch {
@@ -1163,7 +1199,12 @@ export default function VoiceParty() {
         setOnlineCount(users.length);
       }
 
-      if (payload?.seats) {
+      // An empty `seats: {}` payload is ambiguous (partial/diff broadcast vs.
+      // an intentional "room is now empty" signal) — parseSeats treats "no
+      // entries" as a full reset to 15 empty seats, so require at least one
+      // entry here rather than resetting every occupied seat on a guess.
+      if (payload?.seats && Object.keys(payload.seats).length > 0) {
+        seatSyncTokenRef.current += 1;
         const nextSeats = parseSeats(payload.seats, payload);
         if (mySeatNumber) {
           enrichSeatsWithMyProfile(nextSeats, mySeatNumber).then((enriched) =>
@@ -1172,6 +1213,7 @@ export default function VoiceParty() {
                 onlineUsers: hasPresenceSnapshot ? users : null,
                 myUserId,
                 mySeatNumber,
+                staleSeatTracker: staleSeatTrackerRef.current,
               })
             )
           );
@@ -1181,6 +1223,7 @@ export default function VoiceParty() {
               onlineUsers: hasPresenceSnapshot ? users : null,
               myUserId,
               mySeatNumber,
+              staleSeatTracker: staleSeatTrackerRef.current,
             })
           );
         }
@@ -1234,12 +1277,41 @@ export default function VoiceParty() {
       });
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     });
+    // STOMP delivers no backlog to a resubscribing client, so any seat/chat
+    // updates broadcast during a brief drop (backgrounding, network blip)
+    // are otherwise lost until the user leaves and re-enters the room.
+    // Re-pull a full snapshot as soon as the socket comes back.
+    const unsubReconnect = wsService.onReconnect(() => {
+      const tokenAtRequest = seatSyncTokenRef.current;
+      getRoomState(String(roomId))
+        .then((freshState) => {
+          if (seatSyncTokenRef.current !== tokenAtRequest) return;
+          const freshOnline = parseOnlineUsers(freshState, null);
+          const freshSeats = parseSeats(freshState?.seats, freshState);
+          if (freshOnline.length > 0) {
+            setOnlineUsers(freshOnline);
+            setOnlineCount(freshOnline.length);
+          }
+          setSeats((prev) =>
+            reconcileSeatAssignments(freshSeats, {
+              onlineUsers: freshOnline.length > 0 ? freshOnline : null,
+              myUserId,
+              mySeatNumber: mySeatNumberRef.current,
+              staleSeatTracker: staleSeatTrackerRef.current,
+            })
+          );
+        })
+        .catch(() => {
+          // Non-critical — a later reconnect or user action will re-sync.
+        });
+    });
     return () => {
       unsubChat();
       unsubChatSummary();
       unsubUi();
       unsubSpeaking();
       unsubGiftAnimation();
+      unsubReconnect();
     };
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
@@ -1351,6 +1423,7 @@ export default function VoiceParty() {
             onlineUsers,
             myUserId,
             mySeatNumber: null,
+            staleSeatTracker: staleSeatTrackerRef.current,
           })
         );
       } catch (err) {
@@ -1368,7 +1441,12 @@ export default function VoiceParty() {
       const freshState = await getRoomState(String(roomId));
       const freshSeats = parseSeats(freshState?.seats, freshState);
       setSeats(
-        reconcileSeatAssignments(freshSeats, { onlineUsers, myUserId, mySeatNumber })
+        reconcileSeatAssignments(freshSeats, {
+          onlineUsers,
+          myUserId,
+          mySeatNumber,
+          staleSeatTracker: staleSeatTrackerRef.current,
+        })
       );
 
       const emptySeats = freshSeats
@@ -1479,6 +1557,7 @@ export default function VoiceParty() {
           onlineUsers,
           myUserId: localUserId ?? myUserId,
           mySeatNumber: targetSeat,
+          staleSeatTracker: staleSeatTrackerRef.current,
         })
       );
       setOnlineCount(state?.onlineCount ?? onlineCount);
@@ -2062,7 +2141,14 @@ export default function VoiceParty() {
       const freshState = await getRoomState(String(roomId));
       const freshSeats = freshState?.seats ? parseSeats(freshState.seats, freshState) : seats;
       const enriched = await enrichSeatsWithMyProfile(freshSeats, targetSeatId);
-      setSeats(reconcileSeatAssignments(enriched, { onlineUsers, myUserId, mySeatNumber: targetSeatId }));
+      setSeats(
+        reconcileSeatAssignments(enriched, {
+          onlineUsers,
+          myUserId,
+          mySeatNumber: targetSeatId,
+          staleSeatTracker: staleSeatTrackerRef.current,
+        })
+      );
     } catch (err) {
       Alert.alert("Take seat failed", err?.message || "Could not take that seat. Please try again.");
     } finally {

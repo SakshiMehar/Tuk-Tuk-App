@@ -21,6 +21,7 @@ import {
   Linking,
   Alert,
   BackHandler,
+  Image as RNImage,
 } from "react-native";
 import { Image } from "expo-image";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -51,6 +52,7 @@ import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
 import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
 import { resolveImageSource } from "../../src/utils/videoSource";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+import PostImageViewer from "../../Components/PostImageViewer";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
 import {
@@ -76,6 +78,7 @@ import ReportReasonModal from "../../Components/ReportReasonModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
 import { openUserChat } from "../../src/utils/chatNavigation";
+import { openUserProfile } from "../../src/utils/profileNavigation";
 import { s, vs, ms, useResponsive } from "../../src/utils/responsive";
 
 const H_PAD = 14;
@@ -86,6 +89,28 @@ const CARD_GAP = 10;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2 * 0.88;
 const BANNER_SLIDE_WIDTH = SCREEN_WIDTH - H_PAD * 2;
+
+// Instagram-style bounds: never taller than 4:5 portrait, never wider than
+// 1.91:1 landscape — keeps the feed's per-post height sane while matching
+// the box ratio to the photo for the vast majority of normal aspect ratios.
+const MIN_POST_IMAGE_RATIO = 4 / 5;
+const MAX_POST_IMAGE_RATIO = 1.91;
+const clampAspectRatio = (ratio) =>
+  Math.min(MAX_POST_IMAGE_RATIO, Math.max(MIN_POST_IMAGE_RATIO, ratio));
+
+// Drops posts sharing an id with one already seen — guards against the
+// backend returning an overlapping page (e.g. new posts shifting offsets
+// between requests), which otherwise renders the same post id twice and
+// trips FlatList's "duplicate key" warning.
+const dedupePostsById = (posts) => {
+  const seen = new Set();
+  return posts.filter((post) => {
+    const id = String(post?.id);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
 
 // Stable arrays at module level — never recreated on re-renders
 const WAVE_HEIGHTS = [8, 14, 10, 18, 12];
@@ -1515,9 +1540,14 @@ const toImageSource = (uri) => {
     : { uri };
 };
 
-const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, currentUserId, currentUserAvatarSource, currentUserFrameSource, currentUserVipFrameSource }) => {
+const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, onImagePress, currentUserId, currentUserAvatarSource, currentUserFrameSource, currentUserVipFrameSource }) => {
+  const router = useRouter();
   const [imgFailed, setImgFailed] = useState(false);
+  const [imgAspectRatio, setImgAspectRatio] = useState(null);
   const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
+  const handleAvatarPress = () => {
+    openUserProfile(router, { userId: post.userId, name: post.name, avatar: post.avatar });
+  };
   const postAvatarSource =
     isOwnPost && currentUserAvatarSource
       ? currentUserAvatarSource
@@ -1533,37 +1563,61 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
   const hasImage  = imageUri && (post._mediaType !== "video" && !post.hasVideo);
   const hasVideo  = post.hasVideo || post._mediaType === "video";
   const videoUri  = hasVideo ? (post.videoUrl ?? post._localMediaUri ?? null) : null;
+  // Stable object identity across re-renders — cachePolicy="none" makes
+  // expo-image treat a new `{ uri }` object as a brand-new source and
+  // restart loading from scratch.
+  const postImageSource = useMemo(() => toImageSource(imageUri), [imageUri]);
+
+  // Measure the photo's real aspect ratio via a separate, one-shot
+  // RN Image.getSize() call BEFORE the visible (cachePolicy="none")
+  // expo-image ever mounts with its final layout. Deriving the ratio from
+  // the visible Image's own onLoad instead would change its style right
+  // after it finishes loading, which with cachePolicy="none" can make it
+  // restart the fetch from scratch — and if that reload gets interrupted
+  // (e.g. by list scroll/virtualization), the image is left stuck blank.
+  useEffect(() => {
+    if (!imageUri) return undefined;
+    let cancelled = false;
+    RNImage.getSize(
+      imageUri,
+      (w, h) => { if (!cancelled && w && h) setImgAspectRatio(w / h); },
+      () => {}
+    );
+    return () => { cancelled = true; };
+  }, [imageUri]);
 
   return (
   <View style={styles.postOuter}>
     <View style={styles.postCard}>
       <View style={styles.postHeader}>
-        {postAvatarSource ? (
-          <ProfileAvatarWithFrame
-            avatarSource={postAvatarSource}
-            frameSource={postFrameSource}
-            size={42}
-            avatarStyle={styles.postAvatar}
-            imageComponent={Image}
-            {...(isOwnVipFrame
-              ? {
-                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                }
-              : {})}
-          />
-        ) : (
-          <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
-              <Text style={{ color: "white", fontSize: 16, fontWeight: "700" }}>
-                {(post.name ?? "?")[0].toUpperCase()}
-              </Text>
-            </View>
-        )}
+        <TouchableOpacity activeOpacity={0.8} onPress={handleAvatarPress}>
+          {postAvatarSource ? (
+            <ProfileAvatarWithFrame
+              avatarSource={postAvatarSource}
+              frameSource={postFrameSource}
+              size={42}
+              avatarStyle={styles.postAvatar}
+              imageComponent={Image}
+              {...(isOwnVipFrame
+                ? {
+                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                  }
+                : {})}
+            />
+          ) : (
+            <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
+                <Text style={{ color: "white", fontSize: 16, fontWeight: "700" }}>
+                  {(post.name ?? "?")[0].toUpperCase()}
+                </Text>
+              </View>
+          )}
+        </TouchableOpacity>
         <Text style={styles.postName}>{post.name ?? "User"}</Text>
         {!isOwnPost && (
           <TouchableOpacity
@@ -1589,16 +1643,39 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
         </Text>
       )}
 
-      {/* Image */}
+      {/* Image — box sized to the image's own aspect ratio, clamped to a
+          sane range (Instagram-style: 4:5 portrait .. 1.91:1 landscape) so
+          normal photos render edge-to-edge with zero cropping. contentFit
+          stays "cover" so a matched ratio never gets letterboxed — only
+          outlier shapes (extreme panorama/portrait) get a small edge crop
+          instead of a big empty void that can blend into the dark theme. */}
       {hasImage && !imgFailed && (
-        <Image
-          source={toImageSource(imageUri)}
-          style={styles.postImage}
-          contentFit="cover"
-          transition={200}
-          cachePolicy="none"
-          onError={() => setImgFailed(true)}
-        />
+        <TouchableOpacity
+          activeOpacity={0.92}
+          onPress={() =>
+            onImagePress?.({
+              post,
+              avatarSource: postAvatarSource,
+              frameSource: postFrameSource,
+              isOwnVipFrame,
+              isOwnPost,
+            })
+          }
+        >
+          <Image
+            source={postImageSource}
+            style={[
+              styles.postImage,
+              imgAspectRatio
+                ? { aspectRatio: clampAspectRatio(imgAspectRatio), height: undefined }
+                : { height: 220 },
+            ]}
+            contentFit="cover"
+            transition={200}
+            cachePolicy="none"
+            onError={() => setImgFailed(true)}
+          />
+        </TouchableOpacity>
       )}
 
       {/* Video */}
@@ -1644,20 +1721,28 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
   );
 });
 
-const RecommendedUserItem = memo(({ user }) => (
-  <TouchableOpacity style={styles.recommendItem} activeOpacity={0.8}>
-    <LinearGradient
-      colors={["#7c4dff", "#ff4ea3"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.recommendAvatarRing}
-    >
+const RecommendedUserItem = memo(({ user }) => {
+  const router = useRouter();
+  return (
+  <TouchableOpacity
+    style={styles.recommendItem}
+    activeOpacity={0.8}
+    onPress={() =>
+      openUserProfile(router, {
+        userId: user.id,
+        name: user.name,
+        avatar: user.avatar,
+        vipProfileFrameUrl: user.vipProfileFrameUrl,
+      })
+    }
+  >
+    <View style={styles.recommendAvatarWrap}>
       {user.avatar ? (
         <ProfileAvatarWithFrame
           avatarSource={toImageSource(user.avatar)}
           frameSource={user.vipProfileFrameUrl}
-          size={s(66)}
-          avatarStyle={{ borderRadius: 33 }}
+          size={s(72)}
+          avatarStyle={{ borderRadius: s(36) }}
           {...(user.vipProfileFrameUrl
             ? {
                 frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
@@ -1675,10 +1760,11 @@ const RecommendedUserItem = memo(({ user }) => (
           <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
         </View>
       )}
-    </LinearGradient>
+    </View>
     <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
   </TouchableOpacity>
-));
+  );
+});
 
 // BannerSlider owns its auto-scroll timer — parent never re-renders just for banner ticks
 const BannerSlider = memo(({ slides, activeBanner, onBannerChange }) => {
@@ -2031,6 +2117,7 @@ export default function Home() {
   const [moreMenuPost, setMoreMenuPost] = useState(null);
   const [reportTarget, setReportTarget] = useState(null);
   const [commentPostId, setCommentPostId] = useState(null);
+  const [imageViewerData, setImageViewerData] = useState(null);
   const [postSheetVisible, setPostSheetVisible] = useState(false);
   const [likedPostIds, setLikedPostIds] = useState([]);
   const likedPostIdsRef = useRef([]);
@@ -2188,10 +2275,12 @@ export default function Home() {
           setBannerSlides(data.bannerSlides);
           setRecommendedUsers(data.recommendedUsers);
           setFeedPosts(
-            (data.feedPosts ?? []).map((post) => ({
-              ...post,
-              _isOwn: sessionUserId ? isOwnContent(post, sessionUserId) : false,
-            }))
+            dedupePostsById(
+              (data.feedPosts ?? []).map((post) => ({
+                ...post,
+                _isOwn: sessionUserId ? isOwnContent(post, sessionUserId) : false,
+              }))
+            )
           );
           setFeedHasMore(data.feedHasMore ?? false);
           setNotifications(data.notifications);
@@ -2242,10 +2331,12 @@ export default function Home() {
       const res = await homeService.refreshFeed(tab);
       const uid = currentUserIdRef.current;
       setFeedPosts(
-        (res.posts ?? []).map((post) => ({
-          ...post,
-          _isOwn: uid ? isOwnContent(post, uid) : false,
-        }))
+        dedupePostsById(
+          (res.posts ?? []).map((post) => ({
+            ...post,
+            _isOwn: uid ? isOwnContent(post, uid) : false,
+          }))
+        )
       );
       setFeedHasMore(res.hasMore ?? false);
       
@@ -2393,13 +2484,15 @@ export default function Home() {
     const nextPage = feedPage + 1;
     try {
       const more = await homeService.loadMoreFeed(selectedTab, nextPage);
-      setFeedPosts((prev) => [
-        ...prev,
-        ...(more.posts ?? []).map((post) => ({
-          ...post,
-          _isOwn: currentUserId ? isOwnContent(post, currentUserId) : false,
-        })),
-      ]);
+      setFeedPosts((prev) =>
+        dedupePostsById([
+          ...prev,
+          ...(more.posts ?? []).map((post) => ({
+            ...post,
+            _isOwn: currentUserId ? isOwnContent(post, currentUserId) : false,
+          })),
+        ])
+      );
       setFeedHasMore(more.hasMore ?? false);
       setFeedPage(nextPage);
     } catch (e) {
@@ -2490,6 +2583,17 @@ export default function Home() {
   const handleCommentPress = useCallback((postId) => {
     setCommentPostId(postId);
   }, []);
+
+  const handleOpenImageViewer = useCallback((payload) => {
+    setImageViewerData(payload);
+  }, []);
+  const handleCloseImageViewer = useCallback(() => setImageViewerData(null), []);
+  const handleImageViewerAvatarPress = useCallback(() => {
+    const post = imageViewerData?.post;
+    if (!post) return;
+    setImageViewerData(null);
+    openUserProfile(router, { userId: post.userId, name: post.name, avatar: post.avatar });
+  }, [imageViewerData, router]);
 
   const handlePostSubmit = useCallback(async ({ caption, media, mediaUri, mediaType }) => {
     // Helper — calls GET /api/home/feed?tab=for_you&page=1&limit=10 and resets the feed
@@ -2628,13 +2732,14 @@ export default function Home() {
         isLiked={likedPostIds.includes(item.id)}
         onLikeToggle={handleLikeToggle}
         onCommentPress={handleCommentPress}
+        onImagePress={handleOpenImageViewer}
         currentUserId={currentUserId}
         currentUserAvatarSource={sessionAvatarSource}
         currentUserFrameSource={sessionNewUserFrameSource}
         currentUserVipFrameSource={vipProfileFrameSource}
       />
     );
-  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, currentUserId, sessionAvatarSource, sessionNewUserFrameSource, vipProfileFrameSource]);
+  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, handleOpenImageViewer, currentUserId, sessionAvatarSource, sessionNewUserFrameSource, vipProfileFrameSource]);
 
   const keyExtractor = useCallback((item) => String(item.id), []);
 
@@ -2687,10 +2792,11 @@ export default function Home() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
 
       <LinearGradient
-        colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
+         colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
+        // colors={["white", "white", "white", "white", "white"]}
         locations={[0, 0.25, 0.5, 0.75, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -3022,6 +3128,24 @@ export default function Home() {
         onClose={() => setCommentPostId(null)}
       />
 
+      {/* ── FULL-SCREEN POST IMAGE VIEWER ── */}
+      <PostImageViewer
+        visible={imageViewerData !== null}
+        data={imageViewerData}
+        isFollowing={
+          imageViewerData
+            ? followingIds.some((id) => isSameUser(id, imageViewerData.post.userId))
+            : false
+        }
+        isLiked={imageViewerData ? likedPostIds.includes(imageViewerData.post.id) : false}
+        onClose={handleCloseImageViewer}
+        onFollowToggle={handleFollowToggle}
+        onLikeToggle={handleLikeToggle}
+        onCommentPress={handleCommentPress}
+        onMore={handleMorePress}
+        onAvatarPress={handleImageViewerAvatarPress}
+      />
+
       {/* ── FLOATING ACTION BUTTON ── */}
       <PostFAB onPress={() => setPostSheetVisible(true)} />
 
@@ -3179,7 +3303,7 @@ export default function Home() {
                     >
                       <View style={styles.genderAvatarImgWrap}>
                         <Image
-                          source={require("../../assets/Avatar/avatar1.webp")}
+                          source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Avatar/avatar1.webp" }}
                           style={styles.genderAvatarImg}
                           contentFit="cover"
                         />
@@ -3207,7 +3331,7 @@ export default function Home() {
                     >
                       <View style={styles.genderAvatarImgWrap}>
                         <Image
-                          source={require("../../assets/Avatar/avatar5.webp")}
+                          source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Avatar/avatar5.webp" }}
                           style={styles.genderAvatarImg}
                           contentFit="cover"
                         />
@@ -3334,7 +3458,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0d0618",
+    backgroundColor: "white",
   },
 
   // ── Searched user profile modal ──
@@ -3917,12 +4041,12 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   tabText: {
-    color: "rgba(255,255,255,0.45)",
+    color: "rgba(0,0,0,0.45)",
     fontSize: ms(15),
     fontWeight: "500",
   },
   tabActive: {
-    color: "white",
+    color: "black",
     fontWeight: "800",
     fontSize: ms(16),
   },
@@ -3982,10 +4106,10 @@ const styles = StyleSheet.create({
   },
   postImage: {
     width: "100%",
-    height: 220,
     borderRadius: 12,
     marginBottom: 10,
     marginTop: 8,
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
   postName: {
     color: "white",
@@ -4120,17 +4244,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     width: s(76),
   },
-  recommendAvatarRing: {
+  recommendAvatarWrap: {
     width: s(72),
     height: s(72),
     borderRadius: s(36),
-    padding: s(3),
     marginBottom: vs(8),
   },
   recommendAvatar: {
     width: "100%",
     height: "100%",
-    borderRadius: 33,
+    borderRadius: s(36),
   },
   recommendAvatarPlaceholder: {
     backgroundColor: "rgba(124,77,255,0.45)",

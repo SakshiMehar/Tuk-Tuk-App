@@ -1100,9 +1100,15 @@ export default function Profile() {
     if (user.name) setName(user.name);
     const localId = user.userId ?? user.id;
     if (localId != null) setUserId(String(localId));
+    // `avatarId` starts as DEFAULT_AVATAR_ID (a *valid* bundled key), so it
+    // must be explicitly cleared when the cached user has no bundled avatar —
+    // resolveProfileAvatarSource() checks avatarId before profilePicUrl, so a
+    // stale non-null avatarId silently hides a real uploaded photo.
     if (user.avatarId) {
       setAvatarId(user.avatarId);
       setEditAvatarId(user.avatarId);
+    } else {
+      setAvatarId(null);
     }
     setUseLocalAvatar(user.useLocalAvatar !== false);
     setProfilePicUrl(user.profilePicUrl ?? user.avatarUrl ?? null);
@@ -1124,8 +1130,23 @@ export default function Profile() {
           await updateUser({ id: serverProfile.id, userId: serverProfile.id });
         }
       }
+      // Refresh the avatar from the server on every focus — the cached
+      // local user can go stale (e.g. picture uploaded from another
+      // session), and this is the only place the header avatar is set.
+      if (serverProfile?.avatarId) {
+        setAvatarId(serverProfile.avatarId);
+        setEditAvatarId(serverProfile.avatarId);
+        setUseLocalAvatar(true);
+        setProfilePicUrl(null);
+        await updateUser({ avatarId: serverProfile.avatarId, profilePicUrl: null, useLocalAvatar: true });
+      } else if (serverProfile?.profilePicUrl) {
+        setAvatarId(null);
+        setProfilePicUrl(serverProfile.profilePicUrl);
+        setUseLocalAvatar(false);
+        await updateUser({ profilePicUrl: serverProfile.profilePicUrl, avatarUrl: serverProfile.profilePicUrl, useLocalAvatar: false });
+      }
     } catch {
-      // Keep the cached local id if the profile request fails.
+      // Keep the cached local id/avatar if the profile request fails.
     }
   }, []);
 
@@ -1160,6 +1181,7 @@ export default function Profile() {
         setUseLocalAvatar(true);
         setProfilePicUrl(null);
       } else if (serverProfile.profilePicUrl) {
+        setAvatarId(null);
         setProfilePicUrl(serverProfile.profilePicUrl);
         setUseLocalAvatar(false);
       }
@@ -1168,7 +1190,7 @@ export default function Profile() {
         ...(serverProfile.id != null
           ? { id: serverProfile.id, userId: serverProfile.id }
           : {}),
-        avatarId: serverProfile.avatarId ?? user?.avatarId,
+        avatarId: serverProfile.avatarId ?? null,
         profilePicUrl: serverProfile.profilePicUrl ?? null,
         useLocalAvatar: Boolean(serverProfile.avatarId) || !serverProfile.profilePicUrl,
         ...(serverProfile.createdAt ? { createdAt: serverProfile.createdAt } : {}),

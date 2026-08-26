@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { Alert } from "react-native";
+import { useRouter } from "expo-router";
 import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services/chatService";
 import { wsService } from "../src/services/websocket";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
+import { openUserProfile } from "../src/utils/profileNavigation";
 
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
 import {
@@ -56,6 +58,11 @@ export default function ChatBox({ user = {}, onBack }) {
     lastMsg = "",
     level = null,
   } = user;
+  const router = useRouter();
+  const handleAvatarPress = () => {
+    if (!userId) return;
+    openUserProfile(router, { userId, name, avatar });
+  };
 
   const [showBanner, setShowBanner] = useState(true);
   const [message, setMessage] = useState("");
@@ -319,32 +326,34 @@ export default function ChatBox({ user = {}, onBack }) {
               style={styles.matchCard}
             >
               <View style={styles.matchTopRow}>
-                <LinearGradient
-                  colors={["#7c4dff", "#4a6cf7"]}
-                  style={styles.matchAvatarRing}
-                >
-                  <View style={styles.matchAvatarWrap}>
-                    {avatar ? (
-                      <Image
-                        source={resolveAvatarSource(avatar)}
-                        style={styles.matchAvatar}
-                      />
-                    ) : (
-                      <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
-                        <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
-                      </View>
-                    )}
-                    {otherUserVipFrame ? (
-                      // VIP profile frame overlay — scale/position may need visual tuning on device
-                      <Image
-                        source={{ uri: otherUserVipFrame }}
-                        style={styles.matchAvatarFrameOverlay}
-                        resizeMode="contain"
-                        pointerEvents="none"
-                      />
-                    ) : null}
-                  </View>
-                </LinearGradient>
+                <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
+                  <LinearGradient
+                    colors={otherUserVipFrame ? ["#0f0720", "#0f0720"] : ["#7c4dff", "#4a6cf7"]}
+                    style={styles.matchAvatarRing}
+                  >
+                    <View style={styles.matchAvatarWrap}>
+                      {avatar ? (
+                        <Image
+                          source={resolveAvatarSource(avatar)}
+                          style={styles.matchAvatar}
+                        />
+                      ) : (
+                        <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
+                          <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                        </View>
+                      )}
+                      {otherUserVipFrame ? (
+                        // VIP profile frame overlay — scale/position may need visual tuning on device
+                        <Image
+                          source={{ uri: otherUserVipFrame }}
+                          style={styles.matchAvatarFrameOverlay}
+                          resizeMode="contain"
+                          pointerEvents="none"
+                        />
+                      ) : null}
+                    </View>
+                  </LinearGradient>
+                </TouchableOpacity>
                 <View style={styles.matchUserInfo}>
                   <Text style={styles.matchUserName}>{name}</Text>
                   {lastMsg ? (
@@ -369,27 +378,29 @@ export default function ChatBox({ user = {}, onBack }) {
                   ]}
                 >
                   {!msg.fromMe && (
-                    <View style={styles.msgAvatarWrap}>
-                      {avatar ? (
-                        <Image
-                          source={resolveAvatarSource(avatar)}
-                          style={styles.msgAvatar}
-                        />
-                      ) : (
-                        <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
-                          <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
-                        </View>
-                      )}
-                      {otherUserVipFrame ? (
-                        // VIP profile frame overlay — scale/position may need visual tuning on device
-                        <Image
-                          source={{ uri: otherUserVipFrame }}
-                          style={styles.msgAvatarFrameOverlay}
-                          resizeMode="contain"
-                          pointerEvents="none"
-                        />
-                      ) : null}
-                    </View>
+                    <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
+                      <View style={styles.msgAvatarWrap}>
+                        {avatar ? (
+                          <Image
+                            source={resolveAvatarSource(avatar)}
+                            style={styles.msgAvatar}
+                          />
+                        ) : (
+                          <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
+                            <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                          </View>
+                        )}
+                        {otherUserVipFrame ? (
+                          // VIP profile frame overlay — scale/position may need visual tuning on device
+                          <Image
+                            source={{ uri: otherUserVipFrame }}
+                            style={styles.msgAvatarFrameOverlay}
+                            resizeMode="contain"
+                            pointerEvents="none"
+                          />
+                        ) : null}
+                      </View>
+                    </TouchableOpacity>
                   )}
                   <View
                     style={[

@@ -5,6 +5,7 @@ import {
 } from "../api/profileApi";
 import { API_BASE_URL } from "../config/env";
 import {
+  getAvatarSource,
   isBundledAvatarId,
   resolveBundledAvatarId,
 } from "../data/avatarOptions";
@@ -32,14 +33,55 @@ export const resolveRemoteProfilePicUrl = (url) => {
 
 const unwrapProfile = (data) => data?.profile ?? data?.data ?? data ?? {};
 
+/** Bundled avatars are remote S3 URLs — fetch real bytes and convert to a
+ *  data: URI so the multipart upload actually carries image data. A plain
+ *  { uri: "https://..." } FormData part only reads local device files, and
+ *  a raw Blob fetched from a remote URL fails with ERR_NETWORK when handed
+ *  to a separate upload request (RN ties Blobs to the network module that
+ *  created them) — a data: URI sidesteps both issues. */
+const fetchAvatarAsDataUri = (uri) =>
+  fetch(uri)
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`Could not load avatar image (${response.status})`);
+      }
+      return response.blob();
+    })
+    .then(
+      (blob) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("Could not read avatar image"));
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        })
+    );
+
+/** Trust the known file extension, not the fetched blob's own Content-Type —
+ *  S3 sometimes serves .webp/.png assets as generic application/octet-stream,
+ *  which would otherwise mislabel a real image as a non-image upload. */
+const mimeTypeFromFileExtension = (uri) => {
+  const ext = uri?.split("?")?.[0]?.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase();
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  return "image/jpeg";
+};
+
 export const parseMeProfile = (data) => {
   const raw = unwrapProfile(data);
   const avatarId =
     resolveBundledAvatarId(raw.avatar, raw.avatarId) ??
     resolveBundledAvatarId(raw.profilePicUrl) ??
     null;
-  const remotePic = firstText(raw.profilePicUrl, raw.avatarUrl, raw.avatar, raw.photoUrl);
-  const profilePicUrl = isBundledAvatarId(remotePic)
+  const remotePic = firstText(
+    raw.profilePicUrl,
+    raw.profilePic,
+    raw.avatarUrl,
+    raw.avatar,
+    raw.photoUrl
+  );
+  const profilePicUrl = resolveBundledAvatarId(remotePic)
     ? null
     : resolveRemoteProfilePicUrl(remotePic);
 
@@ -98,24 +140,38 @@ export const loadMyProfile = async () => {
 };
 
 export const saveMyProfile = async ({ name, avatarId, profilePicUrl } = {}) => {
-  const payload = {};
   const trimmedName = typeof name === "string" ? name.trim() : "";
-  if (trimmedName) payload.name = trimmedName;
-  if (avatarId) payload.avatar = avatarId;
-  if (profilePicUrl && !isBundledAvatarId(profilePicUrl)) {
-    payload.profilePicUrl = profilePicUrl;
-  }
+  const hasNameChange = Boolean(trimmedName);
+  const hasAvatarChange = Boolean(avatarId);
+  const hasCustomPicChange =
+    !hasAvatarChange && Boolean(profilePicUrl) && !isBundledAvatarId(profilePicUrl);
 
-  if (!Object.keys(payload).length) {
-    
+  if (!hasNameChange && !hasAvatarChange && !hasCustomPicChange) {
     return null;
   }
 
-  
-  const data = await patchMyProfile(payload);
-  const parsed = parseMeProfile(data);
-  
-  return parsed;
+  // Picking a bundled avatar now goes through the same multipart upload
+  // endpoint as a custom photo (PATCH /profile-pic) — the backend requires
+  // every profile picture to be uploaded that way, not referenced by URL.
+  if (hasAvatarChange) {
+    const resolvedAvatar = getAvatarSource(avatarId);
+    if (resolvedAvatar?.uri) {
+      const dataUri = await fetchAvatarAsDataUri(resolvedAvatar.uri);
+      const mimeType = mimeTypeFromFileExtension(resolvedAvatar.uri);
+      const fileName = resolvedAvatar.uri.split("/").pop()?.split("?")[0] || "avatar.jpg";
+      await uploadMyProfilePic({ uri: dataUri, mimeType, fileName });
+    }
+  }
+
+  const payload = {};
+  if (hasNameChange) payload.name = trimmedName;
+  if (hasCustomPicChange) payload.profilePicUrl = profilePicUrl;
+
+  if (Object.keys(payload).length) {
+    await patchMyProfile(payload);
+  }
+
+  return loadMyProfile();
 };
 
 export const uploadProfilePicture = async (asset = {}) => {
