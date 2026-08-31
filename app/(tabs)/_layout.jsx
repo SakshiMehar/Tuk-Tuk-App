@@ -1,7 +1,63 @@
-import { Tabs } from "expo-router";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { Tabs, useRouter } from "expo-router";
 import { Home, Mic, MessageCircle, User } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getToken, hasAcceptedTerms } from "../../src/store/authStore";
 
 const TabLayout = () => {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 8);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const guardSession = async () => {
+      try {
+        const [token, termsAccepted] = await Promise.all([
+          getToken(),
+          hasAcceptedTerms(),
+        ]);
+
+        if (cancelled) return;
+
+        if (!token || !termsAccepted) {
+          router.replace("/login");
+          return;
+        }
+
+        setReady(true);
+      } catch {
+        if (!cancelled) {
+          router.replace("/login");
+        }
+      }
+    };
+
+    guardSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  if (!ready) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#0d0618",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <ActivityIndicator size="large" color="#a78bfa" />
+      </View>
+    );
+  }
+
   return (
     <Tabs
       screenOptions={{
@@ -12,10 +68,11 @@ const TabLayout = () => {
           backgroundColor: "rgba(21,22,58,0.95)",
           borderTopWidth: 1,
           borderTopColor: "rgba(166,152,255,0.28)",
-          paddingBottom: 14,
-          height: 75,
+          paddingTop: 6,
+          paddingBottom: bottomInset,
+          height: 56 + bottomInset,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "600", marginBottom: 2 },
       }}
     >
       <Tabs.Screen

@@ -24,7 +24,7 @@ export default function TermsOfUse() {
 
         {/* Intro */}
         <Text style={styles.body}>
-          Welcome to Tuk Tuk (the "Platform" or "App"). These Terms of Service (the "Terms") constitute a legally binding agreement between you ("You" or "User") and Tuk Tuk, the owner and operator of the Platform and App. By accessing or using the Platform or any of its services, features, or content, you acknowledge that you have read, understood, and agree to be bound by these Terms.
+          Welcome to Tuk Tuk (the &quot;Platform&quot; or &quot;App&quot;). These Terms of Service (the &quot;Terms&quot;) constitute a legally binding agreement between you (&quot;You&quot; or &quot;User&quot;) and Tuk Tuk, the owner and operator of the Platform and App. By accessing or using the Platform or any of its services, features, or content, you acknowledge that you have read, understood, and agree to be bound by these Terms.
         </Text>
         <Text style={[styles.body, { marginTop: 12 }]}>
           This agreement outlines your rights and obligations as a user of the Platform, as well as the terms under which we provide access to and services through the App. Whether you are a registered user, a guest, or simply browsing the Platform, these Terms govern your use of Tuk Tuk, and by continuing to use or access the App, you agree to comply with all its provisions.
@@ -36,10 +36,10 @@ export default function TermsOfUse() {
         {/* 1. Special Notices */}
         <Text style={styles.sectionTitle}>1. Special Notices</Text>
         <Text style={styles.subPoint}>
-          <Text style={styles.subNum}>1.1 </Text>This Tuk Tuk User Agreement (this "Agreement") governs your usage of our services (hereinafter, "Services"). For the purposes of this Agreement, you and Tuk Tuk will be jointly referred to as the "Parties" and respectively as a "Party".
+          <Text style={styles.subNum}>1.1 </Text>This Tuk Tuk User Agreement (this &quot;Agreement&quot;) governs your usage of our services (hereinafter, &quot;Services&quot;). For the purposes of this Agreement, you and Tuk Tuk will be jointly referred to as the &quot;Parties&quot; and respectively as a &quot;Party&quot;.
         </Text>
         <Text style={styles.subPoint}>
-          <Text style={styles.subNum}>1.2 </Text>By using our Services or by clicking on "Sign Up" during the registration process, you agree to all terms of this Agreement. We, at our sole discretion, may revise this Agreement from time to time, and the current version will be found at: About us &gt; User Agreement. By continuing to avail our Services, you agree to be bound by the revised Agreement.
+          <Text style={styles.subNum}>1.2 </Text>By using our Services or by clicking on &quot;Sign Up&quot; during the registration process, you agree to all terms of this Agreement. We, at our sole discretion, may revise this Agreement from time to time, and the current version will be found at: About us &gt; User Agreement. By continuing to avail our Services, you agree to be bound by the revised Agreement.
         </Text>
         <Text style={styles.subPoint}>
           <Text style={styles.subNum}>1.3 </Text>You may only use our Service if you are 16 years or older and if you are not subject to a statutory age limit to enter into this Agreement according to the applicable laws and regulations in your country. If you are below the aforementioned minimum age, you may only use Tuk Tuk if your guardian has provided us with valid consent. You may not falsely claim that you have reached the minimum age.
@@ -85,7 +85,7 @@ export default function TermsOfUse() {
           <Text style={styles.subNum}>6.1 </Text>You are solely responsible for any risks associated with using Tuk Tuk Services. Any use or reliance on Tuk Tuk Services is done at your own risk.
         </Text>
         <Text style={styles.subPoint}>
-          <Text style={styles.subNum}>6.2 </Text>Tuk Tuk does not guarantee that the Services will meet your requirements or that they will be uninterrupted. The timeliness, security, and accuracy of the Services are not guaranteed. The Services are provided on an "as is" basis. Tuk Tuk makes no representations or warranties, whether express or implied, regarding the operation and provision of the Services.
+          <Text style={styles.subNum}>6.2 </Text>Tuk Tuk does not guarantee that the Services will meet your requirements or that they will be uninterrupted. The timeliness, security, and accuracy of the Services are not guaranteed. The Services are provided on an &quot;as is&quot; basis. Tuk Tuk makes no representations or warranties, whether express or implied, regarding the operation and provision of the Services.
         </Text>
         <Text style={styles.subPoint}>
           <Text style={styles.subNum}>6.3 </Text>Tuk Tuk does not guarantee the accuracy and integrity of any external links that may be accessed through the Services. Tuk Tuk shall not be responsible for the content of any linked site or any link contained therein, and shall not be held liable, directly or indirectly, for any loss or damage incurred through your use of the Services.
@@ -105,7 +105,7 @@ export default function TermsOfUse() {
         </Text>
         <Text style={styles.subSectionTitle}>7.2 User-Generated Content</Text>
         <Text style={styles.body}>
-          Users may be permitted to upload, post, or transmit content through the Services including text, photographs, videos, sound recordings, and other media ("User Content"). You or the owner of your User Content retain copyright, but by submitting User Content via the Services, you hereby grant Tuk Tuk an unconditional, irrevocable, non-exclusive, royalty-free, fully transferable, perpetual worldwide license to use, modify, adapt, reproduce, publish, and distribute your User Content on any platform.
+          Users may be permitted to upload, post, or transmit content through the Services including text, photographs, videos, sound recordings, and other media (&quot;User Content&quot;). You or the owner of your User Content retain copyright, but by submitting User Content via the Services, you hereby grant Tuk Tuk an unconditional, irrevocable, non-exclusive, royalty-free, fully transferable, perpetual worldwide license to use, modify, adapt, reproduce, publish, and distribute your User Content on any platform.
         </Text>
         <Text style={[styles.body, { marginTop: 10 }]}>
           Any User Content will be considered non-confidential and non-proprietary. You must not post any User Content that you consider confidential or proprietary. When you submit User Content, you represent that you own it or have received all necessary permissions from the owner.

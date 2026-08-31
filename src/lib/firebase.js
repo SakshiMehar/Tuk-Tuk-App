@@ -38,8 +38,7 @@ export const initFirebase = () => {
   initAttempted = true;
   try {
     getFirebaseAuth();
-  } catch (e) {
-    console.warn("Firebase init:", e?.message ?? e);
+  } catch {
     initAttempted = false;
   }
 };

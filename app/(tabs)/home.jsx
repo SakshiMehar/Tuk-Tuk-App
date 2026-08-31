@@ -1,11 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import {
   View,
   Text,
   ScrollView,
   FlatList,
   TouchableOpacity,
-  Image,
   StyleSheet,
   StatusBar,
   Dimensions,
@@ -15,29 +14,116 @@ import {
   Platform,
   Animated,
   Easing,
+  InteractionManager,
+  ActivityIndicator,
+  Share,
+  Linking,
+  Alert,
+  BackHandler,
+  Image as RNImage,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Image } from "expo-image";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
-import MaskedView from "@react-native-masked-view/masked-view";
 import { ChevronRight } from "lucide-react-native";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+import * as homeService from "../../src/services/homeService";
+import {
+  followUser,
+  unfollowUser,
+  blockUser,
+  loadFollowing,
+  loadFollowers,
+  isSameUser,
+} from "../../src/services/relationshipService";
+import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
+import { getUser, updateUser } from "../../src/store/authStore";
+import { patchMyProfile } from "../../src/api/profileApi";
+import { syncUserCountryToServer } from "../../src/services/userCountryService";
+import { COUNTRY_OPTIONS, findCountryByName } from "../../src/data/countryOptions";
+import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
+import { isBundledAvatarId, getAvatarSource } from "../../src/data/avatarOptions";
+import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
+import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
+import { loadMyVipAssets } from "../../src/services/vipService";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
+import { resolveImageSource } from "../../src/utils/videoSource";
+import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+import PostImageViewer from "../../Components/PostImageViewer";
+import { useWalletBalance } from "../../src/hooks/useWalletBalance";
+import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
+import {
+  applyWalletFromSources,
+  refreshWalletBalance,
+} from "../../src/store/walletStore";
+import {
+  createPost,
+  deletePost,
+  likePost,
+  unlikePost,
+  getPostComments,
+  addComment,
+  markInterested,
+  markNotInterested,
+  reportUser,
+  shareUser,
+} from "../../src/api/postApi";
+import * as ImagePicker from "expo-image-picker";
+import Toast from "../../Components/Toast";
+import ComingSoonModal from "../../Components/ComingSoonModal";
+import ReportReasonModal from "../../Components/ReportReasonModal";
+import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
+import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
+import { openUserChat } from "../../src/utils/chatNavigation";
+import { openUserProfile } from "../../src/utils/profileNavigation";
+import { s, vs, ms } from "../../src/utils/responsive";
 
 const H_PAD = 14;
 const CARD_GAP = 10;
+// Module-level fallbacks using Dimensions — used in StyleSheet.create and
+// stable module-level arrays.
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2 * 0.88;
+const BANNER_SLIDE_WIDTH = SCREEN_WIDTH - H_PAD * 2;
 
-// 4 equal action cards — 2×2 grid
+// Instagram-style bounds: never taller than 4:5 portrait, never wider than
+// 1.91:1 landscape — keeps the feed's per-post height sane while matching
+// the box ratio to the photo for the vast majority of normal aspect ratios.
+const MIN_POST_IMAGE_RATIO = 4 / 5;
+const MAX_POST_IMAGE_RATIO = 1.91;
+const clampAspectRatio = (ratio) =>
+  Math.min(MAX_POST_IMAGE_RATIO, Math.max(MIN_POST_IMAGE_RATIO, ratio));
+
+// Drops posts sharing an id with one already seen — guards against the
+// backend returning an overlapping page (e.g. new posts shifting offsets
+// between requests), which otherwise renders the same post id twice and
+// trips FlatList's "duplicate key" warning.
+const dedupePostsById = (posts) => {
+  const seen = new Set();
+  return posts.filter((post) => {
+    const id = String(post?.id);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
+
+// Stable arrays at module level — never recreated on re-renders
+const WAVE_HEIGHTS = [8, 14, 10, 18, 12];
+const MATCH_WAVE_HEIGHTS = [5, 10, 7, 13, 9, 6, 11];
+
 const actionCards = [
   {
     title: "Voice Party",
     subtitle: "Join a live room",
     colors: ["#362407ff", "#f76b1c"],
     img: require("../../assets/images/TM1.png"),
-    route: "/voice-party",
+    partyRandom: true,
     showWave: true,
     imgSize: CARD_SIZE * 0.80,
+    gifDelay: 0,
   },
   {
     title: "Find Friends",
@@ -46,6 +132,7 @@ const actionCards = [
     img: require("../../assets/images/ofcchat.gif"),
     route: "/find-friends",
     imgSize: CARD_SIZE * 0.88,
+    gifDelay: 400,
   },
   {
     title: "Nearby",
@@ -54,6 +141,7 @@ const actionCards = [
     img: require("../../assets/images/TM3.gif"),
     route: "/nearby",
     imgSize: CARD_SIZE * 0.90,
+    gifDelay: 800,
   },
   {
     title: "Blind Pick",
@@ -62,6 +150,7 @@ const actionCards = [
     img: require("../../assets/images/TM2B.gif"),
     route: "/(tabs)/blind-pick",
     imgSize: CARD_SIZE * 0.80,
+    gifDelay: 1200,
   },
 ];
 
@@ -71,1002 +160,3523 @@ const iconItems = [
     img: require("../../assets/images/officialchat.png"),
     colors: ["#cf91b6ff", "#180a31ff"],
     imgSize: 70,
+    comingSoon: true,
   },
   {
     label: "Personality Test",
     img: require("../../assets/images/blindpick.png"),
     colors: ["#080334ff", "#ac4dffff"],
     imgSize: 60,
-  
+    comingSoon: true,
   },
   {
     label: "Truth & Dare",
     img: require("../../assets/images/truthdare.png"),
     colors: ["#15072dff", "#486ba8ff"],
     imgSize: 150,
+    comingSoon: true,
   },
   {
     label: "Invitation\nRewards",
     img: require("../../assets/images/invitationReward.png"),
     colors: ["#76093fff", "#ba741eff"],
     imgSize: 80,
+    comingSoon: true,
   },
-   {
+  {
     label: "Ludo",
     img: require("../../assets/images/ludo.jpg"),
     colors: ["#041e04ff", "#175726ff"],
-     imgSize: 70,
+    imgSize: 70,
+    comingSoon: true,
   },
-
   {
     label: "Snakes & ladders",
-    img: require("../../assets/images/Snakes&Ladders.jpg"),
+    img: require("../../assets/images/SnakesAndLadders.jpg"),
     colors: ["#0c250cff", "#d2ec23cf"],
     imgSize: 50,
+    comingSoon: true,
   },
   {
     label: "Draw & Guess",
     img: require("../../assets/images/draw n guess.jpg"),
     colors: ["#5f0909ff", "#9e4c3eff"],
     imgSize: 50,
-    
+    comingSoon: true,
   },
 ];
 
-const TABS = ["For You", "Selfie", "Online", "Following", "New"];
+const TABS = ["For You", "Online", "Following", "New"];
 
-const bannerSlides = [
-  {
-    id: "1",
-    img: require("../../assets/images/cat gif.gif"),
-    title: "Invite Friends\nTo Get Diamonds",
-  },
-  {
-    id: "2",
-    img: require("../../assets/images/labelgif (1).jpg"),
-    title: "Play Games\nMeet New People",
-  },
-  {
-    id: "3",
-    img: require("../../assets/images/labelgif (2).jpg"),
-    title: "Win Suprises\n Be a Winner",
-  },
-  {
-    id: "4",
-    img: require("../../assets/images/labelgif (3).jpg"),
-    title: "Earn Money\nFind Your Match",
-  },
-  {
-    id: "5",
-    img: require("../../assets/images/labelgif (4).jpg"),
-    title: "Search for Calmness\n Choose Your Area Of Intrest",
-  },
+// Per-tab empty-state copy shown when a tab has no content yet.
+const TAB_EMPTY_COPY = {
+  "For You":   { emoji: "✨", title: "Nothing here yet",        subtitle: "Posts picked for you will show up here." },
+  "Online":    { emoji: "🟢", title: "No one's online",          subtitle: "Active people will appear here when they come online." },
+  "Following": { emoji: "👥", title: "No posts from following",  subtitle: "Follow people to see their latest posts here." },
+  "New":       { emoji: "🆕", title: "No new posts",             subtitle: "Fresh posts will appear here as they're shared." },
+};
+
+// Local fallback images for banner slides.
+// When the API provides imageUrl, that CDN URL is used instead.
+const BANNER_IMAGES = [
+  require("../../assets/images/cat gif.gif"),
+  require("../../assets/images/labelgif (1).jpg"),
+  require("../../assets/images/labelgif (2).jpg"),
+  require("../../assets/images/labelgif (3).jpg"),
+  require("../../assets/images/labelgif (4).jpg"),
 ];
 
-const recommendedUsers = [
-  { id: "1", name: "Sanu 🇮🇳 —...", avatar: "https://randomuser.me/api/portraits/men/11.jpg" },
-  { id: "2", name: "Sanjay ❤️❤️", avatar: "https://randomuser.me/api/portraits/men/22.jpg" },
-  { id: "3", name: "Rajput sha...", avatar: "https://randomuser.me/api/portraits/men/33.jpg" },
-  { id: "4", name: "M+D=< 🔺 ...", avatar: "https://randomuser.me/api/portraits/men/44.jpg" },
-  { id: "5", name: "Aryan 🔥...", avatar: "https://randomuser.me/api/portraits/men/55.jpg" },
-  { id: "6", name: "Priya 💫...", avatar: "https://randomuser.me/api/portraits/women/22.jpg" },
-  { id: "7", name: "Zara ✨...", avatar: "https://randomuser.me/api/portraits/women/33.jpg" },
+// ─────────────────────────────────────────────────────────────
+// Memoized sub-components — defined outside Home so React never
+// recreates them and FlatList can skip re-renders efficiently
+// ─────────────────────────────────────────────────────────────
+
+// Staggers GIF decode across time so multiple GIFs never start
+// decoding simultaneously. Non-GIF images pass delay=0 and render
+// immediately. The card's LinearGradient shows as placeholder.
+const StaggeredImage = memo(({ source, style, contentFit, delay }) => {
+  const [ready, setReady] = useState(delay === 0);
+
+  useEffect(() => {
+    if (delay === 0) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      const t = setTimeout(() => setReady(true), delay);
+      return () => clearTimeout(t);
+    });
+    return () => task.cancel();
+  }, []);
+
+  if (!ready) return null;
+  return <Image source={source} style={style} contentFit={contentFit ?? "contain"} />;
+});
+StaggeredImage.displayName = "StaggeredImage";
+
+// ── More-menu constants ───────────────────────────────────────
+const SOCIAL_PLATFORMS = [
+  { id: "whatsapp",  label: "WhatsApp",  bg: "#25D366", emoji: "💬" },
+  { id: "telegram",  label: "Telegram",  bg: "#2CA5E0", emoji: "✈️" },
+  { id: "instagram", label: "Instagram", bg: "#E1306C", emoji: "📸" },
+  { id: "facebook",  label: "Facebook",  bg: "#1877F2", emoji: "📘" },
+  { id: "twitter",   label: "X / Twitter", bg: "#14171A", emoji: "🐦" },
+  { id: "more",      label: "More",      bg: "#7c4dff", emoji: "⋯"  },
 ];
 
-const feedPosts = [
-  {
-    id: 1,
-    name: "Sk Jobiulla",
-    avatar: "https://randomuser.me/api/portraits/men/32.jpg",
-    text: "# 🇯🇵 Japan is turning footsteps into electricity! Using piezoelectric tiles, every step you take generates a small amount of energy. Millions of steps together can power LED lights...",
-    hasVideo: true,
-    duration: "00:12",
-  },
-  {
-    id: 2,
-    name: "Priya Singh",
-    avatar: "https://randomuser.me/api/portraits/women/44.jpg",
-    text: "Just had the most amazing sunset view from the rooftop. Life is beautiful when you slow down and appreciate the little things around you 🌅",
-    hasVideo: false,
-  },
-  {
-    id: 3,
-    name: "Arjun Mehta",
-    avatar: "https://randomuser.me/api/portraits/men/55.jpg",
-    text: "🎵 Music is the shortcut to every emotion. Been jamming all night and honestly this is the best therapy. Drop your favorite song below 👇",
-    hasVideo: false,
-  },
-  {
-    id: 4,
-    name: "Zara Khan",
-    avatar: "https://randomuser.me/api/portraits/women/68.jpg",
-    text: "✈️ Solo trip to Manali was the best decision of 2024. The mountains don't judge you, they just welcome you. Already planning the next one!",
-    hasVideo: true,
-    duration: "00:28",
-  },
-  {
-    id: 5,
-    name: "Rohan Das",
-    avatar: "https://randomuser.me/api/portraits/men/76.jpg",
-    text: "🤯 Did you know octopuses have three hearts and blue blood? Nature is absolutely wild. Share a crazy animal fact below 👇",
-    hasVideo: false,
-  },
+const MENU_ACTIONS = [
+  { id: "interested",     label: "Interested",    emoji: "👍", color: "#7c4dff" },
+  { id: "not_interested", label: "Not Interested", emoji: "👎", color: "#ff4ea3" },
+  { id: "report",         label: "Report",         emoji: "🚩", color: "#ff6b35" },
+  { id: "block",          label: "Block User",      emoji: "🚫", color: "#ff3f72" },
 ];
 
-const moreFeedPosts = [
-  {
-    id: 6,
-    name: "Aisha Verma",
-    avatar: "https://randomuser.me/api/portraits/women/55.jpg",
-    text: "☕ There's something magical about the first sip of coffee in the morning. It's not just a drink, it's a whole ritual. What's your morning routine? 🌅",
-  },
-  {
-    id: 7,
-    name: "Kabir Singh",
-    avatar: "https://randomuser.me/api/portraits/men/62.jpg",
-    text: "💡 Reminder: You don't have to be perfect to be amazing. Progress over perfection, always. Keep going, you're doing better than you think 💪",
-  },
-  {
-    id: 8,
-    name: "Neha Sharma",
-    avatar: "https://randomuser.me/api/portraits/women/71.jpg",
-    text: "🌸 Spring is finally here and the flowers outside my window are absolutely stunning. Nature has a way of healing everything silently 🌺",
-  },
-  {
-    id: 9,
-    name: "Dev Patel",
-    avatar: "https://randomuser.me/api/portraits/men/83.jpg",
-    text: "🎮 Just finished a 6-hour gaming session and honestly no regrets. Sometimes you just need to unplug from reality and plug into another world 😄",
-  },
-  {
-    id: 10,
-    name: "Riya Joshi",
-    avatar: "https://randomuser.me/api/portraits/women/88.jpg",
-    text: "📚 Currently reading Atomic Habits and it's genuinely changing the way I think about small daily actions. Highly recommend to everyone here 🔥",
-  },
-];
+// ── Post more-menu bottom sheet ───────────────────────────────
+const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete, onReport, currentUserId }) => {
+  // Show delete if: post was created by this user (flag), OR userId matches current user
+  const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
+  const menuActions = isOwnPost
+    ? MENU_ACTIONS.filter((action) => action.id !== "block")
+    : MENU_ACTIONS;
 
-const notifications = [
-  {
-    id: "1",
-    type: "like",
-    icon: "❤️",
-    title: "Priya liked your post",
-    subtitle: "\"Living the dream in Goa ✈️\"",
-    time: "2m ago",
-    avatar: "https://randomuser.me/api/portraits/women/32.jpg",
-    unread: true,
-  },
-  {
-    id: "2",
-    type: "follow",
-    icon: "👤",
-    title: "Rohan started following you",
-    subtitle: "Tap to view profile",
-    time: "15m ago",
-    avatar: "https://randomuser.me/api/portraits/men/45.jpg",
-    unread: true,
-  },
-  {
-    id: "3",
-    type: "gift",
-    icon: "🎁",
-    title: "You received a gift!",
-    subtitle: "Arjun sent you 200 💎 diamonds",
-    time: "1h ago",
-    avatar: "https://randomuser.me/api/portraits/men/67.jpg",
-    unread: true,
-  },
-  {
-    id: "4",
-    type: "comment",
-    icon: "💬",
-    title: "Sneha commented on your post",
-    subtitle: "\"You're so beautiful 😍\"",
-    time: "2h ago",
-    avatar: "https://randomuser.me/api/portraits/women/56.jpg",
-    unread: false,
-  },
-  {
-    id: "5",
-    type: "party",
-    icon: "🎉",
-    title: "Voice Party started!",
-    subtitle: "Rahul's room is live now — join in!",
-    time: "3h ago",
-    avatar: "https://randomuser.me/api/portraits/men/12.jpg",
-    unread: false,
-  },
-  {
-    id: "6",
-    type: "system",
-    icon: "🔔",
-    title: "New match found!",
-    subtitle: "Someone is waiting for you in Blind Pick",
-    time: "5h ago",
-    avatar: null,
-    unread: false,
-  },
-  {
-    id: "7",
-    type: "reward",
-    icon: "🏆",
-    title: "Daily login reward claimed",
-    subtitle: "You earned 50 💎 diamonds today",
-    time: "8h ago",
-    avatar: null,
-    unread: false,
-  },
-];
+  const handleSocialShare = useCallback(async (platform) => {
+    const text = `Check this out on Tuk Tuk! "${(post?.text ?? "").slice(0, 100)}..."`;
 
-const searchSuggestions = ["Voice Party", "Find Friends", "Nearby Users", "Blind Pick", "Truth & Dare", "Ludo"];
+    if (post?.userId) {
+      shareUser(post.userId).catch(() => {});
+    }
 
-const gifts = [
-  {
-    id: "1",
-    name: "Golden Coins",
-    emoji: "🪙",
-    value: 100,
-    colors: ["#ff9500ff", "#ffb700ff"],
-    description: "Get 100 coins daily",
-    isFree: true,
-  },
-  {
-    id: "2",
-    name: "Diamond Box",
-    emoji: "💎",
-    value: 50,
-    colors: ["#0077b6", "#00b4d8ff"],
-    description: "Get 50 diamonds daily",
-    isFree: true,
-  },
-  {
-    id: "3",
-    name: "Heart Gift",
-    emoji: "❤️",
-    value: 25,
-    colors: ["#dc62bcff", "#ff4ea3"],
-    description: "Get 25 hearts daily",
-    isFree: true,
-  },
-  {
-    id: "4",
-    name: "Star Bonus",
-    emoji: "⭐",
-    value: 10,
-    colors: ["#ffd700", "#ffed4e"],
-    description: "Get 10 stars daily",
-    isFree: true,
-  },
-  {
-    id: "5",
-    name: "Mystery Box",
-    emoji: "🎁",
-    value: 200,
-    colors: ["#a647eaff", "#7c4dff"],
-    description: "Random rewards",
-    isFree: false,
-  },
-];
+    if (platform.id === "more") {
+      await Share.share({ message: text }).catch(() => {});
+      onClose();
+      return;
+    }
+    const deepLinks = {
+      whatsapp:  `whatsapp://send?text=${encodeURIComponent(text)}`,
+      telegram:  `tg://msg?text=${encodeURIComponent(text)}`,
+      instagram: `instagram://`,
+      facebook:  `fb://facewebmodal/f?href=${encodeURIComponent("https://tuktuk.app")}`,
+      twitter:   `twitter://post?message=${encodeURIComponent(text)}`,
+    };
+    const url = deepLinks[platform.id];
+    const canOpen = await Linking.canOpenURL(url).catch(() => false);
+    if (canOpen) {
+      Linking.openURL(url);
+    } else {
+      await Share.share({ message: text }).catch(() => {});
+    }
+    onClose();
+  }, [post, onClose]);
 
+  const handleAction = useCallback(async (action) => {
+    onClose();
+    const targetUserId = post?.userId;
+    switch (action.id) {
+      case "block":
+        onBlock(targetUserId, post?.name);
+        break;
+      case "interested":
+        try {
+          await markInterested(targetUserId);
+        } catch {
+          // Ignore — non-critical interaction.
+        }
+        break;
+      case "not_interested":
+        try {
+          await markNotInterested(targetUserId);
+        } catch {
+          // Ignore — non-critical interaction.
+        }
+        break;
+      case "report":
+        onReport?.(targetUserId, post?.name);
+        break;
+      case "delete":
+        onDelete?.(post?.id);
+        break;
+      default:
+        break;
+    }
+  }, [post, onClose, onBlock, onReport]);
+
+  if (!post) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={moreMenuStyles.overlay}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
+        <View style={moreMenuStyles.sheet}>
+          <LinearGradient
+            colors={["#1e0a3c", "#16082a", "#0d0618"]}
+            style={StyleSheet.absoluteFill}
+          />
+          {/* Top border glow */}
+          <LinearGradient
+            colors={["#7c4dff", "#ff4ea3"]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={moreMenuStyles.topGlow}
+          />
+          {/* Drag handle */}
+          <View style={moreMenuStyles.handle} />
+
+          {/* ── SHARE WITH FRIENDS ── */}
+          <Text style={moreMenuStyles.sectionTitle}>Share with friends</Text>
+          {friends.length > 0 ? (
+            <FlatList
+              data={friends}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(f) => f.id}
+              contentContainerStyle={moreMenuStyles.friendsRow}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={moreMenuStyles.friendItem} activeOpacity={0.8}>
+                  <LinearGradient
+                    colors={["#7c4dff", "#ff4ea3"]}
+                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                    style={moreMenuStyles.friendRing}
+                  >
+                    <ProfileAvatarWithFrame
+                      avatarSource={toImageSource(item.avatar)}
+                      frameSource={item.vipProfileFrameUrl}
+                      size={52}
+                      avatarStyle={moreMenuStyles.friendAvatar}
+                      {...(item.vipProfileFrameUrl
+                        ? {
+                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                            frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                            frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                            frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                            avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                          }
+                        : {})}
+                    />
+                  </LinearGradient>
+                  <Text style={moreMenuStyles.friendName} numberOfLines={1}>{item.name}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          ) : (
+            <Text style={moreMenuStyles.emptyFriends}>No friends to show</Text>
+          )}
+
+          {/* ── SHARE ON SOCIAL ── */}
+          <Text style={moreMenuStyles.sectionTitle}>Share on</Text>
+          <View style={moreMenuStyles.platformsRow}>
+            {SOCIAL_PLATFORMS.map((p) => (
+              <TouchableOpacity
+                key={p.id}
+                style={moreMenuStyles.platformItem}
+                onPress={() => handleSocialShare(p)}
+                activeOpacity={0.75}
+              >
+                <View style={[moreMenuStyles.platformIcon, { backgroundColor: p.bg }]}>
+                  <Text style={moreMenuStyles.platformEmoji}>{p.emoji}</Text>
+                </View>
+                <Text style={moreMenuStyles.platformLabel}>{p.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Divider */}
+          <LinearGradient
+            colors={["transparent", "rgba(124,77,255,0.4)", "transparent"]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={moreMenuStyles.divider}
+          />
+
+          {/* ── ACTION BUTTONS ── */}
+          {menuActions.map((action, i) => (
+            <View key={action.id}>
+              <TouchableOpacity
+                style={moreMenuStyles.actionRow}
+                onPress={() => handleAction(action)}
+                activeOpacity={0.75}
+              >
+                <View style={[moreMenuStyles.actionIconBox, { backgroundColor: action.color + "25" }]}>
+                  <Text style={moreMenuStyles.actionEmoji}>{action.emoji}</Text>
+                </View>
+                <Text style={[
+                  moreMenuStyles.actionLabel,
+                  action.id === "block" && { color: "#ff3f72" },
+                ]}>
+                  {action.id === "block" && post?.name ? `Block ${post.name}` : action.label}
+                </Text>
+                <Text style={moreMenuStyles.actionChevron}>›</Text>
+              </TouchableOpacity>
+              {i < menuActions.length - 1 && <View style={moreMenuStyles.actionDivider} />}
+            </View>
+          ))}
+
+          {/* ── DELETE (own posts only) ── */}
+          {isOwnPost && (
+            <>
+              <View style={moreMenuStyles.actionDivider} />
+              <TouchableOpacity
+                style={moreMenuStyles.actionRow}
+                onPress={() => handleAction({ id: "delete" })}
+                activeOpacity={0.75}
+              >
+                <View style={[moreMenuStyles.actionIconBox, { backgroundColor: "#ff3f7225" }]}>
+                  <Text style={moreMenuStyles.actionEmoji}>🗑️</Text>
+                </View>
+                <Text style={[moreMenuStyles.actionLabel, { color: "#ff3f72" }]}>
+                  Delete Post
+                </Text>
+                <Text style={moreMenuStyles.actionChevron}>›</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          <View style={moreMenuStyles.bottomPad} />
+        </View>
+      </View>
+    </Modal>
+  );
+});
+PostMoreMenu.displayName = "PostMoreMenu";
+
+const moreMenuStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
+  sheet: {
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    overflow: "hidden",
+    paddingHorizontal: 18,
+    paddingTop: 0,
+    borderTopWidth: 0,
+  },
+  topGlow: {
+    height: 2,
+    width: "100%",
+  },
+  handle: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    alignSelf: "center",
+    marginTop: 14,
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    color: "#b388ff",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginBottom: 12,
+  },
+  friendsRow: {
+    paddingBottom: 18,
+    gap: 14,
+    paddingRight: 4,
+  },
+  friendItem: {
+    alignItems: "center",
+    width: 62,
+  },
+  friendRing: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    padding: 2,
+    marginBottom: 5,
+  },
+  friendAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#1a0a2e",
+  },
+  friendName: {
+    color: "#d4b8ff",
+    fontSize: 10,
+    textAlign: "center",
+  },
+  emptyFriends: {
+    color: "rgba(255,255,255,0.25)",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 18,
+  },
+  platformsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  platformItem: {
+    alignItems: "center",
+    gap: 6,
+  },
+  platformIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  platformEmoji: {
+    fontSize: 22,
+  },
+  platformLabel: {
+    color: "#c4a8ff",
+    fontSize: 9.5,
+    fontWeight: "500",
+  },
+  divider: {
+    height: 1,
+    marginBottom: 6,
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    gap: 14,
+  },
+  actionIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionEmoji: {
+    fontSize: 19,
+  },
+  actionLabel: {
+    flex: 1,
+    color: "#f0e6ff",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  actionChevron: {
+    color: "rgba(255,255,255,0.25)",
+    fontSize: 22,
+    fontWeight: "300",
+  },
+  actionDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    marginLeft: 54,
+  },
+  bottomPad: {
+    height: 28,
+  },
+});
+
+// ── Post Create Sheet ─────────────────────────────────────────
+const MAX_POST_PHOTOS = 10;
+
+const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
+  const [caption, setCaption]         = useState("");
+  // Photos and video are mutually exclusive (same convention most social
+  // apps use) — photos support picking/attaching several at once, video
+  // stays a single attachment.
+  const [photos, setPhotos]           = useState([]);
+  const [video, setVideo]             = useState(null);
+  const [confirmed, setConfirmed]     = useState(false); // true after user taps "Attach"
+  const [loading, setLoading]         = useState(false);
+  const captionRef                    = useRef(null);
+  const scrollRef                     = useRef(null);
+
+  const mediaType = video ? "video" : (photos.length > 0 ? "photo" : null);
+  const hasMedia = photos.length > 0 || Boolean(video?.uri);
+
+  useEffect(() => {
+    if (!visible) {
+      setCaption("");
+      setPhotos([]);
+      setVideo(null);
+      setConfirmed(false);
+    }
+  }, [visible]);
+
+  const addPhotos = useCallback((assets) => {
+    setPhotos((prev) => {
+      const existingUris = new Set(prev.map((a) => a.uri));
+      const fresh = assets.filter((a) => a?.uri && !existingUris.has(a.uri));
+      return [...prev, ...fresh].slice(0, MAX_POST_PHOTOS);
+    });
+    setVideo(null);
+  }, []);
+
+  const pickMedia = useCallback(async (type) => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Gallery access is required to attach a photo or video.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: type === "photo"
+        ? ["images"]
+        : ["videos"],
+      allowsEditing: false,
+      allowsMultipleSelection: type === "photo",
+      selectionLimit: type === "photo" ? MAX_POST_PHOTOS : 1,
+      quality: 0.85,
+      videoMaxDuration: 60,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    if (type === "photo") {
+      addPhotos(result.assets);
+    } else {
+      setVideo(result.assets[0]);
+      setPhotos([]);
+    }
+    setConfirmed(true);
+  }, [addPhotos]);
+
+  const openCamera = useCallback(async (type) => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Camera access is required to take a photo or video.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: type === "photo"
+        ? ["images"]
+        : ["videos"],
+      allowsEditing: false,
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    if (type === "photo") {
+      addPhotos([result.assets[0]]);
+    } else {
+      setVideo(result.assets[0]);
+      setPhotos([]);
+    }
+    setConfirmed(true);
+  }, [addPhotos]);
+
+  const removePhotoAt = useCallback((index) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  // "Done" just confirms the media selection and reveals the caption input.
+  // The actual API call happens in handlePost when the user taps "Post".
+  const handleConfirmMedia = useCallback(() => {
+    if (!hasMedia) return;
+    setConfirmed(true);
+  }, [hasMedia]);
+
+  // Re-launch picker with crop enabled on the existing single photo. Only
+  // offered when exactly one photo is attached — cropping several photos
+  // one-by-one is out of scope here.
+  const handleCrop = useCallback(async () => {
+    if (photos.length !== 1) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,   // native crop UI
+      quality: 0.85,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setPhotos([result.assets[0]]);
+      setConfirmed(true);
+    }
+  }, [photos]);
+
+  const handlePost = useCallback(async () => {
+    if (!caption.trim() && !hasMedia) return;
+    setLoading(true);
+    try {
+      await onPost({ caption, photos, video, mediaType });
+      onClose();
+    } catch (e) {
+      Alert.alert(
+        "Post failed",
+        e?.message || "Could not create your post. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [caption, photos, video, mediaType, hasMedia, onPost, onClose]);
+
+  const canPost = caption.trim().length > 0 || hasMedia;
+  const showComposer = !hasMedia || confirmed;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={postCreateStyles.overlay}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+          <View style={postCreateStyles.sheet}>
+            <LinearGradient colors={["#1e0a3c", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+            <LinearGradient colors={["#7c4dff", "#ff4ea3"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={postCreateStyles.topGlow} />
+            <View style={postCreateStyles.handle} />
+
+            {/* ── HEADER ── */}
+            <View style={postCreateStyles.header}>
+              <Text style={postCreateStyles.title}>Create Post</Text>
+              <TouchableOpacity onPress={onClose} style={postCreateStyles.closeBtn}>
+                <Text style={postCreateStyles.closeTxt}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              ref={scrollRef}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 24 }}
+            >
+              {/* ── STEP 1: media picker (hidden after confirmed) ── */}
+              {!confirmed && (
+                <>
+                  <View style={postCreateStyles.mediaRow}>
+                    <TouchableOpacity style={postCreateStyles.mediaCard} onPress={() => pickMedia("photo")} activeOpacity={0.8}>
+                      <LinearGradient colors={["rgba(124,77,255,0.25)", "rgba(124,77,255,0.08)"]} style={postCreateStyles.mediaCardGrad}>
+                        <Text style={postCreateStyles.mediaCardEmoji}>🖼️</Text>
+                        <Text style={postCreateStyles.mediaCardLabel}>Gallery</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={postCreateStyles.mediaCard} onPress={() => openCamera("photo")} activeOpacity={0.8}>
+                      <LinearGradient colors={["rgba(255,78,163,0.25)", "rgba(255,78,163,0.08)"]} style={postCreateStyles.mediaCardGrad}>
+                        <Text style={postCreateStyles.mediaCardEmoji}>📷</Text>
+                        <Text style={postCreateStyles.mediaCardLabel}>Camera</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={postCreateStyles.mediaCard} onPress={() => pickMedia("video")} activeOpacity={0.8}>
+                      <LinearGradient colors={["rgba(255,107,53,0.25)", "rgba(255,107,53,0.08)"]} style={postCreateStyles.mediaCardGrad}>
+                        <Text style={postCreateStyles.mediaCardEmoji}>🎬</Text>
+                        <Text style={postCreateStyles.mediaCardLabel}>Video</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={postCreateStyles.mediaCard} onPress={() => openCamera("video")} activeOpacity={0.8}>
+                      <LinearGradient colors={["rgba(0,180,216,0.25)", "rgba(0,180,216,0.08)"]} style={postCreateStyles.mediaCardGrad}>
+                        <Text style={postCreateStyles.mediaCardEmoji}>🎥</Text>
+                        <Text style={postCreateStyles.mediaCardLabel}>Record</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* ── FULL PREVIEW + BOTTOM ACTION BUTTONS ── */}
+                  {hasMedia && (
+                    <View style={postCreateStyles.confirmBlock}>
+                      {video ? (
+                        <View style={postCreateStyles.previewWrapper}>
+                          <Image source={{ uri: video.uri }} style={postCreateStyles.preview} contentFit="cover" />
+                          <View style={postCreateStyles.videoOverlay}>
+                            <Text style={postCreateStyles.videoPlayIcon}>▶</Text>
+                          </View>
+                          <TouchableOpacity
+                            style={postCreateStyles.removeBtn}
+                            onPress={() => setVideo(null)}
+                          >
+                            <Text style={postCreateStyles.removeTxt}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          contentContainerStyle={postCreateStyles.photoStripContent}
+                          style={postCreateStyles.photoStrip}
+                        >
+                          {photos.map((photo, index) => (
+                            <View key={photo.uri} style={postCreateStyles.photoStripItem}>
+                              <Image source={{ uri: photo.uri }} style={postCreateStyles.photoStripImg} contentFit="cover" />
+                              <TouchableOpacity
+                                style={postCreateStyles.removeBtnSmall}
+                                onPress={() => removePhotoAt(index)}
+                              >
+                                <Text style={postCreateStyles.removeTxt}>✕</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                          {photos.length < MAX_POST_PHOTOS && (
+                            <TouchableOpacity
+                              style={postCreateStyles.photoStripAdd}
+                              activeOpacity={0.8}
+                              onPress={() => pickMedia("photo")}
+                            >
+                              <Text style={postCreateStyles.photoStripAddTxt}>＋</Text>
+                            </TouchableOpacity>
+                          )}
+                        </ScrollView>
+                      )}
+                      {photos.length > 1 && (
+                        <Text style={postCreateStyles.photoCountTxt}>
+                          {photos.length}/{MAX_POST_PHOTOS} photos selected
+                        </Text>
+                      )}
+
+                      {/* ── BOTTOM ACTION BUTTONS: Crop · Rotate · Flip · Done ── */}
+                      <View style={postCreateStyles.previewActions}>
+                        {photos.length === 1 && (
+                          <TouchableOpacity
+                            style={postCreateStyles.previewActionBtn}
+                            onPress={handleCrop}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={postCreateStyles.previewActionEmoji}>✂️</Text>
+                            <Text style={postCreateStyles.previewActionLabel}>Crop</Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {!video && (
+                          <>
+                            <TouchableOpacity style={postCreateStyles.previewActionBtn} activeOpacity={0.8}>
+                              <Text style={postCreateStyles.previewActionEmoji}>🔄</Text>
+                              <Text style={postCreateStyles.previewActionLabel}>Rotate</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={postCreateStyles.previewActionBtn} activeOpacity={0.8}>
+                              <Text style={postCreateStyles.previewActionEmoji}>↔️</Text>
+                              <Text style={postCreateStyles.previewActionLabel}>Flip</Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
+
+                        <TouchableOpacity
+                          onPress={handleConfirmMedia}
+                          disabled={loading}
+                          activeOpacity={0.85}
+                          style={postCreateStyles.previewDoneBtn}
+                        >
+                          <LinearGradient
+                            colors={["#7c4dff", "#a855f7"]}
+                            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                            style={postCreateStyles.previewDoneGrad}
+                          >
+                            {loading
+                              ? <ActivityIndicator color="white" size="small" />
+                              : <Text style={postCreateStyles.previewDoneTxt}>✓  Done</Text>
+                            }
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                </>
+              )}
+
+              {/* ── STEP 2: confirmed — show thumbnail(s) + caption + post ── */}
+              {confirmed && hasMedia && (
+                <View style={postCreateStyles.confirmedCard}>
+                  <LinearGradient
+                    colors={["rgba(124,77,255,0.22)", "rgba(255,78,163,0.12)"]}
+                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <View style={postCreateStyles.confirmedThumbBox}>
+                    <Image
+                      source={{ uri: video ? video.uri : photos[0].uri }}
+                      style={postCreateStyles.confirmedThumbImg}
+                      contentFit="cover"
+                    />
+                    {video && (
+                      <View style={postCreateStyles.thumbVideoOverlay}>
+                        <Text style={postCreateStyles.thumbVideoIcon}>▶</Text>
+                      </View>
+                    )}
+                    {photos.length > 1 && (
+                      <View style={postCreateStyles.thumbCountBadge}>
+                        <Text style={postCreateStyles.thumbCountTxt}>+{photos.length - 1}</Text>
+                      </View>
+                    )}
+                    <View style={postCreateStyles.thumbTick}>
+                      <Text style={postCreateStyles.thumbTickTxt}>✓</Text>
+                    </View>
+                  </View>
+                  <Text style={postCreateStyles.confirmedLabel}>
+                    {video
+                      ? "🎬 Video attached"
+                      : `📷 ${photos.length} photo${photos.length > 1 ? "s" : ""} attached`}
+                  </Text>
+                  <TouchableOpacity onPress={() => { setConfirmed(false); }}>
+                    <Text style={postCreateStyles.changeMediaTxt}>Change</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* ── CAPTION + POST (text-only, or after media is confirmed) ── */}
+              {showComposer && (
+                <View style={postCreateStyles.inputWrapper}>
+                  <TextInput
+                    ref={captionRef}
+                    style={postCreateStyles.captionInput}
+                    placeholder="What's on your mind?"
+                    placeholderTextColor="rgba(255,255,255,0.28)"
+                    value={caption}
+                    onChangeText={setCaption}
+                    multiline
+                    maxLength={500}
+                  />
+                  <Text style={postCreateStyles.charCount}>{caption.length}/500</Text>
+                </View>
+              )}
+
+              {showComposer && (
+                <TouchableOpacity
+                  onPress={handlePost}
+                  disabled={!canPost || loading}
+                  activeOpacity={0.85}
+                  style={postCreateStyles.postBtnOuter}
+                >
+                  <LinearGradient
+                    colors={canPost ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]}
+                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                    style={postCreateStyles.postBtnGrad}
+                  >
+                    {loading
+                      ? <ActivityIndicator color="white" size="small" />
+                      : <Text style={postCreateStyles.postBtnTxt}>✦  Post</Text>
+                    }
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  );
+});
+PostCreateSheet.displayName = "PostCreateSheet";
+
+const postCreateStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.65)",
+    paddingHorizontal: 16,
+  },
+  sheet: {
+    width: "100%",
+    borderRadius: 28,
+    overflow: "hidden",
+    paddingHorizontal: 18,
+    maxHeight: SCREEN_HEIGHT * 0.88,
+  },
+  topGlow: { height: 2, width: "100%" },
+  handle: {
+    width: 42, height: 4, borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    alignSelf: "center", marginTop: 14, marginBottom: 18,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  title: { color: "#ffffff", fontSize: 18, fontWeight: "700", letterSpacing: 0.3 },
+  closeBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center", justifyContent: "center",
+  },
+  closeTxt: { color: "rgba(255,255,255,0.7)", fontSize: 14 },
+
+  // Media picker row
+  mediaRow: { flexDirection: "row", gap: 10, marginBottom: 18 },
+  mediaCard: {
+    flex: 1, borderRadius: 14, overflow: "hidden",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+  },
+  mediaCardGrad: { paddingVertical: 14, alignItems: "center", gap: 6 },
+  mediaCardEmoji: { fontSize: 24 },
+  mediaCardLabel: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600" },
+
+  // Full preview (step 1)
+  confirmBlock: { marginBottom: 4 },
+  previewWrapper: { height: 220, borderRadius: 16, overflow: "hidden", marginBottom: 12 },
+  preview: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
+  videoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  videoPlayIcon: { fontSize: 36, color: "white" },
+  removeBtn: {
+    position: "absolute", top: 8, right: 8,
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center", justifyContent: "center",
+  },
+  removeBtnSmall: {
+    position: "absolute", top: 4, right: 4,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center", justifyContent: "center",
+  },
+  removeTxt: { color: "white", fontSize: 12 },
+
+  // Multi-photo strip (step 1)
+  photoStrip: { marginBottom: 4 },
+  photoStripContent: { gap: 10, paddingRight: 4 },
+  photoStripItem: {
+    width: 96, height: 96, borderRadius: 14,
+    overflow: "hidden", position: "relative",
+  },
+  photoStripImg: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
+  photoStripAdd: {
+    width: 96, height: 96, borderRadius: 14,
+    borderWidth: 1.5, borderColor: "rgba(167,139,250,0.35)",
+    borderStyle: "dashed",
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(124,77,255,0.08)",
+  },
+  photoStripAddTxt: { color: "#b388ff", fontSize: 26, fontWeight: "300" },
+  photoCountTxt: {
+    color: "rgba(255,255,255,0.45)", fontSize: 12,
+    marginTop: 8, marginBottom: 4,
+  },
+
+  // Bottom action bar on preview (Rotate · Flip · Done)
+  previewActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+    gap: 10,
+  },
+  previewActionBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.2)",
+    gap: 4,
+  },
+  previewActionEmoji: { fontSize: 20 },
+  previewActionLabel: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "600" },
+  previewDoneBtn: { flex: 2, borderRadius: 16, overflow: "hidden" },
+  previewDoneGrad: {
+    paddingVertical: 14,
+    alignItems: "center", justifyContent: "center",
+    shadowColor: "#7c3aed", shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5, shadowRadius: 12, elevation: 8,
+  },
+  previewDoneTxt: { color: "white", fontSize: 15, fontWeight: "800" },
+
+  // Keep changeMediaTxt for the confirmed step
+  changeMediaBtn: { alignItems: "center", paddingVertical: 8, marginBottom: 8 },
+  changeMediaTxt: { color: "#b388ff", fontSize: 13 },
+
+  // Confirmed media card (step 2) — centered preview + attractive glow card
+  confirmedCard: {
+    alignItems: "center",
+    borderRadius: 22,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.3)",
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  confirmedThumbBox: {
+    width: 148,
+    height: 148,
+    borderRadius: 20,
+    overflow: "hidden",
+    position: "relative",
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.18)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  confirmedThumbImg: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
+  thumbVideoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  thumbVideoIcon: { fontSize: 34, color: "white" },
+  thumbTick: {
+    position: "absolute", bottom: 6, right: 6,
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: "#22c55e",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "rgba(13,6,24,0.9)",
+  },
+  thumbTickTxt: { color: "white", fontSize: 12, fontWeight: "700" },
+  thumbCountBadge: {
+    position: "absolute", top: 6, left: 6,
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
+  thumbCountTxt: { color: "white", fontSize: 11, fontWeight: "700" },
+  confirmedLabel: { color: "#c4b5fd", fontSize: 13.5, fontWeight: "700", marginBottom: 4 },
+
+  // Caption input
+  inputWrapper: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+    minHeight: 50,
+  },
+  captionInput: {
+    color: "#ffffff",
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 24,
+    textAlignVertical: "top",
+  },
+  charCount: {
+    color: "rgba(255,255,255,0.25)",
+    fontSize: 11,
+    textAlign: "right",
+    marginTop: 4,
+  },
+
+  // Post button
+  postBtnOuter: { borderRadius: 26, overflow: "hidden" },
+  postBtnGrad: { height: 52, alignItems: "center", justifyContent: "center" },
+  postBtnTxt: { color: "white", fontSize: 16, fontWeight: "700", letterSpacing: 0.5 },
+});
+
+// ── Floating Action Button ─────────────────────────────────────
+const PostFAB = memo(({ onPress }) => (
+  <TouchableOpacity
+    style={fabStyles.fab}
+    onPress={onPress}
+    activeOpacity={0.85}
+  >
+    <LinearGradient
+      colors={["#7c4dff", "#ff4ea3"]}
+      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+      style={fabStyles.gradient}
+    >
+      <Text style={fabStyles.icon}>+</Text>
+    </LinearGradient>
+  </TouchableOpacity>
+));
+PostFAB.displayName = "PostFAB";
+
+const fabStyles = StyleSheet.create({
+  fab: {
+    position: "absolute",
+    bottom: 90,
+    right: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    elevation: 8,
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.55,
+    shadowRadius: 10,
+    zIndex: 100,
+  },
+  gradient: {
+    width: 56, height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  icon: {
+    color: "white",
+    fontSize: 30,
+    fontWeight: "300",
+    lineHeight: 34,
+  },
+});
+
+// ── Comment helpers ───────────────────────────────────────────
+const timeAgo = (ts) => {
+  if (!ts) return "";
+  const d = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (d < 60) return "just now";
+  if (d < 3600) return `${Math.floor(d / 60)}m`;
+  if (d < 86400) return `${Math.floor(d / 3600)}h`;
+  return `${Math.floor(d / 86400)}d`;
+};
+
+const QUICK_EMOJIS = ["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", "😂"];
+
+// ── Comment Sheet ─────────────────────────────────────────────
+const CommentSheet = memo(({ visible, postId, onClose }) => {
+  const insets = useSafeAreaInsets();
+  const [comments, setComments]     = useState([]);
+  const [text, setText]             = useState("");
+  const [loading, setLoading]       = useState(false);
+  const [sending, setSending]       = useState(false);
+  const [likedComments, setLiked]   = useState([]);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const [windowHeight, setWindowHeight] = useState(SCREEN_HEIGHT);
+  const baselineWindowHeight = useRef(SCREEN_HEIGHT);
+  const inputRef                    = useRef(null);
+  const {
+    keyboardHeight,
+    syncKeyboardHeight,
+  } = useModalKeyboardInset(visible);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const baseline = Dimensions.get("window").height;
+    baselineWindowHeight.current = baseline;
+    setWindowHeight(baseline);
+
+    const sub = Dimensions.addEventListener("change", ({ window }) => {
+      setWindowHeight(window.height);
+    });
+    return () => sub.remove();
+  }, [visible]);
+
+  // Lift only what adjustResize did not already handle — keeps input flush on the keyboard.
+  const resizeLift = keyboardHeight > 0
+    ? Math.max(0, baselineWindowHeight.current - windowHeight)
+    : 0;
+  const keyboardLift = keyboardHeight > 0
+    ? resizeLift >= keyboardHeight * 0.75
+      ? 0
+      : resizeLift <= 0
+        ? keyboardHeight
+        : Math.max(0, keyboardHeight - resizeLift)
+    : 0;
+
+  // Load comments whenever sheet opens
+  useEffect(() => {
+    if (!visible || !postId) return;
+    setComments([]);
+    setText("");
+    setLoading(true);
+    getPostComments(postId)
+      .then((data) => {
+
+        let list = [];
+        if (Array.isArray(data))                          list = data;
+        else if (Array.isArray(data?.content))            list = data.content;
+        else if (Array.isArray(data?.comments))           list = data.comments;
+        else if (Array.isArray(data?.comments?.content))  list = data.comments.content;
+        else if (Array.isArray(data?.data))               list = data.data;
+        else if (Array.isArray(data?.data?.content))      list = data.data.content;
+        else if (Array.isArray(data?.items))              list = data.items;
+        else if (Array.isArray(data?.result))             list = data.result;
+
+        setComments(list);
+      })
+      .finally(() => setLoading(false));
+  }, [visible, postId]);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
+
+  const handleSend = useCallback(async () => {
+    if (!text.trim() || sending) return;
+    const draft = text.trim();
+    setText("");
+    setSending(true);
+    const temp = {
+      id: `temp_${Date.now()}`,
+      text: draft,
+      user: { name: "You" },
+      createdAt: new Date().toISOString(),
+      _temp: true,
+    };
+    // Add to bottom (newest last)
+    setComments((prev) => [...prev, temp]);
+    try {
+      const saved = await addComment(postId, draft);
+      // Replace temp with real saved comment, keep temp data as fallback
+      setComments((prev) =>
+        prev.map((c) => c.id === temp.id ? { ...c, ...(saved ?? {}), _temp: false } : c)
+      );
+    } catch {
+      setComments((prev) => prev.filter((c) => c.id !== temp.id));
+      setText(draft);
+    } finally {
+      setSending(false);
+    }
+  }, [text, sending, postId]);
+
+  const handleQuickEmoji = useCallback((emoji) => {
+    setText((prev) => prev + emoji);
+    inputRef.current?.focus();
+    syncKeyboardHeight();
+  }, [syncKeyboardHeight]);
+
+  const handleReply = useCallback((userName) => {
+    setText(`@${userName} `);
+    inputRef.current?.focus();
+    syncKeyboardHeight();
+  }, [syncKeyboardHeight]);
+
+  const toggleCommentLike = useCallback((id) => {
+    setLiked((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }, []);
+
+  const renderComment = useCallback(({ item }) => {
+    const avatarUri   = item.user?.avatar ?? item.user?.avatarUrl ?? item.author?.avatar ?? null;
+    const userName    = item.user?.name ?? item.user?.username ?? item.author?.name ?? item.userName ?? "User";
+    const commentText = item.text ?? item.content ?? item.comment ?? item.body ?? "";
+    const ts          = item.createdAt ?? item.timestamp ?? item.created_at ?? null;
+    const isLikedC    = likedComments.includes(item.id);
+
+    return (
+      <View style={cs.row}>
+        {/* Avatar with gradient ring */}
+        <LinearGradient colors={["#7c4dff", "#ff4ea3"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={cs.ring}>
+          <View style={cs.ringInner}>
+            {avatarUri
+              ? <Image source={toImageSource(avatarUri)} style={cs.avatarImg} cachePolicy="memory-disk" />
+              : <Text style={cs.avatarFallback}>👤</Text>
+            }
+          </View>
+        </LinearGradient>
+
+        {/* Text block */}
+        <View style={cs.bubble}>
+          <View style={cs.metaRow}>
+            <Text style={cs.username}>{userName}</Text>
+            <Text style={cs.timeText}>{timeAgo(ts)}</Text>
+          </View>
+          <Text style={cs.commentText}>{commentText}</Text>
+          <TouchableOpacity onPress={() => handleReply(userName)}>
+            <Text style={cs.replyBtn}>Reply</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Like heart */}
+        <TouchableOpacity style={cs.heartBtn} onPress={() => toggleCommentLike(item.id)}>
+          <Text style={[cs.heartIcon, isLikedC && cs.heartIconLiked]}>
+            {isLikedC ? "❤️" : "🤍"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }, [likedComments, handleReply, toggleCommentLike]);
+
+  if (!visible) return null;
+
+  return (
+    <View style={cs.hostOverlay}>
+      <View style={cs.fullSheet}>
+        <LinearGradient colors={["#1e0a3c", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={["#7c4dff", "#ff4ea3"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={cs.topGlow} />
+
+        <View style={[cs.sheetTop, { paddingTop: Math.max(insets.top, 12) }]}>
+          <View style={cs.handle} />
+
+          <View style={cs.header}>
+            <Text style={cs.title}>
+              Comments{comments.length > 0 ? ` (${comments.length})` : ""}
+            </Text>
+            <TouchableOpacity onPress={onClose} style={cs.closeBtn}>
+              <Text style={cs.closeTxt}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <LinearGradient
+            colors={["transparent", "rgba(124,77,255,0.35)", "transparent"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={cs.divider}
+          />
+        </View>
+
+        <ScrollView
+          style={[cs.listFill, { marginBottom: composerHeight + keyboardLift }]}
+          contentContainerStyle={cs.listContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
+          {loading ? (
+            <View style={cs.loadingBox}>
+              <ActivityIndicator color="#7c4dff" size="large" />
+            </View>
+          ) : comments.length === 0 ? (
+            <View style={cs.emptyBox}>
+              <Text style={cs.emptyEmoji}>💬</Text>
+              <Text style={cs.emptyTitle}>No comments yet</Text>
+              <Text style={cs.emptySub}>Be the first to comment!</Text>
+            </View>
+          ) : (
+            comments.map((item, i) => (
+              <View key={String(item.id ?? i)}>
+                {renderComment({ item })}
+              </View>
+            ))
+          )}
+        </ScrollView>
+
+        <View
+          style={[cs.composerDock, cs.composerFloat, { bottom: keyboardLift }]}
+          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+        >
+          <LinearGradient colors={["#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={cs.emojiBar}
+            contentContainerStyle={cs.emojiBarContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {QUICK_EMOJIS.map((e) => (
+              <TouchableOpacity key={e} style={cs.emojiBtn} onPress={() => handleQuickEmoji(e)} activeOpacity={0.7}>
+                <Text style={cs.emojiTxt}>{e}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <View style={cs.inputRow}>
+            <View style={cs.inputAvatar}>
+              <Text style={{ fontSize: 14 }}>👤</Text>
+            </View>
+            <View style={cs.inputWrap}>
+              <TextInput
+                ref={inputRef}
+                style={cs.input}
+                placeholder="Add a comment…"
+                placeholderTextColor="rgba(255,255,255,0.32)"
+                value={text}
+                onChangeText={setText}
+                onFocus={syncKeyboardHeight}
+                multiline
+                maxLength={300}
+              />
+            </View>
+            <TouchableOpacity
+              onPress={handleSend}
+              disabled={!text.trim() || sending}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={text.trim() ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[cs.sendBtn, (!text.trim() || sending) && cs.sendBtnOff]}
+              >
+                {sending
+                  ? <ActivityIndicator color="white" size="small" />
+                  : <Text style={cs.sendIcon}>➤</Text>
+                }
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+});
+CommentSheet.displayName = "CommentSheet";
+
+const cs = StyleSheet.create({
+  hostOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2000,
+    elevation: 2000,
+  },
+  fullSheet: {
+    flex: 1,
+    width: "100%",
+    overflow: "hidden",
+    position: "relative",
+  },
+  sheetTop: {
+    paddingHorizontal: 16,
+  },
+  topGlow: { height: 2 },
+  handle: {
+    width: 44, height: 4, borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignSelf: "center", marginTop: 8, marginBottom: 14,
+  },
+  header: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between", marginBottom: 10,
+  },
+  title: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  closeBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center", justifyContent: "center",
+  },
+  closeTxt: { color: "rgba(255,255,255,0.65)", fontSize: 13 },
+  divider: { height: 1, marginBottom: 10 },
+
+  loadingBox: { flex: 1, minHeight: 160, alignItems: "center", justifyContent: "center" },
+  listFill: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  listContent: { paddingBottom: 12, flexGrow: 1 },
+  emptyWrap: { flexGrow: 1, justifyContent: "center" },
+  emptyBox: { alignItems: "center", paddingVertical: 40, gap: 8 },
+  emptyEmoji: { fontSize: 40 },
+  emptyTitle: { color: "#d4b8ff", fontSize: 15, fontWeight: "600" },
+  emptySub: { color: "rgba(255,255,255,0.35)", fontSize: 13 },
+
+  // Comment row
+  row: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 12,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  ring: { width: 44, height: 44, borderRadius: 22, padding: 2 },
+  ringInner: {
+    flex: 1, borderRadius: 20,
+    overflow: "hidden",
+    backgroundColor: "#1a0a2e",
+    alignItems: "center", justifyContent: "center",
+  },
+  avatarImg: { width: "100%", height: "100%" },
+  avatarFallback: { fontSize: 20 },
+  bubble: { flex: 1, gap: 3 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  username: { color: "#e0ccff", fontSize: 13, fontWeight: "700" },
+  timeText: { color: "rgba(255,255,255,0.35)", fontSize: 11 },
+  commentText: { color: "rgba(255,255,255,0.88)", fontSize: 14, lineHeight: 20 },
+  replyBtn: { color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 2 },
+  heartBtn: { paddingTop: 2, paddingLeft: 4 },
+  heartIcon: { fontSize: 16 },
+  heartIconLiked: { fontSize: 16 },
+
+  // Quick emoji bar + composer (pinned above keyboard)
+  composerDock: {
+    width: "100%",
+    overflow: "hidden",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 6,
+    backgroundColor: "rgba(13,6,24,0.98)",
+  },
+  composerFloat: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    elevation: 10,
+  },
+  emojiBar: {
+    borderTopWidth: 0,
+    marginTop: 0,
+  },
+  emojiBarContent: {
+    flexDirection: "row",
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    gap: 4,
+  },
+  emojiBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    alignItems: "center", justifyContent: "center",
+  },
+  emojiTxt: { fontSize: 20 },
+
+  // Input row
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.07)",
+  },
+  inputAvatar: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: "rgba(124,77,255,0.2)",
+    alignItems: "center", justifyContent: "center",
+  },
+  inputWrap: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minHeight: 42,
+    justifyContent: "center",
+  },
+  input: {
+    color: "#fff",
+    fontSize: 14,
+    maxHeight: 88,
+  },
+  sendBtn: {
+    width: 42, height: 42, borderRadius: 21,
+    alignItems: "center", justifyContent: "center",
+  },
+  sendBtnOff: { opacity: 0.35 },
+  sendIcon: { color: "#fff", fontSize: 15 },
+});
+
+// Add ngrok-skip-browser-warning header when URL is served through ngrok.
+// Without this header, ngrok returns an HTML warning page instead of the
+// actual image, causing blank image containers.
+const toImageSource = (uri) => {
+  if (!uri) return null;
+  // Backend may send a bundled preset id (e.g. "avatar3") instead of a real
+  // image URL — resolve those to the local asset, otherwise treat as a URI.
+  if (isBundledAvatarId(uri)) return getAvatarSource(uri);
+  const needsNgrokHeader = /ngrok-free\.dev|ngrok\.io/i.test(uri);
+  return needsNgrokHeader
+    ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri };
+};
+
+const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, onImagePress, currentUserId, currentUserAvatarSource, currentUserFrameSource, currentUserVipFrameSource }) => {
+  const router = useRouter();
+  const [imgFailed, setImgFailed] = useState(false);
+  const [imgAspectRatio, setImgAspectRatio] = useState(null);
+  const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
+  const handleAvatarPress = () => {
+    openUserProfile(router, { userId: post.userId, name: post.name, avatar: post.avatar });
+  };
+  const postAvatarSource =
+    isOwnPost && currentUserAvatarSource
+      ? currentUserAvatarSource
+      : post.avatar
+        ? toImageSource(post.avatar)
+        : null;
+  const isOwnVipFrame = isOwnPost && Boolean(currentUserVipFrameSource);
+  const postFrameSource = isOwnPost
+    ? currentUserVipFrameSource ?? currentUserFrameSource
+    : resolveEntityNewUserFrameSource({ hasNewUserFrame: post.authorHasNewUserFrame });
+  // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
+  const imageUri  = post.imageUrl      ?? post._localMediaUri ?? null;
+  const galleryUrls = post.imageUrls?.length ? post.imageUrls : (imageUri ? [imageUri] : []);
+  const isGallery = galleryUrls.length > 1;
+  const hasImage  = imageUri && (post._mediaType !== "video" && !post.hasVideo);
+  const hasVideo  = post.hasVideo || post._mediaType === "video";
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [galleryWidth, setGalleryWidth] = useState(0);
+  // Stable object identity across re-renders — cachePolicy="none" makes
+  // expo-image treat a new `{ uri }` object as a brand-new source and
+  // restart loading from scratch.
+  const postImageSource = useMemo(() => toImageSource(imageUri), [imageUri]);
+
+  // Measure the first photo's real aspect ratio via a separate, one-shot
+  // RN Image.getSize() call BEFORE the visible (cachePolicy="none")
+  // expo-image ever mounts with its final layout. Deriving the ratio from
+  // the visible Image's own onLoad instead would change its style right
+  // after it finishes loading, which with cachePolicy="none" can make it
+  // restart the fetch from scratch — and if that reload gets interrupted
+  // (e.g. by list scroll/virtualization), the image is left stuck blank.
+  // For a gallery post, every slide shares this same box height (matching
+  // how Instagram carousels work) rather than re-measuring per slide.
+  useEffect(() => {
+    if (!imageUri) return undefined;
+    let cancelled = false;
+    RNImage.getSize(
+      imageUri,
+      (w, h) => { if (!cancelled && w && h) setImgAspectRatio(w / h); },
+      () => {}
+    );
+    return () => { cancelled = true; };
+  }, [imageUri]);
+
+  return (
+  <View style={styles.postOuter}>
+    <View style={styles.postCard}>
+      <View style={styles.postHeader}>
+        <TouchableOpacity activeOpacity={0.8} onPress={handleAvatarPress}>
+          {postAvatarSource ? (
+            <ProfileAvatarWithFrame
+              avatarSource={postAvatarSource}
+              frameSource={postFrameSource}
+              size={42}
+              avatarStyle={styles.postAvatar}
+              imageComponent={Image}
+              {...(isOwnVipFrame
+                ? {
+                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                  }
+                : {})}
+            />
+          ) : (
+            <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
+                <Text style={{ color: "white", fontSize: 16, fontWeight: "700" }}>
+                  {(post.name ?? "?")[0].toUpperCase()}
+                </Text>
+              </View>
+          )}
+        </TouchableOpacity>
+        <Text style={styles.postName}>{post.name ?? "User"}</Text>
+        {!isOwnPost && (
+          <TouchableOpacity
+            style={[styles.followBtn, isFollowing && styles.followBtnActive]}
+            onPress={() => onFollowToggle?.(post.userId)}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.followBtnText, isFollowing && styles.followBtnTextActive]}>
+              {isFollowing ? "✓ Following" : "👤 Follow"}
+            </Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={styles.moreBtn} onPress={() => onMore?.(post)}>
+          <Text style={styles.moreBtnText}>⋯</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Text / caption */}
+      {!!post.text && (
+        <Text style={styles.postText} numberOfLines={4}>
+          {post.text}{" "}
+          <Text style={styles.moreText}>More</Text>
+        </Text>
+      )}
+
+      {/* Image — box sized to the image's own aspect ratio, clamped to a
+          sane range (Instagram-style: 4:5 portrait .. 1.91:1 landscape) so
+          normal photos render edge-to-edge with zero cropping. contentFit
+          stays "cover" so a matched ratio never gets letterboxed — only
+          outlier shapes (extreme panorama/portrait) get a small edge crop
+          instead of a big empty void that can blend into the dark theme. */}
+      {hasImage && !imgFailed && !isGallery && (
+        <TouchableOpacity
+          activeOpacity={0.92}
+          onPress={() =>
+            onImagePress?.({
+              post,
+              imageUrls: galleryUrls,
+              startIndex: 0,
+              avatarSource: postAvatarSource,
+              frameSource: postFrameSource,
+              isOwnVipFrame,
+              isOwnPost,
+            })
+          }
+        >
+          <Image
+            source={postImageSource}
+            style={[
+              styles.postImage,
+              imgAspectRatio
+                ? { aspectRatio: clampAspectRatio(imgAspectRatio), height: undefined }
+                : { height: 220 },
+            ]}
+            contentFit="cover"
+            transition={200}
+            cachePolicy="none"
+            onError={() => setImgFailed(true)}
+          />
+        </TouchableOpacity>
+      )}
+
+      {/* Multi-photo gallery — same shared-height box (Instagram carousels
+          all lock to the first slide's ratio too), swipeable, with a
+          "N/M" badge and dot pager. Tapping a slide opens the full-screen
+          viewer starting at that exact photo. */}
+      {isGallery && !imgFailed && (
+        <View
+          style={[
+            styles.postImage,
+            imgAspectRatio
+              ? { aspectRatio: clampAspectRatio(imgAspectRatio), height: undefined }
+              : { height: 220 },
+          ]}
+          onLayout={(e) => setGalleryWidth(e.nativeEvent.layout.width)}
+        >
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e) => {
+              const w = e.nativeEvent.layoutMeasurement.width || 1;
+              setGalleryIndex(Math.round(e.nativeEvent.contentOffset.x / w));
+            }}
+            style={StyleSheet.absoluteFill}
+          >
+            {galleryUrls.map((uri, index) => (
+              <TouchableOpacity
+                key={uri}
+                activeOpacity={0.92}
+                style={[styles.galleryPage, galleryWidth ? { width: galleryWidth } : null]}
+                onPress={() =>
+                  onImagePress?.({
+                    post,
+                    imageUrls: galleryUrls,
+                    startIndex: index,
+                    avatarSource: postAvatarSource,
+                    frameSource: postFrameSource,
+                    isOwnVipFrame,
+                    isOwnPost,
+                  })
+                }
+              >
+                <Image
+                  source={toImageSource(uri)}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                  transition={200}
+                  cachePolicy="none"
+                  onError={index === 0 ? () => setImgFailed(true) : undefined}
+                />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <View style={styles.galleryCountBadge}>
+            <Text style={styles.galleryCountText}>{galleryIndex + 1}/{galleryUrls.length}</Text>
+          </View>
+          <View style={styles.galleryDots}>
+            {galleryUrls.map((uri, index) => (
+              <View
+                key={uri}
+                style={[styles.galleryDot, index === galleryIndex && styles.galleryDotActive]}
+              />
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Video */}
+      {hasVideo && (
+        <View style={styles.videoBox}>
+          <View style={styles.playBtn}>
+            <Text style={styles.playIcon}>▶</Text>
+          </View>
+          {post.duration && <Text style={styles.videoDuration}>{post.duration}</Text>}
+        </View>
+      )}
+
+      {/* ── POST FOOTER: Like + Comment ── */}
+      <View style={styles.postFooter}>
+        <View style={styles.postFooterLeft}>
+          {(post.likeCount ?? 0) > 0 && (
+            <Text style={styles.postLikeCount}>
+              ❤️ {post.likeCount}
+            </Text>
+          )}
+        </View>
+        <View style={styles.postFooterRight}>
+          <TouchableOpacity
+            style={[styles.postActionBtn, isLiked && styles.postActionBtnLiked]}
+            onPress={() => onLikeToggle?.(post.id)}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.postActionEmoji}>{isLiked ? "❤️" : "🤍"}</Text>
+            <Text style={[styles.postActionLabel, isLiked && { color: "#ff4ea3" }]}>Like</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.postActionBtn}
+            onPress={() => onCommentPress?.(post.id)}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.postActionEmoji}>💬</Text>
+            <Text style={styles.postActionLabel}>Comment</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </View>
+  );
+});
+PostCard.displayName = "PostCard";
+
+const RecommendedUserItem = memo(({ user }) => {
+  const router = useRouter();
+  return (
+  <TouchableOpacity
+    style={styles.recommendItem}
+    activeOpacity={0.8}
+    onPress={() =>
+      openUserProfile(router, {
+        userId: user.id,
+        name: user.name,
+        avatar: user.avatar,
+        vipProfileFrameUrl: user.vipProfileFrameUrl,
+      })
+    }
+  >
+    <View style={styles.recommendAvatarWrap}>
+      {user.avatar ? (
+        <ProfileAvatarWithFrame
+          avatarSource={toImageSource(user.avatar)}
+          frameSource={user.vipProfileFrameUrl}
+          size={s(72)}
+          avatarStyle={{ borderRadius: s(36) }}
+          {...(user.vipProfileFrameUrl
+            ? {
+                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+              }
+            : {})}
+        />
+      ) : (
+        <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
+          <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
+        </View>
+      )}
+    </View>
+    <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
+  </TouchableOpacity>
+  );
+});
+RecommendedUserItem.displayName = "RecommendedUserItem";
+
+// BannerSlider owns its auto-scroll timer — parent never re-renders just for banner ticks
+const BannerSlider = memo(({ slides, activeBanner, onBannerChange }) => {
+  const listRef = useRef(null);
+
+  useEffect(() => {
+    if (slides.length === 0) return;
+    const timer = setInterval(() => {
+      onBannerChange((prev) => {
+        const next = (prev + 1) % slides.length;
+        listRef.current?.scrollToIndex({ index: next, animated: true });
+        return next;
+      });
+    }, 7000);
+    return () => clearInterval(timer);
+  }, [slides.length, onBannerChange]);
+
+  if (slides.length === 0) return null;
+
+  return (
+    <View style={styles.bannerWrapper}>
+      <FlatList
+        ref={listRef}
+        data={slides}
+        keyExtractor={(item) => item.id}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => {
+          const index = Math.round(e.nativeEvent.contentOffset.x / BANNER_SLIDE_WIDTH);
+          onBannerChange(index);
+        }}
+        renderItem={({ item, index }) => (
+          <TouchableOpacity activeOpacity={0.9} style={styles.bannerSlide}>
+            <Image
+              source={
+                item.imageUrl
+                  ? { uri: item.imageUrl }
+                  : BANNER_IMAGES[index % BANNER_IMAGES.length]
+              }
+              style={styles.bannerImg}
+              contentFit="cover"
+            />
+            <View style={styles.bannerOverlay}>
+              <Text style={styles.bannerTitle}>{item.title}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      />
+      <View style={styles.bannerDots}>
+        {slides.map((_, i) => (
+          <View
+            key={i}
+            style={[styles.bannerDot, activeBanner === i && styles.bannerDotActive]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+});
+BannerSlider.displayName = "BannerSlider";
+
+// All content above the feed — memoized so it only re-renders when
+// its specific props change (e.g. diamonds update, tab switch)
+const HomeHeader = memo(({
+  userProfile,
+  walletDiamonds,
+  sessionAvatarSource,
+  sessionNewUserFrameSource,
+  vipProfileFrameSource,
+  stats,
+  unreadNotifications,
+  recommendedUsers,
+  selectedTab,
+  tabScales,
+  tabUnderlineScales,
+  onTabPress,
+  onSearchOpen,
+  onNotifOpen,
+  onGiftsOpen,
+  onRechargeOpen,
+  onNearbyPress,
+  onComingSoon,
+  router,
+}) => (
+  <>
+    {/* ── HEADER CARD ── */}
+    <View style={styles.headerCard}>
+      <View style={styles.headerTopRow}>
+        <View style={styles.avatarWrapper}>
+          <ProfileAvatarWithFrame
+            avatarSource={sessionAvatarSource ?? (userProfile?.avatarUrl ? { uri: userProfile.avatarUrl } : null)}
+            frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
+            size={s(62)}
+            avatarStyle={styles.headerAvatar}
+            placeholderInitial={(userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"}
+            imageComponent={Image}
+            {...(vipProfileFrameSource
+              ? {
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
+              : {})}
+          />
+          <View style={styles.onlineDot} />
+        </View>
+        <View style={styles.headerTitleCol}>
+          <View style={styles.appNameWrapper}>
+            {/* Thin #7f3f89 outline — 8 directions at 1px */}
+            {[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]].map(([dx, dy], i) => (
+              <Text key={i} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} allowFontScaling={false} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
+                Tuk Tuk
+              </Text>
+            ))}
+            {/* White text on top */}
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} allowFontScaling={false} style={styles.appName}>Tuk Tuk</Text>
+          </View>
+        </View>
+        <View style={styles.headerIcons}>
+          <View style={styles.diamondPill}>
+            <Text style={styles.diamondEmoji}>💎</Text>
+            <Text style={styles.diamondCount}>
+              {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString("en-IN")}
+            </Text>
+            <TouchableOpacity
+              style={styles.diamondPlusBtn}
+              activeOpacity={0.85}
+              onPress={onRechargeOpen}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.diamondPlusText}>+</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8} onPress={onGiftsOpen}>
+            <Text style={styles.headerIconEmoji}>🎁</Text>
+            <View style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}>
+              <Text style={styles.headerIconBadgeText}>!</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8} onPress={onNotifOpen}>
+            <Text style={styles.headerIconEmoji}>🔔</Text>
+            <View style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}>
+              <Text style={styles.headerIconBadgeText}>{unreadNotifications.length}</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.headerDivider} />
+
+      <View style={styles.activeRow}>
+        <TouchableOpacity
+          style={styles.matchPill}
+          activeOpacity={0.85}
+          onPress={() => router.push("/chat")}
+        >
+          <Image
+            source={toImageSource(stats?.featuredUserAvatar ?? "https://randomuser.me/api/portraits/men/45.jpg")}
+            style={styles.matchAvatar}
+            cachePolicy="memory-disk"
+            transition={200}
+          />
+          <View style={styles.matchWaves}>
+            {MATCH_WAVE_HEIGHTS.map((h, i) => (
+              <View key={i} style={[styles.matchWaveBar, { height: h }]} />
+            ))}
+          </View>
+          <View style={styles.activeTextCol}>
+            <Text style={styles.activeNumber}>{stats?.activeUsers?.toLocaleString() ?? "..."}</Text>
+            <Text style={styles.activeLabel}>Active now</Text>
+          </View>
+          <View style={styles.matchArrow}>
+            <ChevronRight size={14} color="white" />
+          </View>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.searchBtn} activeOpacity={0.8} onPress={onSearchOpen}>
+          <Text style={styles.searchIcon}>🔍</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+
+    {/* ── 2×2 ACTION CARDS ── */}
+    <View style={styles.actionGrid}>
+      {actionCards.map((card) => (
+        <TouchableOpacity
+          key={card.title}
+          style={styles.actionCard}
+          activeOpacity={0.88}
+          onPress={() => {
+            if (card.partyRandom) {
+              router.push({ pathname: "/voice-party", params: { party: "true" } });
+            } else if (card.title === "Nearby" && onNearbyPress) {
+              onNearbyPress();
+            } else if (card.route) {
+              router.push(card.route);
+            }
+          }}
+        >
+          <LinearGradient
+            colors={card.colors}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.actionCardGradient}
+          >
+            <Text style={styles.cardTitle}>{card.title}</Text>
+            {card.subtitle && <Text style={styles.cardSubtitle}>{card.subtitle}</Text>}
+            {card.showWave && (
+              <View style={styles.waveRow}>
+                {WAVE_HEIGHTS.map((h, wi) => (
+                  <View key={wi} style={[styles.waveBar, { height: h }]} />
+                ))}
+              </View>
+            )}
+            <StaggeredImage
+              source={typeof card.img === "string" ? { uri: card.img } : card.img}
+              style={[styles.cardIllustration, card.imgSize && { width: card.imgSize, height: card.imgSize }]}
+              contentFit="contain"
+              delay={card.gifDelay}
+            />
+          </LinearGradient>
+        </TouchableOpacity>
+      ))}
+    </View>
+
+    {/* ── ICON ROW ── */}
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.iconScroll}
+      style={styles.iconContainer}
+    >
+      {iconItems.map((item) => (
+        <TouchableOpacity
+          key={item.label}
+          style={styles.iconItem}
+          activeOpacity={0.8}
+          onPress={item.comingSoon ? () => onComingSoon?.(item.label.replace(/\n/g, " ")) : undefined}
+        >
+          <LinearGradient
+            colors={item.colors}
+            style={styles.iconBox}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Image
+              source={typeof item.img === "string" ? { uri: item.img } : item.img}
+              style={[styles.iconImg, item.imgSize && { width: item.imgSize, height: item.imgSize }]}
+              contentFit="contain"
+            />
+          </LinearGradient>
+          <Text style={styles.iconLabel}>{item.label}</Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+
+    {/* ── TABS ── */}
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.tabsScroll}
+      style={styles.tabsBar}
+    >
+      {TABS.map((tab) => (
+        <TouchableOpacity
+          key={tab}
+          onPress={() => onTabPress(tab)}
+          style={styles.tabItem}
+          activeOpacity={1}
+        >
+          <Animated.Text
+            style={[
+              styles.tabText,
+              selectedTab === tab && styles.tabActive,
+              { transform: [{ scale: tabScales[tab] }] },
+            ]}
+          >
+            {tab}
+          </Animated.Text>
+          <Animated.View
+            style={[
+              styles.tabUnderline,
+              { transform: [{ scaleX: tabUnderlineScales[tab] }], opacity: tabUnderlineScales[tab] },
+            ]}
+          />
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+
+    {/* ── RECOMMENDED USERS ── */}
+    <View style={styles.recommendSection}>
+      <Text style={styles.recommendTitle}>Recommend user in the room</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.recommendScroll}
+      >
+        {recommendedUsers.map((user) => (
+          <RecommendedUserItem key={user.id} user={user} />
+        ))}
+      </ScrollView>
+    </View>
+  </>
+));
+HomeHeader.displayName = "HomeHeader";
+
+// ─────────────────────────────────────────────────────────────
+// Main screen
+// ─────────────────────────────────────────────────────────────
 export default function Home() {
   const router = useRouter();
+  const feedListRef = useRef(null);
+  useScrollToTop(feedListRef);
   const [selectedTab, setSelectedTab] = useState("For You");
   const [activeBanner, setActiveBanner] = useState(0);
-  const bannerRef = useRef(null);
 
-  // Tab press animations: scale bounce + underline slide-in per tab
-  const tabScales = useRef(TABS.reduce((acc, t) => { acc[t] = new Animated.Value(1); return acc; }, {})).current;
-  const tabUnderlineScales = useRef(TABS.reduce((acc, t) => { acc[t] = new Animated.Value(t === "For You" ? 1 : 0); return acc; }, {})).current;
+  // ── Data state ────────────────────────────────────────────
+  const [userProfile, setUserProfile] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [bannerSlides, setBannerSlides] = useState([]);
+  const [recommendedUsers, setRecommendedUsers] = useState([]);
+  const [feedPosts, setFeedPosts] = useState([]);
+  const [feedHasMore, setFeedHasMore] = useState(false);
+  const [feedPage, setFeedPage] = useState(1);
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [gifts, setGifts] = useState([]);
+  const { diamonds: walletDiamonds } = useWalletBalance();
+  const [followingIds, setFollowingIds] = useState([]);
+  const [followingList, setFollowingList] = useState([]);
+  const [searchSuggestions, setSearchSuggestions] = useState([]);
+  const [trendingTags, setTrendingTags] = useState([]);
 
-  const handleTabPress = (tab) => {
-    // Reset previous underline
-    Animated.timing(tabUnderlineScales[selectedTab], { toValue: 0, duration: 150, useNativeDriver: true }).start();
-    // Bounce the pressed tab
+  // Ref keeps followingIds in sync for stable callbacks (avoids stale closures)
+  const followingIdsRef = useRef([]);
+
+  // ── Modal state ───────────────────────────────────────────
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [notifVisible, setNotifVisible] = useState(false);
+  const [giftsVisible, setGiftsVisible] = useState(false);
+  const [moreMenuPost, setMoreMenuPost] = useState(null);
+  const [reportTarget, setReportTarget] = useState(null);
+  const [commentPostId, setCommentPostId] = useState(null);
+  const [imageViewerData, setImageViewerData] = useState(null);
+  const [postSheetVisible, setPostSheetVisible] = useState(false);
+  const [likedPostIds, setLikedPostIds] = useState([]);
+  const likedPostIdsRef = useRef([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const searchDebounceRef = useRef(null);
+  const searchSeqRef = useRef(0);
+  const [searchProfile, setSearchProfile] = useState(null);
+  const [searchProfileLoading, setSearchProfileLoading] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState([]);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastVisible, setToastVisible] = useState(false);
+  const [sessionAvatarSource, setSessionAvatarSource] = useState(null);
+  const [sessionNewUserFrameSource, setSessionNewUserFrameSource] = useState(null);
+  const [vipProfileFrameSource, setVipProfileFrameSource] = useState(null);
+  const [comingSoonFeature, setComingSoonFeature] = useState(null);
+  const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
+  const [genderPickerVisible, setGenderPickerVisible] = useState(false);
+  const [genderSaving, setGenderSaving] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
+  const [countrySearch, setCountrySearch] = useState("");
+
+  const syncSessionAvatar = useCallback(async () => {
+    try {
+      const user = await getUser();
+      setSessionAvatarSource(resolveProfileAvatarSource(user));
+      const frameSource = await syncNewUserFrameForSession();
+      setSessionNewUserFrameSource(frameSource);
+    } catch {
+      setSessionAvatarSource(null);
+      setSessionNewUserFrameSource(null);
+    }
+
+    try {
+      const vipAssets = await loadMyVipAssets();
+      setVipProfileFrameSource(
+        vipAssets.unlocked && vipAssets.profileFrame
+          ? resolveImageSource(vipAssets.profileFrame)
+          : null
+      );
+    } catch {
+      setVipProfileFrameSource(null);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      syncSessionAvatar();
+    }, [syncSessionAvatar])
+  );
+
+  // Show gender picker once if user hasn't set their gender yet
+  useEffect(() => {
+    getUser().then((user) => {
+      if (!user?.gender) setGenderPickerVisible(true);
+    }).catch(() => {});
+  }, []);
+
+  // Saves gender + country from the "Who are you?" picker straight to the
+  // session user and both profile endpoints, so Account screen reflects it
+  // immediately (same fields/shape as the Account screen's own country save).
+  const saveGenderSelection = useCallback(async (gender) => {
+    setGenderSaving(true);
+    try {
+      const match = selectedCountry ? findCountryByName(selectedCountry) : null;
+      const countryFields = match
+        ? { country: match.name, countryCode: match.code, countryName: match.name }
+        : {};
+      await updateUser({ gender, ...countryFields });
+      await patchMyProfile({ gender, ...countryFields }).catch(() => {});
+      if (match) {
+        await syncUserCountryToServer({ country: match.name, countryCode: match.code }).catch(() => {});
+      }
+    } finally {
+      setGenderSaving(false);
+      setGenderPickerVisible(false);
+      setSelectedCountry("");
+    }
+  }, [selectedCountry]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshWalletBalance();
+    }, [])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      homeService.refreshActiveUsersCount()
+        .then((activeUsers) => {
+          setStats((prev) => ({ ...(prev ?? {}), activeUsers }));
+        })
+        .catch(() => {});
+    }, [])
+  );
+
+  const handleNearbyPress = useCallback(async () => {
+    const coords = await getDeviceCoordinates();
+    if (!coords.ok) {
+      if (coords.reason === "module_unavailable") {
+        setToastMessage("Location unavailable. Rebuild the app: npx expo run:android");
+      } else {
+        setToastMessage("Please turn on location on your device");
+      }
+      setToastVisible(true);
+      return;
+    }
+    router.push("/nearby");
+  }, [router]);
+
+  // Tab animation values — stable Animated refs, never recreated
+  const tabScales = useRef(
+    TABS.reduce((acc, t) => { acc[t] = new Animated.Value(1); return acc; }, {})
+  ).current;
+  const tabUnderlineScales = useRef(
+    TABS.reduce((acc, t) => { acc[t] = new Animated.Value(t === "For You" ? 1 : 0); return acc; }, {})
+  ).current;
+
+  // Ref for selectedTab — avoids stale closure in handleTabPress without adding it to deps
+  const selectedTabRef = useRef(selectedTab);
+  selectedTabRef.current = selectedTab;
+
+  // Ref for currentUserId — lets the tab feed loader stay a stable callback
+  const currentUserIdRef = useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
+
+  // ── Data loading ──────────────────────────────────────────
+  // Deferred until after navigation animations finish so the first
+  // paint is never blocked by data fetching
+  useEffect(() => {
+    getAppUserId()
+      .then((id) => setCurrentUserId(String(id)))
+      .catch(() => {});
+
+    syncSessionAvatar();
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      homeService.getHomeData()
+        .then(async (data) => {
+          let sessionUserId = currentUserId;
+          try {
+            sessionUserId = String(await getAppUserId());
+            setCurrentUserId(sessionUserId);
+          } catch {
+            const profileId = data.userProfile?.userId ?? data.userProfile?.id ?? null;
+            if (profileId) {
+              sessionUserId = String(profileId);
+              setCurrentUserId(sessionUserId);
+            }
+          }
+
+          setUserProfile(data.userProfile);
+          setStats(data.stats);
+          setBannerSlides(data.bannerSlides);
+          setRecommendedUsers(data.recommendedUsers);
+          setFeedPosts(
+            dedupePostsById(
+              (data.feedPosts ?? []).map((post) => ({
+                ...post,
+                _isOwn: sessionUserId ? isOwnContent(post, sessionUserId) : false,
+              }))
+            )
+          );
+          setFeedHasMore(data.feedHasMore ?? false);
+          setNotifications(data.notifications);
+          setGifts(data.gifts);
+          applyWalletFromSources({
+            walletData: data.wallet,
+            userProfile: data.userProfile,
+          });
+          setSearchSuggestions(data.searchSuggestions);
+          setTrendingTags(data.trendingTags);
+          // Use server unreadCount when available, fall back to local filter
+          if (data.unreadCount > 0) {
+            setUnreadNotifications(
+              (data.notifications ?? []).filter((n) => n.unread).map((n) => n.id)
+            );
+          } else {
+            setUnreadNotifications([]);
+          }
+        })
+        .catch(() => {});
+
+      // Load following + followers in parallel after home data
+      Promise.all([loadFollowing(), loadFollowers()])
+        .then(([followingArr]) => {
+          const ids = followingArr.map((u) => u.userId ?? u.id).filter(Boolean);
+          followingIdsRef.current = ids;
+          setFollowingIds(ids);
+          setFollowingList(followingArr);
+        })
+    });
+    return () => task.cancel();
+  }, []);
+
+  // ── Stable callbacks ──────────────────────────────────────
+
+  // Loads the feed for a given tab (For You / Online / Following / New).
+  // homeService.refreshFeed maps the tab label to the API param, so this is
+  // ready to work as soon as the backend returns data per tab.
+  const loadTabFeed = useCallback(async (tab) => {
+    setFeedLoading(true);
+    setFeedPosts([]);
+    setFeedPage(1);
+    setFeedHasMore(false);
+
+    try {
+      const res = await homeService.refreshFeed(tab);
+      const uid = currentUserIdRef.current;
+      setFeedPosts(
+        dedupePostsById(
+          (res.posts ?? []).map((post) => ({
+            ...post,
+            _isOwn: uid ? isOwnContent(post, uid) : false,
+          }))
+        )
+      );
+      setFeedHasMore(res.hasMore ?? false);
+    } catch {
+      setFeedPosts([]);
+      setFeedHasMore(false);
+    } finally {
+      setFeedLoading(false);
+    }
+  }, []);
+
+  const handleTabPress = useCallback((tab) => {
+    const prev = selectedTabRef.current;
+    if (tab === prev) return;
+    Animated.timing(tabUnderlineScales[prev], { toValue: 0, duration: 150, useNativeDriver: true }).start();
     Animated.sequence([
       Animated.timing(tabScales[tab], { toValue: 0.82, duration: 80, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
       Animated.spring(tabScales[tab], { toValue: 1, tension: 260, friction: 7, useNativeDriver: true }),
     ]).start();
-    // Slide-in underline
     Animated.timing(tabUnderlineScales[tab], { toValue: 1, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.back(1.5)) }).start();
     setSelectedTab(tab);
-  };
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [notifVisible, setNotifVisible] = useState(false);
-  const [giftsVisible, setGiftsVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
-  const [unreadNotifications, setUnreadNotifications] = useState(
-    notifications.filter((n) => n.unread).map((n) => n.id)
-  );
+    loadTabFeed(tab);
+  }, [tabScales, tabUnderlineScales, loadTabFeed]);
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = useCallback(async () => {
     setUnreadNotifications([]);
-  };
+    await homeService.markAllNotificationsRead().catch(() => {});
+  }, []);
 
-  const handleSearchQuery = (text) => {
+  const handleSearchQuery = useCallback((text) => {
     setSearchQuery(text);
-    if (text.trim().length === 0) {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) {
       setSearchResults([]);
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchSeqRef.current += 1; // cancel any in-flight people search
       return;
     }
-
     const query = text.toLowerCase();
     const results = [];
-
     actionCards.forEach((card) => {
-      if (
-        card.title.toLowerCase().includes(query) ||
-        card.subtitle.toLowerCase().includes(query)
-      ) {
+      if (card.title.toLowerCase().includes(query) || card.subtitle.toLowerCase().includes(query)) {
         results.push({
           id: card.title,
           title: card.title,
           subtitle: card.subtitle,
           type: "action",
           route: card.route,
+          partyRandom: card.partyRandom,
           colors: card.colors,
         });
       }
     });
-
     iconItems.forEach((item) => {
       if (item.label.toLowerCase().includes(query)) {
-        results.push({
-          id: item.label,
-          title: item.label,
-          type: "icon",
-          colors: item.colors,
-        });
+        results.push({ id: item.label, title: item.label, type: "icon", colors: item.colors });
       }
     });
-
     searchSuggestions.forEach((suggestion) => {
-      if (
-        suggestion.toLowerCase().includes(query) &&
-        !results.some((r) => r.title === suggestion)
-      ) {
-        results.push({
-          id: suggestion,
-          title: suggestion,
-          type: "suggestion",
-        });
+      if (suggestion.toLowerCase().includes(query) && !results.some((r) => r.title === suggestion)) {
+        results.push({ id: suggestion, title: suggestion, type: "suggestion" });
       }
     });
-
     setSearchResults(results);
-  };
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setActiveBanner((prev) => {
-        const next = (prev + 1) % bannerSlides.length;
-        bannerRef.current?.scrollToIndex({ index: next, animated: true });
-        return next;
-      });
-    }, 7000);
-    return () => clearInterval(timer);
+    // Debounced people search against the backend.
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    const seq = ++searchSeqRef.current;
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const people = await homeService.searchPeople(trimmed);
+        if (seq !== searchSeqRef.current) return; // a newer query superseded this
+        const userResults = people
+          .filter((u) => u.userId ?? u.id)
+          .map((u) => ({
+            id: `user-${u.userId ?? u.id}`,
+            userId: String(u.userId ?? u.id),
+            title: u.name ?? "User",
+            subtitle: u.isOnline ? "🟢 Online" : "Tap to view profile",
+            type: "user",
+            avatar: u.avatar ?? null,
+            level: u.level ?? null,
+            vip: Boolean(u.vip),
+            status: u.status ?? null,
+            vipProfileFrameUrl: u.vipProfileFrameUrl ?? extractVipProfileFrameUrl(u),
+            colors: ["#3d1a6e", "#5b2d8e"],
+          }));
+        // Keep feature matches, replace any previous user rows.
+        setSearchResults((prev) => [...prev.filter((r) => r.type !== "user"), ...userResults]);
+      } catch {
+        // Ignore — keep existing search results.
+      }
+    }, 350);
+  }, [searchSuggestions]);
+
+  const handleOpenSearchUser = useCallback(async (result) => {
+    // Show the profile immediately with the data we already have, then
+    // enrich it with the full GET /api/app/users/{userId} response.
+    setSearchProfile({
+      userId: result.userId,
+      name: result.title,
+      avatar: result.avatar,
+      level: result.level,
+      vip: result.vip,
+      status: result.status,
+      vipProfileFrameUrl: result.vipProfileFrameUrl ?? null,
+      isOnline: Boolean(result.subtitle && result.subtitle.includes("Online")),
+    });
+    setSearchProfileLoading(true);
+    try {
+      const detail = await homeService.getUserDetailById(result.userId);
+      setSearchProfile((prev) => ({
+        ...prev,
+        ...detail,
+        userId: result.userId,
+        name: detail?.name ?? prev?.name,
+        avatar: detail?.avatar ?? prev?.avatar,
+      }));
+    } catch {
+      // Keep the room-state fallback profile if the detail fetch fails.
+    } finally {
+      setSearchProfileLoading(false);
+    }
   }, []);
+
+  const handleMessageSearchProfile = useCallback(async () => {
+    const profile = searchProfile;
+    if (!profile?.userId) return;
+    setSearchProfile(null);
+    closeSearch();
+    setSearchResults([]);
+    await openUserChat(router, {
+      userId: profile.userId,
+      id: profile.userId,
+      name: profile.name,
+      avatarUrl: profile.avatar,
+      profilePicUrl: profile.avatar,
+    });
+  }, [searchProfile, router]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (!feedHasMore || feedLoading) return;
+    setFeedLoading(true);
+    const nextPage = feedPage + 1;
+    try {
+      const more = await homeService.loadMoreFeed(selectedTab, nextPage);
+      setFeedPosts((prev) =>
+        dedupePostsById([
+          ...prev,
+          ...(more.posts ?? []).map((post) => ({
+            ...post,
+            _isOwn: currentUserId ? isOwnContent(post, currentUserId) : false,
+          })),
+        ])
+      );
+      setFeedHasMore(more.hasMore ?? false);
+      setFeedPage(nextPage);
+    } catch {
+      // Keep the current feed page if loading more fails.
+    } finally {
+      setFeedLoading(false);
+    }
+  }, [feedHasMore, feedLoading, feedPage, selectedTab, currentUserId]);
+
+  const handleMorePress = useCallback((post) => setMoreMenuPost(post), []);
+  const handleMoreClose = useCallback(() => setMoreMenuPost(null), []);
+
+  // Follow / Unfollow — optimistic toggle backed by ref so callback is stable
+  const handleFollowToggle = useCallback(async (userId) => {
+    if (!userId) return;
+    if (isSameUser(userId, currentUserId)) return;
+
+    const targetId = String(userId);
+    const wasFollowing = followingIdsRef.current.some((id) => isSameUser(id, targetId));
+
+    const updated = wasFollowing
+      ? followingIdsRef.current.filter((id) => !isSameUser(id, targetId))
+      : [...followingIdsRef.current, targetId];
+    followingIdsRef.current = updated;
+    setFollowingIds([...updated]);
+
+    try {
+      if (wasFollowing) {
+        await unfollowUser(targetId);
+      } else {
+        await followUser(targetId);
+      }
+
+    } catch (e) {
+
+      const msg = e?.message?.toLowerCase() ?? "";
+
+      // "not following" on unfollow → backend agrees, keep UI as not-following (already reverted)
+      if (wasFollowing && msg.includes("not following")) return;
+
+      // "already following" on follow → backend agrees, keep UI as following (already set)
+      if (!wasFollowing && msg.includes("already following")) return;
+
+      // Any other error → revert optimistic UI
+      const reverted = wasFollowing
+        ? [...followingIdsRef.current, targetId]
+        : followingIdsRef.current.filter((id) => !isSameUser(id, targetId));
+      followingIdsRef.current = reverted;
+      setFollowingIds([...reverted]);
+    }
+  }, [currentUserId]);
+
+  // Like / Dislike — optimistic toggle
+  const handleLikeToggle = useCallback(async (postId) => {
+    if (!postId) return;
+    const wasLiked = likedPostIdsRef.current.includes(postId);
+    const updated = wasLiked
+      ? likedPostIdsRef.current.filter((id) => id !== postId)
+      : [...likedPostIdsRef.current, postId];
+    likedPostIdsRef.current = updated;
+    setLikedPostIds([...updated]);
+    // Optimistic count update
+    setFeedPosts((prev) => prev.map((p) =>
+      p.id === postId
+        ? { ...p, likeCount: (p.likeCount ?? 0) + (wasLiked ? -1 : 1) }
+        : p
+    ));
+    try {
+      if (wasLiked) {
+        await unlikePost(postId);
+      } else {
+        await likePost(postId);
+      }
+    } catch {
+      // Revert on failure
+      const reverted = wasLiked
+        ? [...likedPostIdsRef.current, postId]
+        : likedPostIdsRef.current.filter((id) => id !== postId);
+      likedPostIdsRef.current = reverted;
+      setLikedPostIds([...reverted]);
+      setFeedPosts((prev) => prev.map((p) =>
+        p.id === postId
+          ? { ...p, likeCount: (p.likeCount ?? 0) + (wasLiked ? 1 : -1) }
+          : p
+      ));
+    }
+  }, []);
+
+  const handleCommentPress = useCallback((postId) => {
+    setCommentPostId(postId);
+  }, []);
+
+  const handleOpenImageViewer = useCallback((payload) => {
+    setImageViewerData(payload);
+  }, []);
+  const handleCloseImageViewer = useCallback(() => setImageViewerData(null), []);
+  const handleImageViewerAvatarPress = useCallback(() => {
+    const post = imageViewerData?.post;
+    if (!post) return;
+    setImageViewerData(null);
+    openUserProfile(router, { userId: post.userId, name: post.name, avatar: post.avatar });
+  }, [imageViewerData, router]);
+
+  const handlePostSubmit = useCallback(async ({ caption, photos, video, mediaType }) => {
+    // Helper — calls GET /api/home/feed?tab=for_you&page=1&limit=10 and resets the feed
+    const refreshFeed = async () => {
+      const fresh = await homeService.refreshFeed(selectedTabRef.current);
+      let sessionUserId = currentUserId;
+      try {
+        sessionUserId = String(await getAppUserId());
+      } catch {
+        // keep existing currentUserId
+      }
+      setFeedPosts(
+        (fresh.posts ?? []).map((post) => ({
+          ...post,
+          _isOwn: sessionUserId ? isOwnContent(post, sessionUserId) : false,
+        }))
+      );
+      setFeedHasMore(fresh.hasMore ?? false);
+      setFeedPage(1);
+    };
+
+    const localImageUris = (photos ?? []).map((p) => p.uri).filter(Boolean);
+    const mediaUri = video?.uri ?? localImageUris[0] ?? null;
+
+    let newPost = null;
+    try {
+      newPost = await createPost({ caption, photos, video, mediaType });
+    } catch (e) {
+
+      await refreshFeed().catch(() => {});
+      throw e;
+    }
+
+    // Normalize backend response so the optimistic item matches our feed shape
+    let sessionUserId = currentUserId;
+    try {
+      sessionUserId = String(await getAppUserId());
+    } catch {
+      // keep existing currentUserId
+    }
+
+    // Backend may return one URL (imageUrl) or several (imageUrls/mediaUrls) —
+    // fall back to the locally-picked URIs so the post shows instantly even
+    // before the feed refresh brings back the real CDN URLs.
+    const returnedImageUrls = Array.isArray(newPost?.imageUrls)
+      ? newPost.imageUrls
+      : Array.isArray(newPost?.mediaUrls)
+        ? newPost.mediaUrls
+        : null;
+    const imageUrls = mediaType === "video"
+      ? []
+      : (returnedImageUrls?.length ? returnedImageUrls : localImageUris);
+
+    const normalized = {
+      id:        newPost?.id        ?? newPost?.postId  ?? `local-${Date.now()}`,
+      userId:    newPost?.userId    ?? newPost?.authorId ?? sessionUserId ?? null,
+      name:      newPost?.name      ?? newPost?.username  ?? newPost?.authorName ?? "You",
+      avatar:    newPost?.avatar    ?? newPost?.profileImage ?? newPost?.authorAvatar ?? null,
+      text:      newPost?.text      ?? newPost?.caption  ?? newPost?.content ?? caption ?? "",
+      imageUrl:  newPost?.imageUrl  ?? newPost?.mediaUrl ?? newPost?.image ?? imageUrls[0] ?? null,
+      imageUrls,
+      hasVideo:  mediaType === "video",
+      duration:  newPost?.duration  ?? null,
+      likeCount: newPost?.likeCount ?? newPost?.likes ?? 0,
+      _localMediaUri: mediaUri,
+      _mediaType:     mediaType ?? null,
+      _isOwn:         true,
+    };
+
+    // Optimistically prepend so the post appears instantly while the refresh is in-flight
+    setFeedPosts((prev) => [normalized, ...prev]);
+
+    // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
+    await refreshFeed().catch(() => {});
+  }, [currentUserId]);
+
+  // Block — removes user's posts from feed immediately
+  const handleBlockUser = useCallback(async (userId, userName) => {
+    if (!userId) return;
+    if (isSameUser(userId, currentUserId)) return;
+
+    try {
+      await blockUser(userId);
+
+      setFeedPosts((prev) => prev.filter((p) => p.userId !== userId));
+    } catch (e) {
+      Alert.alert("Block failed", e?.message || "Please try again.");
+    }
+  }, [currentUserId]);
+
+  const handleReportSubmit = useCallback(async (reason) => {
+    if (!reportTarget?.userId) return;
+    try {
+      await reportUser(reportTarget.userId, reason);
+      setReportTarget(null);
+      setToastMessage("Report submitted. Thank you for letting us know.");
+      setToastVisible(true);
+    } catch (e) {
+      throw new Error(e?.message || "Could not submit report. Please try again.");
+    }
+  }, [reportTarget]);
+
+  const handleDeletePost = useCallback(async (postId) => {
+    if (!postId) return;
+    // Optimistically remove from feed immediately
+    setFeedPosts((prev) => prev.filter((p) => p.id !== postId));
+    setMoreMenuPost(null);
+    try {
+      await deletePost(postId);
+    } catch {
+      // If delete fails, we could re-fetch but for now the optimistic removal stays
+    }
+  }, []);
+
+  const openSearch  = useCallback(() => setSearchVisible(true), []);
+  const openNotif   = useCallback(() => setNotifVisible(true), []);
+  const openGifts   = useCallback(() => setGiftsVisible(true), []);
+  const closeSearch = useCallback(() => { setSearchVisible(false); setSearchQuery(""); }, []);
+  const closeNotif  = useCallback(() => setNotifVisible(false), []);
+  const closeGifts  = useCallback(() => setGiftsVisible(false), []);
+  const handleBannerChange = useCallback((idx) => setActiveBanner(idx), []);
+
+  // ── Feed data ─────────────────────────────────────────────
+  // Flatten feed posts + a banner slot at position 5 into one
+  // array so the outer FlatList can virtualize all items at once
+  const feedData = useMemo(() => {
+    if (feedPosts.length === 0) return [];
+    return [
+      ...feedPosts.slice(0, 5).map((p) => ({ ...p, _type: "post" })),
+      { id: "__banner__", _type: "banner" },
+      ...feedPosts.slice(5).map((p) => ({ ...p, _type: "post" })),
+    ];
+  }, [feedPosts]);
+
+  const renderFeedItem = useCallback(({ item }) => {
+    if (item._type === "banner") {
+      return (
+        <BannerSlider
+          slides={bannerSlides}
+          activeBanner={activeBanner}
+          onBannerChange={handleBannerChange}
+        />
+      );
+    }
+    return (
+      <PostCard
+        post={item}
+        onMore={handleMorePress}
+        isFollowing={followingIds.some((id) => isSameUser(id, item.userId))}
+        onFollowToggle={handleFollowToggle}
+        isLiked={likedPostIds.includes(item.id)}
+        onLikeToggle={handleLikeToggle}
+        onCommentPress={handleCommentPress}
+        onImagePress={handleOpenImageViewer}
+        currentUserId={currentUserId}
+        currentUserAvatarSource={sessionAvatarSource}
+        currentUserFrameSource={sessionNewUserFrameSource}
+        currentUserVipFrameSource={vipProfileFrameSource}
+      />
+    );
+  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, handleOpenImageViewer, currentUserId, sessionAvatarSource, sessionNewUserFrameSource, vipProfileFrameSource]);
+
+  const keyExtractor = useCallback((item) => String(item.id), []);
+
+  // Per-tab loading / empty UI shown when the feed has no items.
+  const listEmpty = useMemo(() => {
+    if (feedLoading) {
+      return (
+        <View style={styles.feedStateBox}>
+          <ActivityIndicator color="#7c4dff" size="large" />
+          <Text style={styles.feedStateTitle}>Loading {selectedTab}…</Text>
+        </View>
+      );
+    }
+    const copy = TAB_EMPTY_COPY[selectedTab] ?? TAB_EMPTY_COPY["For You"];
+    return (
+      <View style={styles.feedStateBox}>
+        <Text style={styles.feedStateEmoji}>{copy.emoji}</Text>
+        <Text style={styles.feedStateTitle}>{copy.title}</Text>
+        <Text style={styles.feedStateSubtitle}>{copy.subtitle}</Text>
+      </View>
+    );
+  }, [feedLoading, selectedTab]);
+
+  // ListHeaderComponent memoized — only re-creates when its specific
+  // props change, not on every unrelated state update
+  const listHeader = useMemo(() => (
+    <HomeHeader
+      userProfile={userProfile}
+      walletDiamonds={walletDiamonds}
+      sessionAvatarSource={sessionAvatarSource}
+      sessionNewUserFrameSource={sessionNewUserFrameSource}
+      vipProfileFrameSource={vipProfileFrameSource}
+      stats={stats}
+      unreadNotifications={unreadNotifications}
+      recommendedUsers={recommendedUsers}
+      selectedTab={selectedTab}
+      tabScales={tabScales}
+      tabUnderlineScales={tabUnderlineScales}
+      onTabPress={handleTabPress}
+      onSearchOpen={openSearch}
+      onNotifOpen={openNotif}
+      onGiftsOpen={openGifts}
+      onRechargeOpen={() => setDiamondRechargeVisible(true)}
+      onNearbyPress={handleNearbyPress}
+      onComingSoon={setComingSoonFeature}
+      router={router}
+    />
+  ), [userProfile, walletDiamonds, sessionAvatarSource, sessionNewUserFrameSource, vipProfileFrameSource, stats, unreadNotifications, recommendedUsers, selectedTab,
+      handleTabPress, openSearch, openNotif, openGifts, handleNearbyPress, router]);
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
 
-      {/* ── BACKGROUND (same as login) ── */}
       <LinearGradient
-        colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
+        colors={["white", "white", "white", "white", "white"]}
         locations={[0, 0.25, 0.5, 0.75, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      {/* Pink orb — top left */}
       <View style={styles.orbPink} />
-      {/* Purple orb — bottom right */}
       <View style={styles.orbPurple} />
 
-
-
-      <ScrollView
-        style={styles.scroll}
+      {/* Outer FlatList gives true virtualization to the feed —
+          only posts near the viewport are kept in memory */}
+      <FlatList
+        ref={feedListRef}
+        data={feedData}
+        renderItem={renderFeedItem}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-      >
-        {/* ── HEADER ── */}
-        <View style={styles.headerCard}>
-          {/* Row 1: Avatar + Welcome/Title + Diamonds + Icons */}
-          <View style={styles.headerTopRow}>
-
-            {/* Avatar with green dot */}
-            <View style={styles.avatarWrapper}>
-              <Image
-                source={require("../../assets/images/android-icon-background.png")}
-                style={styles.headerAvatar}
-              />
-              <View style={styles.onlineDot} />
-            </View>
-
-            {/* Welcome + App name */}
-            <View style={styles.headerTitleCol}>
-              <Text style={styles.helloText}>Welcome to 👋</Text>
-              <MaskedView
-                maskElement={<Text style={styles.appName}>Tuk Tuk</Text>}
-              >
-                <LinearGradient
-                  colors={["#ffffff", "#f0e6ff", "#ff69b4"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                >
-                  <Text style={[styles.appName, { opacity: 0 }]}>Tuk Tuk</Text>
-                </LinearGradient>
-              </MaskedView>
-            </View>
-
-            {/* Right icons */}
-            <View style={styles.headerIcons}>
-              {/* Diamond count */}
-              <View style={styles.diamondPill}>
-                <Text style={styles.diamondEmoji}>💎</Text>
-                <Text style={styles.diamondCount}>2,480</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.headerIconBtn}
-                activeOpacity={0.8}
-                onPress={() => setGiftsVisible(true)}
-              >
-                <Text style={styles.headerIconEmoji}>🎁</Text>
-                <View style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}>
-                  <Text style={styles.headerIconBadgeText}>!</Text>
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8} onPress={() => setNotifVisible(true)}>
-                <Text style={styles.headerIconEmoji}>🔔</Text>
-                <View style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}>
-                  <Text style={styles.headerIconBadgeText}>4</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Divider */}
-          <View style={styles.headerDivider} />
-
-          {/* Row 2: Active now pill + search */}
-          <View style={styles.activeRow}>
-            <TouchableOpacity
-              style={styles.matchPill}
-              activeOpacity={0.85}
-              onPress={() => router.push("/chat")}
-            >
-              <Image
-                source={{ uri: "https://randomuser.me/api/portraits/men/45.jpg" }}
-                style={styles.matchAvatar}
-              />
-              <View style={styles.matchWaves}>
-                {[5, 10, 7, 13, 9, 6, 11].map((h, i) => (
-                  <View key={i} style={[styles.matchWaveBar, { height: h }]} />
-                ))}
-              </View>
-              <View style={styles.activeTextCol}>
-                <Text style={styles.activeNumber}>167,038</Text>
-                <Text style={styles.activeLabel}>Active now</Text>
-              </View>
-              <View style={styles.matchArrow}>
-                <ChevronRight size={14} color="white" />
-              </View>
-            </TouchableOpacity>
-
-            {/* Search button */}
-            <TouchableOpacity style={styles.searchBtn} activeOpacity={0.8} onPress={() => setSearchVisible(true)}>
-              <Text style={styles.searchIcon}>🔍</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        {/* ── 2×2 ACTION CARDS ── */}
-        <View style={styles.actionGrid}>
-          {actionCards.map((card) => (
-            <TouchableOpacity
-              key={card.title}
-              style={styles.actionCard}
-              activeOpacity={0.88}
-              onPress={() => router.push(card.route)}
-            >
-              <LinearGradient
-                colors={card.colors}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.actionCardGradient}
-              >
-                <Text style={styles.cardTitle}>{card.title}</Text>
-                {card.subtitle && (
-                  <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
-                )}
-                {card.showWave && (
-                  <View style={styles.waveRow}>
-                    {[8, 14, 10, 18, 12].map((h, wi) => (
-                      <View key={wi} style={[styles.waveBar, { height: h }]} />
-                    ))}
-                  </View>
-                )}
-                <Image
-                  source={typeof card.img === "string" ? { uri: card.img } : card.img}
-                  style={[styles.cardIllustration, card.imgSize && { width: card.imgSize, height: card.imgSize }]}
-                  resizeMode="contain"
-                />
-              </LinearGradient>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* ── ICON ROW ── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.iconScroll}
-          style={styles.iconContainer}
-        >
-          {iconItems.map((item) => (
-            <TouchableOpacity key={item.label} style={styles.iconItem} activeOpacity={0.8}>
-              <LinearGradient
-                colors={item.colors}
-                style={styles.iconBox}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <Image source={typeof item.img === "string" ? { uri: item.img } : item.img} style={[styles.iconImg, item.imgSize && { width: item.imgSize, height: item.imgSize }]} resizeMode="contain" />
-              </LinearGradient>
-              <Text style={styles.iconLabel}>{item.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* ── TABS ── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabsScroll}
-          style={styles.tabsBar}
-        >
-          {TABS.map((tab) => (
-            <TouchableOpacity
-              key={tab}
-              onPress={() => handleTabPress(tab)}
-              style={styles.tabItem}
-              activeOpacity={1}
-            >
-              <Animated.Text
-                style={[
-                  styles.tabText,
-                  selectedTab === tab && styles.tabActive,
-                  { transform: [{ scale: tabScales[tab] }] },
-                ]}
-              >
-                {tab}
-              </Animated.Text>
-              <Animated.View
-                style={[
-                  styles.tabUnderline,
-                  { transform: [{ scaleX: tabUnderlineScales[tab] }], opacity: tabUnderlineScales[tab] },
-                ]}
-              />
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* ── RECOMMEND USER IN THE ROOM ── */}
-        <View style={styles.recommendSection}>
-          <Text style={styles.recommendTitle}>Recommend user in the room</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.recommendScroll}
-          >
-          {recommendedUsers.map((user) => (
-              <TouchableOpacity key={user.id} style={styles.recommendItem} activeOpacity={0.8}>
-                <LinearGradient
-                  colors={["#7c4dff", "#ff4ea3"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.recommendAvatarRing}
-                >
-                  <Image source={{ uri: user.avatar }} style={styles.recommendAvatar} />
-                </LinearGradient>
-                <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* ── FEED ── */}
-        <View style={styles.feed}>
-          {feedPosts.map((post) => (
-            <View key={post.id} style={styles.postCard}>
-              <View style={styles.postHeader}>
-                <Image source={{ uri: post.avatar }} style={styles.postAvatar} />
-                <Text style={styles.postName}>{post.name}</Text>
-                <TouchableOpacity style={styles.followBtn}>
-                  <Text style={styles.followBtnText}>👤 Follow</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.moreBtn}>
-                  <Text style={styles.moreBtnText}>⋯</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.postText} numberOfLines={4}>
-                {post.text}{" "}
-                <Text style={styles.moreText}>More</Text>
-              </Text>
-              {post.hasVideo && (
-                <View style={styles.videoBox}>
-                  <View style={styles.playBtn}>
-                    <Text style={styles.playIcon}>▶</Text>
-                  </View>
-                  <Text style={styles.videoDuration}>{post.duration}</Text>
-                </View>
-              )}
-            </View>
-          ))}
-        </View>
-
-        {/* ── BANNER SLIDER ── */}
-        <View style={styles.bannerWrapper}>
-          <FlatList
-            ref={bannerRef}
-            data={bannerSlides}
-            keyExtractor={(item) => item.id}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            scrollEnabled
-            onMomentumScrollEnd={(e) => {
-              const index = Math.round(e.nativeEvent.contentOffset.x / (SCREEN_WIDTH - H_PAD * 2));
-              setActiveBanner(index);
-            }}
-            renderItem={({ item }) => (
-              <TouchableOpacity activeOpacity={0.9} style={styles.bannerSlide}>
-                <Image
-                  source={item.img}
-                  style={styles.bannerImg}
-                  resizeMode="cover"
-                />
-                <View style={styles.bannerOverlay}>
-                  <Text style={styles.bannerTitle}>{item.title}</Text>
-                </View>
-              </TouchableOpacity>
-            )}
-          />
-          {/* Dots */}
-          <View style={styles.bannerDots}>
-            {bannerSlides.map((_, i) => (
-              <View
-                key={i}
-                style={[styles.bannerDot, activeBanner === i && styles.bannerDotActive]}
-              />
-            ))}
-          </View>
-        </View>
-
-        {/* ── MORE FEED POSTS ── */}
-        <View style={styles.feed}>
-          {moreFeedPosts.map((post) => (
-            <View key={post.id} style={styles.postCard}>
-              <View style={styles.postHeader}>
-                <Image source={{ uri: post.avatar }} style={styles.postAvatar} />
-                <Text style={styles.postName}>{post.name}</Text>
-                <TouchableOpacity style={styles.followBtn}>
-                  <Text style={styles.followBtnText}>👤 Follow</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.moreBtn}>
-                  <Text style={styles.moreBtnText}>⋯</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.postText} numberOfLines={4}>
-                {post.text}{" "}
-                <Text style={styles.moreText}>More</Text>
-              </Text>
-            </View>
-          ))}
-        </View>
-
-      </ScrollView>
+        style={styles.scroll}
+        removeClippedSubviews={Platform.OS === "android"}
+        maxToRenderPerBatch={3}
+        windowSize={5}
+        initialNumToRender={4}
+        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          feedLoading
+            ? <ActivityIndicator color="#7c4dff" style={{ marginVertical: 16 }} />
+            : null
+        }
+      />
 
       {/* ── SEARCH MODAL ── */}
       <Modal
         visible={searchVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setSearchVisible(false)}
+        onRequestClose={closeSearch}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.modalOverlay}
         >
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => { setSearchVisible(false); setSearchQuery(""); }} />
-          <View style={styles.searchPanel}>
-            <LinearGradient
-              colors={["#1e0a3c", "#2d1b4e"]}
-              style={StyleSheet.absoluteFill}
-              borderRadius={24}
-            />
-            {/* Search header */}
-            <View style={styles.searchHeader}>
-              <Text style={styles.searchPanelTitle}>Search</Text>
-              <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchQuery(""); }} style={styles.searchCloseBtn}>
-                <Text style={styles.searchCloseTxt}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Input row */}
-            <View style={styles.searchInputRow}>
-              <Text style={styles.searchInputIcon}>🔍</Text>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search people, parties, games…"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                value={searchQuery}
-                onChangeText={handleSearchQuery}
-                autoFocus
-                selectionColor="#7c4dff"
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeSearch} />
+          {searchVisible && (
+            <View style={styles.searchPanel}>
+              <LinearGradient
+                colors={["#1e0a3c", "#2d1b4e"]}
+                style={StyleSheet.absoluteFill}
+                borderRadius={24}
               />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => {
-                    setSearchQuery("");
-                    setSearchResults([]);
-                  }}
-                >
-                  <Text style={styles.searchClearBtn}>✕</Text>
+              <View style={styles.searchHeader}>
+                <Text style={styles.searchPanelTitle}>Search</Text>
+                <TouchableOpacity onPress={closeSearch} style={styles.searchCloseBtn}>
+                  <Text style={styles.searchCloseTxt}>✕</Text>
                 </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Search Results or Suggestions */}
-            {searchResults.length > 0 ? (
-              <View style={styles.searchResultsSection}>
-                <Text style={styles.searchSuggestLabel}>Search Results</Text>
-                {searchResults.map((result) => (
-                  <TouchableOpacity
-                    key={result.id}
-                    style={styles.searchResultItem}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      if (result.route) {
-                        router.push(result.route);
-                        setSearchVisible(false);
-                        setSearchQuery("");
-                        setSearchResults([]);
-                      }
-                    }}
-                  >
-                    <LinearGradient
-                      colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
-                      style={styles.resultIconBox}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    >
-                      <Text style={styles.resultIcon}>
-                        {result.type === "action" ? "🎮" : "✨"}
-                      </Text>
-                    </LinearGradient>
-                    <View style={styles.resultTextCol}>
-                      <Text style={styles.resultTitle}>{result.title}</Text>
-                      {result.subtitle && (
-                        <Text style={styles.resultSubtitle}>{result.subtitle}</Text>
-                      )}
-                    </View>
-                    <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
-                  </TouchableOpacity>
-                ))}
               </View>
-            ) : searchQuery.length === 0 ? (
-              <>
-                {/* Suggestions */}
-                <View style={styles.searchSuggestSection}>
-                  <Text style={styles.searchSuggestLabel}>Quick explore</Text>
-                  <View style={styles.searchSuggestRow}>
-                    {searchSuggestions.map((s) => (
-                      <TouchableOpacity key={s} style={styles.searchChip} activeOpacity={0.8}>
+              <View style={styles.searchInputRow}>
+                <Text style={styles.searchInputIcon}>🔍</Text>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search people, parties, games…"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  value={searchQuery}
+                  onChangeText={handleSearchQuery}
+                  autoFocus
+                  selectionColor="#7c4dff"
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); }}>
+                    <Text style={styles.searchClearBtn}>✕</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {searchResults.length > 0 ? (
+                <View style={styles.searchResultsSection}>
+                  <Text style={styles.searchSuggestLabel}>Search Results</Text>
+                  {searchResults.map((result) => (
+                    <TouchableOpacity
+                      key={result.id}
+                      style={styles.searchResultItem}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        if (result.type === "user") {
+                          handleOpenSearchUser(result);
+                        } else if (result.partyRandom) {
+                          router.push({ pathname: "/voice-party", params: { party: "true" } });
+                          closeSearch();
+                          setSearchResults([]);
+                        } else if (result.route) {
+                          router.push(result.route);
+                          closeSearch();
+                          setSearchResults([]);
+                        }
+                      }}
+                    >
+                      {result.type === "user" && result.avatar ? (
+                        <ProfileAvatarWithFrame
+                          avatarSource={toImageSource(result.avatar)}
+                          frameSource={result.vipProfileFrameUrl}
+                          size={44}
+                          avatarStyle={styles.resultIconBox}
+                          {...(result.vipProfileFrameUrl
+                            ? {
+                                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                              }
+                            : {})}
+                        />
+                      ) : (
                         <LinearGradient
-                          colors={["#3d1a6e", "#5b2d8e"]}
-                          style={styles.searchChipGradient}
+                          colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
+                          style={styles.resultIconBox}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 1 }}
                         >
-                          <Text style={styles.searchChipText}>{s}</Text>
+                          <Text style={styles.resultIcon}>
+                            {result.type === "action" ? "🎮" : result.type === "user" ? "👤" : "✨"}
+                          </Text>
                         </LinearGradient>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                      )}
+                      <View style={styles.resultTextCol}>
+                        <Text style={styles.resultTitle}>{result.title}</Text>
+                        {result.subtitle && <Text style={styles.resultSubtitle}>{result.subtitle}</Text>}
+                      </View>
+                      <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
+                    </TouchableOpacity>
+                  ))}
                 </View>
-
-                {/* Trending section */}
-                <View style={styles.searchSuggestSection}>
-                  <Text style={styles.searchSuggestLabel}>Trending now 🔥</Text>
-                  {["#VoiceParty", "#BlindDate", "#TruthOrDare", "#TukTukGames"].map(
-                    (tag) => (
+              ) : searchQuery.length === 0 ? (
+                <>
+                  <View style={styles.searchSuggestSection}>
+                    <Text style={styles.searchSuggestLabel}>Quick explore</Text>
+                    <View style={styles.searchSuggestRow}>
+                      {searchSuggestions.map((s) => (
+                        <TouchableOpacity key={s} style={styles.searchChip} activeOpacity={0.8}>
+                          <LinearGradient
+                            colors={["#3d1a6e", "#5b2d8e"]}
+                            style={styles.searchChipGradient}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                          >
+                            <Text style={styles.searchChipText}>{s}</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                  <View style={styles.searchSuggestSection}>
+                    <Text style={styles.searchSuggestLabel}>Trending now 🔥</Text>
+                    {trendingTags.map((tag) => (
                       <View key={tag} style={styles.trendingRow}>
                         <View style={styles.trendingDot} />
                         <Text style={styles.trendingTag}>{tag}</Text>
                       </View>
-                    )
-                  )}
+                    ))}
+                  </View>
+                </>
+              ) : (
+                <View style={styles.noResultsContainer}>
+                  <Text style={styles.noResultsEmoji}>🔍</Text>
+                  <Text style={styles.noResultsText}>No results found</Text>
+                  <Text style={styles.noResultsSubtext}>
+                    Try searching for features like Voice Party, Games, or People
+                  </Text>
                 </View>
-              </>
-            ) : (
-              <View style={styles.noResultsContainer}>
-                <Text style={styles.noResultsEmoji}>🔍</Text>
-                <Text style={styles.noResultsText}>No results found</Text>
-                <Text style={styles.noResultsSubtext}>Try searching for features like Voice Party, Games, or People</Text>
-              </View>
-            )}
-          </View>
+              )}
+            </View>
+          )}
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── GIFT MODAL ── */}
+      {/* ── GIFT MODAL — content lazy-mounted ── */}
       <Modal
         visible={giftsVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setGiftsVisible(false)}
+        onRequestClose={closeGifts}
       >
         <View style={styles.giftsOverlay}>
-          <TouchableOpacity
-            style={styles.giftBackdrop}
-            activeOpacity={1}
-            onPress={() => setGiftsVisible(false)}
-          />
-          <SafeAreaView style={styles.giftsPanel}>
-            <LinearGradient
-              colors={["#1a0a2e", "#16082a", "#0d0618"]}
-              style={StyleSheet.absoluteFill}
-            />
-            {/* Header */}
-            <View style={styles.giftsHeader}>
-              <Text style={styles.giftsTitle}>Daily Gifts</Text>
-              <TouchableOpacity
-                onPress={() => setGiftsVisible(false)}
-                style={styles.giftCloseBtn}
-              >
-                <Text style={styles.giftCloseTxt}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Free Gift Info */}
-            <View style={styles.freeGiftBanner}>
+          <TouchableOpacity style={styles.giftBackdrop} activeOpacity={1} onPress={closeGifts} />
+          {giftsVisible && (
+            <SafeAreaView style={styles.giftsPanel}>
               <LinearGradient
-                colors={["#ffb700", "#ff9500"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.freeGiftGradient}
-              >
-                <View style={styles.freeGiftContent}>
-                  <Text style={styles.freeGiftEmoji}>🎉</Text>
-                  <View style={styles.freeGiftText}>
-                    <Text style={styles.freeGiftTitle}>Free Gift Daily!</Text>
-                    <Text style={styles.freeGiftSubtitle}>
-                      Claim one free gift every 24 hours
-                    </Text>
-                  </View>
-                </View>
-              </LinearGradient>
-            </View>
-
-            {/* Gifts Grid */}
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.giftsScrollContent}
-            >
-              <View style={styles.giftsGrid}>
-                {gifts.map((gift) => (
-                  <TouchableOpacity
-                    key={gift.id}
-                    style={styles.giftCard}
-                    activeOpacity={0.85}
-                  >
-                    <LinearGradient
-                      colors={gift.colors}
-                      style={styles.giftCardGradient}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    >
-                      <Text style={styles.giftEmoji}>{gift.emoji}</Text>
-                      <Text style={styles.giftName}>{gift.name}</Text>
-                      <Text style={styles.giftValue}>+{gift.value}</Text>
-                      <Text style={styles.giftDescription}>{gift.description}</Text>
-                      {gift.isFree && (
-                        <View style={styles.freeTag}>
-                          <Text style={styles.freeTagText}>FREE</Text>
-                        </View>
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-                ))}
+                colors={["#1a0a2e", "#16082a", "#0d0618"]}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.giftsHeader}>
+                <Text style={styles.giftsTitle}>Daily Gifts</Text>
+                <TouchableOpacity onPress={closeGifts} style={styles.giftCloseBtn}>
+                  <Text style={styles.giftCloseTxt}>✕</Text>
+                </TouchableOpacity>
               </View>
-            </ScrollView>
-          </SafeAreaView>
+              <View style={styles.freeGiftBanner}>
+                <LinearGradient
+                  colors={["#ffb700", "#ff9500"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.freeGiftGradient}
+                >
+                  <View style={styles.freeGiftContent}>
+                    <Text style={styles.freeGiftEmoji}>🎉</Text>
+                    <View style={styles.freeGiftText}>
+                      <Text style={styles.freeGiftTitle}>Free Gift Daily!</Text>
+                      <Text style={styles.freeGiftSubtitle}>Claim one free gift every 24 hours</Text>
+                    </View>
+                  </View>
+                </LinearGradient>
+              </View>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.giftsScrollContent}
+              >
+                <View style={styles.giftsGrid}>
+                  {gifts.map((gift) => (
+                    <TouchableOpacity key={gift.id} style={styles.giftCard} activeOpacity={0.85}>
+                      <LinearGradient
+                        colors={gift.colors}
+                        style={styles.giftCardGradient}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                      >
+                        <Text style={styles.giftEmoji}>{gift.emoji}</Text>
+                        <Text style={styles.giftName}>{gift.name}</Text>
+                        <Text style={styles.giftValue}>+{gift.value}</Text>
+                        <Text style={styles.giftDescription}>{gift.description}</Text>
+                        {gift.isFree && (
+                          <View style={styles.freeTag}>
+                            <Text style={styles.freeTagText}>FREE</Text>
+                          </View>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </SafeAreaView>
+          )}
         </View>
       </Modal>
 
-      {/* ── NOTIFICATION MODAL ── */}
+      {/* ── NOTIFICATION MODAL — content lazy-mounted ── */}
       <Modal
         visible={notifVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setNotifVisible(false)}
+        onRequestClose={closeNotif}
       >
         <View style={styles.notifOverlay}>
-          <TouchableOpacity style={styles.notifBackdrop} activeOpacity={1} onPress={() => setNotifVisible(false)} />
-          <SafeAreaView style={styles.notifPanel}>
-            <LinearGradient
-              colors={["#1a0a2e", "#16082a", "#0d0618"]}
-              style={StyleSheet.absoluteFill}
-            />
-            {/* Header */}
-            <View style={styles.notifHeader}>
-              <Text style={styles.notifTitle}>Notifications</Text>
-              <View style={styles.notifHeaderRight}>
-                <TouchableOpacity
-                  style={styles.notifMarkAll}
-                  onPress={handleMarkAllRead}
-                >
-                  <Text style={styles.notifMarkAllText}>Mark all read</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setNotifVisible(false)} style={styles.notifCloseBtn}>
-                  <Text style={styles.notifCloseTxt}>✕</Text>
-                </TouchableOpacity>
+          <TouchableOpacity style={styles.notifBackdrop} activeOpacity={1} onPress={closeNotif} />
+          {notifVisible && (
+            <SafeAreaView style={styles.notifPanel}>
+              <LinearGradient
+                colors={["#1a0a2e", "#16082a", "#0d0618"]}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.notifHeader}>
+                <Text style={styles.notifTitle}>Notifications</Text>
+                <View style={styles.notifHeaderRight}>
+                  <TouchableOpacity style={styles.notifMarkAll} onPress={handleMarkAllRead}>
+                    <Text style={styles.notifMarkAllText}>Mark all read</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={closeNotif} style={styles.notifCloseBtn}>
+                    <Text style={styles.notifCloseTxt}>✕</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-
-            {/* Divider */}
-            <LinearGradient
-              colors={["transparent", "#7c4dff", "transparent"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.notifDivider}
-            />
-
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
-              {notifications.map((notif) => (
-                <TouchableOpacity
-                  key={notif.id}
-                  style={[
-                    styles.notifItem,
-                    unreadNotifications.includes(notif.id) && styles.notifItemUnread,
-                  ]}
-                  activeOpacity={0.8}
-                >
-                  {unreadNotifications.includes(notif.id) && (
-                    <View style={styles.unreadDot} />
-                  )}
-                  {/* Avatar or icon bubble */}
-                  {notif.avatar ? (
-                    <View style={styles.notifAvatarWrapper}>
-                      <Image source={{ uri: notif.avatar }} style={styles.notifAvatar} />
-                      <View style={styles.notifIconBubble}>
-                        <Text style={styles.notifIconBubbleTxt}>{notif.icon}</Text>
+              <LinearGradient
+                colors={["transparent", "#7c4dff", "transparent"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.notifDivider}
+              />
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 30 }}
+              >
+                {notifications.map((notif) => (
+                  <TouchableOpacity
+                    key={notif.id}
+                    style={[
+                      styles.notifItem,
+                      unreadNotifications.includes(notif.id) && styles.notifItemUnread,
+                    ]}
+                    activeOpacity={0.8}
+                  >
+                    {unreadNotifications.includes(notif.id) && (
+                      <View style={styles.unreadDot} />
+                    )}
+                    {notif.avatar ? (
+                      <View style={styles.notifAvatarWrapper}>
+                        <Image source={toImageSource(notif.avatar)} style={styles.notifAvatar} cachePolicy="memory-disk" transition={150} />
+                        <View style={styles.notifIconBubble}>
+                          <Text style={styles.notifIconBubbleTxt}>{notif.icon}</Text>
+                        </View>
                       </View>
+                    ) : (
+                      <LinearGradient
+                        colors={["#3d1a6e", "#7c4dff"]}
+                        style={styles.notifSystemIcon}
+                      >
+                        <Text style={{ fontSize: 20 }}>{notif.icon}</Text>
+                      </LinearGradient>
+                    )}
+                    <View style={styles.notifTextCol}>
+                      <Text style={styles.notifItemTitle}>{notif.title}</Text>
+                      <Text style={styles.notifItemSub} numberOfLines={1}>{notif.subtitle}</Text>
+                      <Text style={styles.notifTime}>{notif.time}</Text>
                     </View>
-                  ) : (
-                    <LinearGradient
-                      colors={["#3d1a6e", "#7c4dff"]}
-                      style={styles.notifSystemIcon}
-                    >
-                      <Text style={{ fontSize: 20 }}>{notif.icon}</Text>
-                    </LinearGradient>
-                  )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </SafeAreaView>
+          )}
+        </View>
+      </Modal>
 
-                  {/* Text */}
-                  <View style={styles.notifTextCol}>
-                    <Text style={styles.notifItemTitle}>{notif.title}</Text>
-                    <Text style={styles.notifItemSub} numberOfLines={1}>
-                      {notif.subtitle}
-                    </Text>
-                    <Text style={styles.notifTime}>{notif.time}</Text>
-                  </View>
+      {/* ── COMMENT SHEET ── */}
+      <CommentSheet
+        visible={commentPostId !== null}
+        postId={commentPostId}
+        onClose={() => setCommentPostId(null)}
+      />
+
+      {/* ── FULL-SCREEN POST IMAGE VIEWER ── */}
+      <PostImageViewer
+        visible={imageViewerData !== null}
+        data={imageViewerData}
+        isFollowing={
+          imageViewerData
+            ? followingIds.some((id) => isSameUser(id, imageViewerData.post.userId))
+            : false
+        }
+        isLiked={imageViewerData ? likedPostIds.includes(imageViewerData.post.id) : false}
+        onClose={handleCloseImageViewer}
+        onFollowToggle={handleFollowToggle}
+        onLikeToggle={handleLikeToggle}
+        onCommentPress={handleCommentPress}
+        onMore={handleMorePress}
+        onAvatarPress={handleImageViewerAvatarPress}
+      />
+
+      {/* ── FLOATING ACTION BUTTON ── */}
+      <PostFAB onPress={() => setPostSheetVisible(true)} />
+
+      {/* ── POST CREATE SHEET ── */}
+      <PostCreateSheet
+        visible={postSheetVisible}
+        onClose={() => setPostSheetVisible(false)}
+        onPost={handlePostSubmit}
+      />
+
+      {/* ── POST MORE MENU ── */}
+      <PostMoreMenu
+        visible={moreMenuPost !== null}
+        post={moreMenuPost}
+        friends={followingList.length > 0 ? followingList : recommendedUsers}
+        onClose={handleMoreClose}
+        onBlock={handleBlockUser}
+        onDelete={handleDeletePost}
+        onReport={(userId, name) => setReportTarget({ userId, name })}
+        currentUserId={currentUserId}
+      />
+
+      {/* ── REPORT REASON MODAL ── */}
+      <ReportReasonModal
+        visible={reportTarget !== null}
+        targetLabel={reportTarget?.name ? `@${reportTarget.name}` : "this user"}
+        onClose={() => setReportTarget(null)}
+        onSubmit={handleReportSubmit}
+      />
+
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => {
+          setToastVisible(false);
+          setToastMessage("");
+        }}
+      />
+
+      <ComingSoonModal
+        feature={comingSoonFeature}
+        onClose={() => setComingSoonFeature(null)}
+      />
+
+      <DiamondRechargeModal
+        visible={diamondRechargeVisible}
+        onClose={() => setDiamondRechargeVisible(false)}
+        currentDiamonds={walletDiamonds}
+      />
+
+      {/* ── Gender Picker (shown once if gender not set) ── */}
+      <Modal
+        visible={genderPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.genderOverlay}>
+          <LinearGradient
+            colors={["#1a0a3e", "#0d0618", "#1a0a3e"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.genderCard}
+          >
+            <View style={styles.genderGlow} />
+
+            <Text style={styles.genderHeaderTitle}>Who are you?</Text>
+            <Text style={styles.genderHeaderSub}>
+              Choose your identity to personalize{"\n"}avatars and your experience
+            </Text>
+
+            {/* ── Select Country button ── */}
+            <TouchableOpacity
+              style={styles.countryPickerBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                setCountryDropdownOpen((o) => !o);
+                setCountrySearch("");
+              }}
+            >
+              <Text style={styles.countryPickerBtnText}>
+                {selectedCountry ? `🌍  ${selectedCountry}` : "🌍  Select Country"}
+              </Text>
+              <Text style={styles.countryPickerArrow}>
+                {countryDropdownOpen ? "▲" : "▼"}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Inline country dropdown */}
+            {countryDropdownOpen && (
+              <View style={styles.countryDropdown}>
+                <View style={styles.countrySearchWrap}>
+                  <TextInput
+                    style={styles.countrySearchInput}
+                    placeholder="Search country..."
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    value={countrySearch}
+                    onChangeText={setCountrySearch}
+                    autoCorrect={false}
+                  />
+                </View>
+                <ScrollView
+                  style={styles.countryList}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                >
+                  {COUNTRY_OPTIONS.filter((c) =>
+                    c.name.toLowerCase().includes(countrySearch.toLowerCase())
+                  ).map((country) => (
+                    <TouchableOpacity
+                      key={country.name}
+                      activeOpacity={0.75}
+                      style={[
+                        styles.countryRow,
+                        selectedCountry === country.name && styles.countryRowSelected,
+                      ]}
+                      onPress={() => {
+                        setSelectedCountry(country.name);
+                        setCountryDropdownOpen(false);
+                        setCountrySearch("");
+                      }}
+                    >
+                      <Text style={[
+                        styles.countryRowText,
+                        selectedCountry === country.name && styles.countryRowTextSelected,
+                      ]}>
+                        {country.flag}  {country.name}
+                      </Text>
+                      {selectedCountry === country.name && (
+                        <Text style={styles.countryRowCheck}>✓</Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Boy / Girl cards */}
+            {!countryDropdownOpen && (
+              <>
+                <View style={styles.genderAvatarRow}>
+                  {/* Boy */}
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    disabled={genderSaving}
+                    style={styles.genderAvatarBtn}
+                    onPress={() => saveGenderSelection("Male")}
+                  >
+                    <LinearGradient
+                      colors={["#0d2b6b", "#1a4fbf", "#4a7fff"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.genderAvatarCard}
+                    >
+                      <View style={styles.genderAvatarImgWrap}>
+                        <Image
+                          source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Avatar/avatar1.webp" }}
+                          style={styles.genderAvatarImg}
+                          contentFit="cover"
+                        />
+                        <View style={styles.genderAvatarGlowBlue} />
+                      </View>
+                      <View style={styles.genderLabelRow}>
+                        <Text style={styles.genderAvatarSign}>♂</Text>
+                        <Text style={styles.genderAvatarLabel}>Boy</Text>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {/* Girl */}
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    disabled={genderSaving}
+                    style={styles.genderAvatarBtn}
+                    onPress={() => saveGenderSelection("Female")}
+                  >
+                    <LinearGradient
+                      colors={["#6b0d3a", "#bf1a6e", "#ff4aaa"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.genderAvatarCard}
+                    >
+                      <View style={styles.genderAvatarImgWrap}>
+                        <Image
+                          source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Avatar/avatar5.webp" }}
+                          style={styles.genderAvatarImg}
+                          contentFit="cover"
+                        />
+                        <View style={styles.genderAvatarGlowPink} />
+                      </View>
+                      <View style={styles.genderLabelRow}>
+                        <Text style={styles.genderAvatarSign}>♀</Text>
+                        <Text style={styles.genderAvatarLabel}>Girl</Text>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Other option */}
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  disabled={genderSaving}
+                  style={styles.genderOtherBtn}
+                  onPress={() => saveGenderSelection("Other")}
+                >
+                  <Text style={styles.genderOtherText}>
+                    {genderSaving ? "Saving…" : "Prefer not to say"}
+                  </Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </SafeAreaView>
+              </>
+            )}
+          </LinearGradient>
+        </View>
+      </Modal>
+
+      {/* ── Searched user profile ── */}
+      <Modal
+        visible={Boolean(searchProfile)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSearchProfile(null)}
+      >
+        <View style={styles.searchProfileWrap}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setSearchProfile(null)}
+          />
+          <View style={styles.searchProfileCard}>
+            <LinearGradient
+              colors={["#3d1a6e", "#7c4dff"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.searchProfileHero}
+            >
+              {searchProfile?.avatar ? (
+                <ProfileAvatarWithFrame
+                  avatarSource={toImageSource(searchProfile.avatar)}
+                  frameSource={searchProfile.vipProfileFrameUrl}
+                  size={110}
+                  avatarStyle={styles.searchProfileAvatar}
+                  {...(searchProfile.vipProfileFrameUrl
+                    ? {
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
+                    : {})}
+                />
+              ) : (
+                <Text style={styles.searchProfileEmoji}>👤</Text>
+              )}
+              {searchProfile?.isOnline && <View style={styles.searchProfileOnlineDot} />}
+            </LinearGradient>
+
+            <TouchableOpacity style={styles.searchProfileClose} onPress={() => setSearchProfile(null)}>
+              <Text style={styles.searchProfileCloseTxt}>✕</Text>
+            </TouchableOpacity>
+
+            <View style={styles.searchProfileBody}>
+              <View style={styles.searchProfileNameRow}>
+                <Text style={styles.searchProfileName} numberOfLines={1}>
+                  {searchProfile?.name ?? "User"}
+                </Text>
+                {searchProfile?.vip && <Text style={styles.searchProfileVip}>👑 VIP</Text>}
+              </View>
+
+              <View style={styles.searchProfileMetaRow}>
+                {searchProfile?.level != null && (
+                  <View style={styles.searchProfileBadge}>
+                    <Text style={styles.searchProfileBadgeTxt}>Lv {searchProfile.level}</Text>
+                  </View>
+                )}
+                {searchProfile?.status && (
+                  <View style={styles.searchProfileBadge}>
+                    <Text style={styles.searchProfileBadgeTxt}>{searchProfile.status}</Text>
+                  </View>
+                )}
+                {searchProfileLoading && <ActivityIndicator size="small" color="#a78bfa" />}
+              </View>
+
+              {searchProfile?.bio ? (
+                <Text style={styles.searchProfileBio} numberOfLines={3}>{searchProfile.bio}</Text>
+              ) : null}
+
+              <TouchableOpacity style={styles.searchProfileMsgBtn} onPress={handleMessageSearchProfile} activeOpacity={0.85}>
+                <LinearGradient
+                  colors={["#7c4dff", "#a855f7"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.searchProfileMsgGradient}
+                >
+                  <Text style={styles.searchProfileMsgTxt}>Send Message</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -1077,7 +3687,237 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0d0618",
+    backgroundColor: "white",
+  },
+
+  // ── Searched user profile modal ──
+  searchProfileWrap: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 28 },
+  searchProfileCard: { width: "100%", maxWidth: 360, backgroundColor: "#1a0a2e", borderRadius: 24, overflow: "hidden", borderWidth: 1, borderColor: "rgba(167,139,250,0.3)" },
+  searchProfileHero: { width: "100%", height: 170, alignItems: "center", justifyContent: "center" },
+  searchProfileAvatar: { width: 110, height: 110, borderRadius: 55, borderWidth: 3, borderColor: "rgba(255,255,255,0.25)" },
+  searchProfileEmoji: { fontSize: 70 },
+  searchProfileOnlineDot: { position: "absolute", bottom: 20, right: "37%", width: 16, height: 16, borderRadius: 8, backgroundColor: "#00e676", borderWidth: 3, borderColor: "#1a0a2e" },
+  searchProfileClose: { position: "absolute", top: 12, right: 12, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
+  searchProfileCloseTxt: { color: "white", fontSize: 15, fontWeight: "700" },
+  searchProfileBody: { padding: 18, gap: 10 },
+  searchProfileNameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  searchProfileName: { color: "white", fontSize: 20, fontWeight: "900", flexShrink: 1 },
+  searchProfileVip: { color: "#ffd700", fontSize: 13, fontWeight: "800" },
+  searchProfileMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  searchProfileBadge: { backgroundColor: "rgba(124,77,255,0.3)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(167,139,250,0.4)" },
+  searchProfileBadgeTxt: { color: "#c4b5fd", fontSize: 11, fontWeight: "700" },
+  searchProfileBio: { color: "rgba(255,255,255,0.7)", fontSize: 13, lineHeight: 19 },
+  searchProfileMsgBtn: { borderRadius: 14, overflow: "hidden", marginTop: 4 },
+  searchProfileMsgGradient: { paddingVertical: 13, alignItems: "center" },
+  searchProfileMsgTxt: { color: "white", fontSize: 15, fontWeight: "800" },
+
+  // ── Gender picker modal ──
+  genderOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.82)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 22,
+  },
+  genderCard: {
+    width: "100%",
+    maxWidth: 370,
+    borderRadius: 28,
+    overflow: "hidden",
+    paddingTop: 36,
+    paddingBottom: 10,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.35)",
+    // Outer card shadow (Android elevation)
+    elevation: 24,
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.55,
+    shadowRadius: 24,
+  },
+  // Purple glow blob at the top of the card
+  genderGlow: {
+    position: "absolute",
+    top: -40,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: "rgba(124,77,255,0.18)",
+    alignSelf: "center",
+  },
+  genderHeaderTitle: {
+    color: "#ffffff",
+    fontSize: 26,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: 0.3,
+    marginBottom: 8,
+  },
+  genderHeaderSub: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 28,
+  },
+  genderAvatarRow: {
+    flexDirection: "row",
+    gap: 16,
+    width: "100%",
+    marginBottom: 18,
+  },
+  genderAvatarBtn: {
+    flex: 1,
+    borderRadius: 22,
+    // Card shadow
+    elevation: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+  },
+  genderAvatarCard: {
+    borderRadius: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+    gap: 14,
+    overflow: "hidden",
+  },
+  genderAvatarImgWrap: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+  },
+  genderAvatarImg: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  // Blue halo behind boy avatar
+  genderAvatarGlowBlue: {
+    position: "absolute",
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: "rgba(74,127,255,0.28)",
+    zIndex: -1,
+  },
+  // Pink halo behind girl avatar
+  genderAvatarGlowPink: {
+    position: "absolute",
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: "rgba(255,74,170,0.28)",
+    zIndex: -1,
+  },
+  genderLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  genderAvatarSign: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 18,
+    fontWeight: "300",
+  },
+  genderAvatarLabel: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
+  genderOtherBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    marginBottom: 6,
+  },
+  genderOtherText: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    textDecorationLine: "underline",
+  },
+  countryPickerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    backgroundColor: "rgba(124,77,255,0.18)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.4)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  countryPickerBtnText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+  },
+  countryPickerArrow: {
+    color: "#a78bfa",
+    fontSize: 11,
+    marginLeft: 8,
+  },
+  countryDropdown: {
+    width: "100%",
+    backgroundColor: "rgba(20,8,40,0.95)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+    marginBottom: 14,
+    overflow: "hidden",
+  },
+  countrySearchWrap: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(124,77,255,0.2)",
+    paddingHorizontal: 12,
+  },
+  countrySearchInput: {
+    color: "white",
+    fontSize: 14,
+    paddingVertical: 10,
+  },
+  countryList: {
+    maxHeight: 190,
+  },
+  countryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  countryRowSelected: {
+    backgroundColor: "rgba(124,77,255,0.22)",
+  },
+  countryRowText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  countryRowTextSelected: {
+    color: "#c4b5fd",
+    fontWeight: "700",
+  },
+  countryRowCheck: {
+    color: "#a78bfa",
+    fontSize: 15,
+    fontWeight: "800",
   },
 
   // Background orbs (same as login)
@@ -1110,107 +3950,133 @@ const styles = StyleSheet.create({
 
   // Header glass card
   headerCard: {
-    marginTop: 20,
+    marginTop: vs(20),
     marginHorizontal: H_PAD,
-    marginBottom: 14,
+    marginBottom: vs(14),
     backgroundColor: "rgba(255,255,255,0.07)",
-    borderRadius: 22,
+    borderRadius: s(22),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 10,
+    paddingHorizontal: s(14),
+    paddingVertical: vs(10),
+    gap: vs(10),
   },
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: s(6),
   },
   avatarWrapper: {
     position: "relative",
+    marginTop: vs(-8),
+    marginBottom: vs(-4),
+    overflow: "visible",
   },
   headerAvatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: s(62),
+    height: s(62),
+    borderRadius: s(31),
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.3)",
+    borderColor: "rgba(255,255,255,0.35)",
   },
   onlineDot: {
     position: "absolute",
     bottom: 1,
     right: 1,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: s(12),
+    height: s(12),
+    borderRadius: s(6),
     backgroundColor: "#00e676",
     borderWidth: 2,
     borderColor: "#1a0a2e",
   },
   headerTitleCol: {
     flex: 1,
+    minWidth: 0,
   },
   helloText: {
     color: "rgba(255,255,255,0.55)",
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "500",
-    lineHeight: 14,
+    lineHeight: ms(14),
   },
   appName: {
-    fontSize: 22,
+    fontSize: 15,
     fontWeight: "900",
     color: "white",
-    lineHeight: 26,
+    lineHeight: 19,
+  },
+  appNameWrapper: {
+    position: "relative",
+    width: "100%",
+  },
+  appNameOutline: {
+    color: "#7f3f89",
   },
   headerIcons: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 3,
   },
   diamondPill: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(80,50,160,0.6)",
-    borderRadius: 16,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    borderRadius: s(14),
+    paddingHorizontal: s(6),
+    paddingVertical: vs(4),
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.5)",
-    gap: 3,
+    gap: s(2),
   },
-  diamondEmoji: { fontSize: 12 },
+  diamondEmoji: { fontSize: ms(10) },
   diamondCount: {
     color: "white",
-    fontSize: 12,
+    fontSize: ms(10),
     fontWeight: "700",
   },
+  diamondPlusBtn: {
+    width: s(15),
+    height: s(15),
+    borderRadius: s(8),
+    backgroundColor: "#7c3aed",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: s(1),
+  },
+  diamondPlusText: {
+    color: "white",
+    fontSize: ms(11),
+    fontWeight: "800",
+    lineHeight: ms(12),
+  },
   headerIconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: s(28),
+    height: s(28),
+    borderRadius: s(14),
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerIconEmoji: { fontSize: 16 },
+  headerIconEmoji: { fontSize: ms(13) },
   headerIconBadge: {
     position: "absolute",
     top: -3,
     right: -3,
-    minWidth: 15,
-    height: 15,
-    borderRadius: 8,
+    minWidth: s(15),
+    height: s(15),
+    borderRadius: s(8),
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 2,
+    paddingHorizontal: s(2),
     borderWidth: 1.5,
     borderColor: "#0d0618",
   },
   headerIconBadgeText: {
     color: "white",
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
   },
   headerDivider: {
@@ -1234,9 +4100,9 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   matchAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: s(34),
+    height: s(34),
+    borderRadius: s(17),
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.5)",
   },
@@ -1255,14 +4121,14 @@ const styles = StyleSheet.create({
   },
   activeNumber: {
     color: "#4eff91",
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "800",
-    lineHeight: 19,
+    lineHeight: ms(19),
   },
   activeLabel: {
     color: "rgba(255,255,255,0.9)",
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: ms(11),
+    lineHeight: ms(14),
   },
   matchArrow: {
     width: 24,
@@ -1287,6 +4153,29 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
 
+  // Per-tab loading / empty state
+  feedStateBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 56,
+    paddingHorizontal: 32,
+  },
+  feedStateEmoji: { fontSize: 44, marginBottom: 14 },
+  feedStateTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  feedStateSubtitle: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    marginTop: 6,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+
   // 2×2 Action grid — all equal size
   actionGrid: {
     flexDirection: "row",
@@ -1309,16 +4198,16 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: "white",
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "800",
-    lineHeight: 20,
+    lineHeight: ms(20),
   },
   cardSubtitle: {
     color: "rgba(255,255,255,0.7)",
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "500",
-    marginTop: 2,
-    marginBottom: 4,
+    marginTop: vs(2),
+    marginBottom: vs(4),
   },
   waveRow: {
     flexDirection: "row",
@@ -1347,22 +4236,22 @@ const styles = StyleSheet.create({
   },
   iconItem: {
     alignItems: "center",
-    width: 76,
+    width: s(76),
   },
   iconBox: {
-    width: 68,
-    height: 68,
-    borderRadius: 18,
+    width: s(68),
+    height: s(68),
+    borderRadius: s(18),
     alignItems: "center",
     justifyContent: "center",
   },
-  iconImg: { width: 44, height: 44 },
+  iconImg: { width: s(44), height: s(44) },
   iconLabel: {
     color: "rgba(255,255,255,0.7)",
-    fontSize: 11,
-    marginTop: 6,
+    fontSize: ms(11),
+    marginTop: vs(6),
     textAlign: "center",
-    lineHeight: 14,
+    lineHeight: ms(14),
   },
 
   // Tabs
@@ -1381,14 +4270,14 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   tabText: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 15,
+    color: "rgba(0,0,0,0.45)",
+    fontSize: ms(15),
     fontWeight: "500",
   },
   tabActive: {
-    color: "white",
+    color: "black",
     fontWeight: "800",
-    fontSize: 16,
+    fontSize: ms(16),
   },
   tabUnderline: {
     width: "100%",
@@ -1417,6 +4306,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: H_PAD,
     gap: 10,
   },
+  // Outer wrapper for FlatList feed items (provides horizontal padding)
+  postOuter: {
+    paddingHorizontal: H_PAD,
+  },
   postCard: {
     backgroundColor: "rgba(255,255,255,0.04)",
     borderRadius: 16,
@@ -1431,13 +4324,57 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   postAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: s(42),
+    height: s(42),
+    borderRadius: s(21),
+  },
+  postAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  postImage: {
+    width: "100%",
+    borderRadius: 12,
+    marginBottom: 10,
+    marginTop: 8,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    overflow: "hidden",
+    position: "relative",
+  },
+  galleryPage: { width: SCREEN_WIDTH - H_PAD * 2 - 24, height: "100%" },
+  galleryCountBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  galleryCountText: { color: "white", fontSize: 11, fontWeight: "700" },
+  galleryDots: {
+    position: "absolute",
+    bottom: 8,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 5,
+  },
+  galleryDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+  galleryDotActive: {
+    backgroundColor: "white",
+    width: 12,
   },
   postName: {
     color: "white",
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "700",
     flex: 1,
   },
@@ -1447,10 +4384,61 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 5,
   },
+  followBtnActive: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#7c4dff",
+  },
   followBtnText: {
     color: "white",
     fontSize: 12,
     fontWeight: "600",
+  },
+  followBtnTextActive: {
+    color: "#b388ff",
+  },
+  postFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+  },
+  postFooterLeft: {
+    flex: 1,
+  },
+  postFooterRight: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  postLikeCount: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
+  },
+  postActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  postActionBtnLiked: {
+    backgroundColor: "rgba(255,78,163,0.12)",
+    borderColor: "rgba(255,78,163,0.35)",
+  },
+  postActionEmoji: {
+    fontSize: 14,
+  },
+  postActionLabel: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 12,
+    fontWeight: "500",
   },
   moreBtn: { paddingHorizontal: 4 },
   moreBtnText: {
@@ -1460,9 +4448,9 @@ const styles = StyleSheet.create({
   },
   postText: {
     color: "rgba(255,255,255,0.82)",
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 10,
+    fontSize: ms(13),
+    lineHeight: ms(20),
+    marginBottom: vs(10),
   },
   moreText: {
     color: "#7c4dff",
@@ -1505,9 +4493,9 @@ const styles = StyleSheet.create({
   },
   recommendTitle: {
     color: "white",
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "700",
-    marginBottom: 14,
+    marginBottom: vs(14),
   },
   recommendScroll: {
     gap: 16,
@@ -1515,23 +4503,32 @@ const styles = StyleSheet.create({
   },
   recommendItem: {
     alignItems: "center",
-    width: 76,
+    width: s(76),
   },
-  recommendAvatarRing: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    padding: 3,
-    marginBottom: 8,
+  recommendAvatarWrap: {
+    width: s(72),
+    height: s(72),
+    borderRadius: s(36),
+    marginBottom: vs(8),
   },
   recommendAvatar: {
     width: "100%",
     height: "100%",
-    borderRadius: 33,
+    borderRadius: s(36),
+  },
+  recommendAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recommendInitial: {
+    color: "white",
+    fontSize: ms(22),
+    fontWeight: "800",
   },
   recommendName: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 12,
+    fontSize: ms(12),
     textAlign: "center",
     fontWeight: "500",
   },
@@ -1565,7 +4562,7 @@ const styles = StyleSheet.create({
   },
   bannerTitle: {
     color: "#ffd700",
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: "900",
     textAlign: "center",
     letterSpacing: 0.5,

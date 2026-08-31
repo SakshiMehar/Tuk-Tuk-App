@@ -1,71 +1,226 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
   Image,
+  Modal,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
   Dimensions,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
   StatusBar,
+  Alert,
 } from "react-native";
+import { useRouter } from "expo-router";
+import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   ArrowLeft,
   UserPlus,
   MoreHorizontal,
   X,
-  Smile,
   Send,
   Mic,
   ImageIcon,
   HelpCircle,
   Gift,
   Phone,
-  Lock,
-  MapPin,
   Shield,
-  ChevronRight,
-  Heart,
 } from "lucide-react-native";
+import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services/chatService";
+import { wsService } from "../src/services/websocket";
+import { getAppUserId } from "../src/utils/sessionUser";
+import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
+import { openUserProfile } from "../src/utils/profileNavigation";
+
+const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
 
 const { width: W } = Dimensions.get("window");
+const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", "😡", "👍", "🙏", "🎉", "❤️"];
 
-const LOCKED_PHOTO_W = (W - 80) / 3 - 6;
+// Backend may send a bundled preset id (e.g. "avatar3") instead of a real
+// image URL — resolve those to the local asset, otherwise treat as a URI.
+const resolveAvatarSource = (avatar) => {
+  if (isBundledAvatarId(avatar)) return getAvatarSource(avatar);
+  return /ngrok-free\.dev|ngrok\.io/i.test(avatar)
+    ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri: avatar };
+};
 
 export default function ChatBox({ user = {}, onBack }) {
   const {
+    userId = null,
     name = "User",
-    avatar = "https://randomuser.me/api/portraits/men/34.jpg",
-    matchPercent = 95,
-    interests = ["TV shows"],
-    location = "Indore",
-    likeCount = 0,
+    avatar = null,
+    lastMsg = "",
+    level = null,
   } = user;
+  const router = useRouter();
+  const handleAvatarPress = () => {
+    if (!userId) return;
+    openUserProfile(router, { userId, name, avatar });
+  };
 
   const [showBanner, setShowBanner] = useState(true);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
-  const [liked, setLiked] = useState(false);
-  const [likedCount, setLikedCount] = useState(likeCount);
+  const [myUserId, setMyUserId] = useState(null);
+  const [showEmojiBox, setShowEmojiBox] = useState(false);
+  const [otherUserHasNewFrame, setOtherUserHasNewFrame] = useState(false);
+  const [otherUserVipFrame, setOtherUserVipFrame] = useState(null);
+  const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom } = useKeyboardInset();
   const scrollRef = useRef(null);
+  const [composerHeight, setComposerHeight] = useState(136);
 
-  const sendMessage = () => {
-    const text = message.trim();
-    if (!text) return;
+  const mapApiMessage = (m, currentUserId) => ({
+    id: String(m.messageId ?? m.id ?? Date.now()),
+    text: m.content ?? m.message ?? m.text ?? "",
+    fromMe: String(m.senderId) === String(currentUserId),
+    time: m.timestamp ? new Date(m.timestamp) : new Date(),
+  });
+
+  useEffect(() => {
+    if (!userId) return undefined;
+    let cancelled = false;
+
+    const initChat = async () => {
+      try {
+        await wsService.connect();
+        const currentUserId = await getAppUserId();
+        if (cancelled) return;
+        setMyUserId(currentUserId);
+
+        const { messages: apiMessages } = await loadChatHistory(userId);
+        if (cancelled) return;
+        setMessages(apiMessages.map((m) => mapApiMessage(m, currentUserId)));
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
+
+        await markChatAsRead(userId);
+      } catch {
+        // APIs logged in chatApi
+      }
+
+      // Fetch new-user frame status for the badge
+      try {
+        const assets = await getUserUiAssets(userId);
+        const hasFrame = Boolean(
+          assets?.showNewUserFrame ??
+          assets?.hasNewUserFrame ??
+          assets?.data?.showNewUserFrame ??
+          assets?.data?.hasNewUserFrame ??
+          false
+        );
+        if (!cancelled) setOtherUserHasNewFrame(hasFrame);
+
+        const vipFrameUrl = extractVipProfileFrameUrl(assets) ?? extractVipProfileFrameUrl(assets?.data);
+        if (!cancelled) setOtherUserVipFrame(vipFrameUrl);
+      } catch {
+        // non-critical
+      }
+    };
+
+    initChat();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId || !myUserId) return undefined;
+
+    const unsub = wsService.onMessage((payload) => {
+      const senderId = payload?.senderId;
+      const receiverId = payload?.receiverId;
+      const peerId = String(userId);
+      const isThisChat =
+        String(senderId) === peerId ||
+        String(receiverId) === peerId;
+
+      if (!isThisChat) return;
+
+      const text = payload?.content ?? payload?.message ?? "";
+      if (!text) return;
+
+      const id = String(payload?.messageId ?? payload?.id ?? `ws-${Date.now()}`);
+      const fromMe = String(senderId) === String(myUserId);
+
+      setMessages((prev) => {
+        // Skip duplicate real IDs
+        if (prev.some((m) => String(m.id) === id)) return prev;
+
+        // If the server echoes our own message back, replace the optimistic
+        // pending entry (same text, fromMe) rather than adding a duplicate.
+        const filtered = fromMe
+          ? prev.filter((m) => !(m._pending && m.text === text))
+          : prev;
+
+        return [
+          ...filtered,
+          {
+            id,
+            text,
+            fromMe,
+            time: payload?.timestamp ? new Date(payload.timestamp) : new Date(),
+          },
+        ];
+      });
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+
+      if (String(senderId) === peerId) {
+        markChatAsRead(userId).catch(() => {});
+      }
+    });
+
+    return unsub;
+  }, [userId, myUserId]);
+
+  const sendMessageText = (rawText, { clearComposer = false } = {}) => {
+    const text = String(rawText ?? "").trim();
+    if (!text || !userId) return;
+
+    // Optimistic update — show the message immediately so the user gets
+    // instant feedback. The WS handler deduplicates server echoes later.
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setMessages((prev) => [
       ...prev,
-      { id: Date.now().toString(), text, fromMe: true, time: new Date() },
+      { id: tempId, text, fromMe: true, time: new Date(), _pending: true },
     ]);
-    setMessage("");
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+
+    try {
+      wsService.sendMessage(String(userId), text);
+    } catch (err) {
+      // Roll back the optimistic entry on send failure
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      Alert.alert("Send failed", err?.message || "WebSocket not connected.");
+      return;
+    }
+
+    if (clearComposer) setMessage("");
+    setShowEmojiBox(false);
   };
 
-  const formatTime = (date) =>
-    date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const sendMessage = () => {
+    sendMessageText(message, { clearComposer: true });
+  };
+
+  const handleEmojiPick = (emoji) => {
+    sendMessageText(emoji);
+  };
+  const showComingSoon = (feature) => {
+    Alert.alert("Coming soon", `${feature} will be available soon.`);
+  };
+
+  const formatTime = (date) => formatChatTime(date) || date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  useEffect(() => {
+    if (!isKeyboardVisible) return;
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [isKeyboardVisible, message]);
 
   return (
     <View style={styles.root}>
@@ -87,16 +242,51 @@ export default function ChatBox({ user = {}, onBack }) {
         </View>
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
-      >
+      <View style={styles.bodyWrap}>
+        <Modal
+          visible={showEmojiBox}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowEmojiBox(false)}
+        >
+          <TouchableOpacity
+            style={styles.emojiOverlay}
+            activeOpacity={1}
+            onPress={() => setShowEmojiBox(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              style={[
+                styles.emojiSheet,
+                { bottom: composerBottom + (isKeyboardVisible ? 72 : 126) },
+              ]}
+              onPress={() => {}}
+            >
+              <Text style={styles.emojiSheetTitle}>Emojis</Text>
+              <View style={styles.emojiGrid}>
+                {LIMITED_EMOJIS.map((emoji) => (
+                  <TouchableOpacity
+                    key={emoji}
+                    style={styles.emojiItem}
+                    activeOpacity={0.8}
+                    onPress={() => handleEmojiPick(emoji)}
+                  >
+                    <Text style={styles.emojiItemText}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
         <ScrollView
           ref={scrollRef}
           style={styles.body}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 12 }}
+          contentContainerStyle={{
+            paddingBottom: composerHeight + keyboardHeight + safeBottom + 12,
+          }}
+          keyboardShouldPersistTaps="handled"
         >
           {/* ── NOTIFICATION BANNER ── */}
           {showBanner && (
@@ -127,7 +317,7 @@ export default function ChatBox({ user = {}, onBack }) {
             </View>
           )}
 
-          {/* ── MATCH CARD ── */}
+          {/* ── USER PROFILE CARD ── */}
           <View style={styles.matchCardWrap}>
             <LinearGradient
               colors={["#1a0a3e", "#2d1065", "#1a0a3e"]}
@@ -135,93 +325,42 @@ export default function ChatBox({ user = {}, onBack }) {
               end={{ x: 1, y: 1 }}
               style={styles.matchCard}
             >
-              {/* Top row: avatar + match % */}
               <View style={styles.matchTopRow}>
-                <LinearGradient
-                  colors={["#7c4dff", "#4a6cf7"]}
-                  style={styles.matchAvatarRing}
-                >
-                  <Image source={{ uri: avatar }} style={styles.matchAvatar} />
-                </LinearGradient>
-                <View style={styles.matchPercWrap}>
-                  <Text style={styles.matchPercNum}>{matchPercent}%</Text>
-                  <Text style={styles.matchPercLabel}> Match</Text>
-                </View>
-                {/* Heart */}
-                <TouchableOpacity
-                  style={styles.matchHeart}
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    setLiked((v) => !v);
-                    setLikedCount((c) => (liked ? c - 1 : c + 1));
-                  }}
-                >
-                  <Heart
-                    size={22}
-                    color={liked ? "#ff4ea3" : "rgba(255,255,255,0.35)"}
-                    fill={liked ? "#ff4ea3" : "none"}
-                  />
-                  <Text style={[styles.matchHeartCount, liked && { color: "#ff4ea3" }]}>
-                    {likedCount}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Tags row */}
-              <View style={styles.matchTagsRow}>
-                <View style={styles.matchTagItem}>
-                  <Shield size={13} color="#a78bfa" />
-                  {interests.map((t) => (
-                    <View key={t} style={styles.matchTag}>
-                      <Text style={styles.matchTagText}>{t}</Text>
+                <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
+                  <LinearGradient
+                    colors={otherUserVipFrame ? ["#0f0720", "#0f0720"] : ["#7c4dff", "#4a6cf7"]}
+                    style={styles.matchAvatarRing}
+                  >
+                    <View style={styles.matchAvatarWrap}>
+                      {avatar ? (
+                        <Image
+                          source={resolveAvatarSource(avatar)}
+                          style={styles.matchAvatar}
+                        />
+                      ) : (
+                        <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
+                          <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                        </View>
+                      )}
+                      {otherUserVipFrame ? (
+                        // VIP profile frame overlay — scale/position may need visual tuning on device
+                        <Image
+                          source={{ uri: otherUserVipFrame }}
+                          style={styles.matchAvatarFrameOverlay}
+                          resizeMode="contain"
+                          pointerEvents="none"
+                        />
+                      ) : null}
                     </View>
-                  ))}
-                </View>
-                <View style={styles.matchTagItem}>
-                  <MapPin size={13} color="#a78bfa" />
-                  <View style={styles.matchTag}>
-                    <Text style={styles.matchTagText}>
-                      Living in <Text style={{ color: "white", fontWeight: "700" }}>{location}</Text>
-                    </Text>
-                  </View>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <View style={styles.matchUserInfo}>
+                  <Text style={styles.matchUserName}>{name}</Text>
+                  {lastMsg ? (
+                    <Text style={styles.matchLastMsg} numberOfLines={2}>{lastMsg}</Text>
+                  ) : null}
                 </View>
               </View>
-
-              {/* Locked photos row */}
-              <View style={styles.matchPhotosRow}>
-                {[0, 1, 2].map((i) => (
-                  <TouchableOpacity key={i} activeOpacity={0.8} style={styles.matchPhotoCard}>
-                    <LinearGradient
-                      colors={["#1e0a3c", "#3a1575"]}
-                      style={styles.matchPhotoGrad}
-                    >
-                      <View style={styles.matchLockCircle}>
-                        <Lock size={16} color="#a78bfa" />
-                      </View>
-                      <Text style={styles.matchUnlockText}>Unlock Pass</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </LinearGradient>
-          </View>
-
-          {/* ── SAFE MODE BANNER ── */}
-          <View style={styles.safeBannerWrap}>
-            <LinearGradient
-              colors={["rgba(74,108,247,0.15)", "rgba(124,77,255,0.15)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.safeBanner}
-            >
-              <View style={styles.safeIconWrap}>
-                <Shield size={18} color="#7c4dff" />
-              </View>
-              <Text style={styles.safeText}>Safe mode protect your information.</Text>
-              <TouchableOpacity style={styles.safeArrow} activeOpacity={0.8}>
-                <ChevronRight size={14} color="#7c4dff" />
-                <ChevronRight size={14} color="#7c4dff" style={{ marginLeft: -8 }} />
-              </TouchableOpacity>
             </LinearGradient>
           </View>
 
@@ -239,7 +378,29 @@ export default function ChatBox({ user = {}, onBack }) {
                   ]}
                 >
                   {!msg.fromMe && (
-                    <Image source={{ uri: avatar }} style={styles.msgAvatar} />
+                    <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
+                      <View style={styles.msgAvatarWrap}>
+                        {avatar ? (
+                          <Image
+                            source={resolveAvatarSource(avatar)}
+                            style={styles.msgAvatar}
+                          />
+                        ) : (
+                          <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
+                            <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                          </View>
+                        )}
+                        {otherUserVipFrame ? (
+                          // VIP profile frame overlay — scale/position may need visual tuning on device
+                          <Image
+                            source={{ uri: otherUserVipFrame }}
+                            style={styles.msgAvatarFrameOverlay}
+                            resizeMode="contain"
+                            pointerEvents="none"
+                          />
+                        ) : null}
+                      </View>
+                    </TouchableOpacity>
                   )}
                   <View
                     style={[
@@ -258,11 +419,28 @@ export default function ChatBox({ user = {}, onBack }) {
                         <Text style={styles.msgTime}>{formatTime(msg.time)}</Text>
                       </LinearGradient>
                     ) : (
-                      <View style={styles.msgBubbleThemInner}>
-                        <Text style={styles.msgTextThem}>{msg.text}</Text>
-                        <Text style={[styles.msgTime, { color: "rgba(255,255,255,0.35)" }]}>
-                          {formatTime(msg.time)}
-                        </Text>
+                      <View>
+                        {/* Lv. badge + NEW STAR badge row */}
+                        {level != null && (
+                          <View style={styles.msgBadgeRow}>
+                            <View style={styles.msgLvBadge}>
+                              <Text style={styles.msgLvText}>Lv.{level}</Text>
+                            </View>
+                            {otherUserHasNewFrame && (
+                              <Image
+                                source={NEW_START_BADGE}
+                                style={styles.msgNewStarBadge}
+                                resizeMode="contain"
+                              />
+                            )}
+                          </View>
+                        )}
+                        <View style={styles.msgBubbleThemInner}>
+                          <Text style={styles.msgTextThem}>{msg.text}</Text>
+                          <Text style={[styles.msgTime, { color: "rgba(255,255,255,0.35)" }]}>
+                            {formatTime(msg.time)}
+                          </Text>
+                        </View>
                       </View>
                     )}
                   </View>
@@ -272,61 +450,125 @@ export default function ChatBox({ user = {}, onBack }) {
           )}
         </ScrollView>
 
-        {/* ── INPUT BAR ── */}
-        <View style={styles.inputArea}>
-          <TouchableOpacity style={styles.safeInputIcon} activeOpacity={0.8}>
-            <Shield size={20} color="#7c4dff" />
-          </TouchableOpacity>
+        {/* ── COMPOSER (floats above keyboard) ── */}
+        <View
+          style={[styles.composer, styles.composerFloating, { bottom: composerBottom }]}
+          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+        >
+          <View style={styles.inputArea}>
+            <TouchableOpacity style={styles.safeInputIcon} activeOpacity={0.8}>
+              <Shield size={20} color="#7c4dff" />
+            </TouchableOpacity>
 
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              placeholder="Type a message"
-              placeholderTextColor="rgba(167,139,250,0.4)"
-              value={message}
-              onChangeText={setMessage}
-              multiline
-            />
-            <TouchableOpacity style={styles.emojiBtn} activeOpacity={0.8}>
-              <Smile size={22} color="rgba(167,139,250,0.55)" />
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input}
+                placeholder="Type a message"
+                placeholderTextColor="rgba(167,139,250,0.4)"
+                value={message}
+                onChangeText={setMessage}
+                multiline
+              />
+              <TouchableOpacity
+                style={styles.emojiBtn}
+                activeOpacity={0.8}
+                onPress={() => setShowEmojiBox((v) => !v)}
+              >
+                <Text style={styles.emojiBtnText}>😊</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.sendBtn, message.trim() && styles.sendBtnActive]}
+              activeOpacity={0.8}
+              onPress={sendMessage}
+            >
+              <LinearGradient
+                colors={message.trim() ? ["#7c4dff", "#4a6cf7"] : ["rgba(124,77,255,0.25)", "rgba(74,108,247,0.25)"]}
+                style={styles.sendBtnGrad}
+              >
+                <Send size={18} color="white" />
+              </LinearGradient>
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={[styles.sendBtn, message.trim() && styles.sendBtnActive]}
-            activeOpacity={0.8}
-            onPress={sendMessage}
-          >
-            <LinearGradient
-              colors={message.trim() ? ["#7c4dff", "#4a6cf7"] : ["rgba(124,77,255,0.25)", "rgba(74,108,247,0.25)"]}
-              style={styles.sendBtnGrad}
-            >
-              <Send size={18} color="white" />
-            </LinearGradient>
-          </TouchableOpacity>
+          {!isKeyboardVisible && (
+            <View style={styles.actionBar}>
+              {[
+                { icon: <Mic size={22} color="rgba(167,139,250,0.55)" />, label: "Speaker" },
+                { icon: <ImageIcon size={22} color="rgba(167,139,250,0.55)" />, label: "Gallery" },
+                { icon: <HelpCircle size={22} color="#7c4dff" />, label: "Help" },
+                { icon: <Gift size={22} color="#ff7043" />, label: "Gift" },
+                { icon: <Phone size={22} color="rgba(167,139,250,0.55)" />, label: "Call" },
+              ].map((item, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.actionBtn}
+                  activeOpacity={0.8}
+                  onPress={() => showComingSoon(item.label)}
+                >
+                  {item.icon}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
-
-        {/* ── BOTTOM ACTION BAR ── */}
-        <View style={styles.actionBar}>
-          {[
-            { icon: <Mic size={22} color="rgba(167,139,250,0.55)" />, label: "" },
-            { icon: <ImageIcon size={22} color="rgba(167,139,250,0.55)" />, label: "" },
-            { icon: <HelpCircle size={22} color="#7c4dff" />, label: "" },
-            { icon: <Gift size={22} color="#ff7043" />, label: "" },
-            { icon: <Phone size={22} color="rgba(167,139,250,0.55)" />, label: "" },
-          ].map((item, idx) => (
-            <TouchableOpacity key={idx} style={styles.actionBtn} activeOpacity={0.8}>
-              {item.icon}
-            </TouchableOpacity>
-          ))}
-        </View>
-      </KeyboardAvoidingView>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#0f0720" },
+  bodyWrap: { flex: 1, position: "relative" },
+  emojiOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.2)",
+  },
+  emojiSheet: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    backgroundColor: "#170b2e",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.24)",
+    padding: 12,
+  },
+  emojiSheetTitle: {
+    color: "white",
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  emojiGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  emojiItem: {
+    width: (W - 60) / 6,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(124,77,255,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.22)",
+  },
+  emojiItemText: { fontSize: 20 },
+  composer: {
+    backgroundColor: "#0f0720",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(167,139,250,0.06)",
+  },
+  composerFloating: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    elevation: 20,
+  },
 
   // Header
   header: {
@@ -418,6 +660,11 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     padding: 2.5,
   },
+  matchAvatarWrap: {
+    width: "100%",
+    height: "100%",
+    position: "relative",
+  },
   matchAvatar: {
     width: "100%",
     height: "100%",
@@ -425,84 +672,36 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#0f0720",
   },
-  matchPercWrap: {
+  matchAvatarFrameOverlay: {
+    position: "absolute",
+    width: "130%",
+    height: "130%",
+    left: "-15%",
+    top: "-15%",
+  },
+  matchAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  matchInitial: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  matchUserInfo: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "baseline",
+    gap: 4,
   },
-  matchPercNum: {
-    color: "#a78bfa",
-    fontSize: 28,
-    fontWeight: "900",
-    letterSpacing: -0.5,
+  matchUserName: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "800",
   },
-  matchPercLabel: {
+  matchLastMsg: {
     color: "rgba(255,255,255,0.55)",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  matchHeart: {
-    alignItems: "center",
-    gap: 2,
-  },
-  matchHeartCount: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-
-  // Tags
-  matchTagsRow: { gap: 7 },
-  matchTagItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-  matchTag: {
-    backgroundColor: "rgba(124,77,255,0.18)",
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
-  },
-  matchTagText: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "500" },
-
-  // Locked photos
-  matchPhotosRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 2,
-  },
-  matchPhotoCard: {
-    flex: 1,
-    borderRadius: 12,
-    overflow: "hidden",
-    height: 80,
-  },
-  matchPhotoGrad: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
-  },
-  matchLockCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "rgba(124,77,255,0.25)",
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.4)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  matchUnlockText: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 10,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "500",
   },
 
   // Safe mode banner
@@ -541,7 +740,25 @@ const styles = StyleSheet.create({
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   msgRowMe: { justifyContent: "flex-end" },
   msgRowThem: { justifyContent: "flex-start" },
+  msgAvatarWrap: { width: 32, height: 32, position: "relative" },
   msgAvatar: { width: 32, height: 32, borderRadius: 16 },
+  msgAvatarFrameOverlay: {
+    position: "absolute",
+    width: "130%",
+    height: "130%",
+    left: "-15%",
+    top: "-15%",
+  },
+  msgAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  msgInitial: {
+    color: "white",
+    fontSize: 13,
+    fontWeight: "700",
+  },
   msgBubble: { maxWidth: W * 0.68 },
   msgBubbleMe: {},
   msgBubbleThem: {},
@@ -607,6 +824,7 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   emojiBtn: { paddingLeft: 8 },
+  emojiBtnText: { fontSize: 20 },
   sendBtn: { width: 42, height: 42 },
   sendBtnActive: {},
   sendBtnGrad: {
@@ -617,16 +835,36 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  // Level + new star badge row above "them" bubbles
+  msgBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 3,
+    gap: 2,
+  },
+  msgLvBadge: {
+    backgroundColor: "#7c4dff",
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  msgLvText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  msgNewStarBadge: {
+    width: 52,
+    height: 24,
+    marginLeft: 2,
+  },
+
   // Bottom action bar
   actionBar: {
     flexDirection: "row",
     justifyContent: "space-around",
     paddingHorizontal: 20,
     paddingVertical: 10,
-    paddingBottom: 24,
-    backgroundColor: "#0f0720",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(167,139,250,0.06)",
   },
   actionBtn: {
     width: 44,

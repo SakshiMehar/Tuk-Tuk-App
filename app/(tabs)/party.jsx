@@ -1,2 +1,2 @@
-export { default } from "../../Components/voice-party";
+export { default } from "../../Components/PartyExplore";
 

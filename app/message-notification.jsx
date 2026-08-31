@@ -1,24 +1,75 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   StatusBar,
   TouchableOpacity,
-  Image,
   Switch,
-  SafeAreaView,
+  ScrollView,
+  ActivityIndicator,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import {
+  loadUserSettings,
+  updateUserSettings,
+} from "../src/services/userSettingsService";
 
 export default function MessageNotification() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const footerBottomPad = Math.max(insets.bottom, 16);
+
   const [enabled, setEnabled] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  // Keep a snapshot so updateUserSettings can merge correctly
+  const [settingsSnapshot, setSettingsSnapshot] = useState({});
+
+  // Load persisted setting on mount
+  useEffect(() => {
+    loadUserSettings()
+      .then((settings) => {
+        // messageNotification maps to notificationOption from the settings object;
+        // treat anything other than "No notifications" as enabled.
+        const isEnabled =
+          settings.notificationOption !== "No notifications";
+        setEnabled(isEnabled);
+        setSettingsSnapshot(settings);
+      })
+      .catch(() => {
+        // Keep default (enabled) on load failure — non-critical
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleToggle = async (value) => {
+    if (saving) return;
+    setEnabled(value);
+    setSaving(true);
+    try {
+      const updated = await updateUserSettings(
+        {
+          notificationOption: value
+            ? "All notifications"
+            : "No notifications",
+        },
+        settingsSnapshot
+      );
+      setSettingsSnapshot(updated);
+    } catch {
+      // Revert on failure
+      setEnabled(!value);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar barStyle="light-content" backgroundColor="#0d0618" />
       <LinearGradient
         colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
@@ -33,38 +84,48 @@ export default function MessageNotification() {
           <Ionicons name="arrow-back" size={22} color="white" />
         </TouchableOpacity>
         <Text style={styles.title}>Message Notification</Text>
+        <View style={styles.headerSpacer} />
       </View>
 
-      <View style={styles.centerArea}>
-        <View style={styles.phoneMock}>
-          <View style={styles.messagePill}>
-            <View style={styles.iconCircle}>
-              <Ionicons name="chatbubble-ellipses" size={18} color="#a78bfa" />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.centerArea}>
+          <View style={styles.phoneMock}>
+            <View style={styles.messagePill}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="chatbubble-ellipses" size={18} color="#a78bfa" />
+              </View>
+              <Text style={styles.pillText}>You received a new message</Text>
             </View>
-            <Text style={styles.pillText}>You received a new message</Text>
           </View>
         </View>
+      </ScrollView>
 
-        <TouchableOpacity style={styles.openBtn} activeOpacity={0.85}>
-          <Text style={styles.openBtnText}>Open</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.optionRow}
-      >
-        <View>
-          <Text style={styles.optionTitle}>Message Notification</Text>
-          <Text style={styles.optionSub}>Close will not show it</Text>
+      <View style={[styles.footer, { paddingBottom: footerBottomPad }]}>
+        <View style={styles.optionRow}>
+          <View style={styles.optionTextWrap}>
+            <Text style={styles.optionTitle}>Message Notification</Text>
+            <Text style={styles.optionSub}>
+              {enabled ? "Notifications are on" : "Notifications are off"}
+            </Text>
+          </View>
+          {loading ? (
+            <ActivityIndicator color="#a78bfa" style={{ marginRight: 4 }} />
+          ) : (
+            <Switch
+              value={enabled}
+              onValueChange={handleToggle}
+              disabled={saving}
+              trackColor={{ false: "rgba(255,255,255,0.2)", true: "#7c3aed" }}
+              thumbColor="#fff"
+              style={styles.switch}
+            />
+          )}
         </View>
-        <Switch
-          value={enabled}
-          onValueChange={setEnabled}
-          trackColor={{ false: "rgba(255,255,255,0.2)", true: "#7c3aed" }}
-          thumbColor="#fff"
-          style={styles.switch}
-        />
       </View>
-
     </SafeAreaView>
   );
 }
@@ -77,10 +138,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 56,
+    paddingTop: 8,
     paddingHorizontal: 16,
     paddingBottom: 12,
-    gap: 12,
   },
   backButton: {
     width: 42,
@@ -93,11 +153,22 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.15)",
   },
   title: {
+    flex: 1,
     fontSize: 22,
     fontWeight: "800",
     color: "white",
-    flex: 1,
     textAlign: "center",
+  },
+  headerSpacer: {
+    width: 42,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
   centerArea: {
     alignItems: "center",
@@ -141,23 +212,17 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "800",
     fontSize: 15,
+    flex: 1,
   },
-  openBtn: {
-    marginTop: 24,
-    backgroundColor: "#000",
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  openBtnText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
+  footer: {
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(13, 6, 24, 0.92)",
   },
   optionRow: {
-    marginTop: 42,
     backgroundColor: "rgba(255,255,255,0.06)",
-    marginHorizontal: 16,
     paddingHorizontal: 16,
     paddingVertical: 18,
     flexDirection: "row",
@@ -166,6 +231,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
+    gap: 12,
+  },
+  optionTextWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   optionTitle: {
     fontSize: 16,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,13 +10,41 @@ import {
   Modal,
   Image,
   Switch,
-  SafeAreaView,
   TextInput,
   ActivityIndicator,
+  Linking,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import {
+  logoutSession,
+  deleteAccountSession,
+} from "../src/services/authSessionService";
+import { getUser } from "../src/store/authStore";
+import {
+  loadUserSettings,
+  updateUserSettings,
+  loadMatchSwitch,
+  updateMatchSwitch,
+  clearAppCache,
+  checkForUpdate,
+  submitFeedback,
+} from "../src/services/userSettingsService";
+import ClearChatCacheModal from "../Components/ClearChatCacheModal";
+import ProfileAvatarWithFrame from "../Components/ProfileAvatarWithFrame";
+import { loadMyVipAssets } from "../src/services/vipService";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+
+const DELETE_ACCOUNT_REASONS = [
+  "Privacy concerns",
+  "Not using the app anymore",
+  "Found another app",
+  "Too many notifications",
+  "Technical issues / bugs",
+  "Other",
+];
 
 const settingSections = [
   {
@@ -56,7 +84,9 @@ const settingSections = [
 
 export default function Settings() {
   const router = useRouter();
-  const [cacheSize] = useState("22.21M");
+  const insets = useSafeAreaInsets();
+  const scrollBottomPad = 24 + Math.max(insets.bottom, 16);
+  const sheetBottomPad = Math.max(insets.bottom, 12);
   const [matchSwitchVisible, setMatchSwitchVisible] = useState(false);
   const [privacyVisible, setPrivacyVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
@@ -87,7 +117,120 @@ export default function Settings() {
   const [aboutVisible, setAboutVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [expandedFaq, setExpandedFaq] = useState(null);
+
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [currentUserAvatar, setCurrentUserAvatar] = useState(null);
+  const [vipProfileFrame, setVipProfileFrame] = useState(null);
+
+  useEffect(() => {
+    getUser().then((u) => {
+      if (u) setCurrentUserAvatar(u.avatarUrl ?? u.avatar ?? u.profileImage ?? null);
+    }).catch(() => {});
+    loadMyVipAssets().then((vipAssets) => {
+      setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
+    }).catch(() => {});
+  }, []);
+  const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteComment, setDeleteComment] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
+  const [clearChatCacheVisible, setClearChatCacheVisible] = useState(false);
+  const [settingsSnapshot, setSettingsSnapshot] = useState({
+    matchSwitchEnabled: false,
+    notificationOption: "All notifications",
+    preventFollowing: false,
+    chatPermission: "Everyone",
+    mysteriousVisitor: false,
+    systemLanguage: "English",
+    contentLanguage: "English",
+  });
+
+  const applySettingsState = useCallback((settings) => {
+    setMatchSwitchEnabled(settings.matchSwitchEnabled);
+    setNotificationOption(settings.notificationOption);
+    setPreventFollowing(settings.preventFollowing);
+    setChatPermission(settings.chatPermission);
+    setMysteriousVisitor(settings.mysteriousVisitor);
+    setSystemLanguage(settings.systemLanguage);
+    setContentLanguage(settings.contentLanguage);
+    setSettingsSnapshot(settings);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadUserSettings()
+      .then((settings) => {
+        if (!cancelled) applySettingsState(settings);
+      })
+      .catch((err) => {
+
+      })
+      .finally(() => {
+        if (!cancelled) setSettingsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applySettingsState]);
+
+  const persistSettings = async (updates, applyLocal) => {
+    if (settingsSaving) return;
+    applyLocal?.();
+    setSettingsSaving(true);
+
+    try {
+      const saved = await updateUserSettings(updates, settingsSnapshot);
+      applySettingsState(saved);
+
+    } catch (err) {
+
+      Alert.alert(
+        "Settings",
+        err?.message || "Could not save your settings. Please try again."
+      );
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const refreshMatchSwitch = async () => {
+
+    try {
+      const enabled = await loadMatchSwitch();
+      setMatchSwitchEnabled(enabled);
+      setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: enabled }));
+    } catch {
+      // Keep the previous match-switch state if the load fails.
+    }
+  };
+
+  const handleToggleMatchSwitch = async (value) => {
+    if (settingsSaving) return;
+    setMatchSwitchEnabled(value);
+    setSettingsSaving(true);
+
+    try {
+      const resolved = await updateMatchSwitch(value);
+      setMatchSwitchEnabled(resolved);
+      setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: resolved }));
+
+    } catch (err) {
+
+      setMatchSwitchEnabled(!value);
+      Alert.alert(
+        "Match switch",
+        err?.message || "Could not update Match switch. Please try again."
+      );
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const faqs = [
     { id: 1, q: "How do I match with someone?", a: "Enable your Match switch in Settings and browse nearby profiles. Tap the heart icon to send a match request!" },
@@ -96,20 +239,163 @@ export default function Settings() {
     { id: 4, q: "Can I use Tuk-Tuk without sharing my location?", a: "Location is required for the matching and nearby features. You can set your profile to private mode to limit visibility." },
   ];
 
-  const handleCheckUpdate = () => {
+  const handleCheckUpdate = async () => {
     setUpdateChecking(true);
     setUpdateChecked(false);
-    setTimeout(() => {
-      setUpdateChecking(false);
+
+    try {
+      await checkForUpdate();
+
       setUpdateChecked(true);
-    }, 2200);
+    } catch (err) {
+      Alert.alert(
+        "Check failed",
+        err?.message || "Could not check for updates. Please try again."
+      );
+    } finally {
+      setUpdateChecking(false);
+    }
   };
 
-  const handleSendFeedback = () => {
-    if (!feedbackText.trim()) return;
-    setFeedbackSent(true);
-    setFeedbackText("");
-    setTimeout(() => setFeedbackSent(false), 3000);
+  const handleSendFeedback = async () => {
+    const text = feedbackText.trim();
+    if (!text || feedbackSubmitting) return;
+    setFeedbackSubmitting(true);
+
+    try {
+      await submitFeedback(text);
+
+      setFeedbackSent(true);
+      setFeedbackText("");
+      setTimeout(() => setFeedbackSent(false), 3000);
+    } catch (err) {
+      Alert.alert(
+        "Send failed",
+        err?.message || "Could not send feedback. Please try again."
+      );
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
+  const SUPPORT_EMAIL = "support@tuktukapp.com";
+  const SUPPORT_WHATSAPP = "919784222556";
+
+  const handleEmailSupport = () => {
+    const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Tuk-Tuk Support Request")}&body=${encodeURIComponent("Hi Tuk-Tuk Support Team,\n\n")}`;
+    Linking.openURL(url).catch(() =>
+      Alert.alert("Email Support", `No email app found.\nPlease write to us at:\n${SUPPORT_EMAIL}`)
+    );
+  };
+
+  const handleWhatsAppSupport = () => {
+    const message = encodeURIComponent("Hi Tuk-Tuk Support, I need help with:");
+    // Use whatsapp:// scheme — works reliably on Android without package visibility issues
+    const waDeepLink = `whatsapp://send?phone=${SUPPORT_WHATSAPP}&text=${message}`;
+    Linking.openURL(waDeepLink).catch(() => {
+      // Fallback: open wa.me in browser (also opens WhatsApp if installed)
+      Linking.openURL(`https://wa.me/${SUPPORT_WHATSAPP}?text=${message}`).catch(() =>
+        Alert.alert("WhatsApp not found", "Please install WhatsApp or contact us via Email Support.")
+      );
+    });
+  };
+
+  const resetDeleteAccountForm = () => {
+    setDeleteReason("");
+    setDeleteComment("");
+    setDeletingAccount(false);
+  };
+
+  const closeDeleteAccountModal = () => {
+    setDeleteAccountVisible(false);
+    resetDeleteAccountForm();
+  };
+
+  const handleLogout = () => {
+    Alert.alert("Log out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Log out",
+        style: "destructive",
+        onPress: async () => {
+          setLoggingOut(true);
+
+          try {
+            await logoutSession();
+            router.replace("/login");
+          } catch (err) {
+
+            Alert.alert(
+              "Logout",
+              err?.message || "Could not reach server. You have been signed out locally."
+            );
+            router.replace("/login");
+          } finally {
+            setLoggingOut(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    const reason = deleteReason.trim();
+    const additionalComment = deleteComment.trim();
+    if (!reason || !additionalComment) {
+      Alert.alert(
+        "Required fields",
+        "Please select a reason and add an additional comment before deleting your account."
+      );
+      return;
+    }
+
+    setDeletingAccount(true);
+
+    try {
+      await deleteAccountSession({ reason, additionalComment });
+      closeDeleteAccountModal();
+      Alert.alert("Account deleted", "Your account has been deleted.");
+      router.replace("/login");
+    } catch (err) {
+
+      Alert.alert(
+        "Delete failed",
+        err?.message || "Could not delete your account. Please try again."
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const canSubmitDeleteAccount =
+    deleteReason.trim().length > 0 && deleteComment.trim().length > 0;
+
+  const handleClearCache = () => {
+    Alert.alert("Clear cache", "Clear all app cache?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Clear",
+        style: "destructive",
+        onPress: async () => {
+          if (clearingCache) return;
+          setClearingCache(true);
+
+          try {
+            await clearAppCache();
+            Alert.alert("Clear cache", "Cache cleared successfully.");
+          } catch (err) {
+
+            Alert.alert("Clear cache", err?.message || "Could not clear cache. Please try again.");
+          } finally {
+            setClearingCache(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleClearChatCache = () => {
+    setClearChatCacheVisible(true);
   };
 
   const handleItemPress = (item) => {
@@ -123,6 +409,7 @@ export default function Settings() {
     switch (item.label) {
       case "Match switch":
         setMatchSwitchVisible(true);
+        refreshMatchSwitch();
         break;
       case "Privacy":
         setPrivacyVisible(true);
@@ -134,6 +421,7 @@ export default function Settings() {
         router.push("/message-notification");
         break;
       case "Blocked list":
+
         router.push("/blocked-accounts");
         break;
       case "System language":
@@ -157,10 +445,10 @@ export default function Settings() {
         setAboutVisible(true);
         break;
       case "Clear cache":
-        Alert.alert("Clear cache", "Cache cleared successfully.");
+        handleClearCache();
         break;
       case "Clear chat cache":
-        Alert.alert("Clear chat cache", "Chat cache cleared successfully.");
+        handleClearChatCache();
         break;
       default:
         break;
@@ -168,7 +456,7 @@ export default function Settings() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar barStyle="light-content" backgroundColor="#0d0618" />
       <LinearGradient
         colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
@@ -191,10 +479,16 @@ export default function Settings() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPad }]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.subtitle}>Customize your app preferences.</Text>
+        {settingsLoading ? (
+          <View style={styles.settingsLoadingRow}>
+            <ActivityIndicator size="small" color="#a78bfa" />
+            <Text style={styles.settingsLoadingText}>Loading settings...</Text>
+          </View>
+        ) : null}
 
         {settingSections.map((section) => (
           <View key={section.id} style={styles.sectionCard}>
@@ -226,18 +520,20 @@ export default function Settings() {
         <TouchableOpacity
           style={[styles.sectionCard, styles.dangerButton]}
           activeOpacity={0.8}
-          onPress={() => Alert.alert("Log out", "Are you sure you want to log out?", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Log out", style: "destructive", onPress: () => router.replace("/login") },
-          ])}
+          onPress={handleLogout}
+          disabled={loggingOut}
         >
-          <Text style={styles.dangerText}>Log out</Text>
+          {loggingOut ? (
+            <ActivityIndicator size="small" color="#ff8a8a" />
+          ) : (
+            <Text style={styles.dangerText}>Log out</Text>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.sectionCard, styles.deleteButton]}
           activeOpacity={0.8}
-          onPress={() => Alert.alert("Delete account", "This action cannot be undone.")}
+          onPress={() => setDeleteAccountVisible(true)}
         >
           <Text style={styles.deleteText}>Delete account</Text>
         </TouchableOpacity>
@@ -277,9 +573,26 @@ export default function Settings() {
                   {/* Profile display area */}
                   <View style={styles.profileDisplayArea}>
                     <View style={styles.profileCircle}>
-                      <Image
-                        source={{ uri: "https://randomuser.me/api/portraits/women/32.jpg" }}
-                        style={styles.profileImage}
+                      <ProfileAvatarWithFrame
+                        avatarSource={
+                          currentUserAvatar
+                            ? { uri: currentUserAvatar }
+                            : require("../assets/images/splash-icon.png")
+                        }
+                        frameSource={vipProfileFrame}
+                        size={112}
+                        avatarStyle={styles.profileImage}
+                        {...(vipProfileFrame
+                          ? {
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
+                          : {})}
                       />
                     </View>
                   </View>
@@ -304,7 +617,8 @@ export default function Settings() {
                 <Switch
                   style={styles.toggleSwitch}
                   value={matchSwitchEnabled}
-                  onValueChange={setMatchSwitchEnabled}
+                  onValueChange={handleToggleMatchSwitch}
+                  disabled={settingsSaving}
                   trackColor={{ false: "#ccc", true: "#7c4dff" }}
                   thumbColor={matchSwitchEnabled ? "#fff" : "#f4f3f4"}
                 />
@@ -323,30 +637,35 @@ export default function Settings() {
       >
         <View style={styles.notificationsOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setNotificationsVisible(false)} />
-          <View style={styles.notificationsSheet}>
-            <View style={styles.handleBar} />
-            {[
-              "All notifications",
-              "Only message, moments & interaction alerts",
-              "Only message alerts",
-              "No notifications",
-            ].map((opt) => (
-              <TouchableOpacity
-                key={opt}
-                style={[styles.optionRow, notificationOption === opt && styles.optionSelected]}
-                onPress={() => {
-                  setNotificationOption(opt);
-                  setNotificationsVisible(false);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.optionText, notificationOption === opt && styles.optionTextSelected]}>{opt}</Text>
+          <SafeAreaView edges={["bottom"]} style={styles.bottomSheetSafe}>
+            <View style={[styles.notificationsSheet, { paddingBottom: sheetBottomPad }]}>
+              <View style={styles.handleBar} />
+              {[
+                "All notifications",
+                "Only message, moments & interaction alerts",
+                "Only message alerts",
+                "No notifications",
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.optionRow, notificationOption === opt && styles.optionSelected]}
+                  onPress={() => {
+                    setNotificationsVisible(false);
+                    persistSettings(
+                      { notificationOption: opt },
+                      () => setNotificationOption(opt)
+                    );
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.optionText, notificationOption === opt && styles.optionTextSelected]}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setNotificationsVisible(false)} activeOpacity={0.8}>
+                <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={styles.cancelButton} onPress={() => setNotificationsVisible(false)} activeOpacity={0.8}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -363,7 +682,7 @@ export default function Settings() {
             activeOpacity={1}
             onPress={() => setPrivacyVisible(false)}
           />
-          <SafeAreaView style={styles.privacyPanel}>
+          <SafeAreaView style={styles.privacyPanel} edges={["bottom"]}>
             <LinearGradient
               colors={["#1a0a2e", "#16082a", "#0d0618"]}
               style={StyleSheet.absoluteFill}
@@ -384,7 +703,10 @@ export default function Settings() {
             <View style={styles.privacyDivider} />
 
             {/* Privacy Options */}
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: sheetBottomPad + 8 }}
+            >
               {/* Prevent following into room */}
               <View style={styles.privacyOptionItem}>
                 <View style={styles.privacyOptionLeft}>
@@ -395,7 +717,13 @@ export default function Settings() {
                 </View>
                 <Switch
                   value={preventFollowing}
-                  onValueChange={setPreventFollowing}
+                  onValueChange={(value) =>
+                    persistSettings(
+                      { preventFollowing: value },
+                      () => setPreventFollowing(value)
+                    )
+                  }
+                  disabled={settingsSaving}
                   trackColor={{ false: "#ccc", true: "#7c4dff" }}
                   thumbColor={preventFollowing ? "#fff" : "#f4f3f4"}
                 />
@@ -412,15 +740,27 @@ export default function Settings() {
                     [
                       {
                         text: "Everyone",
-                        onPress: () => setChatPermission("Everyone"),
+                        onPress: () =>
+                          persistSettings(
+                            { chatPermission: "Everyone" },
+                            () => setChatPermission("Everyone")
+                          ),
                       },
                       {
                         text: "Friends only",
-                        onPress: () => setChatPermission("Friends only"),
+                        onPress: () =>
+                          persistSettings(
+                            { chatPermission: "Friends only" },
+                            () => setChatPermission("Friends only")
+                          ),
                       },
                       {
                         text: "Nobody",
-                        onPress: () => setChatPermission("Nobody"),
+                        onPress: () =>
+                          persistSettings(
+                            { chatPermission: "Nobody" },
+                            () => setChatPermission("Nobody")
+                          ),
                       },
                       { text: "Cancel", style: "cancel" },
                     ]
@@ -448,7 +788,13 @@ export default function Settings() {
                 </View>
                 <Switch
                   value={mysteriousVisitor}
-                  onValueChange={setMysteriousVisitor}
+                  onValueChange={(value) =>
+                    persistSettings(
+                      { mysteriousVisitor: value },
+                      () => setMysteriousVisitor(value)
+                    )
+                  }
+                  disabled={settingsSaving}
                   trackColor={{ false: "#ccc", true: "#7c4dff" }}
                   thumbColor={mysteriousVisitor ? "#fff" : "#f4f3f4"}
                 />
@@ -467,27 +813,34 @@ export default function Settings() {
       >
         <View style={styles.languageOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setSystemLanguageVisible(false)} />
-          <View style={styles.languageSheet}>
-            <View style={styles.handleBar} />
-            <Text style={styles.sheetTitle}>System Language</Text>
-            {languages.map((lang) => (
-              <TouchableOpacity
-                key={lang}
-                style={[styles.languageOption, systemLanguage === lang && styles.languageOptionSelected]}
-                onPress={() => {
-                  setSystemLanguage(lang);
-                  setSystemLanguageVisible(false);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.languageOptionText, systemLanguage === lang && styles.languageOptionTextSelected]}>{lang}</Text>
-                {systemLanguage === lang && <Ionicons name="checkmark" size={20} color="#a78bfa" />}
+          <SafeAreaView edges={["bottom"]} style={styles.bottomSheetSafe}>
+            <View style={[styles.languageSheet, { paddingBottom: sheetBottomPad }]}>
+              <View style={styles.handleBar} />
+              <Text style={styles.sheetTitle}>System Language</Text>
+              <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                {languages.map((lang) => (
+                  <TouchableOpacity
+                    key={lang}
+                    style={[styles.languageOption, systemLanguage === lang && styles.languageOptionSelected]}
+                    onPress={() => {
+                      setSystemLanguageVisible(false);
+                      persistSettings(
+                        { systemLanguage: lang },
+                        () => setSystemLanguage(lang)
+                      );
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.languageOptionText, systemLanguage === lang && styles.languageOptionTextSelected]}>{lang}</Text>
+                    {systemLanguage === lang && <Ionicons name="checkmark" size={20} color="#a78bfa" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.langCancelButton} onPress={() => setSystemLanguageVisible(false)} activeOpacity={0.8}>
+                <Text style={styles.langCancelText}>Cancel</Text>
               </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={styles.langCancelButton} onPress={() => setSystemLanguageVisible(false)} activeOpacity={0.8}>
-              <Text style={styles.langCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -500,27 +853,34 @@ export default function Settings() {
       >
         <View style={styles.languageOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setContentLanguageVisible(false)} />
-          <View style={styles.languageSheet}>
-            <View style={styles.handleBar} />
-            <Text style={styles.sheetTitle}>Content Language</Text>
-            {languages.map((lang) => (
-              <TouchableOpacity
-                key={lang}
-                style={[styles.languageOption, contentLanguage === lang && styles.languageOptionSelected]}
-                onPress={() => {
-                  setContentLanguage(lang);
-                  setContentLanguageVisible(false);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.languageOptionText, contentLanguage === lang && styles.languageOptionTextSelected]}>{lang}</Text>
-                {contentLanguage === lang && <Ionicons name="checkmark" size={20} color="#a78bfa" />}
+          <SafeAreaView edges={["bottom"]} style={styles.bottomSheetSafe}>
+            <View style={[styles.languageSheet, { paddingBottom: sheetBottomPad }]}>
+              <View style={styles.handleBar} />
+              <Text style={styles.sheetTitle}>Content Language</Text>
+              <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                {languages.map((lang) => (
+                  <TouchableOpacity
+                    key={lang}
+                    style={[styles.languageOption, contentLanguage === lang && styles.languageOptionSelected]}
+                    onPress={() => {
+                      setContentLanguageVisible(false);
+                      persistSettings(
+                        { contentLanguage: lang },
+                        () => setContentLanguage(lang)
+                      );
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.languageOptionText, contentLanguage === lang && styles.languageOptionTextSelected]}>{lang}</Text>
+                    {contentLanguage === lang && <Ionicons name="checkmark" size={20} color="#a78bfa" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.langCancelButton} onPress={() => setContentLanguageVisible(false)} activeOpacity={0.8}>
+                <Text style={styles.langCancelText}>Cancel</Text>
               </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={styles.langCancelButton} onPress={() => setContentLanguageVisible(false)} activeOpacity={0.8}>
-              <Text style={styles.langCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -562,7 +922,7 @@ export default function Settings() {
 
               {updateChecked ? (
                 <Text style={styles.updateSubtext}>
-                  Tuk-Tuk is running the latest version. We'll notify you when a new update is available.
+                  Tuk-Tuk is running the latest version. We&apos;ll notify you when a new update is available.
                 </Text>
               ) : (
                 <Text style={styles.updateSubtext}>
@@ -597,6 +957,118 @@ export default function Settings() {
         </View>
       </Modal>
 
+      {/* ── DELETE ACCOUNT MODAL ── */}
+      <Modal
+        visible={deleteAccountVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeDeleteAccountModal}
+      >
+        <View style={styles.helpOverlay}>
+          <TouchableOpacity
+            style={styles.helpBackdrop}
+            activeOpacity={1}
+            onPress={closeDeleteAccountModal}
+          />
+          <SafeAreaView style={styles.deleteAccountPanel} edges={["bottom"]}>
+            <LinearGradient
+              colors={["#1a0a2e", "#16082a", "#0d0618"]}
+              style={StyleSheet.absoluteFill}
+            />
+
+            <View style={styles.helpHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.deleteAccountTitle}>Delete account</Text>
+                <Text style={styles.deleteAccountSubtitle}>
+                  This action cannot be undone
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={closeDeleteAccountModal}
+                style={styles.helpCloseBtn}
+              >
+                <Ionicons name="close" size={22} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={[
+                styles.deleteAccountContent,
+                { paddingBottom: sheetBottomPad + 16 },
+              ]}
+            >
+              <Text style={styles.deleteAccountLabel}>Reason for leaving</Text>
+              <View style={styles.deleteReasonList}>
+                {DELETE_ACCOUNT_REASONS.map((reason) => {
+                  const selected = deleteReason === reason;
+                  return (
+                    <TouchableOpacity
+                      key={reason}
+                      style={[
+                        styles.deleteReasonItem,
+                        selected && styles.deleteReasonItemActive,
+                      ]}
+                      activeOpacity={0.8}
+                      onPress={() => setDeleteReason(reason)}
+                    >
+                      <Text
+                        style={[
+                          styles.deleteReasonText,
+                          selected && styles.deleteReasonTextActive,
+                        ]}
+                      >
+                        {reason}
+                      </Text>
+                      {selected ? (
+                        <Ionicons name="checkmark-circle" size={18} color="#f87171" />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.deleteAccountLabel}>Additional comment</Text>
+              <TextInput
+                style={styles.deleteCommentInput}
+                placeholder="Tell us more about why you are leaving..."
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                multiline
+                numberOfLines={4}
+                value={deleteComment}
+                onChangeText={setDeleteComment}
+                textAlignVertical="top"
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.deleteConfirmBtn,
+                  (!canSubmitDeleteAccount || deletingAccount) && { opacity: 0.45 },
+                ]}
+                activeOpacity={0.8}
+                disabled={!canSubmitDeleteAccount || deletingAccount}
+                onPress={handleConfirmDeleteAccount}
+              >
+                {deletingAccount ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.deleteConfirmBtnText}>Delete my account</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.deleteCancelBtn}
+                activeOpacity={0.8}
+                onPress={closeDeleteAccountModal}
+                disabled={deletingAccount}
+              >
+                <Text style={styles.deleteCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
       {/* ── HELP & FEEDBACK MODAL ── */}
       <Modal
         visible={helpVisible}
@@ -606,21 +1078,25 @@ export default function Settings() {
       >
         <View style={styles.helpOverlay}>
           <TouchableOpacity style={styles.helpBackdrop} activeOpacity={1} onPress={() => setHelpVisible(false)} />
-          <SafeAreaView style={styles.helpPanel}>
+          <SafeAreaView style={styles.helpPanel} edges={["bottom"]}>
             <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
 
             {/* Header */}
             <View style={styles.helpHeader}>
               <View>
                 <Text style={styles.helpTitle}>Help & Feedback</Text>
-                <Text style={styles.helpSubtitle}>We're here to help</Text>
+                <Text style={styles.helpSubtitle}>We&apos;re here to help</Text>
               </View>
               <TouchableOpacity onPress={() => setHelpVisible(false)} style={styles.helpCloseBtn}>
                 <Ionicons name="close" size={22} color="white" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: sheetBottomPad + 24 }}
+            >
               {/* FAQ */}
               <Text style={styles.helpSectionLabel}>Frequently Asked Questions</Text>
               {faqs.map((item) => (
@@ -649,17 +1125,17 @@ export default function Settings() {
 
               {/* Contact Support */}
               <Text style={styles.helpSectionLabel}>Contact Support</Text>
-              <TouchableOpacity style={styles.contactRow} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.contactRow} activeOpacity={0.8} onPress={handleEmailSupport}>
                 <View style={[styles.contactIcon, { backgroundColor: "rgba(59,130,246,0.15)" }]}>
                   <Ionicons name="mail-outline" size={20} color="#60a5fa" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.contactLabel}>Email Support</Text>
-                  <Text style={styles.contactValue}>support@tuktukapp.com</Text>
+                  <Text style={styles.contactValue}>{SUPPORT_EMAIL}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.contactRow} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.contactRow} activeOpacity={0.8} onPress={handleWhatsAppSupport}>
                 <View style={[styles.contactIcon, { backgroundColor: "rgba(37,211,102,0.15)" }]}>
                   <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
                 </View>
@@ -692,14 +1168,23 @@ export default function Settings() {
                       textAlignVertical="top"
                     />
                     <TouchableOpacity
-                      style={[styles.feedbackSendBtn, !feedbackText.trim() && { opacity: 0.45 }]}
+                      style={[
+                        styles.feedbackSendBtn,
+                        (!feedbackText.trim() || feedbackSubmitting) && { opacity: 0.45 },
+                      ]}
                       onPress={handleSendFeedback}
                       activeOpacity={0.8}
-                      disabled={!feedbackText.trim()}
+                      disabled={!feedbackText.trim() || feedbackSubmitting}
                     >
                       <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.feedbackSendBtnGradient}>
-                        <Ionicons name="send" size={16} color="white" />
-                        <Text style={styles.feedbackSendBtnText}>Send Feedback</Text>
+                        {feedbackSubmitting ? (
+                          <ActivityIndicator size="small" color="white" />
+                        ) : (
+                          <>
+                            <Ionicons name="send" size={16} color="white" />
+                            <Text style={styles.feedbackSendBtnText}>Send Feedback</Text>
+                          </>
+                        )}
                       </LinearGradient>
                     </TouchableOpacity>
                   </>
@@ -733,7 +1218,7 @@ export default function Settings() {
 
               {/* App icon */}
               <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.aboutIconCircle}>
-                <Image source={require("../assets/images/android-icon-monochrome.png")} style={styles.aboutIconImage} resizeMode="contain" />
+                <Image source={require("../assets/images/splash-icon.png")} style={styles.aboutIconImage} resizeMode="contain" />
               </LinearGradient>
 
               <Text style={styles.aboutAppName}>Tuk-Tuk</Text>
@@ -853,7 +1338,13 @@ export default function Settings() {
           </View>
         </View>
       </Modal>
-    </View>
+
+      <ClearChatCacheModal
+        visible={clearChatCacheVisible}
+        onClose={() => setClearChatCacheVisible(false)}
+      />
+
+    </SafeAreaView>
   );
 }
 
@@ -866,13 +1357,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 56,
+    paddingTop: 8,
     paddingHorizontal: 16,
     paddingBottom: 12,
     gap: 12,
@@ -896,6 +1387,16 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.65)",
     fontSize: 14,
     marginBottom: 14,
+  },
+  settingsLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 16,
+  },
+  settingsLoadingText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
   },
   sectionCard: {
     backgroundColor: "rgba(255,255,255,0.06)",
@@ -1033,8 +1534,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   profileImage: {
-    width: "100%",
-    height: "100%",
+    width: 112,
+    height: 112,
     borderRadius: 56,
   },
   closeButtonMatch: {
@@ -1142,12 +1643,14 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     backgroundColor: "rgba(0,0,0,0.45)",
   },
+  bottomSheetSafe: {
+    width: "100%",
+  },
   notificationsSheet: {
     backgroundColor: "white",
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     paddingTop: 12,
-    paddingBottom: 26,
     paddingHorizontal: 18,
     minHeight: 260,
   },
@@ -1201,7 +1704,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 12,
-    paddingBottom: 26,
     paddingHorizontal: 18,
     maxHeight: "80%",
     borderTopWidth: 1,
@@ -1766,5 +2268,98 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.3)",
     fontSize: 11,
     textAlign: "center",
+  },
+
+  // ── DELETE ACCOUNT ──
+  deleteAccountPanel: {
+    maxHeight: "82%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: "hidden",
+    borderTopWidth: 1,
+    borderColor: "rgba(248,113,113,0.35)",
+  },
+  deleteAccountContent: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+  },
+  deleteAccountTitle: {
+    color: "#f87171",
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  deleteAccountSubtitle: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    marginTop: 4,
+  },
+  deleteAccountLabel: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 10,
+    marginTop: 8,
+  },
+  deleteReasonList: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  deleteReasonItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  deleteReasonItemActive: {
+    backgroundColor: "rgba(248,113,113,0.12)",
+    borderColor: "rgba(248,113,113,0.35)",
+  },
+  deleteReasonText: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+    paddingRight: 8,
+  },
+  deleteReasonTextActive: {
+    color: "#fecaca",
+  },
+  deleteCommentInput: {
+    minHeight: 110,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: "white",
+    fontSize: 14,
+    marginBottom: 20,
+  },
+  deleteConfirmBtn: {
+    backgroundColor: "#dc2626",
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  deleteConfirmBtnText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  deleteCancelBtn: {
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  deleteCancelBtnText: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

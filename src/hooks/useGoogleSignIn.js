@@ -1,58 +1,37 @@
-import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
 
-WebBrowser.maybeCompleteAuthSession();
+import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
+import { GOOGLE_WEB_CLIENT_ID } from "../config/auth";
 
-export function useGoogleSignIn() {
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId:
-      "807444567658-l9gq0ophos92739p6o9vjms7kmq0407o.apps.googleusercontent.com",
-
-    androidClientId:
-      "807444567658-1doo16uhnb3pl3b7mr0dspmogvt1dmi9.apps.googleusercontent.com",
-
-    webClientId:
-      "807444567658-l9gq0ophos92739p6o9vjms7kmq0407o.apps.googleusercontent.com",
-
-    scopes: ["openid", "profile", "email"],
-
-    responseType: "id_token",
-
-    selectAccount: true,
+// Configure Google Sign-In once (call this before any sign-in attempt)
+export function configureGoogleSignIn() {
+  GoogleSignin.configure({
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    offlineAccess: true,
+    forceCodeForRefreshToken: true,
   });
-
-  return {
-    request,
-    response,
-    promptAsync,
-  };
 }
 
-export const getGoogleIdToken = (authResponse) => {
-  if (!authResponse || authResponse.type !== "success") {
-    return null;
+export async function signInWithGoogle() {
+  await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  await GoogleSignin.signIn();
+  const tokens = await GoogleSignin.getTokens();
+  return tokens.idToken;
+}
+
+export const getGoogleAuthErrorMessage = (err) => {
+  if (!err) return null;
+  if (err.code === statusCodes.SIGN_IN_CANCELLED) return "cancelled";
+  if (err.code === statusCodes.IN_PROGRESS) return "Sign-in already in progress.";
+  if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE)
+    return "Google Play Services not available.";
+  const message = err?.message ?? "Google sign-in failed.";
+  if (/DEVELOPER_ERROR/i.test(message)) {
+    return (
+      "Google Sign-In is not configured for this APK signing key. " +
+      "Add the EAS/release SHA-1 fingerprint in Firebase (Android app tuk.tuk.app), " +
+      "download an updated google-services.json, then rebuild. " +
+      "Run: npm run google:android-sha"
+    );
   }
-
-  return (
-    authResponse.authentication?.idToken ??
-    authResponse.params?.id_token ??
-    null
-  );
-};
-
-export const getGoogleAuthErrorMessage = (authResponse) => {
-  if (!authResponse) return null;
-
-  if (
-    authResponse.type === "cancel" ||
-    authResponse.type === "dismiss"
-  ) {
-    return "cancelled";
-  }
-
-  if (authResponse.type === "error") {
-    return authResponse.error?.message ?? "Google sign-in failed.";
-  }
-
-  return null;
+  return message;
 };

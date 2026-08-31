@@ -1,0 +1,70 @@
+{
+  "project_info": {
+    "project_number": "969637468541",
+    "project_id": "tuk-tuk-application",
+    "storage_bucket": "tuk-tuk-application.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:969637468541:android:560e24f2bfa8aae8671414",
+        "android_client_info": {
+          "package_name": "tuk.tuk.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "969637468541-2kvau7b0i3tj6a22ne9vjk514topl31i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tuk.tuk.app",
+            "certificate_hash": "26d4a76fe37406368ed46fe2170a3ad0fbec0c1a"
+          }
+        },
+        {
+          "client_id": "969637468541-om3utbdhf61h5trr6ps93sdmgr0fh2a1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tuk.tuk.app",
+            "certificate_hash": "6f5d6d530d82a3d318dc72885a4d3498824cda97"
+          }
+        },
+        {
+          "client_id": "969637468541-p9o344dbp6nmocr1ehd2e83dhii36ntj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tuk.tuk.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "969637468541-g2tea78vrhg915eklstvv4q612223129.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCWckmHnO5vjpWdb2F6Qpp8r36cteVfgoo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "969637468541-41eej7lco9auqgfp2dgfe7868soi5bul.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "969637468541-ne6tmdtajga8atj7lg00nn3kslfcboot.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "tuk.tuk.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

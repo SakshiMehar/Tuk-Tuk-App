@@ -2,18 +2,18 @@
   "expo": {
     "name": "Tuk-Tuk",
     "slug": "Tuk-Tuk",
+    "owner": "sakshil13",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": [
-      "tuktuk",
-      "com.googleusercontent.apps.807444567658-1doo16uhnb3pl3b7mr0dspmogvt1dmi9"
-    ],
+    "scheme": "tuktuk",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
+        "NSMicrophoneUsageDescription": "Tuk-Tuk needs microphone access so you can speak in voice party rooms.",
+        "NSLocationWhenInUseUsageDescription": "Tuk-Tuk uses your location to show people nearby.",
         "SKAdNetworkItems": [
           {
             "SKAdNetworkIdentifier": "v9wttpbfk9.skadnetwork"
@@ -25,23 +25,51 @@
       }
     },
     "android": {
+      "package": "tuk.tuk.app",
+      "googleServicesFile": "./google-services.json",
+      "minSdkVersion": 24,
+      "targetSdkVersion": 35,
+      "compileSdkVersion": 35,
+      "softwareKeyboardLayoutMode": "pan",
+      "allowBackup": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#1a0a2e",
+        "foregroundImage": "./assets/images/adaptive-icon-foreground.png",
+        "backgroundImage": "./assets/images/adaptive-icon-background.png",
+        "monochromeImage": "./assets/images/adaptive-icon-foreground.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "android.permission.INTERNET"
-      ],
-      "package": "com.anonymous.TukTuk"
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "data": [
+            {
+              "scheme": "tuktuk",
+              "host": "oauth",
+              "pathPrefix": "/facebook"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/icon.png"
     },
     "plugins": [
       "expo-router",
@@ -58,22 +86,34 @@
         }
       ],
       [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.969637468541-ne6tmdtajga8atj7lg00nn3kslfcboot"
+        }
+      ],
+      [
         "react-native-fbsdk-next",
         {
-          "appID": "999372849281178",
+          "appID": "978713374875936",
           "displayName": "Tuk-Tuk",
-          "scheme": "fb999372849281178",
-          "clientToken": "YOUR_FACEBOOK_CLIENT_TOKEN",
+          "scheme": "fb978713374875936",
+          "clientToken": "978713374875936",
           "advertiserIDCollectionEnabled": false,
           "autoLogAppEventsEnabled": false,
           "isAutoInitEnabled": true
         }
       ],
-      "expo-video"
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Tuk-Tuk uses your location to show people nearby."
+        }
+      ],
+      "./plugins/withoutAgoraScreenShare.js"
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": false
+      "reactCompiler": true
     },
     "extra": {
       "router": {},

@@ -1,0 +1,165 @@
+// ============================================================
+// HOME PAGE API — Backend Developer Reference
+// ============================================================
+//
+// APIs required for the Home screen. Currently running in MOCK
+// mode (USE_MOCK = true). Flip it to false and the calls hit
+// the real backend. No component code changes needed.
+//
+// ── ENDPOINT SUMMARY ────────────────────────────────────────
+//
+// 1. GET /api/home/init
+//    Auth: Bearer token required
+//    Returns initial page data in one shot to avoid waterfalls.
+//    Response:
+//    {
+//      userProfile: {
+//        id: string,
+//        name: string,
+//        avatarUrl: string | null,
+//        diamonds: number,
+//        isOnline: boolean
+//      },
+//      stats: {
+//        activeUsers: number,          // platform-wide live count
+//        featuredUserAvatar: string,   // random active user shown in header pill
+//        unreadNotifications: number
+//      },
+//      bannerSlides: Array<{
+//        id: string,
+//        title: string,
+//        imageUrl: string | null,      // CDN URL; null = use local fallback
+//        actionRoute: string           // in-app route to navigate on tap
+//      }>,
+//      recommendedUsers: Array<{
+//        id: string,
+//        name: string,
+//        avatar: string,               // CDN avatar URL
+//        isOnline: boolean
+//      }>,
+//      searchSuggestions: string[],
+//      trendingTags: string[]          // e.g. ["#VoiceParty", "#BlindDate"]
+//    }
+//
+// 2. GET /api/home/feed?tab=for_you&page=1&limit=10
+//    Auth: Bearer token required
+//    tab: "for_you" | "selfie" | "online" | "following" | "new"
+//    Response:
+//    {
+//      posts: Array<{
+//        id: number,
+//        userId: string,
+//        name: string,
+//        avatar: string,
+//        text: string,
+//        hasVideo: boolean,
+//        duration: string | null,      // e.g. "00:28"
+//        videoThumbnailUrl: string | null,
+//        timestamp: string             // ISO 8601
+//      }>,
+//      hasMore: boolean,
+//      nextPage: number
+//    }
+//
+// 3. GET /api/gifts/daily
+//    Auth: Bearer token required
+//    Response:
+//    {
+//      gifts: Array<{
+//        id: string,
+//        name: string,
+//        emoji: string,
+//        value: number,
+//        colors: [string, string],     // gradient start/end hex
+//        description: string,
+//        isFree: boolean,
+//        claimedToday: boolean         // true if user already claimed today
+//      }>
+//    }
+//
+// 4. (Removed) POST /api/notifications/mark-read
+//
+// ── NOTES FOR BACKEND ────────────────────────────────────────
+// - All endpoints require Authorization: Bearer <jwt> header
+// - /api/home/init should be a single batched endpoint to avoid
+//   multiple round-trips on app launch
+// - activeUsers count can be cached for 30s server-side
+// - feedPosts support pagination; first load returns page 1
+// - recommendedUsers: max 20 users, sorted by activity
+// ============================================================
+
+import API, { authRequestConfig } from "./axios";
+import mockData from "../data/homeData.json";
+
+const USE_MOCK = false; // Flip to true to use local mock data
+
+// ── 1. Home Init ─────────────────────────────────────────────
+export const getHomeInit = async () => {
+  if (USE_MOCK) {
+    return {
+      userProfile: mockData.userProfile,
+      stats: mockData.stats,
+      bannerSlides: mockData.bannerSlides,
+      recommendedUsers: mockData.recommendedUsers,
+      searchSuggestions: mockData.searchSuggestions,
+      trendingTags: mockData.trendingTags,
+    };
+  }
+  const response = await API.get("/api/home/init", await authRequestConfig());
+  return response.data;
+};
+
+// ── 2. Feed Posts ─────────────────────────────────────────────
+export const getFeedPosts = async (tab = "for_you", page = 1, limit = 10) => {
+  if (USE_MOCK) {
+    const start = (page - 1) * limit;
+    const posts = mockData.feedPosts.slice(start, start + limit);
+    return {
+      posts,
+      hasMore: start + limit < mockData.feedPosts.length,
+      nextPage: page + 1,
+    };
+  }
+  const response = await API.get(
+    `/api/home/feed?tab=${tab}&page=${page}&limit=${limit}`
+  );
+  return response.data;
+};
+
+// ── 3. Daily Gifts ────────────────────────────────────────────
+export const getDailyGifts = async () => {
+  if (USE_MOCK) {
+    return { gifts: mockData.gifts };
+  }
+  const response = await API.get("/api/gifts/daily");
+  return response.data;
+};
+
+// ── 5. Wallet Balance ─────────────────────────────────────────
+export { getWalletMe as getWallet, getWalletTransactions } from "./walletApi";
+
+// ── 7. User Search (query param) ──────────────────────────────
+// GET /api/app/users/search?q=<query>&page=&limit=
+export const searchUsers = async (q, page = 0, limit = 20) => {
+  const url = `/api/app/users/search?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`;
+  
+  const response = await API.get(url, await authRequestConfig());
+  
+  return response.data;
+};
+
+// ── 7b. User Search (path param) ──────────────────────────────
+// GET /api/app/users/search/{query}
+export const searchUsersByPath = async (query) => {
+  const url = `/api/app/users/search/${encodeURIComponent(query)}`;
+  
+  const response = await API.get(url, await authRequestConfig());
+  
+  return response.data;
+};
+
+// ── 7c. User by ID — re-exported from userApi to avoid duplication ───────────
+export { getUserById } from "./userApi";
+
+// ── 8. Mark Notifications Read — removed (endpoint not supported) ──────────
+export const markNotificationsRead = async () => ({ success: true });

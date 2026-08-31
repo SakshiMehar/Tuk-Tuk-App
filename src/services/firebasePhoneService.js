@@ -1,46 +1,38 @@
-import {
-  PhoneAuthProvider,
-  signInWithCredential,
-} from "firebase/auth";
-import { getFirebaseAuth } from "../lib/firebase";
-import { firebasePhoneAuth } from "../api/authApi";
+import auth from "@react-native-firebase/auth";
 import { establishSessionFromApi } from "./authSessionService";
+import { firebasePhoneAuth } from "../api/authApi";
 
-const assertRecaptcha = (recaptchaVerifier) => {
-  if (!recaptchaVerifier) {
-    throw new Error(
-      "Phone verification is not ready. Wait a moment and try again."
-    );
-  }
+// Stores the confirmation object between sendPhoneOtp and verifyPhoneOtpAndLogin
+let pendingConfirmation = null;
+
+/**
+ * Step 1: Send OTP via native Firebase SDK.
+ * Uses Play Integrity on Android — no reCAPTCHA needed.
+ */
+export const sendPhoneOtp = async (phoneNumber) => {
+  pendingConfirmation = await auth().signInWithPhoneNumber(phoneNumber);
 };
 
 /**
- * Step 1–2: Firebase SDK → send SMS OTP (reCAPTCHA required in Expo / RN).
- * @returns {Promise<string>} verificationId for confirm step
+ * Step 2: Verify OTP → exchange Firebase token for backend JWT → save session.
+ * The stored JWT is automatically attached to all subsequent API calls via the
+ * axios request interceptor (axios.js).
  */
-export const sendPhoneOtp = async (phoneNumber, recaptchaVerifier) => {
-  assertRecaptcha(recaptchaVerifier);
-  const auth = getFirebaseAuth();
-  const provider = new PhoneAuthProvider(auth);
-  return provider.verifyPhoneNumber(phoneNumber, recaptchaVerifier);
-};
-
-/**
- * Step 3–5: Verify OTP → Firebase ID token → POST /api/auth/firebase-phone → JWT session.
- */
-export const verifyPhoneOtpAndLogin = async (verificationId, smsCode) => {
-  if (!verificationId) {
-    throw new Error("Missing verification session. Request a new code.");
+export const verifyPhoneOtpAndLogin = async (smsCode, name) => {
+  if (!pendingConfirmation) {
+    throw new Error("No pending verification. Please request a new code.");
   }
 
-  const auth = getFirebaseAuth();
-  const credential = PhoneAuthProvider.credential(verificationId, smsCode);
-  const userCredential = await signInWithCredential(auth, credential);
-  const idToken = await userCredential.user.getIdToken(true);
+  const userCredential = await pendingConfirmation.confirm(smsCode);
+  const idToken = await userCredential.user.getIdToken();
+  const { phoneNumber } = userCredential.user;
 
-  if (!idToken) {
-    throw new Error("Firebase did not return an ID token.");
-  }
+  if (!idToken) throw new Error("Firebase did not return a token.");
 
-  return establishSessionFromApi(firebasePhoneAuth, idToken);
+  const result = await establishSessionFromApi(
+    (credential) => firebasePhoneAuth(credential.idToken, credential.phoneNumber, credential.name),
+    { idToken, phoneNumber, name }
+  );
+  pendingConfirmation = null;
+  return result;
 };

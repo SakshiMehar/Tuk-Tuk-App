@@ -1,17 +1,31 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet,
   StatusBar, Dimensions, FlatList, Animated, Modal,
-  ScrollView, TextInput,
+  ScrollView, TextInput, ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ArrowLeft, MapPin, Heart, X, Star,
-  MessageCircle, MoreVertical, ChevronRight, Search,
+  MessageCircle, MoreVertical, ChevronRight, Search, UserPlus,
 } from "lucide-react-native";
+import Toast from "./Toast";
+import { loadNearbyWithLocation, loadUserDetail } from "../src/services/nearbyService";
+import { openUserChat } from "../src/utils/chatNavigation";
+import { saveFavoriteUser } from "../src/services/favoritesService";
+import {
+  followUser,
+  unfollowUser,
+  loadRelationshipStatus,
+} from "../src/services/relationshipService";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 
 const { width: W, height: H } = Dimensions.get("window");
+// Two-column grid card width — accounts for 14px side padding and 10px gap
 const CARD_W = (W - 14 * 2 - 10) / 2;
 
 // ── Locations ────────────────────────────────────────────────
@@ -38,15 +52,7 @@ const LOCATIONS = [
   { country: "Philippines", flag: "🇵🇭", cities: ["Manila","Quezon City","Davao","Caloocan","Zamboanga","Cebu City","Antipolo","Pasig","Taguig","Valenzuela","Cagayan de Oro","Makati","Bacoor","General Santos","Muntinlupa","Marikina","Bacolod"] },
 ];
 
-// ── Users ────────────────────────────────────────────────────
-const NEARBY_USERS = [
-  { id: "1", name: "Priya",  age: 22, distance: "0.3 km", emoji: "🧝‍♀️", bgColors: ["#3b1f6e","#7c4dff"], bio: "Music lover 🎵 | Coffee addict ☕ | Traveller ✈️", tags: ["Music","Travel","Coffee"], online: true,  verified: true  },
-  { id: "2", name: "Aisha",  age: 24, distance: "0.7 km", emoji: "🧜‍♀️", bgColors: ["#1a3a5c","#0077b6"], bio: "Artist 🎨 | Foodie 🍕 | Dog mom 🐶",              tags: ["Art","Food","Pets"],    online: true,  verified: false },
-  { id: "3", name: "Neha",   age: 21, distance: "1.2 km", emoji: "🧚‍♀️", bgColors: ["#4a1942","#c2185b"], bio: "Dancer 💃 | Bookworm 📚 | Dreamer 🌙",           tags: ["Dance","Books","Movies"],online: false, verified: true  },
-  { id: "4", name: "Zara",   age: 23, distance: "1.8 km", emoji: "�‍♀️", bgColors: ["#1b3a2d","#2e7d32"], bio: "Fitness freak 💪 | Chef 👩‍🍳 | Gamer 🎮",        tags: ["Fitness","Cooking","Gaming"], online: true, verified: true },
-  { id: "5", name: "Riya",   age: 25, distance: "2.1 km", emoji: "🧙‍♀️", bgColors: ["#1a2a4a","#1565c0"], bio: "Photographer 📷 | Nature lover 🌿 | Yoga 🧘",    tags: ["Photography","Nature","Yoga"], online: false, verified: false },
-  { id: "6", name: "Meera",  age: 20, distance: "2.5 km", emoji: "🧞‍♀️", bgColors: ["#3e1f00","#e65100"], bio: "Singer 🎤 | Poet ✍️ | Tea person 🍵",            tags: ["Singing","Poetry","Tea"], online: true, verified: true },
-];
+const LOCATION_OFF_TOAST = "Please turn on location on your device";
 
 // ── Glitter ──────────────────────────────────────────────────
 function Glitter({ count = 20 }) {
@@ -118,7 +124,7 @@ function MatchOverlay({ user, onClose, onMessage }) {
         <View style={styles.matchHeartBadge}>
           <Heart size={16} color="white" fill="white" />
         </View>
-        <Text style={styles.matchTitle}>It's a Match! 🎉</Text>
+        <Text style={styles.matchTitle}>It&apos;s a Match! 🎉</Text>
         <Text style={styles.matchName}>{user.name}</Text>
         <Text style={styles.matchSub}>You and {user.name} liked each other</Text>
         <View style={styles.matchBtnRow}>
@@ -138,51 +144,131 @@ function MatchOverlay({ user, onClose, onMessage }) {
 }
 
 // ── Profile modal ────────────────────────────────────────────
-function ProfileModal({ user, onClose, onLike, onPass }) {
-  if (!user) return null;
+function ProfileModal({
+  user,
+  loading,
+  onClose,
+  onFollow,
+  onPass,
+  onMessage,
+  onSave,
+  isFollowing,
+  followLoading,
+}) {
+  const insets = useSafeAreaInsets();
+  if (!user && !loading) return null;
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={Boolean(user || loading)} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.profileModalWrap}>
         <TouchableOpacity style={styles.profileModalBackdrop} activeOpacity={1} onPress={onClose} />
         <View style={styles.profileModalSheet}>
-          <LinearGradient colors={user.bgColors} style={styles.profileModalHero}>
-            <Text style={styles.profileModalEmoji}>{user.emoji}</Text>
-            <View style={styles.profileModalSparkleRing} />
-          </LinearGradient>
-          <LinearGradient colors={["transparent","rgba(13,6,24,0.98)"]} style={styles.profileModalFade} />
-          <TouchableOpacity style={styles.profileModalClose} onPress={onClose}>
-            <X size={20} color="white" />
-          </TouchableOpacity>
-          <View style={styles.profileModalInfo}>
-            <View style={styles.profileModalNameRow}>
-              <Text style={styles.profileModalName}>{user.name}, {user.age}</Text>
-              {user.verified && <Text style={{ fontSize: 14 }}>✅</Text>}
-              {user.online && <View style={styles.onlineDot} />}
+          {loading && !user ? (
+            <View style={styles.profileLoadingWrap}>
+              <ActivityIndicator size="large" color="#a78bfa" />
+              <Text style={styles.profileLoadingText}>Loading profile...</Text>
             </View>
-            <View style={styles.distanceRow}>
-              <MapPin size={13} color="#a78bfa" />
-              <Text style={styles.distanceText}>{user.distance} away</Text>
-            </View>
-            <Text style={styles.profileModalBio}>{user.bio}</Text>
-            <View style={styles.tagsRow}>
-              {user.tags.map((t) => (
-                <View key={t} style={styles.tag}>
-                  <Text style={styles.tagText}>{t}</Text>
+          ) : user ? (
+            <>
+              <LinearGradient colors={user.bgColors} style={styles.profileModalHero}>
+                {user.avatarUrl ? (
+                  <ProfileAvatarWithFrame
+                    avatarSource={{ uri: user.avatarUrl }}
+                    frameSource={user.vipProfileFrameUrl}
+                    size={160}
+                    avatarStyle={styles.profileModalAvatar}
+                    {...(user.vipProfileFrameUrl
+                      ? {
+                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                        }
+                      : {})}
+                  />
+                ) : (
+                  <Text style={styles.profileModalEmoji}>{user.emoji}</Text>
+                )}
+                <View style={styles.profileModalSparkleRing} />
+              </LinearGradient>
+              <LinearGradient colors={["transparent","rgba(13,6,24,0.98)"]} style={styles.profileModalFade} />
+              {loading && (
+                <View style={styles.profileDetailLoader}>
+                  <ActivityIndicator size="small" color="#a78bfa" />
                 </View>
-              ))}
-            </View>
-            <View style={styles.profileActionRow}>
-              <TouchableOpacity style={[styles.profileActionBtn, styles.passBtn]} onPress={onPass} activeOpacity={0.8}>
-                <X size={26} color="#ff6b6b" />
+              )}
+              <TouchableOpacity style={styles.profileModalClose} onPress={onClose}>
+                <X size={20} color="white" />
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.profileActionBtn, styles.superBtn]} activeOpacity={0.8}>
-                <Star size={20} color="#ffd700" fill="#ffd700" />
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.profileActionBtn, styles.likeBtn]} onPress={onLike} activeOpacity={0.8}>
-                <Heart size={26} color="white" fill="white" />
-              </TouchableOpacity>
-            </View>
-          </View>
+              <View
+                style={[
+                  styles.profileModalInfo,
+                  { paddingBottom: Math.max(insets.bottom, 12) + 16 },
+                ]}
+              >
+                <View style={styles.profileModalNameRow}>
+                  <Text style={styles.profileModalName}>{user.displayName ?? user.name}</Text>
+                  {user.verified && <Text style={{ fontSize: 14 }}>✅</Text>}
+                  {user.online && <View style={styles.onlineDot} />}
+                </View>
+                <View style={styles.distanceRow}>
+                  <MapPin size={13} color="#a78bfa" />
+                  <Text style={styles.distanceText}>
+                    {typeof user.distanceKm === "number"
+                      ? `${user.distanceKm === 0 ? "0" : user.distanceKm} km away`
+                      : `${user.distance} away`}
+                  </Text>
+                </View>
+                <Text style={styles.profileModalBio}>{user.bio}</Text>
+                {user.tags?.length > 0 && (
+                  <View style={styles.tagsRow}>
+                    {user.tags.map((t) => (
+                      <View key={t} style={styles.tag}>
+                        <Text style={styles.tagText}>{t}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <TouchableOpacity style={styles.profileMsgBtn} onPress={onMessage} activeOpacity={0.85}>
+                  <LinearGradient colors={["#7c4dff","#a855f7"]} start={{ x:0,y:0 }} end={{ x:1,y:0 }} style={styles.profileMsgGradient}>
+                    <MessageCircle size={18} color="white" />
+                    <Text style={styles.profileMsgText}>Send Message</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <View style={styles.profileActionRow}>
+                  <TouchableOpacity style={[styles.profileActionBtn, styles.passBtn]} onPress={onPass} activeOpacity={0.8}>
+                    <X size={26} color="#ff6b6b" />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.profileActionBtn, styles.superBtn]} onPress={onSave} activeOpacity={0.8}>
+                    <Star size={20} color="#ffd700" fill="#ffd700" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.profileActionBtn,
+                      styles.followBtn,
+                      isFollowing && styles.followBtnActive,
+                    ]}
+                    onPress={onFollow}
+                    disabled={followLoading}
+                    activeOpacity={0.8}
+                  >
+                    {followLoading ? (
+                      <ActivityIndicator size="small" color="white" />
+                    ) : (
+                      <>
+                        <UserPlus size={18} color="white" />
+                        <Text style={styles.followBtnText}>
+                          {isFollowing ? "Following" : "Follow"}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -399,34 +485,204 @@ function FilterModal({ visible, onClose, onDone, gender, setGender, location, se
 // ── Main Screen ──────────────────────────────────────────────
 export default function Nearby() {
   const router = useRouter();
-  const [liked,       setLiked]       = useState(new Set());
-  const [passed,      setPassed]      = useState(new Set());
-  const [matchUser,   setMatchUser]   = useState(null);
-  const [detailUser,  setDetailUser]  = useState(null);
-  const [filter,      setFilter]      = useState("All");
-  const [showFilter,  setShowFilter]  = useState(false);
-  const [gender,      setGender]      = useState("All");
-  const [location,    setLocation]    = useState({ country: "India", city: "Pune" });
+  const [liked,           setLiked]           = useState(new Set());
+  const [passed,          setPassed]          = useState(new Set());
+  const [matchUser,       setMatchUser]       = useState(null);
+  const [detailUser,      setDetailUser]      = useState(null);
+  const [detailLoading,   setDetailLoading]   = useState(false);
+  const [detailFollowing, setDetailFollowing] = useState(false);
+  const [followLoading,   setFollowLoading]   = useState(false);
+  const [nearbyUsers,     setNearbyUsers]     = useState([]);
+  const [loadingNearby,   setLoadingNearby]   = useState(true);
+  const [nearbyFetched,   setNearbyFetched]   = useState(false);
+  const fetchInFlightRef  = useRef(false);
+  const [toastMessage,    setToastMessage]    = useState("");
+  const [toastVisible,    setToastVisible]    = useState(false);
+  const [filter,          setFilter]          = useState("All");
+  const [showFilter,      setShowFilter]      = useState(false);
+  const [gender,          setGender]          = useState("All");
+  const [location,        setLocation]        = useState({ country: "India", city: "Pune" });
 
-  const FILTERS = ["All", "Online", "Nearby", "New"];
+  // Gender / city filters applied from the 3-dot menu. These hit the
+  // dedicated GET /api/app/users/nearby/new endpoint.
+  const [appliedGender, setAppliedGender] = useState(null);
+  const [appliedCity,   setAppliedCity]   = useState(null);
 
-  const visible = NEARBY_USERS.filter((u) => {
-    if (passed.has(u.id)) return false;
-    if (filter === "Online") return u.online;
-    if (filter === "Nearby") return parseFloat(u.distance) < 1.5;
-    if (filter === "New")    return !liked.has(u.id);
-    return true;
-  });
+  const FILTERS = ["All", "Online", "Saved", "New"];
+
+  // Each filter chip maps to a backend nearby variant.
+  const FILTER_VARIANT = { All: "all", Online: "online", Saved: "saved", New: "new" };
+
+  // Keep the latest filter + applied gender/city in refs so the fetch
+  // callback stays stable and never closes over a stale value.
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
+  const appliedGenderRef = useRef(appliedGender);
+  appliedGenderRef.current = appliedGender;
+  const appliedCityRef = useRef(appliedCity);
+  appliedCityRef.current = appliedCity;
+  const didMountRef = useRef(false);
+
+  const showToast = useCallback((message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  }, []);
+
+  const fetchNearbyUsers = useCallback(async () => {
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
+    setLoadingNearby(true);
+    const gender = appliedGenderRef.current;
+    const city = appliedCityRef.current;
+    // gender / city filters are only served by the "new" endpoint, so
+    // applying either forces that variant regardless of the active chip.
+    const variant = gender || city ? "new" : (FILTER_VARIANT[filterRef.current] ?? "all");
+    try {
+      const result = await loadNearbyWithLocation({ radiusKm: 25, page: 0, limit: 20, variant, gender, city });
+      if (!result.ok) {
+        setNearbyUsers([]);
+        setNearbyFetched(false);
+        if (result.reason === "module_unavailable") {
+          showToast("Location unavailable. Rebuild the app: npx expo run:android");
+        } else if (result.reason === "services_disabled" || result.reason === "permission_denied") {
+          showToast(LOCATION_OFF_TOAST);
+        } else {
+          showToast("Unable to get your location. Please try again.");
+        }
+        return;
+      }
+      setNearbyUsers(result.users);
+      setNearbyFetched(true);
+    } catch (err) {
+      setNearbyUsers([]);
+      setNearbyFetched(false);
+      showToast(err?.message || "Failed to load nearby users.");
+    } finally {
+      setLoadingNearby(false);
+      fetchInFlightRef.current = false;
+    }
+  }, [showToast]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchNearbyUsers();
+    }, [fetchNearbyUsers])
+  );
+
+  // Refetch from the matching endpoint whenever the filter changes
+  // (skips the very first render, which useFocusEffect already covers).
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    fetchNearbyUsers();
+  }, [filter, fetchNearbyUsers]);
+
+  // Refetch when gender / city are applied from the 3-dot menu.
+  const appliedMountRef = useRef(false);
+  useEffect(() => {
+    if (!appliedMountRef.current) {
+      appliedMountRef.current = true;
+      return;
+    }
+    fetchNearbyUsers();
+  }, [appliedGender, appliedCity, fetchNearbyUsers]);
+
+  // Apply gender + city from the filter sheet → GET /nearby/new.
+  const handleApplyFilters = useCallback(() => {
+    setShowFilter(false);
+    setAppliedGender(gender !== "All" ? gender : null);
+    setAppliedCity(location.city || null);
+  }, [gender, location]);
+
+  // Tapping a top chip clears any applied gender/city filter.
+  const handleChipPress = useCallback((f) => {
+    setAppliedGender(null);
+    setAppliedCity(null);
+    setFilter(f);
+  }, []);
+
+  // All variants (all/online/saved/new + gender/city) are filtered
+  // server-side, so we only drop users the person already passed on.
+  const visible = nearbyUsers.filter((u) => !passed.has(u.id));
+
+  const openChatWithUser = useCallback(async (user) => {
+    if (!user?.id) return;
+    setDetailUser(null);
+    setMatchUser(null);
+    setLiked((prev) => new Set([...prev, user.id]));
+    await openUserChat(router, {
+      userId: user.id,
+      id: user.id,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      profilePicUrl: user.avatarUrl,
+    });
+  }, [router]);
+
+  const handleOpenProfile = async (user) => {
+    setDetailUser(user);
+    setDetailLoading(true);
+    setDetailFollowing(false);
+    try {
+      const [profile, status] = await Promise.all([
+        loadUserDetail(user.id),
+        loadRelationshipStatus(user.id).catch(() => ({ following: false })),
+      ]);
+      setDetailUser((current) => ({ ...current, ...profile, id: user.id }));
+      setDetailFollowing(Boolean(status?.following));
+    } catch (err) {
+      showToast(err?.message || "Failed to load profile.");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleFollow = async (user) => {
+    if (!user?.id || followLoading) return;
+    setFollowLoading(true);
+    try {
+      if (detailFollowing) {
+        await unfollowUser(user.id);
+        setDetailFollowing(false);
+        showToast(`Unfollowed ${user.displayName ?? user.name}`);
+      } else {
+        await followUser(user.id);
+        setDetailFollowing(true);
+        showToast(`Following ${user.displayName ?? user.name}`);
+      }
+    } catch (err) {
+      showToast(err?.message || "Could not update follow.");
+    } finally {
+      setFollowLoading(false);
+    }
+  };
 
   const handleLike = (user) => {
-    setLiked((p) => new Set([...p, user.id]));
-    setDetailUser(null);
-    if (Math.random() > 0.4) setTimeout(() => setMatchUser(user), 300);
+    if (!user) return;
+    openChatWithUser(user);
   };
 
   const handlePass = (user) => {
     setPassed((p) => new Set([...p, user.id]));
     setDetailUser(null);
+  };
+
+  const handleSaveFavorite = async (user) => {
+    if (!user?.id) return;
+    try {
+      await saveFavoriteUser({
+        userId: user.id,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        occupation: user.occupation,
+      });
+      showToast("Saved to favourites ⭐ — see Profile → Menu → Saved");
+    } catch (err) {
+
+      showToast(err?.message || "Could not save this user.");
+    }
   };
 
   return (
@@ -443,7 +699,7 @@ export default function Nearby() {
       <FilterModal
         visible={showFilter}
         onClose={() => setShowFilter(false)}
-        onDone={() => setShowFilter(false)}
+        onDone={handleApplyFilters}
         gender={gender}
         setGender={setGender}
         location={location}
@@ -454,15 +710,33 @@ export default function Nearby() {
         <MatchOverlay
           user={matchUser}
           onClose={() => setMatchUser(null)}
-          onMessage={() => { setMatchUser(null); router.push("/(tabs)/chat"); }}
+          onMessage={() => openChatWithUser(matchUser)}
         />
       )}
 
       <ProfileModal
         user={detailUser}
-        onClose={() => setDetailUser(null)}
-        onLike={() => handleLike(detailUser)}
+        loading={detailLoading}
+        onClose={() => {
+          setDetailUser(null);
+          setDetailLoading(false);
+          setDetailFollowing(false);
+        }}
+        onFollow={() => handleFollow(detailUser)}
         onPass={() => handlePass(detailUser)}
+        onMessage={() => openChatWithUser(detailUser)}
+        onSave={() => handleSaveFavorite(detailUser)}
+        isFollowing={detailFollowing}
+        followLoading={followLoading}
+      />
+
+      <Toast
+        message={toastMessage}
+        visible={toastVisible}
+        onHide={() => {
+          setToastVisible(false);
+          setToastMessage("");
+        }}
       />
 
       {/* Header */}
@@ -489,7 +763,7 @@ export default function Nearby() {
             <TouchableOpacity
               key={f}
               style={[styles.filterBtn, filter === f && styles.filterBtnActive]}
-              onPress={() => setFilter(f)}
+              onPress={() => handleChipPress(f)}
               activeOpacity={0.8}
             >
               <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>{f}</Text>
@@ -499,6 +773,12 @@ export default function Nearby() {
       </LinearGradient>
 
       {/* Grid */}
+      {loadingNearby ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color="#a78bfa" />
+          <Text style={styles.loadingText}>Finding people nearby...</Text>
+        </View>
+      ) : (
       <FlatList
         data={visible}
         keyExtractor={(item) => item.id}
@@ -509,15 +789,45 @@ export default function Nearby() {
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyEmoji}>🌍</Text>
             <Text style={styles.emptyTitle}>No one nearby</Text>
-            <Text style={styles.emptySub}>Try a different filter</Text>
+            <Text style={styles.emptySub}>
+              {filter === "Saved"
+                ? "Tap the heart on a profile to save them here"
+                : nearbyFetched && nearbyUsers.length === 0
+                  ? "No users found within 25 km. Check back later!"
+                  : visible.length === 0 && nearbyUsers.length > 0
+                    ? "Try a different filter"
+                    : "Turn on location or pull to refresh"}
+            </Text>
           </View>
         }
+        refreshing={loadingNearby}
+        onRefresh={fetchNearbyUsers}
         renderItem={({ item }) => {
           const isLiked = liked.has(item.id);
           return (
-            <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={() => setDetailUser(item)}>
+            <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={() => handleOpenProfile(item)}>
               <LinearGradient colors={item.bgColors} style={styles.cardBg}>
-                <Text style={styles.cardEmoji}>{item.emoji}</Text>
+                {item.avatarUrl ? (
+                  <ProfileAvatarWithFrame
+                    avatarSource={{ uri: item.avatarUrl }}
+                    frameSource={item.vipProfileFrameUrl}
+                    size={CARD_W * 0.62}
+                    avatarStyle={styles.cardAvatar}
+                    {...(item.vipProfileFrameUrl
+                      ? {
+                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                        }
+                      : {})}
+                  />
+                ) : (
+                  <Text style={styles.cardEmoji}>{item.emoji}</Text>
+                )}
               </LinearGradient>
               <LinearGradient colors={["transparent","rgba(13,6,24,0.96)"]} style={styles.cardOverlay} />
               {item.online && <View style={styles.cardOnlineDot} />}
@@ -532,8 +842,15 @@ export default function Nearby() {
                 </View>
               )}
               <View style={styles.cardInfo}>
-                <Text style={styles.cardName}>{item.name}, {item.age}</Text>
-                <Text style={styles.cardDist}>📍 {item.distance}</Text>
+                <Text style={styles.cardName} numberOfLines={1}>{item.displayName ?? item.name}</Text>
+                <Text style={styles.cardDist}>
+                  📍 {typeof item.distanceKm === "number"
+                    ? `${item.distanceKm === 0 ? "0" : item.distanceKm} km`
+                    : item.distance}
+                </Text>
+                {item.bio && item.bio !== "No bio yet" ? (
+                  <Text style={styles.cardBio} numberOfLines={1}>{item.bio}</Text>
+                ) : null}
               </View>
               <View style={styles.cardActions}>
                 <TouchableOpacity style={styles.cardPassBtn} onPress={() => handlePass(item)} activeOpacity={0.8}>
@@ -551,6 +868,7 @@ export default function Nearby() {
           );
         }}
       />
+      )}
     </View>
   );
 }
@@ -591,6 +909,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   cardEmoji: { fontSize: CARD_W * 0.38 },
+  cardAvatar: { width: CARD_W * 0.62, height: CARD_W * 0.62, borderRadius: CARD_W * 0.31 },
   cardOverlay: { position: "absolute", bottom: 0, left: 0, right: 0, height: 60 },
   cardOnlineDot: { position: "absolute", top: 8, left: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: "#00e676", borderWidth: 2, borderColor: "#0d0618" },
   cardVerified: { position: "absolute", top: 6, right: 6, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 6, padding: 2 },
@@ -601,6 +920,7 @@ const styles = StyleSheet.create({
   },
   cardName: { color: "white", fontSize: 12, fontWeight: "800" },
   cardDist: { color: "rgba(167,139,250,0.9)", fontSize: 10, fontWeight: "600", marginTop: 1 },
+  cardBio: { color: "rgba(255,255,255,0.45)", fontSize: 9, fontWeight: "500", marginTop: 2 },
   cardActions: {
     flexDirection: "row", justifyContent: "space-between",
     paddingHorizontal: 10, paddingVertical: 8,
@@ -614,6 +934,9 @@ const styles = StyleSheet.create({
   emptyEmoji: { fontSize: 52 },
   emptyTitle: { color: "white", fontSize: 17, fontWeight: "800" },
   emptySub: { color: "rgba(255,255,255,0.4)", fontSize: 13 },
+
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingBottom: 80 },
+  loadingText: { color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "600" },
 
   matchOverlayWrap: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 999, alignItems: "center", justifyContent: "center" },
   matchCard: { width: W * 0.82, backgroundColor: "rgba(26,10,46,0.96)", borderRadius: 28, alignItems: "center", padding: 28, borderWidth: 1, borderColor: "rgba(167,139,250,0.35)", shadowColor: "#7c4dff", shadowOffset: { width:0, height:0 }, shadowOpacity: 0.8, shadowRadius: 30, elevation: 20 },
@@ -636,6 +959,15 @@ const styles = StyleSheet.create({
   profileModalSheet: { height: H * 0.76, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden", borderWidth: 1, borderColor: "rgba(167,139,250,0.25)", backgroundColor: "#0d0618" },
   profileModalHero: { width: "100%", height: "55%", alignItems: "center", justifyContent: "center" },
   profileModalEmoji: { fontSize: 110 },
+  profileModalAvatar: { width: 160, height: 160, borderRadius: 80, borderWidth: 3, borderColor: "rgba(255,255,255,0.25)" },
+  profileLoadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, backgroundColor: "#0d0618" },
+  profileLoadingText: { color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "600" },
+  profileDetailLoader: {
+    position: "absolute", top: 14, left: 14,
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center", justifyContent: "center",
+  },
   profileModalSparkleRing: { position: "absolute", width: 180, height: 180, borderRadius: 90, borderWidth: 2, borderColor: "rgba(167,139,250,0.25)", borderStyle: "dashed" },
   profileModalFade: { position: "absolute", bottom: 0, left: 0, right: 0, height: "55%" },
   profileModalClose: { position: "absolute", top: 14, right: 14, width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
@@ -649,11 +981,30 @@ const styles = StyleSheet.create({
   tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   tag: { backgroundColor: "rgba(124,77,255,0.35)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: "rgba(167,139,250,0.4)" },
   tagText: { color: "#c4b5fd", fontSize: 12, fontWeight: "600" },
-  profileActionRow: { flexDirection: "row", justifyContent: "center", gap: 18, marginTop: 6 },
+  profileMsgBtn: { borderRadius: 14, overflow: "hidden", marginTop: 4 },
+  profileMsgGradient: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12 },
+  profileMsgText: { color: "white", fontSize: 15, fontWeight: "700" },
+  profileActionRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 14, marginTop: 8 },
   profileActionBtn: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", borderWidth: 1, shadowOffset: { width:0, height:4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
   passBtn:  { backgroundColor: "rgba(255,107,107,0.15)", borderColor: "rgba(255,107,107,0.4)", shadowColor: "#ff6b6b" },
   superBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.15)", borderColor: "rgba(255,215,0,0.4)", shadowColor: "#ffd700" },
-  likeBtn:  { backgroundColor: "#ff4ea3", borderColor: "rgba(255,78,163,0.5)", shadowColor: "#ff4ea3" },
+  followBtn: {
+    width: "auto",
+    minWidth: 108,
+    height: 54,
+    borderRadius: 27,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    gap: 6,
+    backgroundColor: "#7c4dff",
+    borderColor: "rgba(167,139,250,0.5)",
+    shadowColor: "#7c4dff",
+  },
+  followBtnActive: {
+    backgroundColor: "rgba(124,77,255,0.35)",
+    borderColor: "rgba(167,139,250,0.45)",
+  },
+  followBtnText: { color: "white", fontSize: 14, fontWeight: "800" },
 });
 
 // ── Filter styles ────────────────────────────────────────────

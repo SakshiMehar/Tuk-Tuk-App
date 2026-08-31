@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,40 +10,113 @@ import {
   Dimensions,
   Modal,
   TextInput,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import * as ImagePicker from "expo-image-picker";
 import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getUser, updateUser } from "../../src/store/authStore";
+import { refreshTokenCache } from "../../src/api/axios";
+import { loadMyProfile, saveMyProfile } from "../../src/services/meProfileService";
+import { loadProfileStats } from "../../src/services/profileStatsService";
+import {
+  loadDailyTasks,
+  tasksTotalReward,
+  claimedTasksDiamondTotal,
+  claimRewardTask,
+} from "../../src/services/rewardTaskService";
+import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
+import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
+import WalletRechargeSection from "../../Components/WalletRechargeSection";
+import GetRewardsPanel from "../../Components/GetRewardsPanel";
+import MonthlyCardPanel from "../../Components/MonthlyCardPanel";
+import TukTukPassPanel from "../../Components/TukTukPassPanel";
+import VipCenterPanel from "../../Components/VipCenterPanel";
+import UserLevelPanel from "../../Components/UserLevelPanel";
+import RoomPremiumPanel from "../../Components/RoomPremiumPanel";
+import BackpackPanel from "../../Components/BackpackPanel";
+import PremiumPanel from "../../Components/PremiumPanel";
+import {
+  avatarMap,
+  getAvatarOptionsForGender,
+  getAvatarSource,
+  DEFAULT_AVATAR_ID,
+} from "../../src/data/avatarOptions";
+import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
+import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
+import { syncUserLevelForSession } from "../../src/services/userLevelService";
+import { loadMyVipAssets } from "../../src/services/vipService";
+import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
+import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
+import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
+import { openUserChat } from "../../src/utils/chatNavigation";
+import { useWalletBalance } from "../../src/hooks/useWalletBalance";
+import { refreshWalletBalance } from "../../src/store/walletStore";
+import { submitFeedback } from "../../src/services/userSettingsService";
+import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
+import { resolveImageSource } from "../../src/utils/videoSource";
+import {
+  loadFamilyLists,
+  createFamilyGroup,
+  joinFamilyGroup,
+  loadFamilyDetail,
+} from "../../src/services/familyService";
+import FamilyChatModal from "../../Components/FamilyChatModal";
+import { s, ms } from "../../src/utils/responsive";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const screen = Dimensions.get("window");
 
 const meImg = require("../../assets/images/me.png");
-const profileImg = require("../../assets/images/android-icon-background.png");
-const frameImg = require("../../assets/images/new-user-frame.png");
+const boyMeImg = require("../../assets/images/boyme.png");
+const NEW_START_BADGE = require("../../assets/Batches/newstart-batch.png");
+const VERIFIED_BADGE = require("../../assets/Batches/verified-batch.png");
 
-const avatarMap = {
-  avatar1: require("../../assets/Avatar/avatar1.webp"),
-  avatar2: require("../../assets/Avatar/avatar2.webp"),
-  avatar3: require("../../assets/Avatar/avatar3.webp"),
-  avatar4: require("../../assets/Avatar/avatar4.webp"),
-  avatar5: require("../../assets/Avatar/avatar5.webp"),
+// ── Profile info-card badge row (level / new star / verified / any future badge) ──
+// Every badge in that row shares this fixed height; only its own aspectRatio
+// (source image width / height) changes. That keeps every badge visually the
+// same scale automatically, no matter how many get added, since a badge that's
+// naturally wider/narrower just gets a proportionally wider/narrower box instead
+// of being stretched or leaving dead space (see the level-badge sizing bug this
+// fixed). Aspect ratios below are measured from the actual asset files.
+const PROFILE_BADGE_HEIGHT = s(24);
+const PROFILE_BADGE_ASPECT = {
+  level: 142 / 149,
+  newStar: 456 / 174,
+  verified: 438 / 179,
+  // Placeholder square ratio until the real viplogo1.png dimensions are confirmed.
+  vip: 1,
 };
-
-// Menu pages — 8 items per page (4×2 grid)
+function ProfileBadge({ source, aspectRatio, style }) {
+  return (
+    <Image
+      source={source}
+      style={[
+        { height: PROFILE_BADGE_HEIGHT, width: PROFILE_BADGE_HEIGHT * aspectRatio },
+        style,
+      ]}
+      resizeMode="contain"
+    />
+  );
+}
 const menuPages = [
   [
     { icon: "gift",         label: "Get Rewards",  badge: true  },
     { icon: "tasks",        label: "Task",         badge: true  },
-    { icon: "id-card",      label: "Monthly Card", badge: true  },
+    { icon: "id-card",      label: "Monthly Card", badge: true,  comingSoon: true },
     { icon: "store",        label: "Store",        badge: true  },
     { icon: "users",        label: "Relationship", badge: true  },
     { icon: "wallet",       label: "Wallet",       badge: false },
-    { icon: "shield-alt",   label: "Premium",      badge: true  },
-    { icon: "gem",          label: "VIP",          badge: false },
+    { icon: "medal",        label: "Premium",      badge: true  },
+    { icon: "bookmark",     label: "Saved",        badge: false },
   ],
   [
+    { icon: "gem",          label: "VIP",          badge: false },
     { icon: "ticket-alt",   label: "Coupon",       badge: false },
     { icon: "star",         label: "Honor Level",  badge: false },
     { icon: "home",         label: "Family",       badge: false },
@@ -51,9 +124,9 @@ const menuPages = [
     { icon: "briefcase",    label: "Backpack",     badge: false },
     { icon: "crown",        label: "Room Premium", badge: true  },
     { icon: "id-badge",     label: "TukTuk Pass",   badge: true  },
-    { icon: "level-up-alt", label: "Level",        badge: true  },
   ],
   [
+    { icon: "level-up-alt", label: "Level",        badge: true,  comingSoon: true },
     { icon: "instagram",    label: "Instagram",    badge: false },
     { icon: "share-alt",    label: "Share",        badge: false },
     { icon: "headset",      label: "Help",         badge: true  },
@@ -61,175 +134,1468 @@ const menuPages = [
     { icon: "certificate",  label: "Badge",        badge: true  },
     { icon: "house-user",   label: "Room Title",   badge: false },
     { icon: "comment-dots", label: "Feedback",     badge: false },
-    { icon: "facebook",     label: "Facebook",     badge: false },
   ],
 ];
 
 const BOTTOM_TABS = ["Moment", "Profile", "Honor", "Gift"];
 
+// ── FamilyContent ─────────────────────────────────────────────────────────────
+// Extracted as a proper component so hooks (useState) can be used legally.
+const FAMILY_TABS = ["New family", "Existing family"];
+const DEFAULT_FAMILY_ICON = require("../../assets/images/icon.png");
+
+function FamilyContent() {
+  const [familyTab, setFamilyTab] = useState("New family");
+  const [familySearch, setFamilySearch] = useState("");
+  const [showFamilySearch, setShowFamilySearch] = useState(false);
+  const [showCreateRules, setShowCreateRules] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [familyName, setFamilyName] = useState("");
+  const [familyAnnouncement, setFamilyAnnouncement] = useState("");
+  const [familyCover, setFamilyCover] = useState(null);
+  const [existingFamilies, setExistingFamilies] = useState([]);
+  const [newFamilies, setNewFamilies] = useState([]);
+  const [familiesLoading, setFamiliesLoading] = useState(true);
+  const [creatingFamily, setCreatingFamily] = useState(false);
+  const [chatFamily, setChatFamily] = useState(null);
+  const insets = useSafeAreaInsets();
+  const safeBottom = Math.max(insets.bottom, 8);
+
+  const refreshFamilies = useCallback(async () => {
+    setFamiliesLoading(true);
+    try {
+      const { existingFamilies: existing, newFamilies: created } = await loadFamilyLists();
+      setExistingFamilies(existing);
+      setNewFamilies(created);
+    } catch (error) {
+      console.error("[FamilyContent] Failed to load /api/v1/families", error);
+    } finally {
+      setFamiliesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshFamilies();
+  }, [refreshFamilies]);
+
+  const pickFamilyCover = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Gallery access is required to set a family cover.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setFamilyCover(result.assets[0].uri);
+    }
+  }, []);
+
+  const handleJoinFamily = useCallback(async (family) => {
+    try {
+      const result = await joinFamilyGroup(family.id);
+      console.log("[FamilyContent] joinFamily result", result);
+      Alert.alert("Joined", `You've joined ${family.name}.`);
+      refreshFamilies();
+    } catch (error) {
+      console.error("[FamilyContent] joinFamily failed", error);
+      Alert.alert("Couldn't join", error?.message || "Please try again.");
+    }
+  }, [refreshFamilies]);
+
+  const handleOpenFamily = useCallback(async (family) => {
+    try {
+      const detail = await loadFamilyDetail(family.id);
+      console.log("[FamilyContent] family detail", detail);
+      setChatFamily(detail);
+    } catch (error) {
+      console.error("[FamilyContent] getFamilyDetail failed", error);
+      // Fall back to the summary already on hand (list load already succeeded)
+      // so the chat still opens even if the detail endpoint fails.
+      setChatFamily(family);
+    }
+  }, []);
+
+  const handleCreateFamily = useCallback(async () => {
+    if (!familyName.trim() || creatingFamily) return;
+    setCreatingFamily(true);
+    try {
+      const created = await createFamilyGroup({
+        name: familyName.trim(),
+        announcement: familyAnnouncement.trim(),
+        coverUri: familyCover,
+      });
+      console.log("[FamilyContent] createFamily result", created);
+      setShowCreateForm(false);
+      setFamilyTab("New family");
+      setFamilyName("");
+      setFamilyAnnouncement("");
+      setFamilyCover(null);
+      await refreshFamilies();
+      await refreshWalletBalance();
+    } catch (error) {
+      console.error("[FamilyContent] createFamily failed", error);
+      Alert.alert("Couldn't create family", error?.message || "Please try again.");
+    } finally {
+      setCreatingFamily(false);
+    }
+  }, [familyName, familyAnnouncement, familyCover, creatingFamily, refreshFamilies]);
+
+  const allFamilies = familyTab === "Existing family" ? existingFamilies : newFamilies;
+  const families = allFamilies.filter((f) =>
+    f.name.toLowerCase().includes(familySearch.toLowerCase())
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Tab row + search icon */}
+      <View style={familyStyles.tabRow}>
+        {FAMILY_TABS.map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            style={familyStyles.tabItem}
+            activeOpacity={0.8}
+            onPress={() => { setFamilyTab(tab); setShowFamilySearch(false); setFamilySearch(""); }}
+          >
+            <Text style={[familyStyles.tabText, familyTab === tab && familyStyles.tabTextActive]}>
+              {tab}
+            </Text>
+            {familyTab === tab && <View style={familyStyles.tabUnderline} />}
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity
+          style={familyStyles.searchIcon}
+          activeOpacity={0.8}
+          onPress={() => setShowFamilySearch((v) => !v)}
+        >
+          <Ionicons name="search" size={20} color={showFamilySearch ? "#a78bfa" : "rgba(255,255,255,0.65)"} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Search bar */}
+      {showFamilySearch && (
+        <View style={familyStyles.searchBar}>
+          <Ionicons name="search" size={15} color="rgba(255,255,255,0.35)" style={{ marginRight: 6 }} />
+          <TextInput
+            style={familyStyles.searchInput}
+            placeholder="Search family..."
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            value={familySearch}
+            onChangeText={setFamilySearch}
+            autoFocus
+          />
+          {familySearch.length > 0 && (
+            <TouchableOpacity onPress={() => setFamilySearch("")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={15} color="rgba(255,255,255,0.35)" />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* List */}
+      <ScrollView
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={familyStyles.listContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {familiesLoading ? (
+          <View style={familyStyles.emptyWrap}>
+            <ActivityIndicator color="#a78bfa" />
+          </View>
+        ) : families.length === 0 ? (
+          <View style={familyStyles.emptyWrap}>
+            <Text style={{ fontSize: 48, marginBottom: 10 }}>👪</Text>
+            <Text style={familyStyles.emptyText}>No families found</Text>
+          </View>
+        ) : (
+          families.map((family) => (
+            <TouchableOpacity
+              key={family.id}
+              style={familyStyles.card}
+              activeOpacity={0.85}
+              onPress={() => handleOpenFamily(family)}
+            >
+              <View style={familyStyles.iconWrap}>
+                <Image
+                  source={family.icon ? { uri: family.icon } : DEFAULT_FAMILY_ICON}
+                  style={familyStyles.icon}
+                />
+              </View>
+              <View style={familyStyles.info}>
+                <View style={familyStyles.nameRow}>
+                  <Text style={familyStyles.name} numberOfLines={1}>{family.name}</Text>
+                  {family.tag && (
+                    <View style={familyStyles.officialBadge}>
+                      <Text style={familyStyles.officialText}>{family.tag}</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={familyStyles.metaRow}>
+                  <Ionicons name="people" size={12} color="rgba(255,255,255,0.45)" />
+                  <Text style={familyStyles.meta}>{family.members} members</Text>
+                  <View style={familyStyles.dot} />
+                  <Text style={familyStyles.meta}>Lv.{family.level}</Text>
+                </View>
+              </View>
+              {family.owner ? (
+                <View style={[familyStyles.joinBtn, familyStyles.joinedBtn]}>
+                  <Text style={familyStyles.joinedText}>Owner</Text>
+                </View>
+              ) : family.member ? (
+                <View style={[familyStyles.joinBtn, familyStyles.joinedBtn]}>
+                  <Text style={familyStyles.joinedText}>Joined</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={familyStyles.joinBtn}
+                  activeOpacity={0.8}
+                  onPress={() => handleJoinFamily(family)}
+                >
+                  <Text style={familyStyles.joinText}>Join</Text>
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
+
+      {/* Create Family sticky button */}
+      <View style={[familyStyles.createWrap, { paddingBottom: safeBottom + 12 }]}>
+        <TouchableOpacity style={familyStyles.createBtn} activeOpacity={0.85} onPress={() => setShowCreateRules(true)}>
+          <LinearGradient
+            colors={["#7c4dff", "#a855f7"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={familyStyles.createGrad}
+          >
+            <Text style={familyStyles.createText}>+ Create Family</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+
+      {/* Create Family Rules Modal */}
+      <Modal
+        visible={showCreateRules}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCreateRules(false)}
+      >
+        <TouchableOpacity
+          style={familyStyles.rulesOverlay}
+          activeOpacity={1}
+          onPress={() => setShowCreateRules(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={[familyStyles.rulesSheet, { paddingBottom: safeBottom + 16 }]}>
+            {/* Handle bar */}
+            <View style={familyStyles.rulesHandle} />
+
+            {/* Icon */}
+            <View style={familyStyles.rulesIconWrap}>
+              <Text style={{ fontSize: 44 }}>👪</Text>
+            </View>
+
+            {/* Title */}
+            <Text style={familyStyles.rulesTitle}>Create a Family</Text>
+            <Text style={familyStyles.rulesSub}>Before you create, please read the rules</Text>
+
+            {/* Divider */}
+            <View style={familyStyles.rulesDivider} />
+
+            {/* Rules list */}
+            <View style={familyStyles.rulesList}>
+              {[
+                { icon: "💎", text: "Spend 30 diamonds to create a family" },
+                { icon: "👑", text: "You will become the family owner" },
+                { icon: "👥", text: "Invite members to grow your family" },
+                { icon: "🏆", text: "Complete family tasks to earn rewards" },
+                { icon: "⚠️", text: "Violating platform rules will result in family dissolution" },
+              ].map((rule, i) => (
+                <View key={i} style={familyStyles.ruleRow}>
+                  <Text style={familyStyles.ruleIcon}>{rule.icon}</Text>
+                  <Text style={familyStyles.ruleText}>{rule.text}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Cost pill */}
+            <View style={familyStyles.costPill}>
+              <Text style={familyStyles.costEmoji}>💎</Text>
+              <Text style={familyStyles.costText}>Cost: </Text>
+              <Text style={familyStyles.costAmount}>30 Diamonds</Text>
+            </View>
+
+            {/* Continue button */}
+            <TouchableOpacity
+              style={familyStyles.continueBtn}
+              activeOpacity={0.85}
+              onPress={() => { setShowCreateRules(false); setShowCreateForm(true); }}
+            >
+              <LinearGradient
+                colors={["#7c4dff", "#a855f7"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={familyStyles.continueGrad}
+              >
+                <Text style={familyStyles.continueText}>Continue</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* Cancel */}
+            <TouchableOpacity
+              style={familyStyles.cancelBtn}
+              activeOpacity={0.8}
+              onPress={() => setShowCreateRules(false)}
+            >
+              <Text style={familyStyles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Create Family Form Modal ── */}
+      <Modal
+        visible={showCreateForm}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setShowCreateForm(false)}
+      >
+        <View style={familyStyles.formScreen}>
+          {/* Header */}
+          <View style={[familyStyles.formHeader, { paddingTop: insets.top + 10 }]}>
+            <TouchableOpacity
+              style={familyStyles.formBackBtn}
+              onPress={() => setShowCreateForm(false)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="arrow-back" size={20} color="white" />
+            </TouchableOpacity>
+            <Text style={familyStyles.formTitle}>Create Family</Text>
+            <View style={{ width: 38 }} />
+          </View>
+
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={[familyStyles.formContent, { paddingBottom: safeBottom + 100 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Family Cover */}
+            <Text style={familyStyles.formLabel}>Family cover</Text>
+            <TouchableOpacity style={familyStyles.coverPicker} activeOpacity={0.8} onPress={pickFamilyCover}>
+              {familyCover ? (
+                <Image source={{ uri: familyCover }} style={familyStyles.coverImage} />
+              ) : (
+                <View style={familyStyles.coverPlaceholder}>
+                  <Ionicons name="add" size={32} color="rgba(167,139,250,0.6)" />
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Family Name */}
+            <Text style={familyStyles.formLabel}>Family name</Text>
+            <View style={familyStyles.inputWrap}>
+              <TextInput
+                style={familyStyles.formInput}
+                placeholder=""
+                placeholderTextColor="rgba(255,255,255,0.2)"
+                value={familyName}
+                onChangeText={(t) => t.length <= 30 && setFamilyName(t)}
+                maxLength={30}
+              />
+              <Text style={familyStyles.inputCounter}>{familyName.length}/30</Text>
+            </View>
+
+            {/* Family Announcement */}
+            <Text style={familyStyles.formLabel}>Family announcement</Text>
+            <View style={[familyStyles.inputWrap, familyStyles.textAreaWrap]}>
+              <TextInput
+                style={[familyStyles.formInput, familyStyles.textArea]}
+                placeholder=""
+                placeholderTextColor="rgba(255,255,255,0.2)"
+                value={familyAnnouncement}
+                onChangeText={(t) => t.length <= 100 && setFamilyAnnouncement(t)}
+                maxLength={100}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
+              <Text style={[familyStyles.inputCounter, familyStyles.textAreaCounter]}>
+                {familyAnnouncement.length}/100
+              </Text>
+            </View>
+          </ScrollView>
+
+          {/* Confirm button */}
+          <View style={[familyStyles.formFooter, { paddingBottom: safeBottom + 12 }]}>
+            <TouchableOpacity
+              style={[
+                familyStyles.confirmBtn,
+                !familyName.trim() && familyStyles.confirmBtnDisabled,
+              ]}
+              activeOpacity={0.85}
+              disabled={!familyName.trim() || creatingFamily}
+              onPress={handleCreateFamily}
+            >
+              <LinearGradient
+                colors={familyName.trim() ? ["#7c4dff", "#a855f7"] : ["#2a1a4a", "#2a1a4a"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={familyStyles.confirmGrad}
+              >
+                {creatingFamily ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={familyStyles.confirmText}>Confirm  💎 30</Text>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <FamilyChatModal
+        visible={!!chatFamily}
+        family={chatFamily}
+        onClose={() => setChatFamily(null)}
+      />
+    </View>
+  );
+}
+
+const familyStyles = StyleSheet.create({
+  tabRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 16,
+  },
+  tabItem: {
+    paddingVertical: 13,
+    paddingHorizontal: 2,
+    marginRight: 18,
+    position: "relative",
+  },
+  tabText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  tabTextActive: {
+    color: "white",
+    fontWeight: "800",
+  },
+  tabUnderline: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2.5,
+    backgroundColor: "#7c4dff",
+    borderRadius: 2,
+  },
+  searchIcon: {
+    marginLeft: "auto",
+    padding: 6,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 10,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.2)",
+  },
+  searchInput: {
+    flex: 1,
+    color: "white",
+    fontSize: 14,
+    paddingVertical: 0,
+  },
+  listContent: {
+    padding: 16,
+    paddingBottom: 96,
+    gap: 10,
+  },
+  emptyWrap: {
+    alignItems: "center",
+    paddingTop: 52,
+  },
+  emptyText: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16,
+    padding: 12,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.12)",
+  },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: "rgba(124,77,255,0.15)",
+    borderWidth: 1.5,
+    borderColor: "rgba(124,77,255,0.35)",
+  },
+  icon: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  info: {
+    flex: 1,
+    gap: 5,
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  name: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
+    flexShrink: 1,
+  },
+  officialBadge: {
+    backgroundColor: "rgba(124,77,255,0.3)",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.45)",
+  },
+  officialText: {
+    color: "#c4b5fd",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  meta: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 12,
+  },
+  dot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "rgba(255,255,255,0.25)",
+  },
+  joinBtn: {
+    backgroundColor: "rgba(124,77,255,0.2)",
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.45)",
+  },
+  joinText: {
+    color: "#c4b5fd",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  joinedBtn: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  joinedText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  createWrap: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    backgroundColor: "rgba(10,4,20,0.96)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+  },
+  createBtn: {
+    borderRadius: 28,
+    overflow: "hidden",
+  },
+  createGrad: {
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  createText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+
+  // ── Create Rules Modal ──────────────────────────────────────────────────
+  rulesOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  rulesSheet: {
+    backgroundColor: "#130828",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderColor: "rgba(124,77,255,0.3)",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  rulesHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(167,139,250,0.4)",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  rulesIconWrap: {
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  rulesTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "900",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  rulesSub: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  rulesDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    marginBottom: 16,
+  },
+  rulesList: {
+    gap: 12,
+    marginBottom: 20,
+  },
+  ruleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  ruleIcon: {
+    fontSize: 18,
+    width: 26,
+    textAlign: "center",
+  },
+  ruleText: {
+    flex: 1,
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  costPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(124,77,255,0.2)",
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.4)",
+    gap: 6,
+    marginBottom: 20,
+  },
+  costEmoji: { fontSize: 18 },
+  costText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  costAmount: {
+    color: "#c4b5fd",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  continueBtn: {
+    borderRadius: 28,
+    overflow: "hidden",
+    marginBottom: 10,
+  },
+  continueGrad: {
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  continueText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  cancelBtn: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  cancelText: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+
+  // ── Create Family Form Screen ───────────────────────────────────────────
+  formScreen: {
+    flex: 1,
+    backgroundColor: "#0d0618",
+  },
+  formHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  formBackBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  formTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  formContent: {
+    padding: 20,
+    gap: 6,
+  },
+  formLabel: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  coverPicker: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: "rgba(124,77,255,0.4)",
+    borderStyle: "dashed",
+  },
+  coverPlaceholder: {
+    flex: 1,
+    backgroundColor: "rgba(124,77,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  coverImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  inputWrap: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.2)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  formInput: {
+    flex: 1,
+    color: "white",
+    fontSize: 15,
+    paddingVertical: 0,
+  },
+  inputCounter: {
+    color: "rgba(255,255,255,0.3)",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  textAreaWrap: {
+    alignItems: "flex-end",
+    flexDirection: "column",
+    paddingBottom: 8,
+  },
+  textArea: {
+    minHeight: 90,
+    width: "100%",
+    textAlignVertical: "top",
+  },
+  textAreaCounter: {
+    marginTop: 6,
+  },
+  formFooter: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    backgroundColor: "rgba(13,6,24,0.97)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.07)",
+  },
+  confirmBtn: {
+    borderRadius: 28,
+    overflow: "hidden",
+  },
+  confirmBtnDisabled: {
+    opacity: 0.5,
+  },
+  confirmGrad: {
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+});
+
 export default function Profile() {
   const router = useRouter();
-  const [following] = useState(128);
-  const [followers] = useState(3402);
-  const [Visitor] = useState(12800);
+  const scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
+  const insets = useSafeAreaInsets();
+  const scrollBottomPad = 24 + Math.max(insets.bottom, 8) + 64;
+  const [following, setFollowing] = useState(0);
+  const [followers, setFollowers] = useState(0);
+  const [visitorCount, setVisitorCount] = useState(0);
+  const { diamonds: walletDiamonds, coins: walletCoins } = useWalletBalance();
+  const [dailyTasks, setDailyTasks] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [connectionsListType, setConnectionsListType] = useState(null);
+  const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
   const [menuPage, setMenuPage] = useState(0);
   const [activeTab, setActiveTab] = useState("Moment");
-  const menuRef = useRef(null);
+  const [giftTab, setGiftTab] = useState("Receive");
+  const [giftEarnedCount, setGiftEarnedCount] = useState(0);
+  const [giftsReceived, setGiftsReceived] = useState([]);
+  const [giftsSent, setGiftsSent] = useState([]);
+  const [giftsLoading, setGiftsLoading] = useState(false);
 
   // Editable profile state
   const [name, setName] = useState("Tuk Tuk User");
-  const [avatarId, setAvatarId] = useState("avatar1");
-  const [editAvatarId, setEditAvatarId] = useState("avatar1");
+  const [avatarId, setAvatarId] = useState(DEFAULT_AVATAR_ID);
+  const [editAvatarId, setEditAvatarId] = useState(DEFAULT_AVATAR_ID);
+  const [profilePicUrl, setProfilePicUrl] = useState(null);
   const [editVisible, setEditVisible] = useState(false);
-  const avatarSource = avatarMap[avatarId] || avatarMap.avatar1;
-
-  const avatarOptions = Object.keys(avatarMap);
+  const [editName, setEditName] = useState("");
+  const [userGender, setUserGender] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [newUserFrameSource, setNewUserFrameSource] = useState(null);
+  const [userLevel, setUserLevel] = useState(1);
+  const [levelBadgeSource, setLevelBadgeSource] = useState(null);
+  const [vipAssets, setVipAssets] = useState({
+    unlocked: false,
+    profileFrame: null,
+    entryFrame: null,
+    chatFrame: null,
+    logo: null,
+  });
+  const avatarSource = resolveProfileAvatarSource({
+    avatarId,
+    profilePicUrl,
+  });
 
   // Menu modal state
   const [activeMenu, setActiveMenu] = useState(null);
   const [expandedFaqMM, setExpandedFaqMM] = useState(null);
   const [profileFeedback, setProfileFeedback] = useState("");
   const [feedbackSentMM, setFeedbackSentMM] = useState(false);
+  const [feedbackSubmittingMM, setFeedbackSubmittingMM] = useState(false);
+
+  // Saved / favourite users
+  const [savedUsers, setSavedUsers] = useState([]);
+  const [savedUsersLoading, setSavedUsersLoading] = useState(false);
+  const [removingSavedUserId, setRemovingSavedUserId] = useState(null);
+  const [myPosts, setMyPosts] = useState([]);
+  const [myPostsLoading, setMyPostsLoading] = useState(false);
+  const [editingPost, setEditingPost] = useState(null);
+  const [editPostText, setEditPostText] = useState("");
+  const [postSaving, setPostSaving] = useState(false);
+  const [profileTabLoading, setProfileTabLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const tabDataLoadedRef = useRef({ Moment: false, Profile: false, Gift: false });
+  const refreshSavedUsers = useCallback(async () => {
+    setSavedUsersLoading(true);
+    try {
+      const list = await fetchSavedUsersFromServer();
+      setSavedUsers(list);
+    } catch {
+      setSavedUsers([]);
+    } finally {
+      setSavedUsersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeMenu?.label === "Saved") refreshSavedUsers();
+  }, [activeMenu, refreshSavedUsers]);
+
+  useEffect(() => {
+    if (activeMenu?.label !== "Wallet") return;
+    refreshWalletBalance();
+  }, [activeMenu]);
+
+  const loadMyPosts = useCallback(async () => {
+    setMyPostsLoading(true);
+    try {
+      const data = await loadMyProfilePosts(1, 20);
+      setMyPosts(data.posts ?? []);
+    } catch {
+      setMyPosts([]);
+    } finally {
+      setMyPostsLoading(false);
+    }
+  }, []);
+
+  const hydrateFromLocalUser = useCallback(async () => {
+    const user = await getUser();
+    if (!user) return;
+    if (user.name) setName(user.name);
+    const localId = user.userId ?? user.id;
+    if (localId != null) setUserId(String(localId));
+    // `avatarId` starts as DEFAULT_AVATAR_ID (a *valid* bundled key), so it
+    // must be explicitly cleared when the cached user has no bundled avatar —
+    // resolveProfileAvatarSource() checks avatarId before profilePicUrl, so a
+    // stale non-null avatarId silently hides a real uploaded photo.
+    if (user.avatarId) {
+      setAvatarId(user.avatarId);
+      setEditAvatarId(user.avatarId);
+    } else {
+      setAvatarId(null);
+    }
+    setProfilePicUrl(user.profilePicUrl ?? user.avatarUrl ?? null);
+    if (user.gender) setUserGender(user.gender);
+    const frameSource = await syncNewUserFrameForSession();
+    setNewUserFrameSource(frameSource);
+    const levelData = await syncUserLevelForSession();
+    if (levelData?.level != null) setUserLevel(levelData.level);
+    setLevelBadgeSource(levelData?.badgeSource ?? null);
+    setVipAssets(await loadMyVipAssets(levelData?.xp?.totalXp));
+
+    try {
+      await refreshTokenCache();
+      const serverProfile = await loadMyProfile();
+      if (serverProfile?.id != null) {
+        const id = String(serverProfile.id);
+        setUserId(id);
+        if (String(localId ?? "") !== id) {
+          await updateUser({ id: serverProfile.id, userId: serverProfile.id });
+        }
+      }
+      // Refresh the avatar from the server on every focus — the cached
+      // local user can go stale (e.g. picture uploaded from another
+      // session), and this is the only place the header avatar is set.
+      if (serverProfile?.avatarId) {
+        setAvatarId(serverProfile.avatarId);
+        setEditAvatarId(serverProfile.avatarId);
+        setProfilePicUrl(null);
+        await updateUser({ avatarId: serverProfile.avatarId, profilePicUrl: null, useLocalAvatar: true });
+      } else if (serverProfile?.profilePicUrl) {
+        setAvatarId(null);
+        setProfilePicUrl(serverProfile.profilePicUrl);
+        await updateUser({ profilePicUrl: serverProfile.profilePicUrl, avatarUrl: serverProfile.profilePicUrl, useLocalAvatar: false });
+      }
+    } catch {
+      // Keep the cached local id/avatar if the profile request fails.
+    }
+  }, []);
+
+  const loadConnectionStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      await refreshTokenCache();
+      const stats = await loadProfileStats();
+      setFollowing(stats.followingCount);
+      setFollowers(stats.followersCount);
+      setVisitorCount(stats.visitorCount);
+    } catch {
+      // Keep the last known counts if the stats request fails.
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  const loadProfileTabData = useCallback(async () => {
+    setProfileTabLoading(true);
+    try {
+      const user = await getUser();
+      const serverProfile = await loadMyProfile();
+      if (serverProfile.id != null) {
+        const id = String(serverProfile.id);
+        setUserId(id);
+      }
+      if (serverProfile.name) setName(serverProfile.name);
+      if (serverProfile.avatarId) {
+        setAvatarId(serverProfile.avatarId);
+        setEditAvatarId(serverProfile.avatarId);
+        setProfilePicUrl(null);
+      } else if (serverProfile.profilePicUrl) {
+        setAvatarId(null);
+        setProfilePicUrl(serverProfile.profilePicUrl);
+      }
+      await updateUser({
+        name: serverProfile.name || user?.name,
+        ...(serverProfile.id != null
+          ? { id: serverProfile.id, userId: serverProfile.id }
+          : {}),
+        avatarId: serverProfile.avatarId ?? null,
+        profilePicUrl: serverProfile.profilePicUrl ?? null,
+        useLocalAvatar: Boolean(serverProfile.avatarId) || !serverProfile.profilePicUrl,
+        ...(serverProfile.createdAt ? { createdAt: serverProfile.createdAt } : {}),
+        ...(serverProfile.hasNewUserFrame ? { hasNewUserFrame: true } : {}),
+        ...(serverProfile.newUserFrameUrl ? { newUserFrameUrl: serverProfile.newUserFrameUrl } : {}),
+        ...(serverProfile.level != null ? { level: serverProfile.level } : {}),
+        ...(serverProfile.levelBadgeUrl ? { levelBadgeUrl: serverProfile.levelBadgeUrl } : {}),
+      });
+      const frameSource = await syncNewUserFrameForSession();
+      setNewUserFrameSource(frameSource);
+      const levelData = await syncUserLevelForSession();
+      if (levelData?.level != null) setUserLevel(levelData.level);
+      setLevelBadgeSource(levelData?.badgeSource ?? null);
+      setVipAssets(await loadMyVipAssets(levelData?.xp?.totalXp));
+    } catch {
+      // Keep cached local values if the profile tab fetch fails.
+    } finally {
+      setProfileTabLoading(false);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      const loadProfile = async () => {
-        const user = await getUser();
-        if (user) {
-          if (user.name) setName(user.name);
-          if (user.avatarId) {
-            setAvatarId(user.avatarId);
-            setEditAvatarId(user.avatarId);
-          }
-        }
-      };
-      loadProfile();
-    }, [])
+      hydrateFromLocalUser();
+      refreshWalletBalance();
+      loadConnectionStats();
+    }, [hydrateFromLocalUser, loadConnectionStats])
   );
 
-  const handleSaveProfile = async () => {
-    setEditVisible(false);
-    await updateUser({ name, avatarId: editAvatarId });
-    setAvatarId(editAvatarId);
+  useEffect(() => {
+    if (activeTab === "Moment") {
+      if (tabDataLoadedRef.current.Moment) return;
+      tabDataLoadedRef.current.Moment = true;
+      loadMyPosts();
+      return;
+    }
+    if (activeTab === "Profile") {
+      if (tabDataLoadedRef.current.Profile) return;
+      tabDataLoadedRef.current.Profile = true;
+      loadProfileTabData();
+      return;
+    }
+    if (activeTab === "Gift") {
+      if (tabDataLoadedRef.current.Gift) return;
+      tabDataLoadedRef.current.Gift = true;
+      setGiftsLoading(true);
+      Promise.allSettled([getGiftsReceived(), getGiftsSent()]).then(([receivedRes, sentRes]) => {
+        if (receivedRes.status === "fulfilled") {
+          const data = receivedRes.value;
+          console.log("[Gift] Received response:", JSON.stringify(data, null, 2));
+          const list = Array.isArray(data) ? data : (data?.data ?? data?.gifts ?? data?.list ?? []);
+          setGiftsReceived(list);
+          setGiftEarnedCount(list.length);
+        } else {
+          console.error("[Gift] Received fetch error:", receivedRes.reason?.message ?? receivedRes.reason);
+        }
+        if (sentRes.status === "fulfilled") {
+          const data = sentRes.value;
+          console.log("[Gift] Sent response:", JSON.stringify(data, null, 2));
+          const list = Array.isArray(data) ? data : (data?.data ?? data?.gifts ?? data?.list ?? []);
+          setGiftsSent(list);
+        } else {
+          console.error("[Gift] Sent fetch error:", sentRes.reason?.message ?? sentRes.reason);
+        }
+        setGiftsLoading(false);
+      });
+    }
+  }, [activeTab, loadMyPosts, loadProfileTabData]);
+
+  const handleOpenEditPost = useCallback((post) => {
+    setEditingPost(post);
+    setEditPostText(post?.text ?? "");
+  }, []);
+
+  const handleSavePostDescription = useCallback(async () => {
+    if (!editingPost?.id || postSaving) return;
+    setPostSaving(true);
+    try {
+      const updated = await updateMyPostDescription(editingPost.id, editPostText);
+      setMyPosts((prev) =>
+        prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p))
+      );
+      setEditingPost(null);
+      setEditPostText("");
+    } catch (err) {
+      Alert.alert("Update failed", err?.message || "Could not update this post.");
+    } finally {
+      setPostSaving(false);
+    }
+  }, [editingPost, editPostText, postSaving]);
+
+  const handleOpenSavedUser = useCallback(async (user) => {
+    setActiveMenu(null);
+    await openUserChat(router, {
+      userId: user.userId,
+      id: user.userId,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      profilePicUrl: user.avatarUrl,
+    });
+  }, [router]);
+
+  const handleRemoveSavedUser = useCallback(async (userId) => {
+    if (removingSavedUserId) return;
+    setRemovingSavedUserId(String(userId));
+
+    try {
+      await removeFavoriteUser(userId);
+      setSavedUsers((prev) => prev.filter((u) => u.userId !== String(userId)));
+    } catch (err) {
+
+      Alert.alert(
+        "Remove failed",
+        err?.message || "Could not remove this user from Saved."
+      );
+    } finally {
+      setRemovingSavedUserId(null);
+    }
+  }, [removingSavedUserId]);
+
+  useEffect(() => {
+    if (activeMenu?.label !== "Task") return;
+
+    let cancelled = false;
+    setTasksLoading(true);
+    loadDailyTasks()
+      .then((tasks) => {
+        if (!cancelled) setDailyTasks(tasks);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+
+          setDailyTasks([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTasksLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMenu]);
+
+  const [claimingTask, setClaimingTask] = useState(null);
+
+  const handleClaimTask = async (task) => {
+    if (task.claimed || !task.completed || claimingTask) return;
+    setClaimingTask(task.taskType);
+
+    try {
+      await claimRewardTask(task);
+      const tasks = await loadDailyTasks();
+      setDailyTasks(tasks);
+      await refreshWalletBalance();
+
+      Alert.alert(
+        "Reward claimed!",
+        `You earned ${task.reward}💎 for "${task.label}".`
+      );
+    } catch (err) {
+
+      Alert.alert(
+        "Could not claim",
+        err?.message || "This task can't be claimed yet. Please try again."
+      );
+    } finally {
+      setClaimingTask(null);
+    }
   };
+
+  const handleOpenEditProfile = () => {
+    setEditName(name);
+    setEditAvatarId(avatarId);
+    setEditVisible(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (profileSaving) return;
+
+    const trimmedName = editName.trim();
+    if (!trimmedName) {
+      Alert.alert("Name required", "Please enter a display name.");
+      return;
+    }
+
+    setProfileSaving(true);
+    try {
+      const saved = await saveMyProfile({
+        name: trimmedName,
+        avatarId: editAvatarId,
+      });
+
+      const nextName = saved?.name ?? trimmedName;
+      const nextAvatarId = saved?.avatarId ?? editAvatarId;
+      const nextProfilePicUrl = saved?.profilePicUrl ?? null;
+
+      setName(nextName);
+      setAvatarId(nextAvatarId);
+      setProfilePicUrl(nextProfilePicUrl);
+
+      await updateUser({
+        name: nextName,
+        avatarId: nextAvatarId,
+        profilePicUrl: nextProfilePicUrl,
+        useLocalAvatar: Boolean(nextAvatarId) || !nextProfilePicUrl,
+      });
+
+      setEditVisible(false);
+
+    } catch (err) {
+
+      Alert.alert("Save failed", err?.message || "Could not save your profile. Please try again.");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const editPreviewSource = getAvatarSource(editAvatarId);
 
   const renderMenuContent = () => {
     if (!activeMenu) return null;
     const { label } = activeMenu;
 
-    // ── MENU UI COMMENTED OUT ─────────────────────────────────────────────────
-   
+    if (activeMenu.comingSoon) {
+      return (
+        <View style={styles.comingSoonPanel}>
+          <Text style={styles.comingSoonPanelEmoji}>🚧</Text>
+          <Text style={styles.comingSoonPanelTitle}>Coming Soon</Text>
+          <Text style={styles.comingSoonPanelSub}>{label} is on its way — check back soon!</Text>
+        </View>
+      );
+    }
 
-    // ── GET REWARDS ───────────────────────────────────────────────────────────
-    if (label === "Get Rewards") {
-      const days = [
-        { day: "Mon", reward: "10💎", claimed: true },
-        { day: "Tue", reward: "20💎", claimed: true },
-        { day: "Wed", reward: "15🪙", claimed: true },
-        { day: "Thu", reward: "30💎", claimed: false, today: true },
-        { day: "Fri", reward: "25💎", claimed: false },
-        { day: "Sat", reward: "50💎", claimed: false },
-        { day: "Sun", reward: "100💎", claimed: false },
-      ];
+    // ── SAVED / FAVOURITE USERS ───────────────────────────────────────────────
+    if (label === "Saved") {
       return (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
           <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(168,85,247,0.1)"]} style={styles.mmHeroBox}>
-            <Text style={{ fontSize: 48 }}>🎁</Text>
-            <Text style={styles.mmHeroTitle}>Day 3 Streak!</Text>
-            <Text style={styles.mmHeroSub}>Keep logging in daily to earn bigger rewards</Text>
+            <Text style={{ fontSize: 40 }}>⭐</Text>
+            <Text style={styles.mmHeroTitle}>{savedUsers.length} Saved</Text>
+            <Text style={styles.mmHeroSub}>People you saved on Tuk Tuk</Text>
           </LinearGradient>
-          <View style={styles.mmDayGrid}>
-            {days.map((d) => (
-              <View key={d.day} style={[styles.mmDayCell, d.today && styles.mmDayCellActive, d.claimed && styles.mmDayCellClaimed]}>
-                <Text style={styles.mmDayName}>{d.day}</Text>
-                <Text style={{ fontSize: 16, marginVertical: 4 }}>{d.claimed ? "✅" : d.today ? "🎯" : "🔒"}</Text>
-                <Text style={styles.mmDayVal}>{d.reward}</Text>
-              </View>
-            ))}
-          </View>
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Claim Today's Reward  30💎</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <View style={styles.mmInfoRow}>
-            <Ionicons name="trophy-outline" size={16} color="#fbbf24" />
-            <Text style={styles.mmInfoText}>Complete 7 days for a 500💎 bonus!</Text>
-          </View>
+
+          {savedUsersLoading ? (
+            <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
+          ) : savedUsers.length === 0 ? (
+            <View style={styles.savedEmptyBox}>
+              <Text style={styles.savedEmptyEmoji}>🔖</Text>
+              <Text style={styles.savedEmptyTitle}>No saved users yet</Text>
+              <Text style={styles.savedEmptyText}>
+                Save people from Nearby or Find Friends and they will appear here.
+              </Text>
+            </View>
+          ) : (
+            savedUsers.map((u) => (
+              <TouchableOpacity
+                key={u.userId}
+                style={styles.savedRow}
+                activeOpacity={0.8}
+                onPress={() => handleOpenSavedUser(u)}
+              >
+                {u.avatarUrl ? (
+                  <ProfileAvatarWithFrame
+                    avatarSource={/ngrok-free\.dev|ngrok\.io/i.test(u.avatarUrl ?? "")
+                      ? { uri: u.avatarUrl, headers: { "ngrok-skip-browser-warning": "true" } }
+                      : { uri: u.avatarUrl }}
+                    frameSource={u.vipProfileFrameUrl}
+                    size={48}
+                    avatarStyle={styles.savedAvatar}
+                    {...(u.vipProfileFrameUrl
+                      ? {
+                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                        }
+                      : {})}
+                  />
+                ) : (
+                  <View style={[styles.savedAvatar, styles.savedAvatarFallback]}>
+                    <FontAwesome5 name="user" size={18} color="#a78bfa" solid />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.savedName} numberOfLines={1}>{u.name}</Text>
+                  {u.occupation ? (
+                    <Text style={styles.savedSub} numberOfLines={1}>💼 {u.occupation}</Text>
+                  ) : (
+                    <Text style={styles.savedSub}>Tap to message</Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.savedRemoveBtn}
+                  onPress={() => handleRemoveSavedUser(u.userId)}
+                  disabled={removingSavedUserId === u.userId}
+                  activeOpacity={0.8}
+                >
+                  {removingSavedUserId === u.userId ? (
+                    <ActivityIndicator color="#ff6b6b" size="small" />
+                  ) : (
+                    <Ionicons name="close" size={16} color="#ff6b6b" />
+                  )}
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ))
+          )}
         </ScrollView>
       );
     }
 
+    // ── MENU UI COMMENTED OUT ─────────────────────────────────────────────────
+
+
+    // ── GET REWARDS (invite friends → diamonds) ───────────────────────────────
+    if (label === "Get Rewards") {
+      return <GetRewardsPanel active={activeMenu?.label === "Get Rewards"} />;
+    }
+
     // ── TASK ──────────────────────────────────────────────────────────────────
     if (label === "Task") {
-      const daily = [
-        { label: "Log in today", xp: "10💎", done: true },
-        { label: "Send 5 messages", xp: "20💎", done: true },
-        { label: "Join a voice room", xp: "15🪙", done: false },
-        { label: "Follow 2 new people", xp: "10💎", done: false },
-      ];
-      const weekly = [
-        { label: "Reach Level 5", xp: "200💎", done: false },
-        { label: "Match 3 people", xp: "100💎", done: false },
-        { label: "Post a moment", xp: "50🪙", done: false },
-      ];
+      const claimedCount = dailyTasks.filter((t) => t.claimed).length;
+      const totalCount = dailyTasks.length;
+      const claimedDiamonds = claimedTasksDiamondTotal(dailyTasks);
+      const totalReward = tasksTotalReward(dailyTasks);
+      const progressPct = totalCount
+        ? Math.round((claimedCount / totalCount) * 100)
+        : 0;
       return (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
+          <LinearGradient
+            colors={["rgba(124,77,255,0.2)", "rgba(168,85,247,0.1)"]}
+            style={styles.mmHeroBox}
+          >
+            <Text style={{ fontSize: 40 }}>💎</Text>
+            <Text style={styles.mmHeroTitle}>{claimedDiamonds}💎 earned</Text>
+            <Text style={styles.mmHeroSub}>
+              Finish tasks to earn up to {totalReward}💎
+            </Text>
+          </LinearGradient>
+
           <View style={styles.mmProgressCard}>
             <View style={styles.mmProgressLabelRow}>
-              <Text style={styles.mmProgressTitle}>Daily Progress</Text>
-              <Text style={styles.mmProgressVal}>2 / 4</Text>
+              <Text style={styles.mmProgressTitle}>Tasks Completed</Text>
+              <Text style={styles.mmProgressVal}>{claimedCount} / {totalCount}</Text>
             </View>
-            <View style={styles.mmProgressBar}><View style={[styles.mmProgressFill, { width: "50%" }]} /></View>
+            <View style={styles.mmProgressBar}>
+              <View style={[styles.mmProgressFill, { width: `${progressPct}%` }]} />
+            </View>
           </View>
-          <Text style={styles.mmSectionLabel}>Daily Tasks</Text>
-          {daily.map((t) => (
-            <View key={t.label} style={styles.mmTaskRow}>
-              <View style={[styles.mmTaskCheck, t.done && styles.mmTaskCheckDone]}>
-                {t.done && <Ionicons name="checkmark" size={13} color="white" />}
-              </View>
-              <Text style={[styles.mmTaskText, t.done && styles.mmTaskTextDone]}>{t.label}</Text>
-              <Text style={styles.mmTaskReward}>{t.xp}</Text>
-            </View>
-          ))}
-          <Text style={styles.mmSectionLabel}>Weekly Tasks</Text>
-          {weekly.map((t) => (
-            <View key={t.label} style={styles.mmTaskRow}>
-              <View style={[styles.mmTaskCheck, t.done && styles.mmTaskCheckDone]}>
-                {t.done && <Ionicons name="checkmark" size={13} color="white" />}
-              </View>
-              <Text style={[styles.mmTaskText, t.done && styles.mmTaskTextDone]}>{t.label}</Text>
-              <Text style={styles.mmTaskReward}>{t.xp}</Text>
-            </View>
-          ))}
+
+          <Text style={styles.mmSectionLabel}>Reward Tasks</Text>
+          {tasksLoading && dailyTasks.length === 0 ? (
+            <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
+          ) : dailyTasks.length === 0 ? (
+            <Text style={styles.mmInfoText}>No tasks available right now.</Text>
+          ) : (
+            dailyTasks.map((t) => {
+              const claimed = t.claimed;
+              const claiming = claimingTask === t.taskType;
+              const canClaim = t.completed && !claimed;
+              const showProgress = t.targetCount > 1;
+              return (
+                <View key={t.taskType} style={styles.mmTaskRow}>
+                  <Text style={{ fontSize: 18, marginRight: 10 }}>{t.emoji}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone]}>
+                      {t.label}
+                    </Text>
+                    <Text style={styles.mmTaskReward}>+{t.reward}💎</Text>
+                    {showProgress ? (
+                      <Text style={styles.mmTaskProgress}>
+                        {t.progressCount}/{t.targetCount}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    disabled={claimed || !canClaim || claiming}
+                    onPress={() => handleClaimTask(t)}
+                    style={[
+                      styles.mmClaimBtn,
+                      claimed && styles.mmClaimBtnDone,
+                      !canClaim && !claimed && styles.mmClaimBtnDisabled,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.mmClaimBtnText,
+                        claimed && styles.mmClaimBtnTextDone,
+                        !canClaim && !claimed && styles.mmClaimBtnTextDisabled,
+                      ]}
+                    >
+                      {claimed ? "Claimed" : claiming ? "..." : canClaim ? "Claim" : "In progress"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })
+          )}
+
+          <View style={styles.mmInfoRow}>
+            <Ionicons name="information-circle-outline" size={16} color="#a78bfa" />
+            <Text style={styles.mmInfoText}>
+              Claimed diamonds are added to your balance instantly.
+            </Text>
+          </View>
         </ScrollView>
       );
     }
 
     // ── MONTHLY CARD ──────────────────────────────────────────────────────────
     if (label === "Monthly Card") {
-      const perks = ["100💎 daily for 30 days", "Exclusive Monthly Card frame", "2× XP boost for 30 days", "Priority room entry", "Ad-free experience"];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.mmCardHero}>
-            <Text style={styles.mmCardHeroLabel}>MONTHLY CARD</Text>
-            <Text style={styles.mmCardHeroPrice}>₹199 / month</Text>
-            <Text style={styles.mmCardHeroSub}>3,000💎 total value</Text>
-          </LinearGradient>
-          <Text style={styles.mmSectionLabel}>What you get</Text>
-          {perks.map((p) => (
-            <View key={p} style={styles.mmPerkRow}>
-              <Ionicons name="checkmark-circle" size={20} color="#a78bfa" />
-              <Text style={styles.mmPerkText}>{p}</Text>
-            </View>
-          ))}
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Subscribe Now</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
-      );
+      return <MonthlyCardPanel />;
     }
 
     // ── STORE ─────────────────────────────────────────────────────────────────
@@ -291,102 +1657,21 @@ export default function Profile() {
 
     // ── WALLET ────────────────────────────────────────────────────────────────
     if (label === "Wallet") {
-      const txns = [
-        { label: "Daily reward", amount: "+10💎", date: "Today", color: "#4ade80" },
-        { label: "Daily reward", amount: "+10💎", date: "Yesterday", color: "#4ade80" },
-        { label: "Store purchase", amount: "-60💎", date: "May 28", color: "#f87171" },
-      ];
       return (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmWalletCard}>
-            <Text style={styles.mmWalletLabel}>Total Balance</Text>
-            <View style={styles.mmWalletBalRow}>
-              <Text style={{ fontSize: 26 }}>💎</Text>
-              <Text style={styles.mmWalletAmount}>  2 Diamonds</Text>
-            </View>
-            <View style={styles.mmWalletBalRow}>
-              <Text style={{ fontSize: 20 }}>🪙</Text>
-              <Text style={[styles.mmWalletAmount, { fontSize: 18 }]}>  0 Coins</Text>
-            </View>
-            <TouchableOpacity style={styles.mmWalletTopUp} activeOpacity={0.8}>
-              <Text style={styles.mmWalletTopUpText}>+ Top Up</Text>
-            </TouchableOpacity>
-          </LinearGradient>
-          <Text style={styles.mmSectionLabel}>Recent Transactions</Text>
-          {txns.map((t, i) => (
-            <View key={i} style={styles.mmTxnRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.mmTxnLabel}>{t.label}</Text>
-                <Text style={styles.mmTxnDate}>{t.date}</Text>
-              </View>
-              <Text style={[styles.mmTxnAmount, { color: t.color }]}>{t.amount}</Text>
-            </View>
-          ))}
+          <WalletRechargeSection currentDiamonds={walletDiamonds} currentCoins={walletCoins} />
         </ScrollView>
       );
     }
 
-    // ── PREMIUM ───────────────────────────────────────────────────────────────
+    // ── PREMIUM (gem-tier wealth system) ────────────────────────────────────────
     if (label === "Premium") {
-      const features = [
-        { icon: "eye-off-outline", label: "Invisible mode", free: false },
-        { icon: "infinite-outline", label: "Unlimited matches", free: false },
-        { icon: "star-outline", label: "Priority in search", free: false },
-        { icon: "chatbubble-ellipses-outline", label: "Unlimited messages", free: true },
-        { icon: "person-outline", label: "See profile visitors", free: false },
-        { icon: "shield-checkmark-outline", label: "Verified badge", free: false },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.mmPremiumHero}>
-            <Ionicons name="shield-checkmark" size={44} color="white" />
-            <Text style={styles.mmPremiumHeroTitle}>Go Premium</Text>
-            <Text style={styles.mmPremiumHeroSub}>Unlock the full Tuk-Tuk experience</Text>
-          </LinearGradient>
-          {features.map((f) => (
-            <View key={f.label} style={styles.mmFeatureRow}>
-              <Ionicons name={f.icon} size={20} color="#a78bfa" />
-              <Text style={styles.mmFeatureLabel}>{f.label}</Text>
-              <Ionicons name={f.free ? "checkmark-circle" : "lock-closed"} size={20} color={f.free ? "#4ade80" : "#f87171"} />
-            </View>
-          ))}
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#ec4899"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Upgrade for ₹299/month</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
-      );
+      return <PremiumPanel onClose={() => setActiveMenu(null)} />;
     }
 
     // ── VIP ───────────────────────────────────────────────────────────────────
     if (label === "VIP") {
-      const tiers = [
-        { level: "VIP 1", req: "1,000 pts", colors: ["#cd7f32", "#a0522d"], emoji: "🥉" },
-        { level: "VIP 2", req: "5,000 pts", colors: ["#9ca3af", "#6b7280"], emoji: "🥈" },
-        { level: "VIP 3", req: "15,000 pts", colors: ["#fbbf24", "#f59e0b"], emoji: "🥇" },
-        { level: "VIP 4", req: "50,000 pts", colors: ["#7c4dff", "#a855f7"], emoji: "💜" },
-        { level: "VIP 5", req: "200,000 pts", colors: ["#ec4899", "#f43f5e"], emoji: "👑" },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <View style={styles.mmVIPCurrentBox}>
-            <Text style={styles.mmVIPCurrentLabel}>Your VIP Status</Text>
-            <Text style={styles.mmVIPCurrentVal}>Not VIP Yet</Text>
-            <Text style={styles.mmVIPCurrentSub}>Top up diamonds to earn VIP points</Text>
-          </View>
-          {tiers.map((t) => (
-            <LinearGradient key={t.level} colors={t.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmVIPTier}>
-              <Text style={{ fontSize: 24 }}>{t.emoji}</Text>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.mmVIPTierName}>{t.level}</Text>
-                <Text style={styles.mmVIPTierReq}>{t.req} to unlock</Text>
-              </View>
-              <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.65)" />
-            </LinearGradient>
-          ))}
-        </ScrollView>
-      );
+      return <VipCenterPanel />;
     }
 
     // ── COUPON ────────────────────────────────────────────────────────────────
@@ -410,7 +1695,7 @@ export default function Profile() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
           <View style={styles.mmHonorHero}>
             <Text style={{ fontSize: 52, marginBottom: 8 }}>⭐</Text>
-            <Text style={styles.mmHonorLevel}>Level 1</Text>
+            <Text style={styles.mmHonorLevel}>Level {userLevel ?? 1}</Text>
             <Text style={styles.mmHonorXP}>0 / 500 XP to Level 2</Text>
             <View style={[styles.mmProgressBar, { width: "100%", marginTop: 10 }]}>
               <View style={[styles.mmProgressFill, { width: "3%" }]} />
@@ -429,21 +1714,7 @@ export default function Profile() {
 
     // ── FAMILY ────────────────────────────────────────────────────────────────
     if (label === "Family") {
-      return (
-        <View style={styles.mmEmptyCenter}>
-          <Text style={{ fontSize: 64 }}>🏠</Text>
-          <Text style={styles.mmEmptyTitle}>No Family Yet</Text>
-          <Text style={styles.mmEmptySub}>Create or join a family to grow together, earn family rewards, and unlock exclusive perks.</Text>
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Create Family</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.mmOutlineBtn, { marginTop: 10 }]} activeOpacity={0.8}>
-            <Text style={styles.mmOutlineBtnText}>Join a Family</Text>
-          </TouchableOpacity>
-        </View>
-      );
+      return <FamilyContent />;
     }
 
     // ── MATCHMAKER ────────────────────────────────────────────────────────────
@@ -476,118 +1747,22 @@ export default function Profile() {
 
     // ── BACKPACK ──────────────────────────────────────────────────────────────
     if (label === "Backpack") {
-      const items = [
-        { emoji: "🎭", label: "Avatar Frame", qty: 1 },
-        { emoji: "✨", label: "Entry Effect", qty: 0 },
-        { emoji: "🎵", label: "Bubble Theme", qty: 0 },
-        { emoji: "🏅", label: "Room Badge", qty: 2 },
-        { emoji: "👑", label: "VIP Effect", qty: 0 },
-        { emoji: "🌈", label: "Profile BG", qty: 1 },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <View style={styles.mmBackpackGrid}>
-            {items.map((it) => (
-              <View key={it.label} style={[styles.mmBackpackItem, it.qty === 0 && { opacity: 0.38 }]}>
-                <Text style={{ fontSize: 32, marginBottom: 6 }}>{it.emoji}</Text>
-                <Text style={styles.mmBackpackLabel}>{it.label}</Text>
-                {it.qty > 0
-                  ? <View style={styles.mmBackpackBadge}><Text style={styles.mmBackpackBadgeText}>×{it.qty}</Text></View>
-                  : <Text style={styles.mmBackpackEmpty}>None</Text>}
-              </View>
-            ))}
-          </View>
-        </ScrollView>
-      );
+      return <BackpackPanel />;
     }
 
     // ── ROOM PREMIUM ─────────────────────────────────────────────────────────
     if (label === "Room Premium") {
-      const themes = [
-        { label: "Galaxy", colors: ["#1a0a2e", "#7c4dff"], emoji: "🌌" },
-        { label: "Neon City", colors: ["#0f2027", "#00c6ff"], emoji: "🏙️" },
-        { label: "Cherry Blossom", colors: ["#7c1c4e", "#ec4899"], emoji: "🌸" },
-        { label: "Ocean Deep", colors: ["#021b79", "#0575e6"], emoji: "🌊" },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <Text style={styles.mmSectionLabel}>Premium Room Themes</Text>
-          {themes.map((t) => (
-            <TouchableOpacity key={t.label} activeOpacity={0.8}>
-              <LinearGradient colors={t.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmThemeRow}>
-                <Text style={{ fontSize: 28 }}>{t.emoji}</Text>
-                <Text style={styles.mmThemeName}>{t.label}</Text>
-                <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.7)" />
-              </LinearGradient>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Upgrade Room</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
-      );
+      return <RoomPremiumPanel />;
     }
 
     // ── TUKTUK PASS ───────────────────────────────────────────────────────────
     if (label === "TukTuk Pass") {
-      const benefits = ["Daily 50💎 for 7 days", "Exclusive pass holder frame", "Skip ads for 7 days", "Priority customer support", "Early access to new features"];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.mmPassCard}>
-            <Text style={styles.mmPassTitle}>TUKTUK PASS</Text>
-            <Text style={styles.mmPassPrice}>₹99 / week</Text>
-            <Text style={styles.mmPassSub}>350💎 total value</Text>
-          </LinearGradient>
-          <Text style={styles.mmSectionLabel}>Pass Benefits</Text>
-          {benefits.map((b) => (
-            <View key={b} style={styles.mmPerkRow}>
-              <Ionicons name="checkmark-circle" size={18} color="#a78bfa" />
-              <Text style={styles.mmPerkText}>{b}</Text>
-            </View>
-          ))}
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
-              <Text style={styles.mmPrimaryBtnText}>Get TukTuk Pass</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
-      );
+      return <TukTukPassPanel />;
     }
 
     // ── LEVEL ─────────────────────────────────────────────────────────────────
     if (label === "Level") {
-      const milestones = [
-        { lv: 5, perk: "Custom nickname color" },
-        { lv: 10, perk: "Profile animation unlock" },
-        { lv: 20, perk: "Exclusive level badge" },
-        { lv: 50, perk: "VIP room access" },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <View style={styles.mmLevelHero}>
-            <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmLevelBadge}>
-              <Text style={styles.mmLevelNum}>1</Text>
-            </LinearGradient>
-            <Text style={styles.mmLevelTitle}>Level 1</Text>
-            <Text style={styles.mmLevelXP}>0 / 200 XP to next level</Text>
-            <View style={[styles.mmProgressBar, { width: "100%", marginTop: 10 }]}>
-              <View style={[styles.mmProgressFill, { width: "3%" }]} />
-            </View>
-          </View>
-          <Text style={styles.mmSectionLabel}>Level Milestones</Text>
-          {milestones.map((m) => (
-            <View key={m.lv} style={styles.mmTaskRow}>
-              <LinearGradient colors={["#7c4dff", "#a855f7"]} style={styles.mmLevelPerkBadge}>
-                <Text style={styles.mmLevelPerkNum}>Lv{m.lv}</Text>
-              </LinearGradient>
-              <Text style={[styles.mmTaskText, { flex: 1, marginLeft: 12 }]}>{m.perk}</Text>
-              <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.35)" />
-            </View>
-          ))}
-        </ScrollView>
-      );
+      return <UserLevelPanel />;
     }
 
     // ── INSTAGRAM / FACEBOOK ──────────────────────────────────────────────────
@@ -772,13 +1947,23 @@ export default function Profile() {
                 textAlignVertical="top"
               />
               <TouchableOpacity
-                style={[styles.mmPrimaryBtn, !profileFeedback.trim() && { opacity: 0.4 }]}
+                style={[styles.mmPrimaryBtn, (!profileFeedback.trim() || feedbackSubmittingMM) && { opacity: 0.4 }]}
                 activeOpacity={0.8}
-                disabled={!profileFeedback.trim()}
-                onPress={() => {
-                  setFeedbackSentMM(true);
-                  setProfileFeedback("");
-                  setTimeout(() => setFeedbackSentMM(false), 3000);
+                disabled={!profileFeedback.trim() || feedbackSubmittingMM}
+                onPress={async () => {
+                  const text = profileFeedback.trim();
+                  if (!text || feedbackSubmittingMM) return;
+                  setFeedbackSubmittingMM(true);
+                  try {
+                    await submitFeedback(text);
+                    setFeedbackSentMM(true);
+                    setProfileFeedback("");
+                    setTimeout(() => setFeedbackSentMM(false), 3000);
+                  } catch (err) {
+                    Alert.alert("Send failed", err?.message ?? "Could not send feedback. Please try again.");
+                  } finally {
+                    setFeedbackSubmittingMM(false);
+                  }
                 }}
               >
                 <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
@@ -820,29 +2005,35 @@ export default function Profile() {
       <View style={styles.orbPurple} />
 
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPad }]}
         showsVerticalScrollIndicator={false}
       >
         {/* ── TOP BAR ── */}
         <View style={styles.topBar}>
           {/* Diamond counter */}
-          <TouchableOpacity style={styles.counterPill} activeOpacity={0.8}>
+          <View style={styles.counterPill}>
             <View style={styles.counterIconWrap}>
               <Text style={styles.counterEmoji}>💎</Text>
             </View>
-            <Text style={styles.counterValue}>2</Text>
-            <View style={styles.plusBtn}>
+            <Text style={styles.counterValue}>{walletDiamonds.toLocaleString("en-IN")}</Text>
+            <TouchableOpacity
+              style={styles.plusBtn}
+              activeOpacity={0.85}
+              onPress={() => setDiamondRechargeVisible(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
               <FontAwesome name="plus" size={10} color="white" />
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
 
           {/* Coin counter */}
           <TouchableOpacity style={styles.counterPill} activeOpacity={0.8}>
             <View style={[styles.counterIconWrap, styles.coinIconWrap]}>
               <Text style={styles.counterEmoji}>🪙</Text>
             </View>
-            <Text style={styles.counterValue}>0</Text>
+            <Text style={styles.counterValue}>{walletCoins.toLocaleString()}</Text>
             <View style={styles.plusBtn}>
               <FontAwesome name="plus" size={10} color="white" />
             </View>
@@ -863,7 +2054,7 @@ export default function Profile() {
         {/* ── CHARACTER IMAGE ── */}
         <View style={styles.characterWrapper}>
           <Image
-            source={meImg}
+            source={userGender === "Male" ? boyMeImg : meImg}
             style={styles.characterImg}
             resizeMode="contain"
           />
@@ -901,36 +2092,65 @@ export default function Profile() {
 
             {/* Avatar with frame */}
             <View style={styles.profilePicWrapper}>
-              <Image source={avatarSource} style={styles.profilePic} />
-              <Image source={frameImg} style={styles.profileFrame} resizeMode="contain" />
+              <ProfileAvatarWithFrame
+                avatarSource={avatarSource}
+                frameSource={vipAssets.profileFrame ?? newUserFrameSource}
+                size={s(72)}
+                avatarStyle={styles.profilePic}
+                wrapperStyle={styles.profilePicFrameWrap}
+                {...(vipAssets.profileFrame
+                  ? {
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX - 2,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
+                  : {})}
+              />
             </View>
 
             {/* Name + ID + badges */}
             <View style={styles.profileInfoCol}>
+
+              {/* Row 1: Username + Edit */}
               <View style={styles.nameRow}>
                 <Text style={styles.userName} numberOfLines={1}>{name}</Text>
-                <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={() => setEditVisible(true)}>
+                <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={handleOpenEditProfile}>
                   <FontAwesome name="pencil" size={13} color="#7c3aed" />
                   <Text style={styles.editText}>Edit</Text>
                 </TouchableOpacity>
               </View>
 
-              {/* ID + level badge inline */}
+              {/* Row 2: ID + gender symbol right next to it */}
               <View style={styles.idRow}>
-                <Text style={styles.userId}>ID: 167038</Text>
-                <Image
-                  source={require("../../assets/level/level1.png")}
-                  style={styles.levelBadge}
-                  resizeMode="contain"
-                />
+                <Text allowFontScaling={false} style={styles.userId}>ID: {userId ?? "—"}</Text>
+                {userGender === "Male" && (
+                  <Text style={styles.genderSymbolMale}>♂</Text>
+                )}
+                {userGender === "Female" && (
+                  <Text style={styles.genderSymbolFemale}>♀</Text>
+                )}
               </View>
 
-              {/* Verified badge */}
-              <Image
-                source={require("../../assets/Batches/verified-batch.png")}
-                style={styles.verifiedBadge}
-                resizeMode="contain"
-              />
+              {/* Row 3: Level badge + New Star badge + Verified badge — same height,
+                  same gap for every badge. Wraps automatically if more get added. */}
+              <View style={styles.profileLevelWrap}>
+                <ProfileBadge
+                  source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel ?? 1)}
+                  aspectRatio={PROFILE_BADGE_ASPECT.level}
+                />
+                {newUserFrameSource && (
+                  <ProfileBadge source={NEW_START_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.newStar} />
+                )}
+                {vipAssets.unlocked && vipAssets.logo && (
+                  <ProfileBadge source={{ uri: vipAssets.logo }} aspectRatio={PROFILE_BADGE_ASPECT.vip} />
+                )}
+                <ProfileBadge source={VERIFIED_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
+              </View>
+
             </View>
           </View>
 
@@ -939,20 +2159,38 @@ export default function Profile() {
 
           {/* Stats row */}
           <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{following}</Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </View>
+            {statsLoading ? (
+              <ActivityIndicator color="#a78bfa" style={{ paddingVertical: 8 }} />
+            ) : (
+              <>
+            <TouchableOpacity
+              style={styles.statItem}
+              activeOpacity={0.75}
+              onPress={() => setConnectionsListType("following")}
+            >
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{following.toLocaleString()}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Following</Text>
+            </TouchableOpacity>
             <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{followers.toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </View>
+            <TouchableOpacity
+              style={styles.statItem}
+              activeOpacity={0.75}
+              onPress={() => setConnectionsListType("followers")}
+            >
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{followers.toLocaleString()}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Followers</Text>
+            </TouchableOpacity>
             <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{Visitor.toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Visitor</Text>
-            </View>
+            <TouchableOpacity
+              style={styles.statItem}
+              activeOpacity={0.75}
+              onPress={() => setConnectionsListType("visitors")}
+            >
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{visitorCount.toLocaleString()}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Visitor</Text>
+            </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
 
@@ -964,7 +2202,7 @@ export default function Profile() {
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(e) => {
-              const page = Math.round(e.nativeEvent.contentOffset.x / (SCREEN_WIDTH - 32));
+              const page = Math.round(e.nativeEvent.contentOffset.x / (screen.width - 32));
               setMenuPage(page);
             }}
           >
@@ -1025,78 +2263,332 @@ export default function Profile() {
                 <FontAwesome name="send" size={20} color="white" />
               </View>
             </TouchableOpacity>
+
+            {myPostsLoading ? (
+              <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
+            ) : myPosts.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>📦</Text>
+                <Text style={styles.emptyText}>No moments yet</Text>
+              </View>
+            ) : (
+              myPosts.map((post) => (
+                <View key={String(post.id)} style={styles.momentPostCard}>
+                  <View style={styles.momentPostHeader}>
+                    <View style={styles.momentPostAuthor}>
+                      <ProfileAvatarWithFrame
+                        avatarSource={avatarSource}
+                        frameSource={vipAssets.profileFrame ?? newUserFrameSource}
+                        size={s(36)}
+                        avatarStyle={styles.momentPostAuthorAvatar}
+                        wrapperStyle={styles.momentPostAuthorAvatarWrap}
+                        {...(vipAssets.profileFrame
+                          ? {
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
+                          : {})}
+                      />
+                      <View style={styles.momentPostAuthorInfo}>
+                        <Text style={styles.momentPostTitle}>{name}</Text>
+                        <Image
+                          source={VERIFIED_BADGE}
+                          style={styles.momentPostAuthorBatch}
+                          resizeMode="contain"
+                        />
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.momentPostEditBtn}
+                      onPress={() => handleOpenEditPost(post)}
+                      activeOpacity={0.8}
+                    >
+                      <FontAwesome name="pencil" size={12} color="#c4b5fd" />
+                      <Text style={styles.momentPostEditText}>Edit</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {post.text ? (
+                    <Text style={styles.momentPostText}>{post.text}</Text>
+                  ) : (
+                    <Text style={styles.momentPostTextMuted}>No caption</Text>
+                  )}
+
+                  {post.imageUrl && !post.hasVideo ? (
+                    <Image
+                      source={/ngrok-free\.dev|ngrok\.io/i.test(post.imageUrl)
+                        ? { uri: post.imageUrl, headers: { "ngrok-skip-browser-warning": "true" } }
+                        : { uri: post.imageUrl }}
+                      style={styles.momentPostImage}
+                    />
+                  ) : null}
+
+                  {post.hasVideo ? (
+                    <View style={styles.momentPostVideoBox}>
+                      <Text style={styles.momentPostVideoLabel}>🎬 Video post</Text>
+                    </View>
+                  ) : null}
+
+                  {(post.likeCount ?? 0) > 0 && (
+                    <Text style={styles.momentPostMeta}>❤️ {post.likeCount}</Text>
+                  )}
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {activeTab === "Profile" && (
+          <View style={styles.momentSection}>
+            {profileTabLoading ? (
+              <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
+            ) : (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>👤</Text>
+                <Text style={styles.emptyText}>Your profile stats are shown above</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {activeTab === "Honor" && (
+          <View style={styles.momentSection}>
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>📦</Text>
-              <Text style={styles.emptyText}>No moments yet</Text>
+              <Text style={styles.emptyEmoji}>🏅</Text>
+              <Text style={styles.emptyText}>Honor coming soon</Text>
             </View>
           </View>
         )}
 
-      </ScrollView>
-      {/* ── MENU DETAIL MODAL ── */}
-      <Modal visible={!!activeMenu} transparent animationType="slide" onRequestClose={() => setActiveMenu(null)}>
-        <View style={styles.mmOverlay}>
-          <TouchableOpacity style={styles.mmBackdrop} activeOpacity={1} onPress={() => setActiveMenu(null)} />
-          <View style={styles.mmPanel}>
-            <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
-            {/* Handle */}
-            <View style={styles.mmHandle} />
-            {/* Header */}
-            <View style={styles.mmHeader}>
-              <View style={styles.mmHeaderIcon}>
-                <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
-              </View>
-              <Text style={styles.mmHeaderTitle}>{activeMenu?.label}</Text>
-              <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
-                <Ionicons name="close" size={20} color="white" />
+        {activeTab === "Gift" && (
+          <View style={styles.giftSection}>
+            {/* Header: Gift title + Earned count */}
+            <View style={styles.giftHeader}>
+              <Text style={styles.giftHeaderTitle}>Gift</Text>
+              <TouchableOpacity style={styles.giftEarnedBtn} activeOpacity={0.7}>
+                <Text style={styles.giftEarnedText}>Earned {giftEarnedCount} </Text>
+                <FontAwesome name="chevron-right" size={11} color="#a78bfa" />
               </TouchableOpacity>
             </View>
-            <View style={styles.mmDivider} />
-            {/* Dynamic content */}
-            {renderMenuContent()}
-          </View>
-        </View>
-      </Modal>
 
-      {/* Edit modal */}
-      <Modal visible={editVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Edit profile</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Display name"
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              style={styles.nameInput}
-              maxLength={24}
-            />
-
-            <Text style={styles.sectionSmall}>Choose avatar</Text>
-            <View style={styles.avatarRow}>
-              {avatarOptions.map((id) => (
+            {/* Segmented slider: Receive | Send */}
+            <View style={styles.giftSlider}>
+              {["Receive", "Send"].map((tab) => (
                 <TouchableOpacity
-                  key={id}
-                  onPress={() => setEditAvatarId(id)}
-                  style={[
-                    styles.avatarOption,
-                    editAvatarId === id && styles.avatarSelected,
-                  ]}
+                  key={tab}
+                  activeOpacity={0.85}
+                  onPress={() => setGiftTab(tab)}
+                  style={[styles.giftSliderBtn, giftTab === tab && styles.giftSliderBtnActive]}
                 >
-                  <Image source={avatarMap[id]} style={styles.avatarThumb} />
+                  {giftTab === tab && (
+                    <LinearGradient
+                      colors={["#7c4dff", "#a855f7"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  )}
+                  <Text style={[styles.giftSliderBtnText, giftTab === tab && styles.giftSliderBtnTextActive]}>
+                    {tab}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
 
+            {/* Content area */}
+            {giftsLoading ? (
+              <ActivityIndicator color="#a78bfa" style={{ marginVertical: 32 }} />
+            ) : (giftTab === "Receive" ? giftsReceived : giftsSent).length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>🎁</Text>
+                <Text style={styles.emptyText}>
+                  {giftTab === "Receive" ? "No gifts received yet" : "No gifts sent yet"}
+                </Text>
+              </View>
+            ) : (
+              (giftTab === "Receive" ? giftsReceived : giftsSent).map((item, idx) => {
+                const giftImageUrl = item?.gift?.imageUrl ?? item?.imageUrl;
+                const giftName = item?.gift?.name ?? item?.giftName ?? item?.name ?? "Gift";
+                const quantity = Number(item?.quantity) || 1;
+                return (
+                <View key={String(item?.transactionId ?? item?.id ?? idx)} style={styles.giftItemRow}>
+                  {giftImageUrl ? (
+                    <Image source={resolveImageSource(giftImageUrl)} style={styles.giftItemImage} />
+                  ) : (
+                    <View style={[styles.giftItemImage, styles.giftItemImageFallback]}>
+                      <Text style={{ fontSize: 20 }}>{item?.gift?.emoji ?? "🎁"}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.giftItemName}>
+                    {giftName}
+                    {quantity > 1 ? ` ×${quantity}` : ""}
+                  </Text>
+                  <Text style={styles.giftItemMeta}>
+                    {giftTab === "Receive"
+                      ? (item?.senderName ?? (item?.fromUserId ? `User ${item.fromUserId}` : "Someone"))
+                      : (item?.receiverName ?? (item?.toUserId ? `User ${item.toUserId}` : "Someone"))}
+                  </Text>
+                </View>
+                );
+              })
+            )}
+          </View>
+        )}
+
+      </ScrollView>
+      {/* ── MENU DETAIL MODAL (full screen) ── */}
+      <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
+        <View style={[styles.mmPanel, { paddingBottom: insets.bottom }]}>
+          <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+          {/* Header — Premium renders its own custom header instead */}
+          {activeMenu?.label !== "Premium" && (
+            <>
+              <View style={[styles.mmHeader, { paddingTop: insets.top + 10 }]}>
+                <View style={styles.mmHeaderIcon}>
+                  <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
+                </View>
+                <Text style={styles.mmHeaderTitle}>{activeMenu?.label}</Text>
+                <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
+                  <Ionicons name="close" size={20} color="white" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.mmDivider} />
+            </>
+          )}
+          {/* Dynamic content */}
+          {renderMenuContent()}
+        </View>
+      </Modal>
+
+      <ProfileConnectionsModal
+        visible={connectionsListType !== null}
+        type={connectionsListType}
+        onClose={() => {
+          setConnectionsListType(null);
+          loadConnectionStats();
+        }}
+      />
+
+      <DiamondRechargeModal
+        visible={diamondRechargeVisible}
+        onClose={() => setDiamondRechargeVisible(false)}
+        currentDiamonds={walletDiamonds}
+      />
+
+      {/* Edit modal */}
+      <Modal visible={editVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { maxHeight: screen.height * 0.88 }]}>
+            <ScrollView
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.modalCardScroll}
+            >
+              <Text style={styles.modalTitle}>Edit profile</Text>
+
+              <View style={styles.editAvatarPreviewWrap}>
+                <Image source={editPreviewSource} style={styles.editPhotoPreview} />
+              </View>
+
+              <TextInput
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Display name"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                style={styles.nameInput}
+                maxLength={24}
+                editable={!profileSaving}
+              />
+
+              <Text style={styles.sectionSmall}>Choose avatar</Text>
+              <View style={styles.avatarRow}>
+                {getAvatarOptionsForGender(userGender).map((id) => (
+                  <TouchableOpacity
+                    key={id}
+                    onPress={() => setEditAvatarId(id)}
+                    style={[
+                      styles.avatarOption,
+                      editAvatarId === id && styles.avatarSelected,
+                    ]}
+                    activeOpacity={0.85}
+                  >
+                    <Image
+                      source={avatarMap[id]}
+                      style={styles.avatarThumb}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  style={styles.modalBtn}
+                  onPress={() => setEditVisible(false)}
+                  disabled={profileSaving}
+                >
+                  <Text style={styles.modalBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.saveBtn, profileSaving && { opacity: 0.6 }]}
+                  onPress={handleSaveProfile}
+                  disabled={profileSaving}
+                >
+                  {profileSaving ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={[styles.modalBtnText, styles.saveBtnText]}>Save</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!editingPost} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Edit description</Text>
+            <Text style={styles.sectionSmall}>
+              Post #{editingPost?.id} — leave empty to clear caption on media posts
+            </Text>
+            <TextInput
+              value={editPostText}
+              onChangeText={setEditPostText}
+              placeholder="Write a caption..."
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              style={[styles.nameInput, styles.postEditInput]}
+              multiline
+              maxLength={500}
+              editable={!postSaving}
+            />
             <View style={styles.modalButtonsRow}>
-              <TouchableOpacity style={styles.modalBtn} onPress={() => setEditVisible(false)}>
+              <TouchableOpacity
+                style={styles.modalBtn}
+                onPress={() => {
+                  setEditingPost(null);
+                  setEditPostText("");
+                }}
+                disabled={postSaving}
+              >
                 <Text style={styles.modalBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.saveBtn]}
-                onPress={handleSaveProfile}
+                style={[styles.modalBtn, styles.saveBtn, postSaving && { opacity: 0.6 }]}
+                onPress={handleSavePostDescription}
+                disabled={postSaving}
               >
-                <Text style={[styles.modalBtnText, styles.saveBtnText]}>Save</Text>
+                {postSaving ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={[styles.modalBtnText, styles.saveBtnText]}>Save</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1105,7 +2597,7 @@ export default function Profile() {
     </View>
   );
 }
- 
+
 
 const styles = StyleSheet.create({
   container: {
@@ -1117,7 +2609,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#0d0618",
   },
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 100 },
+  scrollContent: { paddingBottom: 24 },
 
   // Background orbs
   orbPink: {
@@ -1209,13 +2701,13 @@ const styles = StyleSheet.create({
   // Character
   characterWrapper: {
     width: "100%",
-    height: SCREEN_HEIGHT * 0.42,
+    height: screen.height * 0.42,
     overflow: "hidden",
     position: "relative",
   },
   characterImg: {
-    width: SCREEN_WIDTH * 0.85,
-    height: SCREEN_WIDTH * 0.85,
+    width: screen.width * 0.85,
+    height: screen.width * 0.85,
     alignSelf: "center",
     marginTop: -36,
   },
@@ -1277,29 +2769,25 @@ const styles = StyleSheet.create({
   },
   profileTopSection: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 14,
     marginBottom: 14,
   },
   profilePicWrapper: {
-    width: 90,
-    height: 90,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     flexShrink: 0,
   },
-  profilePic: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    position: "absolute",
-    zIndex: 1,
+  profilePicFrameWrap: {
+    alignItems: "center",
+    justifyContent: "center",
   },
-  profileFrame: {
-    width: 100,
-    height: 90,
-    position: "absolute",
-    zIndex: 2,
+  profilePic: {
+    width: s(72),
+    height: s(72),
+    borderRadius: s(36),
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.35)",
   },
   profileInfoCol: {
     flex: 1,
@@ -1312,7 +2800,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   userName: {
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: "800",
     color: "white",
     flex: 1,
@@ -1337,20 +2825,32 @@ const styles = StyleSheet.create({
   idRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
   },
   userId: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 12,
+    color: "rgba(255,255,255,0.75)",
+    fontSize: ms(12),
   },
-  levelBadge: {
-    width: 36,
-    height: 18,
+  genderSymbolMale: {
+    color: "#4a7fff",
+    fontSize: 18,
+    fontWeight: "900",
   },
-  verifiedBadge: {
-    width: 90,
-    height: 26,
-    marginTop: 0,
+  genderSymbolFemale: {
+    color: "#ff4aaa",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  profileLevelWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: s(4),
+    rowGap: s(4),
+    marginTop: 2,
+    // Leaves the row free to grow downward if more badges get added later
+    // instead of overflowing past the info card's edge.
+    maxWidth: "100%",
   },
   cardDivider: {
     height: 1,
@@ -1365,16 +2865,22 @@ const styles = StyleSheet.create({
   statItem: {
     alignItems: "center",
     flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 2,
   },
   statValue: {
     fontSize: 18,
     fontWeight: "800",
     color: "white",
+    width: "100%",
+    textAlign: "center",
   },
   statLabel: {
     fontSize: 12,
     color: "rgba(255,255,255,0.5)",
     marginTop: 2,
+    width: "100%",
+    textAlign: "center",
   },
   statDivider: {
     width: 1,
@@ -1433,8 +2939,30 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   menuPage: {
-    width: SCREEN_WIDTH - 32,
+    width: screen.width - 32,
     paddingHorizontal: 4,
+  },
+
+  // Saved users list (menu modal)
+  savedEmptyBox: { alignItems: "center", paddingVertical: 30, paddingHorizontal: 20, gap: 8 },
+  savedEmptyEmoji: { fontSize: 44 },
+  savedEmptyTitle: { color: "white", fontSize: 16, fontWeight: "800" },
+  savedEmptyText: { color: "rgba(255,255,255,0.5)", fontSize: 13, textAlign: "center", lineHeight: 19 },
+  savedRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 14, padding: 10, marginBottom: 10,
+    borderWidth: 1, borderColor: "rgba(167,139,250,0.15)",
+  },
+  savedAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#2d1b4e" },
+  savedAvatarFallback: { alignItems: "center", justifyContent: "center" },
+  savedName: { color: "white", fontSize: 14, fontWeight: "700" },
+  savedSub: { color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 2 },
+  savedRemoveBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: "rgba(255,107,107,0.15)",
+    borderWidth: 1, borderColor: "rgba(255,107,107,0.35)",
+    alignItems: "center", justifyContent: "center",
   },
   menuRow: {
     flexDirection: "row",
@@ -1442,7 +2970,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   menuGridItem: {
-    width: (SCREEN_WIDTH - 32) / 4,
+    width: (screen.width - 32) / 4,
     alignItems: "center",
     paddingVertical: 8,
   },
@@ -1457,6 +2985,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.2)",
   },
+  comingSoonPanel: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  comingSoonPanelEmoji: { fontSize: 48, marginBottom: 12 },
+  comingSoonPanelTitle: { color: "#ff9800", fontSize: 22, fontWeight: "800", marginBottom: 8 },
+  comingSoonPanelSub: { color: "rgba(255,255,255,0.6)", fontSize: 14, textAlign: "center" },
   menuBadgeDot: {
     position: "absolute",
     top: 6,
@@ -1566,6 +3103,91 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.35)",
     fontSize: 14,
   },
+  momentPostCard: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    gap: 10,
+  },
+  momentPostHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  momentPostAuthor: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  momentPostAuthorAvatarWrap: {},
+  momentPostAuthorAvatar: {
+    borderRadius: 18,
+  },
+  momentPostAuthorInfo: {
+    flexDirection: "column",
+    gap: 3,
+  },
+  momentPostTitle: {
+    color: "#c4b5fd",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  momentPostAuthorBatch: {
+    width: 52,
+    height: 21,
+  },
+  momentPostEditBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "rgba(124,77,255,0.18)",
+  },
+  momentPostEditText: {
+    color: "#c4b5fd",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  momentPostText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  momentPostTextMuted: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 13,
+    fontStyle: "italic",
+  },
+  momentPostImage: {
+    width: "100%",
+    height: 180,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  momentPostVideoBox: {
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: "rgba(124,77,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  momentPostVideoLabel: {
+    color: "#c4b5fd",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  momentPostMeta: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 12,
+  },
+  postEditInput: {
+    minHeight: 100,
+    textAlignVertical: "top",
+  },
   // Edit modal
   modalOverlay: {
     flex: 1,
@@ -1582,11 +3204,41 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
   },
+  modalCardScroll: {
+    paddingBottom: 4,
+  },
   modalTitle: {
     color: "white",
     fontSize: 18,
     fontWeight: "800",
     marginBottom: 12,
+  },
+  editAvatarPreviewWrap: {
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  editPhotoPreview: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderColor: "rgba(124,77,255,0.5)",
+  },
+  editPhotoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(124,77,255,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.45)",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  editPhotoBtnText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
   },
   nameInput: {
     backgroundColor: "rgba(255,255,255,0.03)",
@@ -1606,8 +3258,9 @@ const styles = StyleSheet.create({
   },
   avatarRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
-    marginBottom: 14,
+    paddingBottom: 16,
   },
   avatarOption: {
     width: 56,
@@ -1618,11 +3271,11 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
   avatarThumb: {
-    width: 52,
-    height: 52,
-    resizeMode: "cover",
+    width: "100%",
+    height: "100%",
   },
   avatarSelected: {
     borderColor: "#7c3aed",
@@ -1649,30 +3302,8 @@ const styles = StyleSheet.create({
   },
 
   // ── MENU MODAL SHELL ───────────────────────────────────────────────────────
-  mmOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  mmBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.65)",
-  },
   mmPanel: {
-    height: "88%",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    overflow: "hidden",
-    borderTopWidth: 1,
-    borderColor: "rgba(124,77,255,0.35)",
-  },
-  mmHandle: {
-    width: 42,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 8,
+    flex: 1,
   },
   mmHeader: {
     flexDirection: "row",
@@ -1709,7 +3340,6 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "rgba(255,255,255,0.07)",
     marginHorizontal: 16,
-    marginBottom: 4,
   },
 
   // ── SHARED MM COMPONENTS ──────────────────────────────────────────────────
@@ -1865,6 +3495,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  mmTaskProgress: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  mmClaimBtn: {
+    backgroundColor: "#7c4dff",
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 18,
+    marginLeft: 10,
+  },
+  mmClaimBtnDone: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  mmClaimBtnDisabled: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  mmClaimBtnText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  mmClaimBtnTextDone: {
+    color: "rgba(255,255,255,0.4)",
+  },
+  mmClaimBtnTextDisabled: {
+    color: "rgba(255,255,255,0.35)",
+  },
   mmEmptyCenter: {
     flex: 1,
     alignItems: "center",
@@ -1884,22 +3543,10 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
-  mmFeatureRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 13,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-  },
-  mmFeatureLabel: {
-    flex: 1,
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 14,
-    fontWeight: "600",
-  },
 
-  // ── GET REWARDS ───────────────────────────────────────────────────────────
+  // ── Family UI styles moved to familyStyles (separate StyleSheet above Profile component) ──
+
+  // ── SHARED HERO BOX (Saved / Task) ────────────────────────────────────────
   mmHeroBox: {
     borderRadius: 20,
     padding: 24,
@@ -1919,85 +3566,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
-  mmDayGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    justifyContent: "center",
-    marginVertical: 16,
-  },
-  mmDayCell: {
-    width: 44,
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  mmDayCellActive: {
-    backgroundColor: "rgba(124,77,255,0.25)",
-    borderColor: "#7c4dff",
-  },
-  mmDayCellClaimed: {
-    backgroundColor: "rgba(74,222,128,0.08)",
-    borderColor: "rgba(74,222,128,0.2)",
-  },
-  mmDayName: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  mmDayVal: {
-    color: "white",
-    fontSize: 9,
-    fontWeight: "700",
-    textAlign: "center",
-  },
 
-  // ── MONTHLY CARD / PASS ────────────────────────────────────────────────────
-  mmCardHero: {
-    borderRadius: 20,
-    padding: 28,
-    alignItems: "center",
-    gap: 6,
-  },
-  mmCardHeroLabel: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 2,
-  },
-  mmCardHeroPrice: {
-    color: "white",
-    fontSize: 28,
-    fontWeight: "900",
-  },
-  mmCardHeroSub: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 13,
-  },
-  mmPassCard: {
-    borderRadius: 20,
-    padding: 28,
-    alignItems: "center",
-    gap: 6,
-  },
-  mmPassTitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 2,
-  },
-  mmPassPrice: {
-    color: "white",
-    fontSize: 28,
-    fontWeight: "900",
-  },
-  mmPassSub: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 13,
-  },
 
   // ── STORE ─────────────────────────────────────────────────────────────────
   mmStoreGrid: {
@@ -2090,122 +3659,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // ── WALLET ────────────────────────────────────────────────────────────────
-  mmWalletCard: {
-    borderRadius: 20,
-    padding: 24,
-    gap: 8,
-    alignItems: "center",
-  },
-  mmWalletLabel: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 13,
-    fontWeight: "600",
-    letterSpacing: 0.5,
-  },
-  mmWalletBalRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  mmWalletAmount: {
-    color: "white",
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  mmWalletTopUp: {
-    marginTop: 8,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-  },
-  mmWalletTopUpText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  mmTxnRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-  },
-  mmTxnLabel: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  mmTxnDate: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  mmTxnAmount: {
-    fontSize: 15,
-    fontWeight: "800",
-  },
-
-  // ── PREMIUM ───────────────────────────────────────────────────────────────
-  mmPremiumHero: {
-    borderRadius: 20,
-    padding: 28,
-    alignItems: "center",
-    gap: 8,
-  },
-  mmPremiumHeroTitle: {
-    color: "white",
-    fontSize: 24,
-    fontWeight: "900",
-  },
-  mmPremiumHeroSub: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 13,
-  },
-
-  // ── VIP ───────────────────────────────────────────────────────────────────
-  mmVIPCurrentBox: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 18,
-    padding: 18,
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    marginBottom: 14,
-  },
-  mmVIPCurrentLabel: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  mmVIPCurrentVal: {
-    color: "white",
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  mmVIPCurrentSub: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 12,
-  },
-  mmVIPTier: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 8,
-  },
-  mmVIPTierName: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  mmVIPTierReq: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 12,
-    marginTop: 2,
-  },
-
   // ── HONOR LEVEL ───────────────────────────────────────────────────────────
   mmHonorHero: {
     backgroundColor: "rgba(255,255,255,0.06)",
@@ -2282,105 +3735,6 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     alignItems: "center",
     justifyContent: "center",
-  },
-
-  // ── BACKPACK ──────────────────────────────────────────────────────────────
-  mmBackpackGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    justifyContent: "space-between",
-  },
-  mmBackpackItem: {
-    width: "30%",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 16,
-    alignItems: "center",
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  mmBackpackLabel: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
-    fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 6,
-  },
-  mmBackpackBadge: {
-    backgroundColor: "#7c4dff",
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  mmBackpackBadgeText: {
-    color: "white",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  mmBackpackEmpty: {
-    color: "rgba(255,255,255,0.3)",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-
-  // ── ROOM PREMIUM ─────────────────────────────────────────────────────────
-  mmThemeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 8,
-    gap: 14,
-  },
-  mmThemeName: {
-    flex: 1,
-    color: "white",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  // ── LEVEL ─────────────────────────────────────────────────────────────────
-  mmLevelHero: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 20,
-    padding: 24,
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  mmLevelBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  mmLevelNum: {
-    color: "white",
-    fontSize: 32,
-    fontWeight: "900",
-  },
-  mmLevelTitle: {
-    color: "white",
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  mmLevelXP: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: 13,
-  },
-  mmLevelPerkBadge: {
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  mmLevelPerkNum: {
-    color: "white",
-    fontSize: 11,
-    fontWeight: "800",
   },
 
   // ── SOCIAL CONNECT ────────────────────────────────────────────────────────
@@ -2584,5 +3938,88 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.55)",
     fontSize: 13,
     textAlign: "center",
+  },
+
+  // Gift section
+  giftSection: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  giftHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  giftHeaderTitle: {
+    color: "white",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  giftEarnedBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  giftEarnedText: {
+    color: "#a78bfa",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  giftSlider: {
+    flexDirection: "row",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 16,
+    gap: 4,
+  },
+  giftSliderBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 11,
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  giftSliderBtnActive: {},
+  giftSliderBtnText: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  giftSliderBtnTextActive: {
+    color: "white",
+    fontWeight: "800",
+  },
+  giftItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  giftItemImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  giftItemImageFallback: {
+    backgroundColor: "rgba(124,77,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  giftItemName: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+    flex: 1,
+  },
+  giftItemMeta: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
   },
 });

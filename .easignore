@@ -1,0 +1,62 @@
+# EAS Build upload archive — reduces upload size & time.
+# When present, this replaces .gitignore for `eas build` packaging.
+# See: https://expo.fyi/eas-build-archive
+
+# ── Dependencies & caches (reinstalled on EAS workers) ──
+node_modules/
+.expo/
+dist/
+web-build/
+.metro-health-check*
+.kotlin/
+
+# ── Version control & editor ──
+.git/
+.vscode/
+.claude/
+.idea/
+*.swp
+*.swo
+
+# ── Native build folders (EAS runs expo prebuild on the server) ──
+/android/
+/ios/
+*.apk
+*.aab
+
+# ── Secrets & local env (use EAS Secrets / eas.json env instead) ──
+.env
+.env*.local
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+.env.example
+
+# ── Logs & debug ──
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# ── OS junk ──
+.DS_Store
+Thumbs.db
+
+# ── TypeScript / generated ──
+*.tsbuildinfo
+expo-env.d.ts
+nativewind-env.d.ts
+app-example/
+
+# ── Dev-only docs & scripts (not used at runtime) ──
+README.md
+*.md
+*.txt
+scripts/
+patches/
+
+# ── Videos served from API — not require()'d in app code ──
+assets/videos/

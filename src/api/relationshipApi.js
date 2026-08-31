@@ -1,41 +1,81 @@
-import API from "./axios";
+import API, { authRequestConfig } from "./axios";
 
-// ── Follow a User ───────────────────────────────────────────
-// POST /api/relationships/follow/{targetId}
-// Returns: { message }
 export const followUser = async (targetId) => {
-  const response = await API.post(`/api/relationships/follow/${targetId}`);
+  const id = String(targetId);
+  
+  const response = await API.post(
+    `/api/relationships/follow/${id}`,
+    {},
+    await authRequestConfig()
+  );
+  
   return response.data;
 };
 
-// ── Unfollow a User ─────────────────────────────────────────
-// POST /api/relationships/unfollow/{targetId}
-// Returns: { message }
 export const unfollowUser = async (targetId) => {
-  const response = await API.post(`/api/relationships/unfollow/${targetId}`);
+  const id = String(targetId);
+  
+  const response = await API.post(
+    `/api/relationships/unfollow/${id}`,
+    {},
+    await authRequestConfig()
+  );
+  
   return response.data;
 };
 
-// ── Block a User ────────────────────────────────────────────
-// POST /api/relationships/block/{targetId}
-// Returns: { message }
 export const blockUser = async (targetId) => {
-  const response = await API.post(`/api/relationships/block/${targetId}`);
+  const id = String(targetId);
+  
+  const response = await API.post(
+    `/api/relationships/block/${id}`,
+    {},
+    await authRequestConfig()
+  );
+  
   return response.data;
 };
 
-// ── Get Following List ──────────────────────────────────────
-// GET /api/relationships/following
-// Returns: [{ id, name, avatar, ... }]
+export const unblockUser = async (targetId) => {
+  const id = String(targetId);
+  
+  const response = await API.post(
+    `/api/relationships/unblock/${id}`,
+    {},
+    await authRequestConfig()
+  );
+  
+  return response.data;
+};
+
+export const getBlockedUsers = async () => {
+  
+  const response = await API.get(
+    "/api/relationships/block-users",
+    await authRequestConfig()
+  );
+  
+  return response.data;
+};
+
+export const getRelationshipStatus = async (targetId) => {
+  const response = await API.get(
+    `/api/relationships/status/${targetId}`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
 export const getFollowing = async () => {
-  const response = await API.get("/api/relationships/following");
+  
+  const response = await API.get("/api/relationships/following", await authRequestConfig());
+  
   return response.data;
 };
 
-// ── Get Followers List ──────────────────────────────────────
-// GET /api/relationships/followers
-// Returns: [{ id, name, avatar, ... }]
 export const getFollowers = async () => {
-  const response = await API.get("/api/relationships/followers");
+  
+  const response = await API.get("/api/relationships/followers", await authRequestConfig());
+  
   return response.data;
 };

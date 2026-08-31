@@ -6,13 +6,15 @@ export default function ChatBoxScreen() {
   const params = useLocalSearchParams();
 
   const user = {
+    userId: params.userId ?? params.id ?? null,
     name: params.name ?? "User",
-    avatar: params.avatar ?? "https://randomuser.me/api/portraits/men/34.jpg",
-    matchPercent: Number(params.matchPercent ?? 95),
-    interests: params.interests ? params.interests.split(",") : ["TV shows"],
-    location: params.location ?? "Indore",
-    likeCount: Number(params.likeCount ?? 0),
+    // Avatar URLs passed as route params get URL-encoded — decode before use
+    avatar: params.avatar ? decodeURIComponent(params.avatar) : null,
+    lastMsg: params.lastMsg ?? "",
+    level: params.level ? Number(params.level) : null,
   };
+
+  
 
   return <ChatBox user={user} onBack={() => router.back()} />;
 }

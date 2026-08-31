@@ -1,89 +1,114 @@
-import API from "./axios";
+import API, { authRequestConfig } from "./axios";
+import { API_BASE_URL } from "../config/env";
 
-// ── Guest Login ─────────────────────────────────────────────
+const maskToken = (value) => {
+  if (!value || typeof value !== "string") return value;
+  if (value.length <= 20) return `${value.slice(0, 6)}…`;
+  return `${value.slice(0, 12)}…${value.slice(-6)} (len=${value.length})`;
+};
+
+const logAuthRequest = (method, path, body) => {
+  const safeBody = { ...body };
+  if (safeBody.idToken) safeBody.idToken = maskToken(safeBody.idToken);
+  if (safeBody.accessToken) safeBody.accessToken = maskToken(safeBody.accessToken);
+  
+};
+
+const logAuthResponse = (endpoint, data) => {
+  
+};
+
+const logAuthError = (method, path, error) => {
+  console.error(
+    `[authApi] ${method} ${API_BASE_URL}${path} failed:`,
+    JSON.stringify(
+      {
+        status: error?.status ?? error?.response?.status ?? null,
+        message: error?.message,
+        data: error?.responseData ?? error?.response?.data ?? null,
+      },
+      null,
+      2
+    )
+  );
+};
+
+const postAuthWithFallback = async (paths, body) => {
+  let lastError;
+  for (const path of paths) {
+    try {
+      logAuthRequest("POST", path, body);
+      const response = await API.post(path, body);
+      logAuthResponse(`POST ${path}`, response.data);
+      if (path !== paths[0]) {
+        
+      }
+      return response.data;
+    } catch (error) {
+      logAuthError("POST", path, error);
+      lastError = error;
+      const status = error?.status ?? error?.response?.status;
+      if (status !== 404 || path === paths[paths.length - 1]) {
+        throw error;
+      }
+      
+    }
+  }
+  throw lastError;
+};
+
 export const guestLogin = async () => {
-  try{
   const response = await API.post("/api/auth/guest");
-  return response.data;
-  }catch(error){
-    console.log("Guest Login Error:",error.response?.data || error.message);
-    throw error;
-  }
-};
-
-// ── Email / Password Login ──────────────────────────────────
-// POST /api/auth/login
-// Body: { email, password }
-// Returns: { token, user }
-export const emailLogin = async (email, password) => {
-  const response = await API.post("/api/auth/login", { email, password });
+  logAuthResponse("POST /api/auth/guest", response.data);
   return response.data;
 };
 
-// ── Email / Password Register ───────────────────────────────
-// POST /api/auth/register
-// Body: { name, email, password }
-// Returns: { token, user }
-export const emailRegister = async (name, email, password) => {
-  const response = await API.post("/api/auth/register", { name, email, password });
+export const firebasePhoneAuth = async (idToken, phoneNumber, name) => {
+  const body = { idToken, phoneNumber, ...(name ? { name } : {}) };
+  const response = await API.post("/api/auth/firebase-phone", body);
+  logAuthResponse("POST /api/auth/firebase-phone", response.data);
   return response.data;
 };
 
-// ── Send OTP (Twilio) ───────────────────────────────────────
-export const sendOtp = async (phone) => {
-  try{
-  const response = await API.post("/api/auth/send-otp", { phone });
-  return response.data;}
-  catch(error){
-    console.log("Send Otp Error" || error.message);
-    throw error;
-  }
-};
-
-// ── Verify OTP (Twilio) ─────────────────────────────────────
-export const verifyOtp = async (phone, otp) => {
-  const response = await API.post("/api/auth/verify-otp", { phone, otp });
+export const googleLogin = async (idToken, name) => {
+  const response = await API.post("/api/auth/google-login", { idToken, name });
+  logAuthResponse("POST /api/auth/google-login", response.data);
   return response.data;
 };
 
-// ── Firebase Phone Auth ─────────────────────────────────────
-// POST /api/auth/firebase-phone  Body: { idToken }
-export const firebasePhoneAuth = async (idToken) => {
-  try {
-    const response = await API.post("/api/auth/firebase-phone", { idToken });
-    return response.data;
-  } catch (error) {
-    console.log("Firebase Phone Auth Error:", error.message);
-    throw error;
-  }
+export const firebaseFacebookAuth = async (idToken, phoneNumber, name) => {
+  const body = {
+    idToken,
+    ...(phoneNumber ? { phoneNumber } : {}),
+    ...(name ? { name } : {}),
+  };
+  return postAuthWithFallback(
+    ["/api/auth/firebase-facebook", "/api/auth/facebook-login"],
+    body
+  );
 };
 
-// ── Google Mobile Login ─────────────────────────────────────
-// POST /api/auth/google-login  Body: { idToken }
-export const googleLogin = async (idToken) => {
-  try {
-    const response = await API.post("/api/auth/google-login", { idToken });
-    return response.data;
-  } catch (error) {
-    console.log("Google Login Error:", error.message);
-    throw error;
-  }
+export const logout = async () => {
+  
+  const response = await API.post(
+    "/api/auth/logout",
+    {},
+    await authRequestConfig()
+  );
+  logAuthResponse("POST /api/auth/logout", response.data);
+  return response.data;
 };
 
-// ── Facebook Mobile Login ───────────────────────────────────
-// POST /api/auth/facebook-login  Body: { accessToken }
-export const facebookLogin = async (accessToken) => {
-  try {
-    const response = await API.post("/api/auth/facebook-login", { accessToken });
-    return response.data;
-  } catch (error) {
-    console.log("Facebook Login Error:", error.message);
-    throw error;
-  }
-};
-
-// ── Apple Login (iOS) ───────────────────────────────────────
-export const appleLogin = async (identityToken) => {
-  const response = await API.post("/api/auth/apple-login", { identityToken });
+export const deleteAccount = async ({ reason, additionalComment } = {}) => {
+  const body = {
+    reason: String(reason ?? "").trim(),
+    additionalComment: String(additionalComment ?? "").trim(),
+  };
+  
+  const response = await API.delete("/api/auth/account", {
+    ...(await authRequestConfig()),
+    data: body,
+  });
+  logAuthResponse("DELETE /api/auth/account", response.data);
   return response.data;
 };

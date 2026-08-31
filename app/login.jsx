@@ -6,6 +6,7 @@ import {
   ScrollView,
   StatusBar,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   ActivityIndicator,
@@ -13,18 +14,22 @@ import {
 import { FontAwesome, FontAwesome5, AntDesign } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
-import * as WebBrowser from "expo-web-browser";
-import { guestLogin, googleLogin } from "../src/api/authApi";
-import { saveSession } from "../src/store/authStore";
+import { googleLogin } from "../src/api/authApi";
+import { getUsersCount } from "../src/api/userApi";
+import { hasAcceptedTerms, setTermsAccepted, setPendingInviteCode } from "../src/store/authStore";
 import { establishSessionFromApi } from "../src/services/authSessionService";
-import { signInWithFacebook } from "../src/services/facebookSdkNative";
 import {
-  useGoogleSignIn,
-  getGoogleIdToken,
+  configureFacebookSdk,
+  signInWithFacebook,
+  getFacebookAuthErrorMessage,
+} from "../src/services/facebookAuthService";
+import FacebookLoginWebViewModal from "../Components/FacebookLoginWebViewModal";
+import {
+  configureGoogleSignIn,
+  signInWithGoogle,
   getGoogleAuthErrorMessage,
 } from "../src/hooks/useGoogleSignIn";
-
-WebBrowser.maybeCompleteAuthSession();
+import { s, vs, ms, wp } from "../src/utils/responsive";
 
 const logo = require("../assets/images/splash-icon.png");
 
@@ -32,107 +37,104 @@ const logo = require("../assets/images/splash-icon.png");
 export default function Login() {
   const router = useRouter();
   const [accepted, setAccepted]           = useState(false);
-  const [guestLoading, setGuestLoading]   = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [facebookLoading, setFacebookLoading] = useState(false);
+  const [facebookWebView, setFacebookWebView] = useState(null);
+  const [userCount, setUserCount] = useState(null);
+  const [inviteCode, setInviteCode] = useState("");
 
- const {
-  response: googleResponse,
-  promptAsync: googlePromptAsync,
-} = useGoogleSignIn();
+  useEffect(() => {
+    configureGoogleSignIn();
+    configureFacebookSdk();
+    hasAcceptedTerms().then(setAccepted).catch(() => setAccepted(false));
+  }, []);
 
- useEffect(() => {
-  console.log("GOOGLE RESPONSE:", googleResponse);
+  useEffect(() => {
+    let cancelled = false;
+    getUsersCount()
+      .then((data) => {
+        if (cancelled) return;
+        const count = data?.userCount ?? data?.count ?? null;
+        if (count != null) setUserCount(Number(count));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
-  if (!googleResponse) return;
-
-  const errMsg = getGoogleAuthErrorMessage(googleResponse);
-
-  console.log("GOOGLE ERROR:", errMsg);
-
-  if (errMsg === "cancelled") {
-    setGoogleLoading(false);
-    return;
-  }
-
-  if (errMsg) {
-    setGoogleLoading(false);
-    Alert.alert("Google Sign-In", errMsg);
-    return;
-  }
-
-  if (googleResponse.type !== "success") {
-    console.log("NOT SUCCESS");
-    setGoogleLoading(false);
-    return;
-  }
-
-  (async () => {
-    try {
-      console.log("GOOGLE SUCCESS");
-
-      const idToken = getGoogleIdToken(googleResponse);
-
-      console.log("ID TOKEN:", idToken);
-
-      if (!idToken) {
-        throw new Error("Google sign-in did not return an ID token.");
-      }
-
-      const result = await establishSessionFromApi(
-        googleLogin,
-        idToken
-      );
-
-      console.log("LOGIN RESULT:", result);
-
-      router.replace("/(tabs)/home");
-    } catch (err) {
-      console.log("GOOGLE LOGIN ERROR:", err);
-
-      const msg = err?.message ?? "Google sign-in failed.";
-
-      Alert.alert("Google Sign-In", msg);
-    } finally {
-      setGoogleLoading(false);
-    }
-  })();
-}, [googleResponse]);
+  const userCountLabel = userCount != null ? userCount.toLocaleString() : "...";
 
   const requireAccepted = () => {
     if (!accepted) {
-      Alert.alert("Required", "Please accept Terms and Privacy Policy first.");
+      Alert.alert(
+        "Terms required",
+        "Please agree to the Terms and Conditions and Privacy Policy before continuing."
+      );
       return false;
     }
     return true;
   };
 
-const handleGoogleLogin = async () => {
-  if (!requireAccepted()) return;
+  // Stashed locally so it survives the trip to phone-login/OTP too — there's no
+  // backend endpoint yet to actually redeem it against the inviter's account.
+  const persistInviteCode = () => setPendingInviteCode(inviteCode);
 
-  try {
+  const handleApplyInviteCode = async () => {
+    const trimmed = inviteCode.trim();
+    if (!trimmed) {
+      Alert.alert("Invite code", "Enter a code first.");
+      return;
+    }
+    await persistInviteCode();
+    Alert.alert("Saved", `Invite code "${trimmed}" will be applied once you sign in.`);
+  };
+
+  const toggleAccepted = async () => {
+    const next = !accepted;
+    setAccepted(next);
+    await setTermsAccepted(next);
+  };
+
+  const finishLogin = async () => {
+    await setTermsAccepted(true);
+    router.replace("/(tabs)/home");
+  };
+
+  const handleGoogleLogin = async () => {
+    if (!requireAccepted()) return;
+    await persistInviteCode();
     setGoogleLoading(true);
-
- await googlePromptAsync();
-  } catch (err) {
-    Alert.alert(
-      "Google Sign-In",
-      err?.message ?? "Google sign-in failed."
-    );
-
-    setGoogleLoading(false);
-  }
-};
+    try {
+      const idToken = await signInWithGoogle();
+      if (!idToken) throw new Error("Google sign-in did not return an ID token.");
+      await establishSessionFromApi(googleLogin, idToken);
+      await finishLogin();
+    } catch (err) {
+      const msg = getGoogleAuthErrorMessage(err);
+      if (msg && msg !== "cancelled") {
+        Alert.alert("Google Sign-In", msg);
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleFacebookLogin = async () => {
     if (!requireAccepted()) return;
+    await persistInviteCode();
     setFacebookLoading(true);
     try {
-      await signInWithFacebook();
-      router.replace("/(tabs)/home");
+      await signInWithFacebook({
+        openWebView: (config) => {
+          setFacebookWebView({
+            ...config,
+            onClose: () => setFacebookWebView(null),
+          });
+        },
+      });
+      await finishLogin();
     } catch (err) {
-      const msg = err?.message ?? "Facebook sign-in failed.";
-      if (!msg.toLowerCase().includes("cancelled")) {
+      const msg = getFacebookAuthErrorMessage(err);
+      if (msg) {
         Alert.alert("Facebook Sign-In", msg);
       }
     } finally {
@@ -140,22 +142,10 @@ const handleGoogleLogin = async () => {
     }
   };
 
-  const handlePhoneLogin = () => {
+  const handlePhoneLogin = async () => {
     if (!requireAccepted()) return;
+    await persistInviteCode();
     router.push("/enter-mobile");
-  };
-
-  const handleGuestLogin = async () => {
-    setGuestLoading(true);
-    try {
-      const data = await guestLogin();
-      if (data?.token) await saveSession(data.token, data.user ?? {});
-    } catch (_) {
-      // Guest endpoint not available — continue as unauthenticated guest
-    } finally {
-      setGuestLoading(false);
-      router.replace("/(tabs)/home");
-    }
   };
 
   return (
@@ -173,53 +163,77 @@ const handleGoogleLogin = async () => {
 
       {/* Top-left pink orb */}
       <View style={{
-        position: "absolute", width: 300, height: 300, top: -80, left: -80,
-        borderRadius: 150, backgroundColor: "rgba(255,0,128,0.18)",
+        position: "absolute",
+        width: s(300), height: s(300),
+        top: vs(-80), left: s(-80),
+        borderRadius: s(150),
+        backgroundColor: "rgba(255,0,128,0.18)",
       }} />
 
       {/* Bottom-right purple orb */}
       <View style={{
-        position: "absolute", width: 350, height: 350, bottom: -120, right: -120,
-        borderRadius: 175, backgroundColor: "rgba(138,43,226,0.22)",
+        position: "absolute",
+        width: s(350), height: s(350),
+        bottom: vs(-120), right: s(-120),
+        borderRadius: s(175),
+        backgroundColor: "rgba(138,43,226,0.22)",
       }} />
 
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
         <View style={{
-          flex: 1, alignItems: "center", justifyContent: "center",
-          paddingHorizontal: 28, paddingVertical: 48,
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: s(28),
+          paddingVertical: vs(48),
         }}>
 
           {/* Logo */}
-          <Image source={logo} style={{ width: 300, height: 90, borderRadius: 20 }} resizeMode="contain" />
+          <Image
+            source={logo}
+            style={{ width: wp(80), height: vs(90), borderRadius: s(20) }}
+            resizeMode="contain"
+          />
 
           {/* Title */}
           <MaskedView
-            style={{ marginTop: 28 }}
+            style={{ marginTop: vs(28) }}
             maskElement={
-              <Text style={{ fontSize: 38, fontWeight: "800", letterSpacing: 1, textAlign: "center" }}>
+              <Text style={{ fontSize: ms(38), fontWeight: "800", letterSpacing: 1, textAlign: "center" }}>
                 Tuk Tuk
               </Text>
             }
           >
             <LinearGradient colors={["#ffffff", "#f0e6ff", "#ff69b4"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-              <Text style={{ fontSize: 48, fontWeight: "800", opacity: 0 }}>Tuk Tuk</Text>
+              <Text style={{ fontSize: ms(48), fontWeight: "800", opacity: 0 }}>Tuk Tuk</Text>
             </LinearGradient>
           </MaskedView>
 
           {/* User count */}
           <MaskedView
-            style={{ marginTop: 8 }}
+            style={{ marginTop: vs(8) }}
             maskElement={
-              <Text style={{ fontSize: 46, fontWeight: "800", textAlign: "center" }}>13,365,176</Text>
+              <Text style={{ fontSize: ms(46), fontWeight: "800", textAlign: "center" }}>{userCountLabel}</Text>
             }
           >
             <LinearGradient colors={["#00ffff", "#ff00ff", "#ff69b4"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-              <Text style={{ fontSize: 46, fontWeight: "800", opacity: 0 }}>13,365,176</Text>
+              <Text style={{ fontSize: ms(46), fontWeight: "800", opacity: 0 }}>{userCountLabel}</Text>
             </LinearGradient>
           </MaskedView>
 
           {/* Subtitle */}
-          <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 15, marginTop: 6, marginBottom: 36, letterSpacing: 0.5 }}>
+          <Text
+            allowFontScaling={false}
+            style={{
+              color: "rgba(255,255,255,0.6)",
+              fontSize: ms(15),
+              marginTop: vs(6),
+              marginBottom: vs(36),
+              letterSpacing: 0.5,
+              textAlign: "center",
+              alignSelf: "stretch",
+            }}
+          >
             Connect - Talk - Earn
           </Text>
 
@@ -229,26 +243,29 @@ const handleGoogleLogin = async () => {
             disabled={facebookLoading}
             activeOpacity={0.8}
             style={{
-              width: "100%", height: 62, borderRadius: 16,
+              width: "100%", height: vs(62), borderRadius: s(16),
               borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
               backgroundColor: "rgba(255,255,255,0.07)",
               flexDirection: "row", alignItems: "center",
-              paddingHorizontal: 18, marginBottom: 14,
+              paddingHorizontal: s(18), marginBottom: vs(14),
               shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
               shadowOpacity: 0.3, shadowRadius: 16, elevation: 6,
             }}
           >
             <View style={{
-              width: 42, height: 42, borderRadius: 12, backgroundColor: "white",
-              alignItems: "center", justifyContent: "center", marginRight: 18,
+              width: s(42), height: s(42), borderRadius: s(12),
+              backgroundColor: "white",
+              alignItems: "center", justifyContent: "center",
+              marginRight: s(18),
             }}>
-              <FontAwesome name="facebook-f" size={20} color="#1877F2" />
+              <FontAwesome name="facebook-f" size={ms(20)} color="#1877F2" />
             </View>
             {facebookLoading
               ? <ActivityIndicator color="white" style={{ marginLeft: "auto" }} />
-              : <Text style={{ color: "white", fontSize: 16, fontWeight: "600", letterSpacing: 0.3 }}>
+              : <Text style={{ color: "white", fontSize: ms(16), fontWeight: "600", letterSpacing: 0.3 }}>
                   Sign in with Facebook
-                </Text>}
+                </Text>
+            }
           </TouchableOpacity>
 
           {/* Google Button */}
@@ -257,97 +274,115 @@ const handleGoogleLogin = async () => {
             disabled={googleLoading}
             activeOpacity={0.8}
             style={{
-              width: "100%", height: 62, borderRadius: 16,
+              width: "100%", height: vs(62), borderRadius: s(16),
               borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
               backgroundColor: "rgba(255,255,255,0.07)",
               flexDirection: "row", alignItems: "center",
-              paddingHorizontal: 18, marginBottom: 32,
+              paddingHorizontal: s(18), marginBottom: vs(32),
               shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
               shadowOpacity: 0.3, shadowRadius: 16, elevation: 6,
             }}
           >
             <View style={{
-              width: 42, height: 42, borderRadius: 12, backgroundColor: "white",
-              alignItems: "center", justifyContent: "center", marginRight: 18,
+              width: s(42), height: s(42), borderRadius: s(12),
+              backgroundColor: "white",
+              alignItems: "center", justifyContent: "center",
+              marginRight: s(18),
             }}>
-              <AntDesign name="google" size={22} color="#EA4335" />
+              <AntDesign name="google" size={ms(22)} color="#EA4335" />
             </View>
             {googleLoading
               ? <ActivityIndicator color="white" style={{ marginLeft: "auto" }} />
-              : <Text style={{ color: "white", fontSize: 16, fontWeight: "600", letterSpacing: 0.3 }}>
+              : <Text style={{ color: "white", fontSize: ms(16), fontWeight: "600", letterSpacing: 0.3 }}>
                   Sign in with Google
-                </Text>}
+                </Text>
+            }
           </TouchableOpacity>
 
           {/* Divider */}
-          <View style={{ flexDirection: "row", alignItems: "center", width: "100%", marginBottom: 28 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", width: "100%", marginBottom: vs(28) }}>
             <View style={{ flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" }} />
-            <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 14, marginHorizontal: 16 }}>
+            <Text
+              allowFontScaling={false}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={{ color: "rgba(255,255,255,0.55)", fontSize: ms(14), marginHorizontal: s(8), flexShrink: 1 }}
+            >
               More login options
             </Text>
             <View style={{ flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" }} />
           </View>
 
-          {/* Circle Options */}
-          <View style={{ flexDirection: "row", gap: 24, marginBottom: 40 }}>
-            {/* Phone */}
+          {/* Phone login */}
+          <View style={{ alignItems: "center", width: "100%", marginBottom: vs(40) }}>
             <TouchableOpacity onPress={handlePhoneLogin} activeOpacity={0.8} style={circleBtn}>
-              <FontAwesome5 name="phone-alt" size={24} color="white" />
-            </TouchableOpacity>
-            {/* Apple */}
-            <TouchableOpacity onPress={() => Alert.alert("Apple Login", "Apple login requires iOS native SDK.")} activeOpacity={0.8} style={circleBtn}>
-              <FontAwesome name="apple" size={26} color="white" />
-            </TouchableOpacity>
-            {/* WeChat */}
-            <TouchableOpacity onPress={() => Alert.alert("WeChat Login", "WeChat login coming soon.")} activeOpacity={0.8} style={circleBtn}>
-              <FontAwesome5 name="weixin" size={24} color="white" />
+              <FontAwesome5 name="phone-alt" size={ms(24)} color="white" />
             </TouchableOpacity>
           </View>
 
-          {/* Guest Login */}
-          <TouchableOpacity
-            onPress={handleGuestLogin}
-            disabled={guestLoading}
-            activeOpacity={0.7}
-            style={{
-              width: "100%", height: 52, borderRadius: 14,
-              borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
-              backgroundColor: "rgba(255,255,255,0.05)",
-              flexDirection: "row", alignItems: "center", justifyContent: "center",
-              gap: 10, marginBottom: 28,
-            }}
-          >
-            <FontAwesome5 name="user-secret" size={18} color="rgba(255,255,255,0.6)" />
-            {guestLoading
-              ? <ActivityIndicator color="rgba(255,255,255,0.6)" />
-              : <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 15, fontWeight: "600" }}>
-                  Continue as Guest
-                </Text>
-            }
-          </TouchableOpacity>
+          {/* Invite code (optional) */}
+          <View style={{
+            flexDirection: "row", alignItems: "center", width: "100%",
+            backgroundColor: "rgba(255,255,255,0.05)", borderRadius: s(14),
+            borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+            paddingLeft: s(16), paddingRight: s(6), marginBottom: vs(20),
+          }}>
+            <FontAwesome5 name="gift" size={ms(16)} color="rgba(255,255,255,0.45)" style={{ marginRight: s(12) }} />
+            <TextInput
+              value={inviteCode}
+              onChangeText={(text) => setInviteCode(text.toUpperCase())}
+              placeholder="Have an invite code? (optional)"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={12}
+              style={{
+                flex: 1, color: "white", fontSize: ms(14),
+                paddingVertical: vs(14),
+              }}
+            />
+            <TouchableOpacity
+              onPress={handleApplyInviteCode}
+              activeOpacity={0.8}
+              disabled={!inviteCode.trim()}
+              style={{
+                backgroundColor: inviteCode.trim() ? "rgba(255,0,128,0.25)" : "rgba(255,255,255,0.06)",
+                borderRadius: s(10),
+                paddingHorizontal: s(14),
+                paddingVertical: vs(9),
+              }}
+            >
+              <Text style={{
+                color: inviteCode.trim() ? "#ff69b4" : "rgba(255,255,255,0.3)",
+                fontSize: ms(13), fontWeight: "700",
+              }}>
+                Apply
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Terms Checkbox */}
           <View style={{
             flexDirection: "row", alignItems: "center", width: "100%",
-            backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 14,
+            backgroundColor: "rgba(255,255,255,0.04)", borderRadius: s(14),
             borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
-            paddingVertical: 16, paddingHorizontal: 16,
+            paddingVertical: vs(16), paddingHorizontal: s(16),
           }}>
             <TouchableOpacity
-              onPress={() => setAccepted(!accepted)}
+              onPress={toggleAccepted}
               activeOpacity={0.8}
               style={{
-                width: 22, height: 22, borderRadius: 5, borderWidth: 2,
+                width: s(22), height: s(22), borderRadius: s(5), borderWidth: 2,
                 borderColor: accepted ? "transparent" : "rgba(255,255,255,0.35)",
                 backgroundColor: accepted ? "#ff0080" : "rgba(255,255,255,0.08)",
-                alignItems: "center", justifyContent: "center", marginRight: 12,
+                alignItems: "center", justifyContent: "center", marginRight: s(12),
                 shadowColor: accepted ? "#ff0080" : "transparent",
                 shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 8,
               }}
             >
-              {accepted && <FontAwesome name="check" size={11} color="white" />}
+              {accepted && <FontAwesome name="check" size={ms(11)} color="white" />}
             </TouchableOpacity>
-            <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 13, flex: 1, lineHeight: 20 }}>
+            <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: ms(13), flex: 1, lineHeight: ms(20) }}>
               I agree to the{" "}
               <Text style={{ color: "#ff69b4", fontWeight: "700" }} onPress={() => router.push("/terms-of-use")}>
                 Terms and Conditions
@@ -361,12 +396,16 @@ const handleGoogleLogin = async () => {
 
         </View>
       </ScrollView>
+
+      {facebookWebView ? (
+        <FacebookLoginWebViewModal {...facebookWebView} />
+      ) : null}
     </View>
   );
 }
 
 const circleBtn = {
-  width: 68, height: 68, borderRadius: 34,
+  width: s(68), height: s(68), borderRadius: s(34),
   backgroundColor: "rgba(255,255,255,0.08)",
   borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
   alignItems: "center", justifyContent: "center",

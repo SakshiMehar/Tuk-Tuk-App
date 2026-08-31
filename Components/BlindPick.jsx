@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,13 +10,25 @@ import {
   Easing,
   ScrollView,
   StatusBar,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
+import { useRouter } from "expo-router";
 import { Shuffle, Heart, X, MessageCircle, Zap, Star } from "lucide-react-native";
+import {
+  getNextBlindMatch,
+  sendBlindMatchAction,
+  openBlindMatchChat,
+} from "../src/api/blindMatchApi";
+import { openUserChat } from "../src/utils/chatNavigation";
+import { saveFavoriteUser } from "../src/services/favoritesService";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 
-const { width: W, height: H } = Dimensions.get("window");
-const CARD_W = W * 0.72;
+// Use current window width at module time (portrait-locked app, safe to do once)
+const { width: W } = Dimensions.get("window");
+// Clamp card size so it looks good on both small (320px) and large (480px) screens
+const CARD_W = Math.min(W * 0.72, 320);
 const CARD_H = CARD_W * 1.3;
 
 const PHASE = { IDLE: "idle", SEARCHING: "searching", MATCHED: "matched" };
@@ -34,13 +46,29 @@ const TAGS = [
   { label: "🌿 Nature", k: "Nature" },
 ];
 
-const PROFILES = [
-  { id: 1, name: "Priya M.", age: 23, distance: "2.1 km", avatar: "https://randomuser.me/api/portraits/women/25.jpg", bio: "Coffee addict & wanderlust ☕🌍", tags: ["Music", "Travel"], rating: 4.8 },
-  { id: 2, name: "Aisha K.", age: 21, distance: "4.7 km", avatar: "https://randomuser.me/api/portraits/women/44.jpg", bio: "Artist by day, dreamer by night 🎨✨", tags: ["Art", "Movies"], rating: 4.6 },
-  { id: 3, name: "Sneha R.", age: 24, distance: "1.3 km", avatar: "https://randomuser.me/api/portraits/women/62.jpg", bio: "Music is my therapy 🎵💜", tags: ["Music", "Gaming"], rating: 4.9 },
-  { id: 4, name: "Meera J.", age: 22, distance: "3.5 km", avatar: "https://randomuser.me/api/portraits/women/33.jpg", bio: "Bookworm & travel enthusiast 📚🌏", tags: ["Travel", "Art"], rating: 4.7 },
-  { id: 5, name: "Divya S.", age: 25, distance: "6.2 km", avatar: "https://randomuser.me/api/portraits/women/55.jpg", bio: "Tech nerd who loves gaming 💻🎮", tags: ["Tech", "Gaming"], rating: 4.5 },
-];
+const normalizeBlindMatchUser = (raw) => {
+  if (!raw) return null;
+  const id = raw.id ?? raw.userId ?? raw._id;
+  if (id == null) return null;
+  const tags = raw.tags ?? raw.interests ?? raw.matchedFields ?? [];
+  const distanceKm = raw.distanceKm ?? raw.distance_km;
+  let distance = raw.distance;
+  if (!distance && typeof distanceKm === "number") {
+    distance = distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`;
+  }
+  return {
+    id,
+    userId: String(id),
+    name: raw.name ?? raw.displayName ?? "User",
+    age: raw.age ?? null,
+    distance: distance ?? "Nearby",
+    avatar: raw.profilePicUrl ?? raw.avatarUrl ?? raw.avatar ?? null,
+    bio: raw.bio ?? raw.about ?? raw.occupation ?? "",
+    tags: Array.isArray(tags) ? tags : [],
+    rating: raw.rating ?? raw.matchScore ?? null,
+    vipProfileFrameUrl: extractVipProfileFrameUrl(raw),
+  };
+};
 
 const FLOAT_PARTICLES = [
   { id: 0, x: -90, emoji: "💫", delay: 0 },
@@ -54,10 +82,13 @@ const FLOAT_PARTICLES = [
 ];
 
 export default function BlindPick() {
+  const router = useRouter();
   const [phase, setPhase] = useState(PHASE.IDLE);
   const [picked, setPicked] = useState([]);
   const [profile, setProfile] = useState(null);
   const [searchSecs, setSearchSecs] = useState(0);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [savedThisMatch, setSavedThisMatch] = useState(false);
 
   // Idle rings
   const r1 = useRef(new Animated.Value(0)).current;
@@ -125,9 +156,61 @@ export default function BlindPick() {
     };
   }, []);
 
-  const startSearch = () => {
+  const stopSearchAnimations = useCallback(() => {
+    if (searchIntervalRef.current) {
+      clearInterval(searchIntervalRef.current);
+      searchIntervalRef.current = null;
+    }
+    if (radarLoopRef.current) {
+      radarLoopRef.current.stop();
+      radarLoopRef.current = null;
+    }
+    pLoopsRef.current.forEach((l) => l.stop());
+    pLoopsRef.current = [];
+    radar.setValue(0);
+    pAnims.forEach((a) => a.setValue(0));
+  }, [radar, pAnims]);
+
+  const runMatchRevealAnimations = useCallback(() => {
+    flip.setValue(0);
+    matchScale.setValue(0);
+    matchOp.setValue(0);
+    matchY.setValue(-20);
+    cardScale.setValue(0.7);
+    setPhase(PHASE.MATCHED);
+
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.spring(matchScale, { toValue: 1, tension: 110, friction: 4, useNativeDriver: true }),
+        Animated.timing(matchOp, { toValue: 1, duration: 350, useNativeDriver: true }),
+        Animated.timing(matchY, { toValue: 0, duration: 350, useNativeDriver: true, easing: Easing.out(Easing.back(1.5)) }),
+      ]).start();
+    }, 100);
+
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(flip, { toValue: 180, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.spring(cardScale, { toValue: 1, tension: 70, friction: 7, useNativeDriver: true }),
+      ]).start();
+    }, 550);
+  }, [flip, matchScale, matchOp, matchY, cardScale]);
+
+  const revealProfile = useCallback((user) => {
+    setProfile(user);
+    runMatchRevealAnimations();
+  }, [runMatchRevealAnimations]);
+
+  const resetToIdle = useCallback(() => {
+    setProfile(null);
+    flip.setValue(0);
+    setPhase(PHASE.IDLE);
+  }, [flip]);
+
+  const startSearch = useCallback(async () => {
+    if (matchTimerRef.current) clearTimeout(matchTimerRef.current);
     setPhase(PHASE.SEARCHING);
     setSearchSecs(0);
+    setProfile(null);
 
     const radarLoop = Animated.loop(
       Animated.timing(radar, { toValue: 1, duration: 2000, useNativeDriver: true, easing: Easing.linear })
@@ -145,58 +228,114 @@ export default function BlindPick() {
       )
     );
     pLoopsRef.current = pLoops;
-    pLoops.forEach(l => l.start());
+    pLoops.forEach((l) => l.start());
 
-    searchIntervalRef.current = setInterval(() => setSearchSecs(s => s + 1), 1000);
+    searchIntervalRef.current = setInterval(() => setSearchSecs((s) => s + 1), 1000);
 
-    matchTimerRef.current = setTimeout(() => {
-      clearInterval(searchIntervalRef.current);
-      radarLoop.stop();
-      pLoops.forEach(l => l.stop());
-      radar.setValue(0);
-      pAnims.forEach(a => a.setValue(0));
+    try {
+      const [data] = await Promise.all([
+        getNextBlindMatch(),
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ]);
+      stopSearchAnimations();
+      const user = normalizeBlindMatchUser(data?.user ?? data);
+      if (!user) {
+        Alert.alert("No match", "No users available right now. Try again later.");
+        resetToIdle();
+        return;
+      }
 
-      const p = PROFILES[Math.floor(Math.random() * PROFILES.length)];
-      setProfile(p);
-      flip.setValue(0);
-      matchScale.setValue(0);
-      matchOp.setValue(0);
-      matchY.setValue(-20);
-      cardScale.setValue(0.7);
-      setPhase(PHASE.MATCHED);
-
-      setTimeout(() => {
-        Animated.parallel([
-          Animated.spring(matchScale, { toValue: 1, tension: 110, friction: 4, useNativeDriver: true }),
-          Animated.timing(matchOp, { toValue: 1, duration: 350, useNativeDriver: true }),
-          Animated.timing(matchY, { toValue: 0, duration: 350, useNativeDriver: true, easing: Easing.out(Easing.back(1.5)) }),
-        ]).start();
-      }, 100);
-
-      setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(flip, { toValue: 180, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
-          Animated.spring(cardScale, { toValue: 1, tension: 70, friction: 7, useNativeDriver: true }),
-        ]).start();
-      }, 550);
-    }, 3500);
-  };
+      revealProfile(user);
+    } catch (err) {
+      stopSearchAnimations();
+      Alert.alert("Match failed", err?.message || "Could not find a match. Please try again.");
+      resetToIdle();
+    }
+  }, [radar, pAnims, stopSearchAnimations, revealProfile, resetToIdle]);
 
   const handleCancel = () => {
     if (matchTimerRef.current) clearTimeout(matchTimerRef.current);
-    if (searchIntervalRef.current) clearInterval(searchIntervalRef.current);
-    if (radarLoopRef.current) radarLoopRef.current.stop();
-    pLoopsRef.current.forEach(l => l.stop());
-    radar.setValue(0);
-    pAnims.forEach(a => a.setValue(0));
-    setPhase(PHASE.IDLE);
+    stopSearchAnimations();
+    resetToIdle();
   };
 
-  const handleSkip = () => {
-    setProfile(null);
-    flip.setValue(0);
-    setPhase(PHASE.IDLE);
-  };
+  const applyNextOrIdle = useCallback((nextUser) => {
+    const next = normalizeBlindMatchUser(nextUser);
+    if (next) {
+      revealProfile(next);
+    } else {
+      resetToIdle();
+    }
+  }, [revealProfile, resetToIdle]);
+
+  const handleSkip = useCallback(async () => {
+    if (!profile?.id || actionBusy) {
+      resetToIdle();
+      return;
+    }
+    setActionBusy(true);
+    try {
+      const res = await sendBlindMatchAction(profile.id, "SKIP");
+      applyNextOrIdle(res?.nextUser);
+    } catch {
+      resetToIdle();
+    } finally {
+      setActionBusy(false);
+    }
+  }, [profile, actionBusy, applyNextOrIdle, resetToIdle]);
+
+  const handleLike = useCallback(async () => {
+    if (!profile?.id || actionBusy) return;
+    setActionBusy(true);
+    try {
+      const res = await sendBlindMatchAction(profile.id, "LIKE");
+      applyNextOrIdle(res?.nextUser);
+    } catch (err) {
+      Alert.alert("Like failed", err?.message || "Please try again.");
+    } finally {
+      setActionBusy(false);
+    }
+  }, [profile, actionBusy, applyNextOrIdle]);
+
+  useEffect(() => {
+    setSavedThisMatch(false);
+  }, [profile?.id]);
+
+  const handleSaveFavorite = useCallback(async () => {
+    if (!profile?.id || actionBusy) return;
+    try {
+      await saveFavoriteUser({
+        userId: profile.id,
+        name: profile.name,
+        avatarUrl: profile.avatar,
+        occupation: profile.bio,
+      });
+      setSavedThisMatch(true);
+      Alert.alert("Saved ⭐", `${profile.name ?? "User"} added to your Saved list.`);
+    } catch (err) {
+      Alert.alert("Save failed", err?.message || "Could not save this user.");
+    }
+  }, [profile, actionBusy]);
+
+  const handleChat = useCallback(async () => {
+    if (!profile?.id || actionBusy) return;
+    setActionBusy(true);
+    try {
+      const res = await openBlindMatchChat(profile.id);
+      const targetId = String(res?.targetUserId ?? profile.id);
+      await openUserChat(router, {
+        userId: targetId,
+        id: targetId,
+        name: res?.targetUserName ?? profile.name,
+        avatarUrl: res?.targetUserProfilePicUrl ?? profile.avatar,
+        profilePicUrl: res?.targetUserProfilePicUrl ?? profile.avatar,
+      });
+    } catch (err) {
+      Alert.alert("Chat failed", err?.message || "Could not open chat. Please try again.");
+    } finally {
+      setActionBusy(false);
+    }
+  }, [profile, actionBusy, router]);
 
   const toggleTag = (k) =>
     setPicked(p => p.includes(k) ? p.filter(t => t !== k) : [...p, k]);
@@ -436,6 +575,15 @@ export default function BlindPick() {
               ]}
             >
               <Image source={{ uri: profile.avatar }} style={s.profileImg} />
+              {profile.vipProfileFrameUrl ? (
+                // VIP profile frame overlay on the full card photo — scale/position may need visual tuning on device
+                <Image
+                  source={{ uri: profile.vipProfileFrameUrl }}
+                  style={s.profileFrameOverlay}
+                  resizeMode="contain"
+                  pointerEvents="none"
+                />
+              ) : null}
               <LinearGradient
                 colors={["transparent", "rgba(13,6,24,0.95)"]}
                 style={s.profileGrad}
@@ -443,18 +591,21 @@ export default function BlindPick() {
               <View style={s.profileInfo}>
                 <View style={s.nameRow}>
                   <Text style={s.profileName}>
-                    {profile.name}, {profile.age}
+                    {profile.name}{profile.age != null ? `, ${profile.age}` : ""}
                   </Text>
-                  <View style={s.ratingPill}>
-                    <Star size={11} color="#ffd700" fill="#ffd700" />
-                    <Text style={s.ratingTxt}>{profile.rating}</Text>
-                  </View>
+                  {profile.rating != null && (
+                    <View style={s.ratingPill}>
+                      <Star size={11} color="#ffd700" fill="#ffd700" />
+                      <Text style={s.ratingTxt}>{profile.rating}</Text>
+                    </View>
+                  )}
                 </View>
                 <View style={s.distRow}>
                   <View style={s.distDot} />
                   <Text style={s.distTxt}>{profile.distance} away</Text>
                 </View>
-                <Text style={s.profileBio}>{profile.bio}</Text>
+                {profile.bio ? <Text style={s.profileBio}>{profile.bio}</Text> : null}
+                {profile.tags?.length > 0 && (
                 <View style={s.profileTagsRow}>
                   {profile.tags.map(t => (
                     <View key={t} style={s.profileTag}>
@@ -464,17 +615,37 @@ export default function BlindPick() {
                     </View>
                   ))}
                 </View>
+                )}
               </View>
             </Animated.View>
           </Animated.View>
 
           {/* Actions */}
           <View style={s.actionRow}>
-            <TouchableOpacity style={s.roundBtn} onPress={handleSkip} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={[s.roundBtn, actionBusy && { opacity: 0.5 }]}
+              onPress={handleSkip}
+              disabled={actionBusy}
+              activeOpacity={0.8}
+            >
               <X size={24} color="#ff3f72" />
             </TouchableOpacity>
 
-            <TouchableOpacity style={s.chatBtn} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={[s.roundBtn, actionBusy && { opacity: 0.5 }]}
+              onPress={handleSaveFavorite}
+              disabled={actionBusy}
+              activeOpacity={0.8}
+            >
+              <Star size={22} color="#ffd700" fill={savedThisMatch ? "#ffd700" : "none"} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.chatBtn, actionBusy && { opacity: 0.5 }]}
+              onPress={handleChat}
+              disabled={actionBusy}
+              activeOpacity={0.85}
+            >
               <LinearGradient
                 colors={["#ff3f72", "#a647ea"]}
                 start={{ x: 0, y: 0 }}
@@ -486,12 +657,22 @@ export default function BlindPick() {
               </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity style={s.roundBtn} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={[s.roundBtn, actionBusy && { opacity: 0.5 }]}
+              onPress={handleLike}
+              disabled={actionBusy}
+              activeOpacity={0.8}
+            >
               <Heart size={24} color="#ff3f72" fill="#ff3f72" />
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={s.tryAgainBtn} onPress={handleSkip} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={s.tryAgainBtn}
+            onPress={handleSkip}
+            disabled={actionBusy}
+            activeOpacity={0.8}
+          >
             <Text style={s.tryAgainTxt}>Try another match →</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -655,6 +836,13 @@ const s = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 18,
   },
   profileImg: { position: "absolute", width: "100%", height: "100%", resizeMode: "cover" },
+  profileFrameOverlay: {
+    position: "absolute",
+    top: "-8%",
+    left: "-8%",
+    width: "116%",
+    height: "116%",
+  },
   profileGrad: { position: "absolute", bottom: 0, left: 0, right: 0, height: "65%" },
   profileInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 18 },
 

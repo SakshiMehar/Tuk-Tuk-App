@@ -1,41 +1,50 @@
 /**
- * Facebook login for Expo Go (expo-auth-session).
- * Native SDK is in facebookSdkNative.js (dev build only).
+ * Facebook login → Firebase idToken → POST /api/auth/firebase-facebook.
+ *
+ * Android: browser OAuth (native SDK requires key hash saved in Meta first).
+ * iOS: native Facebook app when available.
+ * Set EXPO_PUBLIC_FACEBOOK_USE_NATIVE=true after adding Android key hash in Meta.
  */
-import * as AuthSession from "expo-auth-session";
-import * as WebBrowser from "expo-web-browser";
-import { FACEBOOK_APP_ID } from "../config/auth";
-import { facebookLogin } from "../api/authApi";
-import { establishSessionFromApi } from "./authSessionService";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+import { signInWithFacebookWeb } from "./facebookWebAuth";
 
-WebBrowser.maybeCompleteAuthSession();
+const isExpoGo = Constants.appOwnership === "expo";
 
-export const signInWithFacebook = async () => {
-  const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
+const canUseNativeAndroid =
+  Platform.OS === "android" &&
+  process.env.EXPO_PUBLIC_FACEBOOK_USE_NATIVE === "true";
 
-  const request = new AuthSession.AuthRequest({
-    clientId: FACEBOOK_APP_ID,
-    redirectUri,
-    scopes: ["public_profile", "email"],
-    responseType: AuthSession.ResponseType.Token,
-    extraParams: { display: "popup" },
-  });
+const shouldUseNativeSdk =
+  !isExpoGo && (Platform.OS === "ios" || canUseNativeAndroid);
 
-  const result = await request.promptAsync({
-    authorizationEndpoint: "https://www.facebook.com/v19.0/dialog/oauth",
-  });
+export const configureFacebookSdk = () => {
+  if (!shouldUseNativeSdk) return;
+  require("./facebookSdkNative").configureFacebookSdk();
+};
 
-  if (result.type === "cancel" || result.type === "dismiss") {
-    throw new Error("Facebook sign-in was cancelled.");
-  }
-  if (result.type !== "success") {
-    throw new Error("Facebook sign-in failed.");
+export const signInWithFacebook = async (options = {}) => {
+  if (!shouldUseNativeSdk) {
+    return signInWithFacebookWeb(options);
   }
 
-  const accessToken = result.params?.access_token;
-  if (!accessToken) {
-    throw new Error("Facebook sign-in did not return an access token.");
-  }
+  try {
+    return await require("./facebookSdkNative").signInWithFacebook();
+  } catch (err) {
+    const msg = (err?.message ?? "").toLowerCase();
+    if (msg.includes("cancelled")) throw err;
 
-  return establishSessionFromApi(facebookLogin, accessToken);
+    return signInWithFacebookWeb(options);
+  }
+};
+
+export const isFacebookAuthCancelled = (err) => {
+  const msg = (err?.message ?? "").toLowerCase();
+  return msg.includes("cancelled") || msg.includes("canceled");
+};
+
+export const getFacebookAuthErrorMessage = (err) => {
+  if (!err) return null;
+  if (isFacebookAuthCancelled(err)) return null;
+  return err?.message ?? "Facebook sign-in failed.";
 };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -6,17 +6,41 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Dimensions,
   TextInput,
-  FlatList,
   StatusBar,
-  SafeAreaView,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Search, UserPlus, X, Check, ChevronDown, AlignJustify } from "lucide-react-native";
 import { useRouter } from "expo-router";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
+import { getRecommendedUsers } from "../src/services/homeService";
+import { loadConversations } from "../src/services/chatService";
+import { wsService } from "../src/services/websocket";
+import { openUserChat } from "../src/utils/chatNavigation";
+import { openUserProfile } from "../src/utils/profileNavigation";
+import { loadFamilyLists, loadFamilyDetail } from "../src/services/familyService";
+import ComingSoonModal from "./ComingSoonModal";
+import ProfileConnectionsModal from "./ProfileConnectionsModal";
+import FamilyChatModal from "./FamilyChatModal";
+import {
+  loadFollowing,
+  loadFollowers,
+  followUser,
+  isSameUser,
+} from "../src/services/relationshipService";
+import { loadProfileStats } from "../src/services/profileStatsService";
+import { getAppUserId } from "../src/utils/sessionUser";
+import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 
-const { width: W } = Dimensions.get("window");
+const RECOMMEND_RING_COLORS = ["#7c4dff", "#ff4ea3"];
+
+// Backend may send a bundled preset id (e.g. "avatar3") instead of a real
+// image URL — resolve those to the local asset, otherwise treat as a URI.
+const resolveAvatarSource = (avatar) =>
+  isBundledAvatarId(avatar) ? getAvatarSource(avatar) : { uri: avatar };
 
 // ── Mock data ──────────────────────────────────────────────────────────────
 
@@ -40,17 +64,17 @@ const featureCards = [
   {
     id: "fc3",
     label: "Followers",
-    avatar: "https://randomuser.me/api/portraits/men/32.jpg",
-    colors: null,
-    badge: 67,
+    emoji: "🫂",
+    colors: ["#00693e", "#00c853"],
+    badge: null,
     borderColors: ["#00c853", "#69f0ae"],
   },
   {
     id: "fc4",
     label: "Visitors",
-    avatar: "https://randomuser.me/api/portraits/women/44.jpg",
-    colors: null,
-    badge: 84,
+    emoji: "👀",
+    colors: ["#7a0f4d", "#f953c6"],
+    badge: null,
     borderColors: ["#f953c6", "#b91d73"],
   },
   {
@@ -71,125 +95,13 @@ const featureCards = [
   },
 ];
 
-const recommendedUsers = [
-  {
-    id: "ru1",
-    name: "do yo...",
-    avatar: "https://randomuser.me/api/portraits/men/21.jpg",
-    ringColors: ["#7c4dff", "#a78bfa"],
-  },
-  {
-    id: "ru2",
-    name: "Sachin...",
-    avatar: "https://randomuser.me/api/portraits/men/34.jpg",
-    ringColors: ["#4a6cf7", "#7c4dff"],
-  },
-  {
-    id: "ru3",
-    name: "ALONE...",
-    avatar: "https://randomuser.me/api/portraits/women/55.jpg",
-    ringColors: ["#f953c6", "#7c4dff"],
-  },
-  {
-    id: "ru4",
-    name: "(Deep)/(...",
-    avatar: "https://randomuser.me/api/portraits/men/67.jpg",
-    ringColors: ["#7c4dff", "#4a6cf7"],
-  },
-  {
-    id: "ru5",
-    name: "Riya 🌸",
-    avatar: "https://randomuser.me/api/portraits/women/22.jpg",
-    ringColors: ["#ff4ea3", "#a78bfa"],
-  },
-];
-
-const chatList = [
-  {
-    id: "ch1",
-    name: "Amit yadav ji",
-    avatar: "https://randomuser.me/api/portraits/men/11.jpg",
-    lastMsg: "",
-    time: "2:42 AM",
-    unread: "",
-    verified: false,
-    live: false,
-    liked: false,
-  },
-  {
-    id: "ch2",
-    name: "thakor and thakor",
-    avatar: "https://randomuser.me/api/portraits/men/55.jpg",
-    time: "12:09 AM",
-    unread: 0,
-    verified: false,
-    live: false,
-    liked: false,
-  },
-  {
-    id: "ch3",
-    name: "goopu thakor",
-    avatar: "https://randomuser.me/api/portraits/men/66.jpg",
-    lastMsg: "",
-    time: "Yesterday",
-    unread: 0,
-    verified: false,
-    live: false,
-    liked: false,
-  },
-  {
-    id: "ch4",
-    name: "Priya Sharma",
-    avatar: "https://randomuser.me/api/portraits/women/33.jpg",
-    lastMsg: "",
-    time: "Yesterday",
-    unread: 0,
-    verified: false,
-    live: false,
-    liked: false,
-  },
-  {
-    id: "ch5",
-    name: "Raj Kumar",
-    avatar: "https://randomuser.me/api/portraits/men/77.jpg",
-    lastMsg: "",
-    time: "Mon",
-    unread: 0,
-    verified: false,
-    live: false,
-    liked: false,
-  },
-  {
-    id: "ch6",
-    name: "Sneha Patel",
-    avatar: "https://randomuser.me/api/portraits/women/88.jpg",
-    lastMsg: "",
-    time: "Sun",
-    unread: 0,
-    verified: false,
-    live: false,
-    liked: false,
-  },
-  {
-    id: "ch7",
-    name: "DJ Badshah",
-    avatar: "https://randomuser.me/api/portraits/men/42.jpg",
-    lastMsg: "",
-    time: "Sat",
-    unread: 0,
-    verified: false,
-    live: false,
-    liked: false,
-  },
-];
-
 // ── Contacts data ─────────────────────────────────────────────────────────
 
-const contactMenuItems = [
-  { id: "friends",   label: "Friends",   emoji: "👥", iconBg: ["#1a2a6c", "#4a6cf7"], count: null },
-  { id: "followers", label: "Followers", emoji: "🫂", iconBg: ["#3a1080", "#7c4dff"], count: 62   },
-  { id: "following", label: "Following", emoji: "⭐", iconBg: ["#7c2d00", "#ff8c00"], count: 4    },
-  { id: "family",    label: "Family",    emoji: "🏠", iconBg: ["#064e3b", "#00c853"], count: null },
+const CONTACT_MENU_ITEMS = [
+  { id: "friends",   label: "Friends",   emoji: "👥", iconBg: ["#1a2a6c", "#4a6cf7"] },
+  { id: "followers", label: "Followers", emoji: "🫂", iconBg: ["#3a1080", "#7c4dff"] },
+  { id: "following", label: "Following", emoji: "⭐", iconBg: ["#7c2d00", "#ff8c00"] },
+  { id: "family",    label: "Family",    emoji: "🏠", iconBg: ["#064e3b", "#00c853"] },
 ];
 
 const contactsData = {
@@ -216,28 +128,318 @@ const contactsData = {
     { id: "fw3", name: "Amit yadav ji",  handle: "@amit_yadav",    avatar: "https://randomuser.me/api/portraits/men/11.jpg",    online: true,  verified: true  },
     { id: "fw4", name: "Deep Singh",     handle: "@deepsingh",     avatar: "https://randomuser.me/api/portraits/men/67.jpg",    online: false, verified: true  },
   ],
-  family: [
-    { id: "fm1", name: "Mom 💖",         handle: "@family_mom",    avatar: "https://randomuser.me/api/portraits/women/60.jpg",  online: true,  verified: false },
-    { id: "fm2", name: "Bhai Sahab",     handle: "@bhai_sahab",    avatar: "https://randomuser.me/api/portraits/men/60.jpg",    online: false, verified: false },
-    { id: "fm3", name: "Choti Didi",     handle: "@choti_didi",    avatar: "https://randomuser.me/api/portraits/women/70.jpg",  online: true,  verified: false },
-  ],
 };
 
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function ChatTab() {
   const router = useRouter();
+  const scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
   const [activeTopTab, setActiveTopTab] = useState("Chats");
   const [searchText, setSearchText] = useState("");
   const [showBanner, setShowBanner] = useState(true);
   const [chatFilter, setChatFilter] = useState("All");
   const [contactsPage, setContactsPage] = useState(null); // null | "friends"|"followers"|"following"|"family"
   const [contactSearch, setContactSearch] = useState("");
-  const [followedBack, setFollowedBack] = useState({});
+  const [followersList, setFollowersList] = useState([]);
+  const [followingList, setFollowingList] = useState([]);
+  const [myUserId, setMyUserId] = useState(null);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [followBackLoadingId, setFollowBackLoadingId] = useState(null);
+  const [recommendedUsers, setRecommendedUsers] = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [chatsLoading, setChatsLoading] = useState(true);
+  const [comingSoonFeature, setComingSoonFeature] = useState(null);
+  const [connectionsModalType, setConnectionsModalType] = useState(null); // null | "followers" | "visitors"
+  const [profileStats, setProfileStats] = useState({ followersCount: 0, visitorCount: 0 });
+  const [familyGroups, setFamilyGroups] = useState([]);
+  const [familyGroupsLoading, setFamilyGroupsLoading] = useState(false);
+  const [chatFamily, setChatFamily] = useState(null);
 
-  const filteredChats = chatList.filter((c) =>
-    c.name.toLowerCase().includes(searchText.toLowerCase())
+  const fetchChats = useCallback(() => {
+    setChatsLoading(true);
+
+    loadConversations()
+      .then((list) => {
+        setConversations(list);
+
+      })
+      .catch(() => setConversations([]))
+      .finally(() => setChatsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRecommendedUsers()
+      .then((users) => {
+        if (!cancelled) {
+          setRecommendedUsers(users);
+
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchChats();
+      wsService.connect().catch(() => {});
+    }, [fetchChats])
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      loadProfileStats()
+        .then((stats) => {
+          if (!cancelled) setProfileStats(stats);
+        })
+        .catch(() => {});
+      return () => { cancelled = true; };
+    }, [])
+  );
+
+  useEffect(() => {
+    const unsub = wsService.onMessage(() => {
+      fetchChats();
+    });
+    return unsub;
+  }, [fetchChats]);
+
+  const handleOpenUserChat = (user) => {
+    openUserChat(router, user);
+  };
+
+  const loadRelationshipLists = useCallback(async () => {
+    setContactsLoading(true);
+    try {
+      const [following, followers, currentId] = await Promise.all([
+        loadFollowing(),
+        loadFollowers(),
+        getAppUserId().catch(() => null),
+      ]);
+      setMyUserId(currentId);
+      setFollowingList(following.filter((u) => !isSameUser(u.userId, currentId)));
+      setFollowersList(followers.filter((u) => !isSameUser(u.userId, currentId)));
+    } catch {
+      setFollowingList([]);
+      setFollowersList([]);
+    } finally {
+      setContactsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (
+      activeTopTab === "Contacts" &&
+      (contactsPage === "followers" || contactsPage === "following" || !contactsPage)
+    ) {
+      loadRelationshipLists();
+    }
+  }, [activeTopTab, contactsPage, loadRelationshipLists]);
+
+  const loadFamilyGroups = useCallback(async () => {
+    setFamilyGroupsLoading(true);
+    try {
+      const { existingFamilies, newFamilies } = await loadFamilyLists();
+      const merged = [...existingFamilies, ...newFamilies].filter((f) => f.member);
+      const deduped = Array.from(new Map(merged.map((f) => [String(f.id), f])).values());
+      setFamilyGroups(deduped);
+    } catch {
+      setFamilyGroups([]);
+    } finally {
+      setFamilyGroupsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTopTab === "Contacts" && contactsPage === "family") {
+      loadFamilyGroups();
+    }
+  }, [activeTopTab, contactsPage, loadFamilyGroups]);
+
+  const handleOpenFamilyGroup = useCallback(async (family) => {
+    try {
+      const detail = await loadFamilyDetail(family.id);
+      setChatFamily(detail);
+    } catch {
+      setChatFamily(family);
+    }
+  }, []);
+
+  const followingIdSet = useMemo(
+    () => new Set(followingList.map((u) => String(u.userId ?? u.id))),
+    [followingList]
+  );
+
+  const displayFeatureCards = useMemo(
+    () =>
+      featureCards.map((card) => {
+        if (card.id === "fc3") return { ...card, badge: profileStats.followersCount || null };
+        if (card.id === "fc4") return { ...card, badge: profileStats.visitorCount || null };
+        return card;
+      }),
+    [profileStats]
+  );
+
+  const handleFeatureCardPress = (card) => {
+    if (card.label === "Followers") setConnectionsModalType("followers");
+    else if (card.label === "Visitors") setConnectionsModalType("visitors");
+    else if (card.label === "Game") setComingSoonFeature("Game");
+    else if (card.label === "Voice Party") router.push("/(tabs)/party");
+    else if (card.label === "Nearby") router.push("/nearby");
+    else if (card.label === "Moments") router.push("/(tabs)/profile");
+  };
+
+  const contactMenuItems = useMemo(
+    () =>
+      CONTACT_MENU_ITEMS.map((item) => ({
+        ...item,
+        count:
+          item.id === "followers"
+            ? followersList.length
+            : item.id === "following"
+              ? followingList.length
+              : null,
+      })),
+    [followersList.length, followingList.length]
+  );
+
+  const getContactsForPage = useCallback(
+    (page) => {
+      if (page === "followers") return followersList;
+      if (page === "following") return followingList;
+      return (contactsData[page] || []).filter((u) => !isSameUser(u.id, myUserId));
+    },
+    [followersList, followingList, myUserId]
+  );
+
+  const handleFollowBack = async (user) => {
+    const targetId = user?.userId ?? user?.id;
+    if (!targetId || isSameUser(targetId, myUserId)) return;
+    setFollowBackLoadingId(String(targetId));
+    try {
+      await followUser(targetId);
+      await loadRelationshipLists();
+    } catch {
+      // keep UI unchanged on failure
+    } finally {
+      setFollowBackLoadingId(null);
+    }
+  };
+
+  const filteredChats = conversations.filter((c) => {
+    const query = searchText.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      c.name?.toLowerCase().includes(query) ||
+      c.lastMsg?.toLowerCase().includes(query)
+    );
+  });
+
+  const renderChatList = () => {
+    if (chatsLoading) {
+      return (
+        <View style={styles.chatsLoading}>
+          <ActivityIndicator size="small" color="#a78bfa" />
+          <Text style={styles.chatsLoadingText}>Loading chats...</Text>
+        </View>
+      );
+    }
+
+    if (filteredChats.length === 0) {
+      return (
+        <View style={styles.chatsEmpty}>
+          <Text style={styles.chatsEmptyText}>
+            {chatFilter === "Unread" ? "No unread chats" : "No chats yet"}
+          </Text>
+        </View>
+      );
+    }
+
+    const list =
+      chatFilter === "Unread"
+        ? filteredChats.filter((c) => c.unread > 0)
+        : filteredChats;
+
+    return list.map((item, idx) => (
+      <TouchableOpacity
+        key={String(item.userId ?? item.id ?? idx)}
+        style={[styles.chatItem, idx === 0 && styles.chatItemFirst]}
+        activeOpacity={0.75}
+        onPress={() => handleOpenUserChat(item)}
+      >
+        <TouchableOpacity
+          style={styles.chatAvatarWrap}
+          activeOpacity={0.8}
+          onPress={() => openUserProfile(router, item)}
+        >
+          <LinearGradient
+            colors={item.vipProfileFrameUrl ? ["#0f0720", "#0f0720"] : ["#7c4dff", "#4a6cf7"]}
+            style={styles.chatAvatarRing}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            {item.avatar ? (
+              <ProfileAvatarWithFrame
+                avatarSource={resolveAvatarSource(item.avatar)}
+                frameSource={item.vipProfileFrameUrl}
+                size={52}
+                avatarStyle={{ borderRadius: 26, borderWidth: 1.5, borderColor: "#0f0720" }}
+                {...(item.vipProfileFrameUrl
+                  ? {
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
+                  : {})}
+              />
+            ) : (
+              <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
+                <Text style={styles.chatInitial}>{item.name?.[0]?.toUpperCase() ?? "?"}</Text>
+              </View>
+            )}
+          </LinearGradient>
+          {item.live && (
+            <View style={styles.liveBadge}>
+              <LinearGradient colors={["#7c4dff", "#4a6cf7"]} style={styles.liveBadgeGrad}>
+                <Text style={styles.liveBadgeText}>Live</Text>
+              </LinearGradient>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        <View style={styles.chatContent}>
+          <View style={styles.chatTopRow}>
+            <View style={styles.chatNameRow}>
+              <Text style={styles.chatName} numberOfLines={1}>{item.name}</Text>
+              {item.verified && (
+                <View style={styles.verifiedBadge}>
+                  <Check size={9} color="white" strokeWidth={3} />
+                </View>
+              )}
+              {item.liked && <Text style={styles.heartIcon}>🤍</Text>}
+            </View>
+            <Text style={styles.chatTime}>{item.time}</Text>
+          </View>
+          <View style={styles.chatBottomRow}>
+            <Text style={styles.chatLastMsg} numberOfLines={1}>{item.lastMsg}</Text>
+            {item.unread > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadText}>{item.unread}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    ));
+  };
 
   return (
     <View style={styles.root}>
@@ -317,7 +519,7 @@ export default function ChatTab() {
         )}
       </LinearGradient>
 
-      <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} style={styles.body} showsVerticalScrollIndicator={false}>
 
         {/* ══════════ CONTACTS TAB ══════════ */}
         {activeTopTab === "Contacts" && !contactsPage && (
@@ -365,21 +567,87 @@ export default function ChatTab() {
               </View>
             </View>
 
+            {/* Real family groups (group chats the user belongs to) */}
+            {contactsPage === "family" && (
+              <View style={styles.familyGroupsSection}>
+                <Text style={styles.familyGroupsHeader}>Your Family Groups</Text>
+                <View style={styles.contactList}>
+                  {familyGroupsLoading ? (
+                    <View style={styles.chatsLoading}>
+                      <ActivityIndicator size="small" color="#a78bfa" />
+                      <Text style={styles.chatsLoadingText}>Loading...</Text>
+                    </View>
+                  ) : familyGroups.filter((f) =>
+                      f.name.toLowerCase().includes(contactSearch.toLowerCase())
+                    ).length === 0 ? (
+                    <View style={styles.emptyContacts}>
+                      <Text style={styles.emptyContactsEmoji}>👪</Text>
+                      <Text style={styles.emptyContactsText}>You haven&apos;t joined a family group yet</Text>
+                    </View>
+                  ) : (
+                    familyGroups
+                      .filter((f) => f.name.toLowerCase().includes(contactSearch.toLowerCase()))
+                      .map((family, idx, arr) => (
+                        <TouchableOpacity
+                          key={family.id}
+                          style={[styles.contactItem, idx === arr.length - 1 && { borderBottomWidth: 0 }]}
+                          activeOpacity={0.75}
+                          onPress={() => handleOpenFamilyGroup(family)}
+                        >
+                          <View style={styles.contactAvatarWrap}>
+                            <LinearGradient colors={["#7c4dff", "#4a6cf7"]} style={styles.contactAvatarRing}>
+                              {family.icon ? (
+                                <Image source={{ uri: family.icon }} style={styles.contactAvatar} />
+                              ) : (
+                                <View style={[styles.contactAvatar, styles.contactAvatarPlaceholder]}>
+                                  <Text style={styles.contactInitial}>{family.name?.[0]?.toUpperCase() ?? "F"}</Text>
+                                </View>
+                              )}
+                            </LinearGradient>
+                          </View>
+                          <View style={styles.contactInfo}>
+                            <Text style={styles.contactName} numberOfLines={1}>{family.name}</Text>
+                            <Text style={styles.contactHandle} numberOfLines={1}>{family.members} members</Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.msgBtn}
+                            activeOpacity={0.8}
+                            onPress={() => handleOpenFamilyGroup(family)}
+                          >
+                            <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.msgBtnGrad}>
+                              <Text style={styles.msgBtnText}>Open Chat</Text>
+                            </LinearGradient>
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      ))
+                  )}
+                </View>
+              </View>
+            )}
+
             {/* Contact list */}
+            {contactsPage !== "family" && (
             <View style={styles.contactList}>
-              {(contactsData[contactsPage] || [])
+              {contactsLoading && (contactsPage === "followers" || contactsPage === "following") ? (
+                <View style={styles.chatsLoading}>
+                  <ActivityIndicator size="small" color="#a78bfa" />
+                  <Text style={styles.chatsLoadingText}>Loading...</Text>
+                </View>
+              ) : getContactsForPage(contactsPage)
                 .filter((u) => u.name.toLowerCase().includes(contactSearch.toLowerCase()))
-                .map((user, idx, arr) => (
+                .map((user, idx, arr) => {
+                  const userId = String(user.userId ?? user.id);
+                  const showFollowBack =
+                    contactsPage === "followers" &&
+                    !followingIdSet.has(userId) &&
+                    !isSameUser(userId, myUserId);
+
+                  return (
                   <TouchableOpacity
-                    key={user.id}
+                    key={userId}
                     style={[styles.contactItem, idx === arr.length - 1 && { borderBottomWidth: 0 }]}
                     activeOpacity={0.75}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/chat-box",
-                        params: { name: user.name, avatar: user.avatar, matchPercent: 90, interests: "Music", location: "India", likeCount: 0 },
-                      })
-                    }
+                    onPress={() => handleOpenUserChat(user)}
                   >
                     {/* Avatar */}
                     <View style={styles.contactAvatarWrap}>
@@ -387,7 +655,29 @@ export default function ChatTab() {
                         colors={["#7c4dff", "#4a6cf7"]}
                         style={styles.contactAvatarRing}
                       >
-                        <Image source={{ uri: user.avatar }} style={styles.contactAvatar} />
+                        {user.avatar ? (
+                          <ProfileAvatarWithFrame
+                            avatarSource={resolveAvatarSource(user.avatar)}
+                            frameSource={user.vipProfileFrameUrl}
+                            size={46}
+                            avatarStyle={{ borderRadius: 23, borderWidth: 1.5, borderColor: "#0f0720" }}
+                            {...(user.vipProfileFrameUrl
+                              ? {
+                                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                                }
+                              : {})}
+                          />
+                        ) : (
+                          <View style={[styles.contactAvatar, styles.contactAvatarPlaceholder]}>
+                            <Text style={styles.contactInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
+                          </View>
+                        )}
                       </LinearGradient>
                       {user.online && <View style={styles.onlineDot} />}
                     </View>
@@ -406,31 +696,29 @@ export default function ChatTab() {
                     </View>
 
                     {/* Action button */}
-                    {contactsPage === "followers" && !user.followBack ? (
+                    {showFollowBack ? (
                       <TouchableOpacity
                         style={styles.followBackBtn}
                         activeOpacity={0.8}
-                        onPress={() => setFollowedBack((prev) => ({ ...prev, [user.id]: !prev[user.id] }))}
+                        disabled={followBackLoadingId === userId}
+                        onPress={() => handleFollowBack(user)}
                       >
                         <LinearGradient
-                          colors={followedBack[user.id] ? ["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"] : ["#7c4dff", "#4a6cf7"]}
+                          colors={["#7c4dff", "#4a6cf7"]}
                           style={styles.followBackGrad}
                         >
-                          <Text style={[styles.followBackText, followedBack[user.id] && { color: "#a78bfa" }]}>
-                            {followedBack[user.id] ? "Following" : "Follow Back"}
-                          </Text>
+                          {followBackLoadingId === userId ? (
+                            <ActivityIndicator size="small" color="white" />
+                          ) : (
+                            <Text style={styles.followBackText}>Follow Back</Text>
+                          )}
                         </LinearGradient>
                       </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
                         style={styles.msgBtn}
                         activeOpacity={0.8}
-                        onPress={() =>
-                          router.push({
-                            pathname: "/chat-box",
-                            params: { name: user.name, avatar: user.avatar, matchPercent: 90, interests: "Music", location: "India", likeCount: 0 },
-                          })
-                        }
+                        onPress={() => handleOpenUserChat(user)}
                       >
                         <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.msgBtnGrad}>
                           <Text style={styles.msgBtnText}>Message</Text>
@@ -438,9 +726,10 @@ export default function ChatTab() {
                       </TouchableOpacity>
                     )}
                   </TouchableOpacity>
-                ))}
+                  );
+                })}
 
-              {(contactsData[contactsPage] || []).filter((u) =>
+              {!contactsLoading && getContactsForPage(contactsPage).filter((u) =>
                 u.name.toLowerCase().includes(contactSearch.toLowerCase())
               ).length === 0 && (
                 <View style={styles.emptyContacts}>
@@ -449,6 +738,7 @@ export default function ChatTab() {
                 </View>
               )}
             </View>
+            )}
           </View>
         )}
 
@@ -467,7 +757,7 @@ export default function ChatTab() {
                 <Text style={styles.bannerIconEmoji}>📬</Text>
               </View>
               <Text style={styles.bannerText}>
-                Tap "Allow" and never miss the amazing people and moments on TukTuk!
+                Tap &quot;Allow&quot; and never miss the amazing people and moments on TukTuk!
               </Text>
               <TouchableOpacity style={styles.bannerBtn} activeOpacity={0.8}>
                 <Text style={styles.bannerBtnText}>Notify me</Text>
@@ -486,8 +776,13 @@ export default function ChatTab() {
           style={styles.featureScroll}
           contentContainerStyle={styles.featureContent}
         >
-          {featureCards.map((card) => (
-            <TouchableOpacity key={card.id} style={styles.featureCard} activeOpacity={0.8}>
+          {displayFeatureCards.map((card) => (
+            <TouchableOpacity
+              key={card.id}
+              style={styles.featureCard}
+              activeOpacity={0.8}
+              onPress={() => handleFeatureCardPress(card)}
+            >
               {/* Gradient border ring */}
               <LinearGradient
                 colors={card.borderColors}
@@ -497,7 +792,7 @@ export default function ChatTab() {
               >
                 <View style={styles.featureInner}>
                   {card.avatar ? (
-                    <Image source={{ uri: card.avatar }} style={styles.featureAvatar} blurRadius={2} />
+                    <Image source={resolveAvatarSource(card.avatar)} style={styles.featureAvatar} blurRadius={2} />
                   ) : (
                     <LinearGradient colors={card.colors} style={styles.featureEmojiWrap}>
                       <Text style={styles.featureEmoji}>{card.emoji}</Text>
@@ -527,14 +822,41 @@ export default function ChatTab() {
           contentContainerStyle={styles.recommendContent}
         >
           {recommendedUsers.map((user) => (
-            <TouchableOpacity key={user.id} style={styles.recommendCard} activeOpacity={0.8}>
+            <TouchableOpacity
+              key={user.id}
+              style={styles.recommendCard}
+              activeOpacity={0.8}
+              onPress={() => handleOpenUserChat(user)}
+            >
               <LinearGradient
-                colors={user.ringColors}
+                colors={RECOMMEND_RING_COLORS}
                 style={styles.recommendRing}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
               >
-                <Image source={{ uri: user.avatar }} style={styles.recommendAvatar} />
+                {user.avatar ? (
+                  <ProfileAvatarWithFrame
+                    avatarSource={resolveAvatarSource(user.avatar)}
+                    frameSource={user.vipProfileFrameUrl}
+                    size={66}
+                    avatarStyle={{ borderRadius: 34, borderWidth: 2, borderColor: "#0f0720" }}
+                    {...(user.vipProfileFrameUrl
+                      ? {
+                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                        }
+                      : {})}
+                  />
+                ) : (
+                  <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
+                    <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
+                  </View>
+                )}
               </LinearGradient>
               <View style={styles.recommendNameRow}>
                 <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
@@ -567,80 +889,33 @@ export default function ChatTab() {
         </View>
 
         {/* ── CHAT LIST ── */}
-        <View style={styles.chatList}>
-          {(chatFilter === "Unread"
-            ? filteredChats.filter((c) => c.unread > 0)
-            : filteredChats
-          ).map((item, idx) => (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.chatItem, idx === 0 && styles.chatItemFirst]}
-              activeOpacity={0.75}
-              onPress={() =>
-                router.push({
-                  pathname: "/chat-box",
-                  params: {
-                    name: item.name,
-                    avatar: item.avatar,
-                    matchPercent: 95,
-                    interests: "TV shows,Music",
-                    location: "Indore",
-                    likeCount: 0,
-                  },
-                })
-              }
-            >
-              {/* Avatar */}
-              <View style={styles.chatAvatarWrap}>
-                <LinearGradient
-                  colors={["#7c4dff", "#4a6cf7"]}
-                  style={styles.chatAvatarRing}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                >
-                  <Image source={{ uri: item.avatar }} style={styles.chatAvatar} />
-                </LinearGradient>
-                {item.live && (
-                  <View style={styles.liveBadge}>
-                    <LinearGradient colors={["#7c4dff", "#4a6cf7"]} style={styles.liveBadgeGrad}>
-                      <Text style={styles.liveBadgeText}>Live</Text>
-                    </LinearGradient>
-                  </View>
-                )}
-              </View>
-
-              {/* Content */}
-              <View style={styles.chatContent}>
-                <View style={styles.chatTopRow}>
-                  <View style={styles.chatNameRow}>
-                    <Text style={styles.chatName} numberOfLines={1}>{item.name}</Text>
-                    {item.verified && (
-                      <View style={styles.verifiedBadge}>
-                        <Check size={9} color="white" strokeWidth={3} />
-                      </View>
-                    )}
-                    {item.liked && <Text style={styles.heartIcon}>🤍</Text>}
-                  </View>
-                  <Text style={styles.chatTime}>{item.time}</Text>
-                </View>
-                <View style={styles.chatBottomRow}>
-                  <Text style={styles.chatLastMsg} numberOfLines={1}>{item.lastMsg}</Text>
-                  {item.unread > 0 && (
-                    <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadText}>{item.unread}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <View style={styles.chatList}>{renderChatList()}</View>
 
         <View style={{ height: 30 }} />
           </>
         )}
 
       </ScrollView>
+
+      <ComingSoonModal
+        feature={comingSoonFeature}
+        onClose={() => setComingSoonFeature(null)}
+      />
+
+      <ProfileConnectionsModal
+        visible={connectionsModalType !== null}
+        type={connectionsModalType}
+        onClose={() => {
+          setConnectionsModalType(null);
+          loadProfileStats().then(setProfileStats).catch(() => {});
+        }}
+      />
+
+      <FamilyChatModal
+        visible={!!chatFamily}
+        family={chatFamily}
+        onClose={() => setChatFamily(null)}
+      />
     </View>
   );
 }
@@ -863,6 +1138,16 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#0f0720",
   },
+  recommendAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recommendInitial: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "800",
+  },
   recommendNameRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -915,6 +1200,25 @@ const styles = StyleSheet.create({
   },
 
   // Chat items
+  chatsLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 28,
+    gap: 10,
+  },
+  chatsLoadingText: {
+    color: "rgba(167,139,250,0.7)",
+    fontSize: 13,
+  },
+  chatsEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 28,
+  },
+  chatsEmptyText: {
+    color: "rgba(167,139,250,0.55)",
+    fontSize: 13,
+  },
   chatList: {
     paddingHorizontal: 16,
     gap: 2,
@@ -943,6 +1247,16 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     borderWidth: 1.5,
     borderColor: "#0f0720",
+  },
+  chatAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatInitial: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "800",
   },
   liveBadge: {
     position: "absolute",
@@ -1089,6 +1403,19 @@ const styles = StyleSheet.create({
   },
   contactSearchInput: { flex: 1, color: "white", fontSize: 14, padding: 0 },
 
+  // Family groups section (real family group chats, shown above mock family contacts)
+  familyGroupsSection: { marginTop: 4 },
+  familyGroupsHeader: {
+    color: "rgba(167,139,250,0.7)",
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+
   // Contact list
   contactList: {
     marginHorizontal: 16,
@@ -1114,6 +1441,16 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: 25,
     padding: 2,
+  },
+  contactAvatarPlaceholder: {
+    backgroundColor: "rgba(124,77,255,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  contactInitial: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "800",
   },
   contactAvatar: {
     width: "100%",

@@ -1,11 +1,8 @@
 /** Native Facebook SDK — dev/production builds only (not Expo Go). */
-import {
-  LoginManager,
-  AccessToken,
-  Settings,
-} from "react-native-fbsdk-next";
+import { LoginManager, AccessToken, Settings } from "react-native-fbsdk-next";
+import auth from "@react-native-firebase/auth";
 import { FACEBOOK_APP_ID } from "../config/auth";
-import { facebookLogin } from "../api/authApi";
+import { firebaseFacebookAuth } from "../api/authApi";
 import { establishSessionFromApi } from "./authSessionService";
 
 let sdkInitialized = false;
@@ -20,10 +17,23 @@ export const configureFacebookSdk = () => {
 export const signInWithFacebook = async () => {
   configureFacebookSdk();
 
-  const result = await LoginManager.logInWithPermissions([
-    "public_profile",
-    "email",
-  ]);
+  // Prefer the installed Facebook app over Chrome/custom tabs.
+  LoginManager.setLoginBehavior("native_with_fallback");
+
+  let result;
+  try {
+    result = await LoginManager.logInWithPermissions(["public_profile"]);
+  } catch (err) {
+    if (
+      err?.message?.toLowerCase().includes("app not active") ||
+      err?.message?.toLowerCase().includes("not accessible")
+    ) {
+      throw new Error(
+        `Facebook app is in Development mode. Add your account as a Tester in the Facebook Developer Console (App ID: ${FACEBOOK_APP_ID} → Roles → Testers).`
+      );
+    }
+    throw err;
+  }
 
   if (result.isCancelled) {
     throw new Error("Facebook sign-in was cancelled.");
@@ -36,5 +46,21 @@ export const signInWithFacebook = async () => {
     throw new Error("Facebook sign-in did not return an access token.");
   }
 
-  return await establishSessionFromApi(facebookLogin, accessToken);
+  const facebookCredential = auth.FacebookAuthProvider.credential(accessToken);
+  const userCredential = await auth().signInWithCredential(facebookCredential);
+
+  const idToken = await userCredential.user.getIdToken();
+  const { displayName, phoneNumber } = userCredential.user;
+
+  if (!idToken) throw new Error("Firebase did not return a token.");
+
+  return establishSessionFromApi(
+    (credential) =>
+      firebaseFacebookAuth(
+        credential.idToken,
+        credential.phoneNumber,
+        credential.name
+      ),
+    { idToken, phoneNumber: phoneNumber ?? null, name: displayName }
+  );
 };

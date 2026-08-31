@@ -1,0 +1,40 @@
+{
+  "conversations": [
+    {
+      "id": "ch1",
+      "userId": "u1",
+      "name": "Amit yadav ji",
+      "avatar": "https://randomuser.me/api/portraits/men/11.jpg",
+      "lastMsg": "",
+      "time": "2:42 AM",
+      "unread": 0,
+      "verified": false,
+      "live": false,
+      "liked": false
+    },
+    {
+      "id": "ch2",
+      "userId": "u2",
+      "name": "thakor and thakor",
+      "avatar": "https://randomuser.me/api/portraits/men/55.jpg",
+      "lastMsg": "",
+      "time": "12:09 AM",
+      "unread": 0,
+      "verified": false,
+      "live": false,
+      "liked": false
+    }
+  ],
+  "messages": {
+    "u1": [
+      {
+        "messageId": "m1",
+        "senderId": "u1",
+        "receiverId": "me",
+        "content": "Hey, how are you?",
+        "timestamp": "2026-06-05T14:42:00Z",
+        "status": "MESSAGE_READ"
+      }
+    ]
+  }
+}
