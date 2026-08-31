@@ -25,11 +25,8 @@ import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 
-import { useWindowDimensions } from "react-native";
-import { ms } from "../src/utils/responsive";
-
 // Use current window width at module time (portrait-locked app, safe to do once)
-const { width: W, height: H } = Dimensions.get("window");
+const { width: W } = Dimensions.get("window");
 // Clamp card size so it looks good on both small (320px) and large (480px) screens
 const CARD_W = Math.min(W * 0.72, 320);
 const CARD_H = CARD_W * 1.3;
@@ -247,11 +244,10 @@ export default function BlindPick() {
         resetToIdle();
         return;
       }
-      
+
       revealProfile(user);
     } catch (err) {
       stopSearchAnimations();
-      
       Alert.alert("Match failed", err?.message || "Could not find a match. Please try again.");
       resetToIdle();
     }
@@ -281,8 +277,7 @@ export default function BlindPick() {
     try {
       const res = await sendBlindMatchAction(profile.id, "SKIP");
       applyNextOrIdle(res?.nextUser);
-    } catch (err) {
-      
+    } catch {
       resetToIdle();
     } finally {
       setActionBusy(false);
@@ -296,7 +291,6 @@ export default function BlindPick() {
       const res = await sendBlindMatchAction(profile.id, "LIKE");
       applyNextOrIdle(res?.nextUser);
     } catch (err) {
-      
       Alert.alert("Like failed", err?.message || "Please try again.");
     } finally {
       setActionBusy(false);
@@ -319,7 +313,6 @@ export default function BlindPick() {
       setSavedThisMatch(true);
       Alert.alert("Saved ⭐", `${profile.name ?? "User"} added to your Saved list.`);
     } catch (err) {
-      
       Alert.alert("Save failed", err?.message || "Could not save this user.");
     }
   }, [profile, actionBusy]);
@@ -338,7 +331,6 @@ export default function BlindPick() {
         profilePicUrl: res?.targetUserProfilePicUrl ?? profile.avatar,
       });
     } catch (err) {
-      
       Alert.alert("Chat failed", err?.message || "Could not open chat. Please try again.");
     } finally {
       setActionBusy(false);

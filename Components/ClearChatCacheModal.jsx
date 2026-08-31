@@ -33,9 +33,9 @@ export default function ClearChatCacheModal({ visible, onClose }) {
       const list = await loadConversations();
       const withIds = list.filter((c) => c.userId != null);
       setConversations(withIds);
-      
+
     } catch (err) {
-      
+
       setError(err?.message || "Could not load conversations.");
       setConversations([]);
     } finally {
@@ -91,14 +91,14 @@ export default function ClearChatCacheModal({ visible, onClose }) {
           onPress: async () => {
             setClearing(true);
             await refreshTokenCache();
-            
+
             try {
               await clearChatCache(userIds);
               Alert.alert("Clear chat cache", "Chat cache cleared successfully.");
               setSelectedIds(new Set());
               onClose?.();
             } catch (err) {
-              
+
               Alert.alert(
                 "Clear chat cache",
                 err?.message || "Could not clear chat cache. Please try again."
@@ -208,7 +208,7 @@ export default function ClearChatCacheModal({ visible, onClose }) {
                   <Text style={styles.emptyEmoji}>💬</Text>
                   <Text style={styles.emptyTitle}>No conversations yet</Text>
                   <Text style={styles.emptySub}>
-                    Start chatting with someone — they'll appear here
+                    Start chatting with someone — they&apos;ll appear here
                   </Text>
                 </View>
               }

@@ -2,7 +2,6 @@ import { getNewUserFrame } from "../api/uiAssetsApi";
 import { getUser, updateUser } from "../store/authStore";
 import { extractIsNewUser } from "../utils/authResponse";
 import {
-  parseNewUserFrameAssignment,
   parseNewUserFrameResponse,
   resolveNewUserFrameSource,
   userHasNewUserFrame,
@@ -22,21 +21,6 @@ export const fetchNewUserFrameAssetUrl = async () => {
   } catch {
     return null;
   }
-};
-
-const persistNewUserFrame = async ({ frameUrl = null, profile = null } = {}) => {
-  const resolvedUrl =
-    frameUrl ??
-    (profile?.newUserFrameUrl
-      ? resolveRemoteProfilePicUrl(profile.newUserFrameUrl) ?? profile.newUserFrameUrl
-      : null);
-
-  await updateUser({
-    hasNewUserFrame: true,
-    newUserFrameUrl: resolvedUrl,
-  });
-
-  return resolveNewUserFrameSource(await getUser());
 };
 
 export const applyNewUserFrameForLogin = async (authData) => {

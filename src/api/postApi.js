@@ -64,13 +64,6 @@ const parseCreatePostResponse = async (response) => {
   return data;
 };
 
-const normalizeApiMediaType = (mediaType) => {
-  const value = String(mediaType ?? "image").toLowerCase();
-  if (value === "photo" || value === "image") return "image";
-  if (value === "video") return "video";
-  return value;
-};
-
 const buildAuthHeaders = async (contentType) => {
   await refreshTokenCache();
   const token = await getBearerToken();
@@ -95,26 +88,26 @@ const buildAuthHeaders = async (contentType) => {
   return { token, headers };
 };
 
-export const createPost = async ({ caption, mediaUri, mediaType, media }) => {
-  
+// `photos` is an array of picked image assets (1+) for a multi-photo post;
+// `video` is a single video asset. The two are mutually exclusive — a post
+// is either photos or a video, never both (same convention PostCreateSheet
+// enforces). Legacy single-file callers can still pass `mediaUri`/`media`.
+export const createPost = async ({ caption, photos, video, mediaType, mediaUri, media }) => {
+  const photoList = photos?.length ? photos : (mediaUri && mediaType !== "video" ? [media ?? { uri: mediaUri }] : []);
+  const videoAsset = video ?? (mediaUri && mediaType === "video" ? (media ?? { uri: mediaUri }) : null);
 
-  if (mediaUri) {
-    const resolvedMediaType = normalizeApiMediaType(mediaType ?? media?.type ?? "image");
-    const mimeType = media?.mimeType ?? fallbackMimeType(mediaUri, resolvedMediaType === "video" ? "video" : "photo");
-    const fileName = media?.fileName ?? fallbackFileName(mediaUri, resolvedMediaType === "video" ? "video" : "photo");
+  if (videoAsset?.uri) {
+    const mimeType = videoAsset.mimeType ?? fallbackMimeType(videoAsset.uri, "video");
+    const fileName = videoAsset.fileName ?? fallbackFileName(videoAsset.uri, "video");
 
     const form = new FormData();
     form.append("caption", caption ?? "");
-    form.append("mediaType", resolvedMediaType);
-    appendIfPresent(form, "width", media?.width);
-    appendIfPresent(form, "height", media?.height);
-    appendIfPresent(form, "duration", media?.duration);
-    appendIfPresent(form, "fileSize", media?.fileSize);
-    form.append("media", {
-      uri: mediaUri,
-      type: mimeType,
-      name: fileName,
-    });
+    form.append("mediaType", "video");
+    appendIfPresent(form, "width", videoAsset.width);
+    appendIfPresent(form, "height", videoAsset.height);
+    appendIfPresent(form, "duration", videoAsset.duration);
+    appendIfPresent(form, "fileSize", videoAsset.fileSize);
+    form.append("media", { uri: videoAsset.uri, type: mimeType, name: fileName });
 
     const { token, headers } = await buildAuthHeaders(null);
     form.append("token", token);
@@ -123,10 +116,37 @@ export const createPost = async ({ caption, mediaUri, mediaType, media }) => {
       headers,
       body: form,
     });
+    return parseCreatePostResponse(response);
+  }
 
-    const data = await parseCreatePostResponse(response);
-    
-    return data;
+  if (photoList.length > 0) {
+    const form = new FormData();
+    form.append("caption", caption ?? "");
+    form.append("mediaType", "image");
+    // Repeat the "media" field once per file — the standard multipart
+    // convention for binding to a MultipartFile[]/List<MultipartFile> on
+    // the backend. Per-file width/height/etc. metadata isn't sent for the
+    // multi-photo case since there's no established array-keyed contract
+    // for it yet; single-photo posts still send it below.
+    photoList.forEach((photo, index) => {
+      const mimeType = photo.mimeType ?? fallbackMimeType(photo.uri, "photo");
+      const fileName = photo.fileName ?? fallbackFileName(photo.uri, "photo") ?? `photo-${index}.jpg`;
+      form.append("media", { uri: photo.uri, type: mimeType, name: fileName });
+    });
+    if (photoList.length === 1) {
+      appendIfPresent(form, "width", photoList[0].width);
+      appendIfPresent(form, "height", photoList[0].height);
+      appendIfPresent(form, "fileSize", photoList[0].fileSize);
+    }
+
+    const { token, headers } = await buildAuthHeaders(null);
+    form.append("token", token);
+    const response = await fetch(`${API_BASE_URL}/api/posts`, {
+      method: "POST",
+      headers,
+      body: form,
+    });
+    return parseCreatePostResponse(response);
   }
 
   const { token, headers } = await buildAuthHeaders("application/json");
@@ -135,7 +155,6 @@ export const createPost = async ({ caption, mediaUri, mediaType, media }) => {
     { caption: caption ?? "", token },
     { headers }
   );
-  
   return response.data;
 };
 
@@ -229,10 +248,12 @@ export const getDiscoverPosts = async (page = 0, size = 10) => {
 // GET /api/posts/me/profile — current user's posts (Profile → Moment tab)
 export const getMyProfilePosts = async (page = 1, limit = 20) => {
   const url = `/api/posts/me/profile?page=${page}&limit=${limit}`;
-  
+
   const response = await API.get(url, await authRequestConfig());
-  
-  
+  // Temporary — confirming which field this endpoint actually uses for the
+  // post image (normalizePost's imageUrl aliases come up empty here even
+  // though the same aliases work fine against /api/home/feed).
+  console.log("[postApi] GET /api/posts/me/profile -> RAW", JSON.stringify(response.data));
   return response.data;
 };
 
@@ -243,9 +264,9 @@ export const getMyProfilePosts = async (page = 1, limit = 20) => {
 export const updatePostCaption = async (postId, text) => {
   const { token, headers } = await buildAuthHeaders("application/json");
   const body = { text, description: text, token };
-  
+
   const response = await API.patch(`/api/posts/${postId}`, body, { headers });
-  
-  
+
+
   return response.data;
 };

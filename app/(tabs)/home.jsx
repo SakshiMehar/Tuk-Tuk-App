@@ -8,7 +8,6 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
-  useWindowDimensions,
   Modal,
   TextInput,
   KeyboardAvoidingView,
@@ -79,13 +78,12 @@ import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
 import { openUserChat } from "../../src/utils/chatNavigation";
 import { openUserProfile } from "../../src/utils/profileNavigation";
-import { s, vs, ms, useResponsive } from "../../src/utils/responsive";
+import { s, vs, ms } from "../../src/utils/responsive";
 
 const H_PAD = 14;
 const CARD_GAP = 10;
 // Module-level fallbacks using Dimensions — used in StyleSheet.create and
-// stable module-level arrays. The Home component recomputes these reactively
-// via useWindowDimensions for any layout that updates on re-render.
+// stable module-level arrays.
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2 * 0.88;
 const BANNER_SLIDE_WIDTH = SCREEN_WIDTH - H_PAD * 2;
@@ -251,6 +249,7 @@ const StaggeredImage = memo(({ source, style, contentFit, delay }) => {
   if (!ready) return null;
   return <Image source={source} style={style} contentFit={contentFit ?? "contain"} />;
 });
+StaggeredImage.displayName = "StaggeredImage";
 
 // ── More-menu constants ───────────────────────────────────────
 const SOCIAL_PLATFORMS = [
@@ -316,13 +315,15 @@ const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete,
       case "interested":
         try {
           await markInterested(targetUserId);
-        } catch (e) {
+        } catch {
+          // Ignore — non-critical interaction.
         }
         break;
       case "not_interested":
         try {
           await markNotInterested(targetUserId);
-        } catch (e) {
+        } catch {
+          // Ignore — non-critical interaction.
         }
         break;
       case "report":
@@ -472,6 +473,7 @@ const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete,
     </Modal>
   );
 });
+PostMoreMenu.displayName = "PostMoreMenu";
 
 const moreMenuStyles = StyleSheet.create({
   overlay: {
@@ -607,23 +609,40 @@ const moreMenuStyles = StyleSheet.create({
 });
 
 // ── Post Create Sheet ─────────────────────────────────────────
+const MAX_POST_PHOTOS = 10;
+
 const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
   const [caption, setCaption]         = useState("");
-  const [media, setMedia]             = useState(null);
-  const [mediaType, setMediaType]     = useState(null);
+  // Photos and video are mutually exclusive (same convention most social
+  // apps use) — photos support picking/attaching several at once, video
+  // stays a single attachment.
+  const [photos, setPhotos]           = useState([]);
+  const [video, setVideo]             = useState(null);
   const [confirmed, setConfirmed]     = useState(false); // true after user taps "Attach"
   const [loading, setLoading]         = useState(false);
   const captionRef                    = useRef(null);
   const scrollRef                     = useRef(null);
 
+  const mediaType = video ? "video" : (photos.length > 0 ? "photo" : null);
+  const hasMedia = photos.length > 0 || Boolean(video?.uri);
+
   useEffect(() => {
     if (!visible) {
       setCaption("");
-      setMedia(null);
-      setMediaType(null);
+      setPhotos([]);
+      setVideo(null);
       setConfirmed(false);
     }
   }, [visible]);
+
+  const addPhotos = useCallback((assets) => {
+    setPhotos((prev) => {
+      const existingUris = new Set(prev.map((a) => a.uri));
+      const fresh = assets.filter((a) => a?.uri && !existingUris.has(a.uri));
+      return [...prev, ...fresh].slice(0, MAX_POST_PHOTOS);
+    });
+    setVideo(null);
+  }, []);
 
   const pickMedia = useCallback(async (type) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -636,15 +655,20 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
         ? ["images"]
         : ["videos"],
       allowsEditing: false,
+      allowsMultipleSelection: type === "photo",
+      selectionLimit: type === "photo" ? MAX_POST_PHOTOS : 1,
       quality: 0.85,
       videoMaxDuration: 60,
     });
-    if (!result.canceled && result.assets?.[0]) {
-      setMedia(result.assets[0]);
-      setMediaType(type);
-      setConfirmed(true);
+    if (result.canceled || !result.assets?.length) return;
+    if (type === "photo") {
+      addPhotos(result.assets);
+    } else {
+      setVideo(result.assets[0]);
+      setPhotos([]);
     }
-  }, []);
+    setConfirmed(true);
+  }, [addPhotos]);
 
   const openCamera = useCallback(async (type) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -659,39 +683,48 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
       allowsEditing: false,
       quality: 0.85,
     });
-    if (!result.canceled && result.assets?.[0]) {
-      setMedia(result.assets[0]);
-      setMediaType(type);
-      setConfirmed(true);
+    if (result.canceled || !result.assets?.[0]) return;
+    if (type === "photo") {
+      addPhotos([result.assets[0]]);
+    } else {
+      setVideo(result.assets[0]);
+      setPhotos([]);
     }
+    setConfirmed(true);
+  }, [addPhotos]);
+
+  const removePhotoAt = useCallback((index) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
   // "Done" just confirms the media selection and reveals the caption input.
   // The actual API call happens in handlePost when the user taps "Post".
   const handleConfirmMedia = useCallback(() => {
-    if (!media?.uri) return;
+    if (!hasMedia) return;
     setConfirmed(true);
-  }, [media]);
+  }, [hasMedia]);
 
-  // Re-launch picker with crop enabled on the existing media URI
+  // Re-launch picker with crop enabled on the existing single photo. Only
+  // offered when exactly one photo is attached — cropping several photos
+  // one-by-one is out of scope here.
   const handleCrop = useCallback(async () => {
-    if (!media?.uri) return;
+    if (photos.length !== 1) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsEditing: true,   // native crop UI
       quality: 0.85,
     });
     if (!result.canceled && result.assets?.[0]) {
-      setMedia(result.assets[0]);
+      setPhotos([result.assets[0]]);
       setConfirmed(true);
     }
-  }, [media]);
+  }, [photos]);
 
   const handlePost = useCallback(async () => {
-    if (!caption.trim() && !media?.uri) return;
+    if (!caption.trim() && !hasMedia) return;
     setLoading(true);
     try {
-      await onPost({ caption, media, mediaUri: media?.uri, mediaType });
+      await onPost({ caption, photos, video, mediaType });
       onClose();
     } catch (e) {
       Alert.alert(
@@ -701,10 +734,10 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
     } finally {
       setLoading(false);
     }
-  }, [caption, media, mediaType, onPost, onClose]);
+  }, [caption, photos, video, mediaType, hasMedia, onPost, onClose]);
 
-  const canPost = caption.trim().length > 0 || Boolean(media?.uri);
-  const showComposer = !media || confirmed;
+  const canPost = caption.trim().length > 0 || hasMedia;
+  const showComposer = !hasMedia || confirmed;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -761,43 +794,82 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                   </View>
 
                   {/* ── FULL PREVIEW + BOTTOM ACTION BUTTONS ── */}
-                  {media && (
+                  {hasMedia && (
                     <View style={postCreateStyles.confirmBlock}>
-                      <View style={postCreateStyles.previewWrapper}>
-                        <Image source={{ uri: media.uri }} style={postCreateStyles.preview} contentFit="cover" />
-                        {mediaType === "video" && (
+                      {video ? (
+                        <View style={postCreateStyles.previewWrapper}>
+                          <Image source={{ uri: video.uri }} style={postCreateStyles.preview} contentFit="cover" />
                           <View style={postCreateStyles.videoOverlay}>
                             <Text style={postCreateStyles.videoPlayIcon}>▶</Text>
                           </View>
-                        )}
-                        <TouchableOpacity
-                          style={postCreateStyles.removeBtn}
-                          onPress={() => { setMedia(null); setMediaType(null); }}
+                          <TouchableOpacity
+                            style={postCreateStyles.removeBtn}
+                            onPress={() => setVideo(null)}
+                          >
+                            <Text style={postCreateStyles.removeTxt}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          contentContainerStyle={postCreateStyles.photoStripContent}
+                          style={postCreateStyles.photoStrip}
                         >
-                          <Text style={postCreateStyles.removeTxt}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
+                          {photos.map((photo, index) => (
+                            <View key={photo.uri} style={postCreateStyles.photoStripItem}>
+                              <Image source={{ uri: photo.uri }} style={postCreateStyles.photoStripImg} contentFit="cover" />
+                              <TouchableOpacity
+                                style={postCreateStyles.removeBtnSmall}
+                                onPress={() => removePhotoAt(index)}
+                              >
+                                <Text style={postCreateStyles.removeTxt}>✕</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                          {photos.length < MAX_POST_PHOTOS && (
+                            <TouchableOpacity
+                              style={postCreateStyles.photoStripAdd}
+                              activeOpacity={0.8}
+                              onPress={() => pickMedia("photo")}
+                            >
+                              <Text style={postCreateStyles.photoStripAddTxt}>＋</Text>
+                            </TouchableOpacity>
+                          )}
+                        </ScrollView>
+                      )}
+                      {photos.length > 1 && (
+                        <Text style={postCreateStyles.photoCountTxt}>
+                          {photos.length}/{MAX_POST_PHOTOS} photos selected
+                        </Text>
+                      )}
 
                       {/* ── BOTTOM ACTION BUTTONS: Crop · Rotate · Flip · Done ── */}
                       <View style={postCreateStyles.previewActions}>
-                        <TouchableOpacity
-                          style={postCreateStyles.previewActionBtn}
-                          onPress={handleCrop}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={postCreateStyles.previewActionEmoji}>✂️</Text>
-                          <Text style={postCreateStyles.previewActionLabel}>Crop</Text>
-                        </TouchableOpacity>
+                        {photos.length === 1 && (
+                          <TouchableOpacity
+                            style={postCreateStyles.previewActionBtn}
+                            onPress={handleCrop}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={postCreateStyles.previewActionEmoji}>✂️</Text>
+                            <Text style={postCreateStyles.previewActionLabel}>Crop</Text>
+                          </TouchableOpacity>
+                        )}
 
-                        <TouchableOpacity style={postCreateStyles.previewActionBtn} activeOpacity={0.8}>
-                          <Text style={postCreateStyles.previewActionEmoji}>🔄</Text>
-                          <Text style={postCreateStyles.previewActionLabel}>Rotate</Text>
-                        </TouchableOpacity>
+                        {!video && (
+                          <>
+                            <TouchableOpacity style={postCreateStyles.previewActionBtn} activeOpacity={0.8}>
+                              <Text style={postCreateStyles.previewActionEmoji}>🔄</Text>
+                              <Text style={postCreateStyles.previewActionLabel}>Rotate</Text>
+                            </TouchableOpacity>
 
-                        <TouchableOpacity style={postCreateStyles.previewActionBtn} activeOpacity={0.8}>
-                          <Text style={postCreateStyles.previewActionEmoji}>↔️</Text>
-                          <Text style={postCreateStyles.previewActionLabel}>Flip</Text>
-                        </TouchableOpacity>
+                            <TouchableOpacity style={postCreateStyles.previewActionBtn} activeOpacity={0.8}>
+                              <Text style={postCreateStyles.previewActionEmoji}>↔️</Text>
+                              <Text style={postCreateStyles.previewActionLabel}>Flip</Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
 
                         <TouchableOpacity
                           onPress={handleConfirmMedia}
@@ -822,24 +894,42 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                 </>
               )}
 
-              {/* ── STEP 2: confirmed — show thumbnail + caption + post ── */}
-              {confirmed && media && (
-                <View style={postCreateStyles.confirmedRow}>
-                  <View style={postCreateStyles.thumbWrapper}>
-                    <Image source={{ uri: media.uri }} style={postCreateStyles.thumb} contentFit="cover" />
-                    {mediaType === "video" && <Text style={postCreateStyles.thumbVideoIcon}>▶</Text>}
+              {/* ── STEP 2: confirmed — show thumbnail(s) + caption + post ── */}
+              {confirmed && hasMedia && (
+                <View style={postCreateStyles.confirmedCard}>
+                  <LinearGradient
+                    colors={["rgba(124,77,255,0.22)", "rgba(255,78,163,0.12)"]}
+                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <View style={postCreateStyles.confirmedThumbBox}>
+                    <Image
+                      source={{ uri: video ? video.uri : photos[0].uri }}
+                      style={postCreateStyles.confirmedThumbImg}
+                      contentFit="cover"
+                    />
+                    {video && (
+                      <View style={postCreateStyles.thumbVideoOverlay}>
+                        <Text style={postCreateStyles.thumbVideoIcon}>▶</Text>
+                      </View>
+                    )}
+                    {photos.length > 1 && (
+                      <View style={postCreateStyles.thumbCountBadge}>
+                        <Text style={postCreateStyles.thumbCountTxt}>+{photos.length - 1}</Text>
+                      </View>
+                    )}
                     <View style={postCreateStyles.thumbTick}>
                       <Text style={postCreateStyles.thumbTickTxt}>✓</Text>
                     </View>
                   </View>
-                  <View style={postCreateStyles.confirmedInfo}>
-                    <Text style={postCreateStyles.confirmedLabel}>
-                      {mediaType === "video" ? "🎬" : "📷"} {mediaType === "video" ? "Video" : "Photo"} attached
-                    </Text>
-                    <TouchableOpacity onPress={() => { setConfirmed(false); }}>
-                      <Text style={postCreateStyles.changeMediaTxt}>Change</Text>
-                    </TouchableOpacity>
-                  </View>
+                  <Text style={postCreateStyles.confirmedLabel}>
+                    {video
+                      ? "🎬 Video attached"
+                      : `📷 ${photos.length} photo${photos.length > 1 ? "s" : ""} attached`}
+                  </Text>
+                  <TouchableOpacity onPress={() => { setConfirmed(false); }}>
+                    <Text style={postCreateStyles.changeMediaTxt}>Change</Text>
+                  </TouchableOpacity>
                 </View>
               )}
 
@@ -886,6 +976,7 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
     </Modal>
   );
 });
+PostCreateSheet.displayName = "PostCreateSheet";
 
 const postCreateStyles = StyleSheet.create({
   overlay: {
@@ -948,7 +1039,34 @@ const postCreateStyles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.55)",
     alignItems: "center", justifyContent: "center",
   },
+  removeBtnSmall: {
+    position: "absolute", top: 4, right: 4,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center", justifyContent: "center",
+  },
   removeTxt: { color: "white", fontSize: 12 },
+
+  // Multi-photo strip (step 1)
+  photoStrip: { marginBottom: 4 },
+  photoStripContent: { gap: 10, paddingRight: 4 },
+  photoStripItem: {
+    width: 96, height: 96, borderRadius: 14,
+    overflow: "hidden", position: "relative",
+  },
+  photoStripImg: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
+  photoStripAdd: {
+    width: 96, height: 96, borderRadius: 14,
+    borderWidth: 1.5, borderColor: "rgba(167,139,250,0.35)",
+    borderStyle: "dashed",
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(124,77,255,0.08)",
+  },
+  photoStripAddTxt: { color: "#b388ff", fontSize: 26, fontWeight: "300" },
+  photoCountTxt: {
+    color: "rgba(255,255,255,0.45)", fontSize: 12,
+    marginTop: 8, marginBottom: 4,
+  },
 
   // Bottom action bar on preview (Rotate · Flip · Done)
   previewActions: {
@@ -986,34 +1104,60 @@ const postCreateStyles = StyleSheet.create({
   changeMediaBtn: { alignItems: "center", paddingVertical: 8, marginBottom: 8 },
   changeMediaTxt: { color: "#b388ff", fontSize: 13 },
 
-  // Confirmed thumbnail row (step 2)
-  confirmedRow: {
-    flexDirection: "row",
+  // Confirmed media card (step 2) — centered preview + attractive glow card
+  confirmedCard: {
     alignItems: "center",
-    gap: 12,
-    backgroundColor: "rgba(34,197,94,0.1)",
+    borderRadius: 22,
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(34,197,94,0.35)",
-    borderRadius: 14,
-    padding: 10,
+    borderColor: "rgba(167,139,250,0.3)",
+    paddingVertical: 20,
+    paddingHorizontal: 16,
     marginBottom: 14,
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 10,
   },
-  thumbWrapper: { width: 56, height: 56, borderRadius: 10, overflow: "hidden", position: "relative" },
-  thumb: { width: 56, height: 56, backgroundColor: "#1a0a2e" },
-  thumbVideoIcon: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-    textAlign: "center", lineHeight: 56, fontSize: 18, color: "white",
+  confirmedThumbBox: {
+    width: 148,
+    height: 148,
+    borderRadius: 20,
+    overflow: "hidden",
+    position: "relative",
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.18)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  confirmedThumbImg: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
+  thumbVideoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.35)",
   },
+  thumbVideoIcon: { fontSize: 34, color: "white" },
   thumbTick: {
-    position: "absolute", bottom: 2, right: 2,
-    width: 18, height: 18, borderRadius: 9,
+    position: "absolute", bottom: 6, right: 6,
+    width: 24, height: 24, borderRadius: 12,
     backgroundColor: "#22c55e",
     alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "rgba(13,6,24,0.9)",
   },
-  thumbTickTxt: { color: "white", fontSize: 10, fontWeight: "700" },
-  confirmedInfo: { flex: 1, gap: 4 },
-  confirmedLabel: { color: "#86efac", fontSize: 13, fontWeight: "600" },
+  thumbTickTxt: { color: "white", fontSize: 12, fontWeight: "700" },
+  thumbCountBadge: {
+    position: "absolute", top: 6, left: 6,
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
+  thumbCountTxt: { color: "white", fontSize: 11, fontWeight: "700" },
+  confirmedLabel: { color: "#c4b5fd", fontSize: 13.5, fontWeight: "700", marginBottom: 4 },
 
   // Caption input
   inputWrapper: {
@@ -1021,15 +1165,16 @@ const postCreateStyles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     marginBottom: 16,
-    minHeight: 90,
+    minHeight: 50,
   },
   captionInput: {
     color: "#ffffff",
     fontSize: 14,
-    lineHeight: 22,
-    minHeight: 60,
+    lineHeight: 20,
+    minHeight: 24,
     textAlignVertical: "top",
   },
   charCount: {
@@ -1061,6 +1206,7 @@ const PostFAB = memo(({ onPress }) => (
     </LinearGradient>
   </TouchableOpacity>
 ));
+PostFAB.displayName = "PostFAB";
 
 const fabStyles = StyleSheet.create({
   fab: {
@@ -1197,7 +1343,7 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
       setComments((prev) =>
         prev.map((c) => c.id === temp.id ? { ...c, ...(saved ?? {}), _temp: false } : c)
       );
-    } catch (e) {
+    } catch {
       setComments((prev) => prev.filter((c) => c.id !== temp.id));
       setText(draft);
     } finally {
@@ -1378,6 +1524,7 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
     </View>
   );
 });
+CommentSheet.displayName = "CommentSheet";
 
 const cs = StyleSheet.create({
   hostOverlay: {
@@ -1558,23 +1705,28 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
   const postFrameSource = isOwnPost
     ? currentUserVipFrameSource ?? currentUserFrameSource
     : resolveEntityNewUserFrameSource({ hasNewUserFrame: post.authorHasNewUserFrame });
-  // Resolve media — prefer CDN URL, fall back to local URI picked from device
+  // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
   const imageUri  = post.imageUrl      ?? post._localMediaUri ?? null;
+  const galleryUrls = post.imageUrls?.length ? post.imageUrls : (imageUri ? [imageUri] : []);
+  const isGallery = galleryUrls.length > 1;
   const hasImage  = imageUri && (post._mediaType !== "video" && !post.hasVideo);
   const hasVideo  = post.hasVideo || post._mediaType === "video";
-  const videoUri  = hasVideo ? (post.videoUrl ?? post._localMediaUri ?? null) : null;
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [galleryWidth, setGalleryWidth] = useState(0);
   // Stable object identity across re-renders — cachePolicy="none" makes
   // expo-image treat a new `{ uri }` object as a brand-new source and
   // restart loading from scratch.
   const postImageSource = useMemo(() => toImageSource(imageUri), [imageUri]);
 
-  // Measure the photo's real aspect ratio via a separate, one-shot
+  // Measure the first photo's real aspect ratio via a separate, one-shot
   // RN Image.getSize() call BEFORE the visible (cachePolicy="none")
   // expo-image ever mounts with its final layout. Deriving the ratio from
   // the visible Image's own onLoad instead would change its style right
   // after it finishes loading, which with cachePolicy="none" can make it
   // restart the fetch from scratch — and if that reload gets interrupted
   // (e.g. by list scroll/virtualization), the image is left stuck blank.
+  // For a gallery post, every slide shares this same box height (matching
+  // how Instagram carousels work) rather than re-measuring per slide.
   useEffect(() => {
     if (!imageUri) return undefined;
     let cancelled = false;
@@ -1649,12 +1801,14 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
           stays "cover" so a matched ratio never gets letterboxed — only
           outlier shapes (extreme panorama/portrait) get a small edge crop
           instead of a big empty void that can blend into the dark theme. */}
-      {hasImage && !imgFailed && (
+      {hasImage && !imgFailed && !isGallery && (
         <TouchableOpacity
           activeOpacity={0.92}
           onPress={() =>
             onImagePress?.({
               post,
+              imageUrls: galleryUrls,
+              startIndex: 0,
               avatarSource: postAvatarSource,
               frameSource: postFrameSource,
               isOwnVipFrame,
@@ -1676,6 +1830,72 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
             onError={() => setImgFailed(true)}
           />
         </TouchableOpacity>
+      )}
+
+      {/* Multi-photo gallery — same shared-height box (Instagram carousels
+          all lock to the first slide's ratio too), swipeable, with a
+          "N/M" badge and dot pager. Tapping a slide opens the full-screen
+          viewer starting at that exact photo. */}
+      {isGallery && !imgFailed && (
+        <View
+          style={[
+            styles.postImage,
+            imgAspectRatio
+              ? { aspectRatio: clampAspectRatio(imgAspectRatio), height: undefined }
+              : { height: 220 },
+          ]}
+          onLayout={(e) => setGalleryWidth(e.nativeEvent.layout.width)}
+        >
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e) => {
+              const w = e.nativeEvent.layoutMeasurement.width || 1;
+              setGalleryIndex(Math.round(e.nativeEvent.contentOffset.x / w));
+            }}
+            style={StyleSheet.absoluteFill}
+          >
+            {galleryUrls.map((uri, index) => (
+              <TouchableOpacity
+                key={uri}
+                activeOpacity={0.92}
+                style={[styles.galleryPage, galleryWidth ? { width: galleryWidth } : null]}
+                onPress={() =>
+                  onImagePress?.({
+                    post,
+                    imageUrls: galleryUrls,
+                    startIndex: index,
+                    avatarSource: postAvatarSource,
+                    frameSource: postFrameSource,
+                    isOwnVipFrame,
+                    isOwnPost,
+                  })
+                }
+              >
+                <Image
+                  source={toImageSource(uri)}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                  transition={200}
+                  cachePolicy="none"
+                  onError={index === 0 ? () => setImgFailed(true) : undefined}
+                />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <View style={styles.galleryCountBadge}>
+            <Text style={styles.galleryCountText}>{galleryIndex + 1}/{galleryUrls.length}</Text>
+          </View>
+          <View style={styles.galleryDots}>
+            {galleryUrls.map((uri, index) => (
+              <View
+                key={uri}
+                style={[styles.galleryDot, index === galleryIndex && styles.galleryDotActive]}
+              />
+            ))}
+          </View>
+        </View>
       )}
 
       {/* Video */}
@@ -1720,6 +1940,7 @@ const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onL
   </View>
   );
 });
+PostCard.displayName = "PostCard";
 
 const RecommendedUserItem = memo(({ user }) => {
   const router = useRouter();
@@ -1765,6 +1986,7 @@ const RecommendedUserItem = memo(({ user }) => {
   </TouchableOpacity>
   );
 });
+RecommendedUserItem.displayName = "RecommendedUserItem";
 
 // BannerSlider owns its auto-scroll timer — parent never re-renders just for banner ticks
 const BannerSlider = memo(({ slides, activeBanner, onBannerChange }) => {
@@ -1825,6 +2047,7 @@ const BannerSlider = memo(({ slides, activeBanner, onBannerChange }) => {
     </View>
   );
 });
+BannerSlider.displayName = "BannerSlider";
 
 // All content above the feed — memoized so it only re-renders when
 // its specific props change (e.g. diamonds update, tab switch)
@@ -2072,16 +2295,13 @@ const HomeHeader = memo(({
     </View>
   </>
 ));
+HomeHeader.displayName = "HomeHeader";
 
 // ─────────────────────────────────────────────────────────────
 // Main screen
 // ─────────────────────────────────────────────────────────────
 export default function Home() {
   const router = useRouter();
-  const { width: SCREEN_WIDTH } = useWindowDimensions();
-  // Compute layout-dependent constants reactively based on actual screen width
-  const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2 * 0.88;
-  const BANNER_SLIDE_WIDTH = SCREEN_WIDTH - H_PAD * 2;
   const feedListRef = useRef(null);
   useScrollToTop(feedListRef);
   const [selectedTab, setSelectedTab] = useState("For You");
@@ -2099,11 +2319,9 @@ export default function Home() {
   const [feedLoading, setFeedLoading] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [gifts, setGifts] = useState([]);
-  const [wallet, setWallet] = useState(null);
   const { diamonds: walletDiamonds } = useWalletBalance();
   const [followingIds, setFollowingIds] = useState([]);
   const [followingList, setFollowingList] = useState([]);
-  const [followersList, setFollowersList] = useState([]);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [trendingTags, setTrendingTags] = useState([]);
 
@@ -2285,7 +2503,6 @@ export default function Home() {
           setFeedHasMore(data.feedHasMore ?? false);
           setNotifications(data.notifications);
           setGifts(data.gifts);
-          setWallet(data.wallet);
           applyWalletFromSources({
             walletData: data.wallet,
             userProfile: data.userProfile,
@@ -2305,12 +2522,11 @@ export default function Home() {
 
       // Load following + followers in parallel after home data
       Promise.all([loadFollowing(), loadFollowers()])
-        .then(([followingArr, followersArr]) => {
+        .then(([followingArr]) => {
           const ids = followingArr.map((u) => u.userId ?? u.id).filter(Boolean);
           followingIdsRef.current = ids;
           setFollowingIds(ids);
           setFollowingList(followingArr);
-          setFollowersList(followersArr);
         })
     });
     return () => task.cancel();
@@ -2326,7 +2542,7 @@ export default function Home() {
     setFeedPosts([]);
     setFeedPage(1);
     setFeedHasMore(false);
-    
+
     try {
       const res = await homeService.refreshFeed(tab);
       const uid = currentUserIdRef.current;
@@ -2339,9 +2555,7 @@ export default function Home() {
         )
       );
       setFeedHasMore(res.hasMore ?? false);
-      
-    } catch (err) {
-      
+    } catch {
       setFeedPosts([]);
       setFeedHasMore(false);
     } finally {
@@ -2427,8 +2641,8 @@ export default function Home() {
           }));
         // Keep feature matches, replace any previous user rows.
         setSearchResults((prev) => [...prev.filter((r) => r.type !== "user"), ...userResults]);
-      } catch (err) {
-        
+      } catch {
+        // Ignore — keep existing search results.
       }
     }, 350);
   }, [searchSuggestions]);
@@ -2456,8 +2670,8 @@ export default function Home() {
         name: detail?.name ?? prev?.name,
         avatar: detail?.avatar ?? prev?.avatar,
       }));
-    } catch (err) {
-      
+    } catch {
+      // Keep the room-state fallback profile if the detail fetch fails.
     } finally {
       setSearchProfileLoading(false);
     }
@@ -2495,7 +2709,8 @@ export default function Home() {
       );
       setFeedHasMore(more.hasMore ?? false);
       setFeedPage(nextPage);
-    } catch (e) {
+    } catch {
+      // Keep the current feed page if loading more fails.
     } finally {
       setFeedLoading(false);
     }
@@ -2511,7 +2726,7 @@ export default function Home() {
 
     const targetId = String(userId);
     const wasFollowing = followingIdsRef.current.some((id) => isSameUser(id, targetId));
-    
+
     const updated = wasFollowing
       ? followingIdsRef.current.filter((id) => !isSameUser(id, targetId))
       : [...followingIdsRef.current, targetId];
@@ -2524,9 +2739,9 @@ export default function Home() {
       } else {
         await followUser(targetId);
       }
-      
+
     } catch (e) {
-      
+
       const msg = e?.message?.toLowerCase() ?? "";
 
       // "not following" on unfollow → backend agrees, keep UI as not-following (already reverted)
@@ -2565,7 +2780,7 @@ export default function Home() {
       } else {
         await likePost(postId);
       }
-    } catch (e) {
+    } catch {
       // Revert on failure
       const reverted = wasLiked
         ? [...likedPostIdsRef.current, postId]
@@ -2595,7 +2810,7 @@ export default function Home() {
     openUserProfile(router, { userId: post.userId, name: post.name, avatar: post.avatar });
   }, [imageViewerData, router]);
 
-  const handlePostSubmit = useCallback(async ({ caption, media, mediaUri, mediaType }) => {
+  const handlePostSubmit = useCallback(async ({ caption, photos, video, mediaType }) => {
     // Helper — calls GET /api/home/feed?tab=for_you&page=1&limit=10 and resets the feed
     const refreshFeed = async () => {
       const fresh = await homeService.refreshFeed(selectedTabRef.current);
@@ -2615,11 +2830,14 @@ export default function Home() {
       setFeedPage(1);
     };
 
+    const localImageUris = (photos ?? []).map((p) => p.uri).filter(Boolean);
+    const mediaUri = video?.uri ?? localImageUris[0] ?? null;
+
     let newPost = null;
     try {
-      newPost = await createPost({ caption, media, mediaUri, mediaType });
+      newPost = await createPost({ caption, photos, video, mediaType });
     } catch (e) {
-      
+
       await refreshFeed().catch(() => {});
       throw e;
     }
@@ -2632,17 +2850,30 @@ export default function Home() {
       // keep existing currentUserId
     }
 
+    // Backend may return one URL (imageUrl) or several (imageUrls/mediaUrls) —
+    // fall back to the locally-picked URIs so the post shows instantly even
+    // before the feed refresh brings back the real CDN URLs.
+    const returnedImageUrls = Array.isArray(newPost?.imageUrls)
+      ? newPost.imageUrls
+      : Array.isArray(newPost?.mediaUrls)
+        ? newPost.mediaUrls
+        : null;
+    const imageUrls = mediaType === "video"
+      ? []
+      : (returnedImageUrls?.length ? returnedImageUrls : localImageUris);
+
     const normalized = {
       id:        newPost?.id        ?? newPost?.postId  ?? `local-${Date.now()}`,
       userId:    newPost?.userId    ?? newPost?.authorId ?? sessionUserId ?? null,
       name:      newPost?.name      ?? newPost?.username  ?? newPost?.authorName ?? "You",
       avatar:    newPost?.avatar    ?? newPost?.profileImage ?? newPost?.authorAvatar ?? null,
       text:      newPost?.text      ?? newPost?.caption  ?? newPost?.content ?? caption ?? "",
-      imageUrl:  newPost?.imageUrl  ?? newPost?.mediaUrl ?? newPost?.image ?? mediaUri ?? null,
+      imageUrl:  newPost?.imageUrl  ?? newPost?.mediaUrl ?? newPost?.image ?? imageUrls[0] ?? null,
+      imageUrls,
       hasVideo:  mediaType === "video",
       duration:  newPost?.duration  ?? null,
       likeCount: newPost?.likeCount ?? newPost?.likes ?? 0,
-      _localMediaUri: mediaUri ?? null,
+      _localMediaUri: mediaUri,
       _mediaType:     mediaType ?? null,
       _isOwn:         true,
     };
@@ -2658,13 +2889,12 @@ export default function Home() {
   const handleBlockUser = useCallback(async (userId, userName) => {
     if (!userId) return;
     if (isSameUser(userId, currentUserId)) return;
-    
+
     try {
-      const response = await blockUser(userId);
-      
+      await blockUser(userId);
+
       setFeedPosts((prev) => prev.filter((p) => p.userId !== userId));
     } catch (e) {
-      
       Alert.alert("Block failed", e?.message || "Please try again.");
     }
   }, [currentUserId]);
@@ -2688,7 +2918,7 @@ export default function Home() {
     setMoreMenuPost(null);
     try {
       await deletePost(postId);
-    } catch (e) {
+    } catch {
       // If delete fails, we could re-fetch but for now the optimistic removal stays
     }
   }, []);
@@ -2795,8 +3025,7 @@ export default function Home() {
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
 
       <LinearGradient
-         colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
-        // colors={["white", "white", "white", "white", "white"]}
+        colors={["white", "white", "white", "white", "white"]}
         locations={[0, 0.25, 0.5, 0.75, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -4110,6 +4339,38 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 8,
     backgroundColor: "rgba(255,255,255,0.08)",
+    overflow: "hidden",
+    position: "relative",
+  },
+  galleryPage: { width: SCREEN_WIDTH - H_PAD * 2 - 24, height: "100%" },
+  galleryCountBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  galleryCountText: { color: "white", fontSize: 11, fontWeight: "700" },
+  galleryDots: {
+    position: "absolute",
+    bottom: 8,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 5,
+  },
+  galleryDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+  galleryDotActive: {
+    backgroundColor: "white",
+    width: 12,
   },
   postName: {
     color: "white",

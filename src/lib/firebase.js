@@ -38,7 +38,7 @@ export const initFirebase = () => {
   initAttempted = true;
   try {
     getFirebaseAuth();
-  } catch (e) {
+  } catch {
     initAttempted = false;
   }
 };

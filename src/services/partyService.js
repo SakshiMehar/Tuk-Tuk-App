@@ -303,7 +303,7 @@ const loadRoomsFromApi = async (fetcher, label) => {
   const data = await fetcher();
   const rooms = parseRoomsResponse(data);
   const list = rooms.map(normalizeRoom);
-  
+
   return list;
 };
 
@@ -321,7 +321,7 @@ export const loadManagedRooms = () =>
 
 export const enterRandomPartySession = async (payload = {}) => {
   await syncUserFromToken().catch(() => {});
-  
+
   const data = await joinRandomPartyApi(payload);
   const roomId = firstValue(
     data?.roomId,
@@ -332,7 +332,7 @@ export const enterRandomPartySession = async (payload = {}) => {
     data?.data?.id
   );
   if (!roomId) throw new Error("Random party join did not return a room id.");
-  
+
   return enterRoomSession(roomId);
 };
 
@@ -543,15 +543,15 @@ export const enterRoomSession = async (roomId) => {
       track(`GET /api/v1/tuktuk/rooms/${roomId}/state (after seat claim)`);
       stateData = (await getRoomState(roomId).catch(() => stateData)) ?? stateData;
       seats = parseSeats(joinData?.seats, stateData);
-    } catch (err) {
-      
+    } catch {
+      // Seat claim failed — keep existing seat state.
     }
   }
 
   await wsService.connect();
   wsService.joinRoom(String(roomId));
 
-  
+
 
   const room = joinData?.room ?? {};
   const onlineUsers = parseOnlineUsers(stateData, joinData);
@@ -627,26 +627,26 @@ const PARTY_FAMILY_API_READY = false;  // GET /api/app/party/families
 // Party ranking leaderboard. period: "daily" | "weekly" | "monthly".
 export const loadPartyRanking = async (period = "daily") => {
   if (!PARTY_RANKING_API_READY) {
-    
+
     return [];
   }
   const data = await getPartyRankingApi(period);
   const list = listFrom(data, "ranking") ?? [];
   const entries = (Array.isArray(list) ? list : []).map(normalizeRankingEntry);
-  
+
   return entries;
 };
 
 // List of families for the Family feature card.
 export const loadFamilies = async () => {
   if (!PARTY_FAMILY_API_READY) {
-    
+
     return [];
   }
   const data = await getFamiliesApi();
   const list = listFrom(data, "families") ?? [];
   const families = (Array.isArray(list) ? list : []).map(normalizeFamily);
-  
+
   return families;
 };
 
@@ -654,6 +654,6 @@ export const exitRoomSession = async (roomId) => {
   if (!roomId) return null;
   wsService.leaveRoom(String(roomId));
   const result = await exitRoomApi(roomId);
-  
+
   return result;
 };

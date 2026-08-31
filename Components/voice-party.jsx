@@ -51,7 +51,7 @@ import {
   upsertChatMessage,
 } from "../src/services/partyService";
 import { wsService } from "../src/services/websocket";
-import { getRoomState, getRoomChatMessages, lockSeat, postSeatHeartbeat } from "../src/api/partyApi";
+import { getRoomState, getRoomChatMessages, postSeatHeartbeat } from "../src/api/partyApi";
 import { refreshTokenCache } from "../src/api/axios";
 import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
 import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
@@ -100,7 +100,6 @@ import {
   VIP_CHAT_FRAME_FITTED_BY_TIER,
 } from "../src/constants/vip";
 import {
-  ArrowLeft,
   Share2,
   MoreVertical,
   Power,
@@ -278,47 +277,6 @@ const reconcileSeatAssignments = (
 };
 
 const micSeats = Array.from({ length: 15 }, (_, i) => ({ id: i + 1, user: null, locked: false }));
-
-const initialMessages = [
-  {
-    id: 1,
-    system: true,
-    text: "🔥 • T|O|M • 🔥 cleaned the chat",
-  },
-  {
-    id: 2,
-    user: "ziddi_shehzadi_99",
-    avatar: "https://randomuser.me/api/portraits/women/55.jpg",
-    level: 6,
-    text: "hmm",
-    coins: 0,
-    diamonds: 4,
-  },
-  {
-    id: 3,
-    user: "Broken 💔",
-    avatar: "https://randomuser.me/api/portraits/women/33.jpg",
-    level: 4,
-    text: "hello everyone 👋",
-    coins: 2,
-    diamonds: 1,
-  },
-  {
-    id: 4,
-    user: "T|O|M",
-    avatar: "https://randomuser.me/api/portraits/men/11.jpg",
-    level: 8,
-    text: "welcome to the room 🎉",
-    coins: 5,
-    diamonds: 3,
-  },
-];
-
-const audienceAvatars = [
-  "https://randomuser.me/api/portraits/women/44.jpg",
-  "https://randomuser.me/api/portraits/men/55.jpg",
-  "https://randomuser.me/api/portraits/women/66.jpg",
-];
 
 const SEAT_SIZE = (W - 32 - 40) / 5;
 const GIFT_CARD_W = (W - 32) / 4 - 6;
@@ -1465,7 +1423,6 @@ export default function VoiceParty() {
       }
 
       let targetSeat = null;
-      let lastError = null;
 
       // Try each candidate seat until one succeeds
       for (const seatId of candidates) {
@@ -1491,7 +1448,6 @@ export default function VoiceParty() {
                   : s
               )
             );
-            lastError = err;
             continue; // try next seat
           }
           // Non-409 error — stop and surface it
@@ -1987,14 +1943,6 @@ export default function VoiceParty() {
     );
   };
 
-  const trySelectGiftRecipientFromUser = (userLike) => {
-    const userId = resolveRecipientUserId(userLike);
-    if (!userId || isSameUser(userId, myUserId)) return false;
-    giftReceiverTouchedRef.current = true;
-    setGiftReceiverId(userId);
-    return true;
-  };
-
   const resolveRoomUserAvatarSource = (userLike) => {
     const source = resolveProfileAvatarSource({
       avatarId: userLike?.avatarId,
@@ -2154,25 +2102,6 @@ export default function VoiceParty() {
     } finally {
       setSeatActionLoading(false);
       setVoiceConnecting(false);
-    }
-  };
-
-  const handleLockSeat = async (targetSeatId) => {
-    if (!roomId || seatActionLoading) return;
-    setSeatActionLoading(true);
-    setSeatActionSheet(null);
-    try {
-      await lockSeat(String(roomId), targetSeatId);
-      // Optimistically lock the seat in local state; WS will confirm
-      setSeats((prev) =>
-        prev.map((seat) =>
-          seat.id === targetSeatId ? { ...seat, locked: true, user: null } : seat
-        )
-      );
-    } catch (err) {
-      Alert.alert("Lock seat failed", err?.message || "Could not lock that seat. Please try again.");
-    } finally {
-      setSeatActionLoading(false);
     }
   };
 
@@ -3742,7 +3671,7 @@ export default function VoiceParty() {
             </TouchableOpacity>
           </View>
         </View>
- 
+
         {/* ── ONLINE USERS ROW ── */}
         <View style={styles.badgesRow}>
           <View style={styles.trophyBadge}>

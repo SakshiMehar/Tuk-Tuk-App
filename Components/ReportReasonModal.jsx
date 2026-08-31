@@ -103,7 +103,7 @@ export default function ReportReasonModal({
 
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>
-            Please tell us why you're reporting {targetLabel}. Your report is confidential.
+            Please tell us why you&apos;re reporting {targetLabel}. Your report is confidential.
           </Text>
 
           <View style={styles.chipsWrap}>

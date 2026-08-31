@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Image } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Circle, Polygon, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
@@ -216,7 +216,7 @@ export default function UserLevelPanel() {
               </>
             ) : (
               <>
-                Today's upper limit: <Text style={styles.cardIntroHighlight}>2,300 Exp</Text>
+                Today&apos;s upper limit: <Text style={styles.cardIntroHighlight}>2,300 Exp</Text>
               </>
             )}
           </Text>

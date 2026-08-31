@@ -143,6 +143,24 @@ export const normalizePost = (post) => {
     isVideo ? media?.url : null
   );
 
+  // Full set of image URLs for a multi-photo post — checks every array
+  // shape the backend might use, plus a `media` array of objects (each
+  // holding its own url field) rather than the single `media` object
+  // assumed above.
+  const rawImageList = !isVideo
+    ? (
+        (Array.isArray(post?.mediaUrls) && post.mediaUrls) ||
+        (Array.isArray(post?.imageUrls) && post.imageUrls) ||
+        (Array.isArray(post?.images) && post.images) ||
+        (Array.isArray(post?.media) && post.media) ||
+        []
+      )
+    : [];
+  const imageUrlList = rawImageList
+    .map((item) => (typeof item === "string" ? item : firstText(item?.url, item?.imageUrl, item?.mediaUrl)))
+    .filter(Boolean)
+    .map(toAbsoluteUrl);
+
   // Use media.url as an image fallback only when the post is NOT a video.
   const imageUrl = firstText(
     post?.imageUrl,
@@ -154,9 +172,15 @@ export const normalizePost = (post) => {
     media?.imageUrl,
     media?.mediaUrl,
     !isVideo ? media?.url : null,
-    Array.isArray(post?.mediaUrls) ? post.mediaUrls[0] : null,
-    Array.isArray(post?.images) ? post.images[0] : null
+    imageUrlList[0] ?? null
   );
+
+  // Dedup, keeping the canonical `imageUrl` first so single-image consumers
+  // (anything still reading just `.imageUrl`) see the same photo as before.
+  const resolvedImageUrl = toAbsoluteUrl(imageUrl);
+  const imageUrls = resolvedImageUrl
+    ? [resolvedImageUrl, ...imageUrlList.filter((u) => u !== resolvedImageUrl)]
+    : imageUrlList;
 
   const result = {
     ...post,
@@ -205,7 +229,8 @@ export const normalizePost = (post) => {
       author?.image,
     )),
     text: firstText(post?.text, post?.caption, post?.content, post?.description) ?? "",
-    imageUrl: toAbsoluteUrl(imageUrl),
+    imageUrl: resolvedImageUrl,
+    imageUrls,
     videoUrl: toAbsoluteUrl(videoUrl),
     // Re-derive hasVideo from the canonical videoUrl so it's consistent even
     // when the backend field is missing or the type is not set explicitly.
@@ -400,6 +425,6 @@ export const getRecommendedUsers = async () => {
 export const refreshActiveUsersCount = async () => {
   const data = await getActiveUsersCount();
   const activeUsers = data?.activeUsers ?? data?.count ?? 0;
-  
+
   return activeUsers;
 };

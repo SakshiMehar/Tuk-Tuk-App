@@ -290,7 +290,7 @@ export default function FamilyChatModal({ visible, family, onClose }) {
               <Text style={styles.mentionSheetTitle}>Mention someone</Text>
               {roster.length === 0 ? (
                 <Text style={styles.mentionEmptyText}>
-                  No member list available yet — the family detail response doesn't
+                  No member list available yet — the family detail response doesn&apos;t
                   include a member roster.
                 </Text>
               ) : (

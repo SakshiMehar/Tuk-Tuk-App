@@ -20,7 +20,7 @@ export default function LevelGateModal({ visible, requiredLevel = 5, currentLeve
           </View>
           <Text style={styles.title}>Not Eligible Yet</Text>
           <Text style={styles.subtitle}>
-            You need to be Level {requiredLevel} or above to create a room. You're currently Level{" "}
+            You need to be Level {requiredLevel} or above to create a room. You&apos;re currently Level{" "}
             {currentLevel} — keep chatting, sending gifts, and joining rooms to level up!
           </Text>
           <TouchableOpacity activeOpacity={0.85} onPress={onClose} style={styles.btnWrap}>

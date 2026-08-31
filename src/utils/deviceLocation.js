@@ -2,8 +2,7 @@
 const loadLocationModule = async () => {
   try {
     return await import("expo-location");
-  } catch (err) {
-    
+  } catch {
     return null;
   }
 };
@@ -21,7 +20,6 @@ export const getDeviceCoordinates = async () => {
   try {
     const servicesEnabled = await Location.hasServicesEnabledAsync();
     if (!servicesEnabled) {
-      
       return { ok: false, reason: "services_disabled" };
     }
 
@@ -30,7 +28,6 @@ export const getDeviceCoordinates = async () => {
       permission = await Location.requestForegroundPermissionsAsync();
     }
     if (permission.status !== "granted") {
-      
       return { ok: false, reason: "permission_denied" };
     }
 
@@ -45,14 +42,11 @@ export const getDeviceCoordinates = async () => {
       Number.isNaN(latitude) ||
       Number.isNaN(longitude)
     ) {
-      
       return { ok: false, reason: "invalid_coords" };
     }
 
-    
     return { ok: true, latitude, longitude };
-  } catch (err) {
-    
+  } catch {
     return { ok: false, reason: "module_unavailable" };
   }
 };

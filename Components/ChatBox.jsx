@@ -1,15 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { Alert } from "react-native";
-import { useRouter } from "expo-router";
-import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services/chatService";
-import { wsService } from "../src/services/websocket";
-import { getAppUserId } from "../src/utils/sessionUser";
-import { getUserUiAssets } from "../src/api/uiAssetsApi";
-import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
-import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
-import { openUserProfile } from "../src/utils/profileNavigation";
-
-const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
 import {
   View,
   Text,
@@ -21,7 +10,9 @@ import {
   Dimensions,
   TextInput,
   StatusBar,
+  Alert,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -37,6 +28,15 @@ import {
   Phone,
   Shield,
 } from "lucide-react-native";
+import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services/chatService";
+import { wsService } from "../src/services/websocket";
+import { getAppUserId } from "../src/utils/sessionUser";
+import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
+import { openUserProfile } from "../src/utils/profileNavigation";
+
+const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
 
 const { width: W } = Dimensions.get("window");
 const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", "😡", "👍", "🙏", "🎉", "❤️"];

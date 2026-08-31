@@ -1,9 +1,6 @@
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
 
-const firstValue = (...values) =>
-  values.find((value) => value !== undefined && value !== null) ?? null;
-
 /** Normalize backend voice-token payload for Agora join. */
 export const parseTokenPayload = (data, roomId, uid, fallbackAppId = "") => {
   const appId =

@@ -9,7 +9,6 @@ import {
   clearPendingInviteCode,
 } from "../store/authStore";
 import { normalizeAuthResponse } from "../utils/authResponse";
-import { resolveAppUserId } from "../utils/sessionUser";
 import { refreshTokenCache, clearTokenCache } from "../api/axios";
 import { wsService } from "./websocket";
 import { loadMyProfile } from "./meProfileService";
@@ -26,10 +25,10 @@ export const endLocalSession = async () => {
 export const logoutSession = async () => {
   try {
     const data = await apiLogout();
-    
+
     return data;
   } catch (err) {
-    
+
     throw err;
   } finally {
     await endLocalSession();
@@ -38,7 +37,7 @@ export const logoutSession = async () => {
 
 export const deleteAccountSession = async ({ reason, additionalComment }) => {
   const data = await apiDeleteAccount({ reason, additionalComment });
-  
+
   await endLocalSession();
   return data;
 };
@@ -91,7 +90,6 @@ const applyPendingInviteCodeIfAny = async () => {
 export const establishSessionFromApi = async (apiCall, credential) => {
   const data = await apiCall(credential);
   const { token, user } = normalizeAuthResponse(data);
-  const resolvedUserId = resolveAppUserId(user, token);
 
   if (!token) {
     throw new Error("Authentication succeeded but no token was returned.");

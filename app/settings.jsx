@@ -16,7 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
   logoutSession,
@@ -87,7 +87,6 @@ export default function Settings() {
   const insets = useSafeAreaInsets();
   const scrollBottomPad = 24 + Math.max(insets.bottom, 16);
   const sheetBottomPad = Math.max(insets.bottom, 12);
-  const [cacheSize] = useState("22.21M");
   const [matchSwitchVisible, setMatchSwitchVisible] = useState(false);
   const [privacyVisible, setPrivacyVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
@@ -164,13 +163,13 @@ export default function Settings() {
 
   useEffect(() => {
     let cancelled = false;
-    
+
     loadUserSettings()
       .then((settings) => {
         if (!cancelled) applySettingsState(settings);
       })
       .catch((err) => {
-        
+
       })
       .finally(() => {
         if (!cancelled) setSettingsLoading(false);
@@ -184,13 +183,13 @@ export default function Settings() {
     if (settingsSaving) return;
     applyLocal?.();
     setSettingsSaving(true);
-    
+
     try {
       const saved = await updateUserSettings(updates, settingsSnapshot);
       applySettingsState(saved);
-      
+
     } catch (err) {
-      
+
       Alert.alert(
         "Settings",
         err?.message || "Could not save your settings. Please try again."
@@ -201,14 +200,13 @@ export default function Settings() {
   };
 
   const refreshMatchSwitch = async () => {
-    
+
     try {
       const enabled = await loadMatchSwitch();
       setMatchSwitchEnabled(enabled);
       setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: enabled }));
-      
-    } catch (err) {
-      
+    } catch {
+      // Keep the previous match-switch state if the load fails.
     }
   };
 
@@ -216,14 +214,14 @@ export default function Settings() {
     if (settingsSaving) return;
     setMatchSwitchEnabled(value);
     setSettingsSaving(true);
-    
+
     try {
       const resolved = await updateMatchSwitch(value);
       setMatchSwitchEnabled(resolved);
       setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: resolved }));
-      
+
     } catch (err) {
-      
+
       setMatchSwitchEnabled(!value);
       Alert.alert(
         "Match switch",
@@ -244,13 +242,12 @@ export default function Settings() {
   const handleCheckUpdate = async () => {
     setUpdateChecking(true);
     setUpdateChecked(false);
-    
+
     try {
-      const data = await checkForUpdate();
-      
+      await checkForUpdate();
+
       setUpdateChecked(true);
     } catch (err) {
-      
       Alert.alert(
         "Check failed",
         err?.message || "Could not check for updates. Please try again."
@@ -264,15 +261,14 @@ export default function Settings() {
     const text = feedbackText.trim();
     if (!text || feedbackSubmitting) return;
     setFeedbackSubmitting(true);
-    
+
     try {
-      const data = await submitFeedback(text);
-      
+      await submitFeedback(text);
+
       setFeedbackSent(true);
       setFeedbackText("");
       setTimeout(() => setFeedbackSent(false), 3000);
     } catch (err) {
-      
       Alert.alert(
         "Send failed",
         err?.message || "Could not send feedback. Please try again."
@@ -323,12 +319,12 @@ export default function Settings() {
         style: "destructive",
         onPress: async () => {
           setLoggingOut(true);
-          
+
           try {
             await logoutSession();
             router.replace("/login");
           } catch (err) {
-            
+
             Alert.alert(
               "Logout",
               err?.message || "Could not reach server. You have been signed out locally."
@@ -354,14 +350,14 @@ export default function Settings() {
     }
 
     setDeletingAccount(true);
-    
+
     try {
       await deleteAccountSession({ reason, additionalComment });
       closeDeleteAccountModal();
       Alert.alert("Account deleted", "Your account has been deleted.");
       router.replace("/login");
     } catch (err) {
-      
+
       Alert.alert(
         "Delete failed",
         err?.message || "Could not delete your account. Please try again."
@@ -383,12 +379,12 @@ export default function Settings() {
         onPress: async () => {
           if (clearingCache) return;
           setClearingCache(true);
-          
+
           try {
             await clearAppCache();
             Alert.alert("Clear cache", "Cache cleared successfully.");
           } catch (err) {
-            
+
             Alert.alert("Clear cache", err?.message || "Could not clear cache. Please try again.");
           } finally {
             setClearingCache(false);
@@ -425,7 +421,7 @@ export default function Settings() {
         router.push("/message-notification");
         break;
       case "Blocked list":
-        
+
         router.push("/blocked-accounts");
         break;
       case "System language":
@@ -926,7 +922,7 @@ export default function Settings() {
 
               {updateChecked ? (
                 <Text style={styles.updateSubtext}>
-                  Tuk-Tuk is running the latest version. We'll notify you when a new update is available.
+                  Tuk-Tuk is running the latest version. We&apos;ll notify you when a new update is available.
                 </Text>
               ) : (
                 <Text style={styles.updateSubtext}>
@@ -1089,7 +1085,7 @@ export default function Settings() {
             <View style={styles.helpHeader}>
               <View>
                 <Text style={styles.helpTitle}>Help & Feedback</Text>
-                <Text style={styles.helpSubtitle}>We're here to help</Text>
+                <Text style={styles.helpSubtitle}>We&apos;re here to help</Text>
               </View>
               <TouchableOpacity onPress={() => setHelpVisible(false)} style={styles.helpCloseBtn}>
                 <Ionicons name="close" size={22} color="white" />

@@ -161,7 +161,7 @@ export default function WalletRechargeSection({ currentDiamonds = 0, currentCoin
         <View style={styles.comingSoonBox}>
           <Ionicons name="construct-outline" size={28} color="#a78bfa" />
           <Text style={styles.comingSoonTitle}>Coming soon</Text>
-          <Text style={styles.comingSoonSub}>Crown rewards aren't live yet — check back soon!</Text>
+          <Text style={styles.comingSoonSub}>Crown rewards aren&apos;t live yet — check back soon!</Text>
         </View>
       ) : activeTab === "golds" ? (
         <View style={styles.goldsInfoCard}>

@@ -128,7 +128,7 @@ export default function EnterMobile() {
       <View style={styles.body}>
         <Text style={styles.title}>Enter your number</Text>
         <Text style={styles.subtitle}>
-          We'll send a verification code to confirm your identity.
+          We&apos;ll send a verification code to confirm your identity.
         </Text>
 
         <View style={styles.inputRow}>

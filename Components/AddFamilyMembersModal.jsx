@@ -183,7 +183,7 @@ export default function AddFamilyMembersModal({ visible, family, onClose, onAdde
                   <Text style={styles.emptyEmoji}>👥</Text>
                   <Text style={styles.emptyTitle}>Not following anyone yet</Text>
                   <Text style={styles.emptySub}>
-                    Follow people from their profile — they'll appear here to add as members
+                    Follow people from their profile — they&apos;ll appear here to add as members
                   </Text>
                 </View>
               }

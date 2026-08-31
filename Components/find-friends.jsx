@@ -5,7 +5,6 @@ import {
   Image,
   TouchableOpacity,
   StyleSheet,
-  StatusBar,
   Dimensions,
   ScrollView,
   TextInput,
@@ -20,8 +19,6 @@ import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
 import { followUser } from "../src/services/relationshipService";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
-
-import { ms } from "../src/utils/responsive";
 
 const { width: W, height: H } = Dimensions.get("window");
 
@@ -164,18 +161,14 @@ export default function FindFriends() {
       education,
       occupation,
     };
-    
+
     try {
-      const res = await updateFindFriendsProfile(payload);
-      
+      await updateFindFriendsProfile(payload);
+
       Alert.alert("Profile saved!", "Now let's find you some friends 🎉", [
         { text: "Let's go!", onPress: () => setStep(9) },
       ]);
     } catch (err) {
-      
-      if (err?.responseData) {
-        
-      }
       Alert.alert("Save failed", err?.message || "Could not save your profile. Please try again.");
     } finally {
       setSavingProfile(false);
@@ -199,8 +192,7 @@ export default function FindFriends() {
         setCard(null);
         setNoMore(true);
       }
-    } catch (err) {
-      
+    } catch {
       setCard(null);
       setNoMore(true);
     } finally {
@@ -229,9 +221,7 @@ export default function FindFriends() {
     try {
       await followUser(card.id);
       setFollowedThisCard(true);
-      
     } catch (err) {
-      
       Alert.alert("Follow failed", err?.message || "Please try again.");
     } finally {
       setActionBusy(false);
@@ -255,8 +245,8 @@ export default function FindFriends() {
     try {
       const res = await sendFriendAction(card.id, "REJECT");
       applyNextOrFetch(res?.nextUser);
-    } catch (err) {
-      
+    } catch {
+      // Ignore — user can retry the reject action.
     } finally {
       setActionBusy(false);
     }
@@ -276,7 +266,7 @@ export default function FindFriends() {
       setSavedThisCard(true);
       Alert.alert("Saved ⭐", `${card.name ?? "User"} added to your Saved list (Profile → Menu → Saved).`);
     } catch (err) {
-      
+
       Alert.alert("Save failed", err?.message || "Could not save this user.");
     }
   }, [card]);
@@ -339,7 +329,7 @@ export default function FindFriends() {
       <ProgressBar step={1} total={TOTAL_STEPS} />
       <ScrollView contentContainerStyle={styles.scrollPad} showsVerticalScrollIndicator={false}>
         <Text style={styles.stepTitle}>My Interests</Text>
-        <Text style={styles.stepSub}>It's the perfect opportunity to show a little more about yourself.</Text>
+        <Text style={styles.stepSub}>It&apos;s the perfect opportunity to show a little more about yourself.</Text>
         <TagGrid items={INTERESTS} selected={interests} onToggle={(v) => toggle(setInterests, interests, v)} />
       </ScrollView>
       <SaveBtn />
@@ -381,7 +371,7 @@ export default function FindFriends() {
       <Header />
       <ProgressBar step={4} total={TOTAL_STEPS} />
       <ScrollView contentContainerStyle={styles.scrollPad} showsVerticalScrollIndicator={false}>
-        <Text style={styles.stepTitle}>What's your favorite food?</Text>
+        <Text style={styles.stepTitle}>What&apos;s your favorite food?</Text>
         <TagGrid items={FOOD} selected={food} onToggle={(v) => toggle(setFood, food, v)} />
       </ScrollView>
       <SaveBtn />

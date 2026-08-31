@@ -29,9 +29,7 @@ import {
 import { syncUserCountryToServer } from "../src/services/userCountryService";
 import {
   avatarMap,
-  avatarOptions,
   getAvatarOptionsForGender,
-  getAvatarSource,
   DEFAULT_AVATAR_ID,
 } from "../src/data/avatarOptions";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
@@ -100,7 +98,6 @@ export default function Account() {
   const [selectedAvatar, setSelectedAvatar] = useState(DEFAULT_AVATAR_ID);
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY);
   const [countrySearch, setCountrySearch] = useState("");
-  const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
   const [newUserFrameSource, setNewUserFrameSource] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
@@ -249,7 +246,7 @@ export default function Account() {
       });
       setEditingField(null);
     } catch (err) {
-      
+
       const message = err?.message || "Could not save profile. Please try again.";
       Alert.alert("Save failed", message);
       if (/log in|authentication token/i.test(message)) {
@@ -269,65 +266,57 @@ export default function Account() {
       let cancelled = false;
 
       const hydrateProfile = async () => {
-        setProfileLoading(true);
-        try {
-          const [user, apiProfile] = await Promise.all([
-            getUser(),
-            loadUserProfile().catch((err) => {
-              
-              return null;
-            }),
-          ]);
+        const [user, apiProfile] = await Promise.all([
+          getUser(),
+          loadUserProfile().catch(() => null),
+        ]);
 
-          if (cancelled) return;
+        if (cancelled) return;
 
-          const frameSource = await syncNewUserFrameForSession();
-          if (!cancelled) setNewUserFrameSource(frameSource);
+        const frameSource = await syncNewUserFrameForSession();
+        if (!cancelled) setNewUserFrameSource(frameSource);
 
-          const vipAssets = await loadMyVipAssets().catch(() => null);
-          if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
+        const vipAssets = await loadMyVipAssets().catch(() => null);
+        if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
 
-          const useLocalAvatar = Boolean(user?.useLocalAvatar);
-          const storedProfile = {
-            name: user?.nickname ?? user?.name ?? "",
-            gender: user?.gender ?? "",
-            country: user?.country ?? "",
-            countryCode: user?.countryCode ?? "",
-            birthday: user?.birthday ?? "",
-            interests: user?.interests ?? "",
-            education: user?.education ?? "",
-            school: user?.school ?? "",
-            occupation: user?.occupation ?? "",
-            language: user?.spokenLanguage ?? user?.language ?? "",
-            about: user?.aboutMe ?? user?.about ?? "",
-            sports: user?.sports ?? "",
-            music: user?.music ?? "",
-            movies: user?.favoriteMoviesAndTvShows ?? user?.movies ?? "",
-            books: user?.books ?? "",
-            displayName: user?.name ?? "",
-            profilePicUrl: user?.profilePicUrl ?? null,
+        const useLocalAvatar = Boolean(user?.useLocalAvatar);
+        const storedProfile = {
+          name: user?.nickname ?? user?.name ?? "",
+          gender: user?.gender ?? "",
+          country: user?.country ?? "",
+          countryCode: user?.countryCode ?? "",
+          birthday: user?.birthday ?? "",
+          interests: user?.interests ?? "",
+          education: user?.education ?? "",
+          school: user?.school ?? "",
+          occupation: user?.occupation ?? "",
+          language: user?.spokenLanguage ?? user?.language ?? "",
+          about: user?.aboutMe ?? user?.about ?? "",
+          sports: user?.sports ?? "",
+          music: user?.music ?? "",
+          movies: user?.favoriteMoviesAndTvShows ?? user?.movies ?? "",
+          books: user?.books ?? "",
+          displayName: user?.name ?? "",
+          profilePicUrl: user?.profilePicUrl ?? null,
+        };
+
+        setProfile((prev) => {
+          const merged = mergeProfileState(prev, apiProfile ?? {}, storedProfile);
+          return {
+            ...merged,
+            avatarId: user?.avatarId ?? prev.avatarId,
+            useLocalAvatar,
+            food: user?.food ?? prev.food,
+            profilePicUrl: useLocalAvatar
+              ? null
+              : apiProfile?.profilePicUrl ??
+                user?.profilePicUrl ??
+                prev.profilePicUrl,
           };
+        });
 
-          setProfile((prev) => {
-            const merged = mergeProfileState(prev, apiProfile ?? {}, storedProfile);
-            return {
-              ...merged,
-              avatarId: user?.avatarId ?? prev.avatarId,
-              useLocalAvatar,
-              food: user?.food ?? prev.food,
-              profilePicUrl: useLocalAvatar
-                ? null
-                : apiProfile?.profilePicUrl ??
-                  user?.profilePicUrl ??
-                  prev.profilePicUrl,
-            };
-          });
-
-          if (user?.avatarId) {
-            setSelectedAvatar(user.avatarId);
-          }
-        } finally {
-          if (!cancelled) setProfileLoading(false);
+        if (user?.avatarId) {
+          setSelectedAvatar(user.avatarId);
         }
       };
 
@@ -342,7 +331,6 @@ export default function Account() {
   const isAvatarField = editingField === "avatar";
   const isGenderField = editingField === "gender";
   const isCountryField = editingField === "country";
-  const isTextField = !isAvatarField && !isGenderField && !isCountryField;
   const isMultiline = ["about", "interests", "sports", "music", "food", "movies", "books"].includes(editingField);
 
   return (

@@ -1,4 +1,13 @@
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  StatusBar,
+  ScrollView,
+  useWindowDimensions,
+} from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,12 +27,12 @@ const formatPostDate = (post) => {
 };
 
 /**
- * Full-screen viewer for a single feed post's image — opened by tapping the
+ * Full-screen viewer for a feed post's photo(s) — opened by tapping an
  * image in the feed. Shows the whole picture uncropped (contentFit="contain"
  * has no downside here, unlike the feed thumbnail, since a dedicated viewer
- * is expected to have letterbox padding around the photo) plus the same
- * author / follow / like / comment affordances as the feed card so the
- * viewer doesn't lose any context.
+ * is expected to have letterbox padding around the photo), swipes between
+ * photos for multi-photo posts, plus the same author / follow / like /
+ * comment affordances as the feed card so the viewer doesn't lose context.
  */
 export default function PostImageViewer({
   visible,
@@ -38,24 +47,75 @@ export default function PostImageViewer({
   onAvatarPress,
 }) {
   const insets = useSafeAreaInsets();
-  if (!visible || !data?.post) return null;
+  const { width: screenWidth } = useWindowDimensions();
+  const scrollRef = useRef(null);
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  const { post, avatarSource, frameSource, isOwnVipFrame, isOwnPost } = data;
-  const imageUri = post.imageUrl ?? post._localMediaUri ?? null;
+  const post = data?.post ?? null;
+  const imageUrls = data?.imageUrls?.length
+    ? data.imageUrls
+    : post?.imageUrl
+      ? [post.imageUrl]
+      : post?._localMediaUri
+        ? [post._localMediaUri]
+        : [];
+  const startIndex = Math.min(data?.startIndex ?? 0, Math.max(0, imageUrls.length - 1));
+
+  // Component stays mounted across opens (only `visible` toggles), so reset
+  // to the tapped photo — without an animated scroll flash — every time a
+  // (possibly different) post is opened, rather than carrying over whatever
+  // page the previous post was left on. Keyed on post?.id rather than the
+  // whole `post` object on purpose — reacting to every new object reference
+  // (not just an actual post change) would re-jump the scroll unnecessarily.
+  useEffect(() => {
+    if (!visible || !post) return;
+    setActiveIndex(startIndex);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ x: startIndex * screenWidth, animated: false });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, post?.id, startIndex, screenWidth]);
+
+  if (!visible || !post) return null;
+
   const postDate = formatPostDate(post);
   const commentCount = post.commentCount ?? post.commentsCount ?? post.totalComments ?? 0;
+  const { avatarSource, frameSource, isOwnVipFrame, isOwnPost } = data;
 
   return (
     <View style={styles.overlay}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
-      {imageUri && (
+
+      {imageUrls.length > 1 ? (
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(e) => {
+            const w = e.nativeEvent.layoutMeasurement.width || 1;
+            setActiveIndex(Math.round(e.nativeEvent.contentOffset.x / w));
+          }}
+          style={StyleSheet.absoluteFill}
+        >
+          {imageUrls.map((uri) => (
+            <Image
+              key={uri}
+              source={{ uri }}
+              style={{ width: screenWidth, height: "100%" }}
+              contentFit="contain"
+              transition={150}
+            />
+          ))}
+        </ScrollView>
+      ) : imageUrls[0] ? (
         <Image
-          source={{ uri: imageUri }}
+          source={{ uri: imageUrls[0] }}
           style={StyleSheet.absoluteFill}
           contentFit="contain"
           transition={150}
         />
-      )}
+      ) : null}
 
       <LinearGradient
         colors={["rgba(0,0,0,0.75)", "transparent"]}
@@ -64,7 +124,7 @@ export default function PostImageViewer({
         <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={onClose}>
           <ArrowLeft size={20} color="white" />
         </TouchableOpacity>
-        <Text style={styles.pager}>1/1</Text>
+        <Text style={styles.pager}>{activeIndex + 1}/{imageUrls.length || 1}</Text>
         <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={() => onMore?.(post)}>
           <MoreHorizontal size={20} color="white" />
         </TouchableOpacity>

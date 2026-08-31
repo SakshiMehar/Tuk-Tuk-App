@@ -53,7 +53,6 @@ export const loadSavedUsers = async () => {
 /** GET /api/app/users/saved — server saved list for Profile → Saved menu. */
 export const fetchSavedUsersFromServer = async () => {
   const data = await getSavedUsers();
-  
   return listFrom(data).map((user) => {
     const entry = normalizeEntry(user);
     return {
@@ -74,18 +73,15 @@ export const saveFavoriteUser = async (user) => {
     throw new Error("Missing user id.");
   }
 
-  const data = await saveUserOnServer(entry.userId);
-  
+  await saveUserOnServer(entry.userId);
 
   const list = await loadSavedUsers();
   if (list.some((u) => u.userId === entry.userId)) {
-    
     return list;
   }
 
   const next = [entry, ...list];
   await AsyncStorage.setItem(SAVED_KEY, JSON.stringify(next));
-  
   return next;
 };
 
@@ -95,12 +91,10 @@ export const removeFavoriteUser = async (userId) => {
     throw new Error("Missing user id.");
   }
 
-  const data = await removeUserFromServer(targetUserId);
-  
+  await removeUserFromServer(targetUserId);
 
   const list = await loadSavedUsers();
   const next = list.filter((u) => u.userId !== targetUserId);
   await AsyncStorage.setItem(SAVED_KEY, JSON.stringify(next));
-  
   return next;
 };

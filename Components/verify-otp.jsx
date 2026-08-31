@@ -22,7 +22,6 @@ export default function VerifyOtp() {
 
   const [otp, setOtp]             = useState(["", "", "", "", "", ""]);
   const [loading, setLoading]     = useState(false);
-  const [resending, setResending] = useState(false);
   const inputs = useRef([]);
 
   const handleChange = (val, idx) => {
@@ -116,12 +115,10 @@ export default function VerifyOtp() {
           </LinearGradient>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.resendBtn} onPress={handleResend} disabled={resending}>
+        <TouchableOpacity style={styles.resendBtn} onPress={handleResend}>
           <Text style={styles.resendText}>
-            Didn't receive it?{" "}
-            {resending
-              ? <Text style={styles.resendLink}>Sending...</Text>
-              : <Text style={styles.resendLink}>Resend code</Text>}
+            Didn&apos;t receive it?{" "}
+            <Text style={styles.resendLink}>Resend code</Text>
           </Text>
         </TouchableOpacity>
       </View>

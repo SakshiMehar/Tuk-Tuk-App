@@ -6,13 +6,10 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Dimensions,
   TextInput,
-  FlatList,
   StatusBar,
   ActivityIndicator,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Search, UserPlus, X, Check, ChevronDown, AlignJustify } from "lucide-react-native";
 import { useRouter } from "expo-router";
@@ -35,7 +32,6 @@ import {
 import { loadProfileStats } from "../src/services/profileStatsService";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
-import { ms } from "../src/utils/responsive";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 
@@ -45,8 +41,6 @@ const RECOMMEND_RING_COLORS = ["#7c4dff", "#ff4ea3"];
 // image URL — resolve those to the local asset, otherwise treat as a URI.
 const resolveAvatarSource = (avatar) =>
   isBundledAvatarId(avatar) ? getAvatarSource(avatar) : { uri: avatar };
-
-const { width: W } = Dimensions.get("window");
 
 // ── Mock data ──────────────────────────────────────────────────────────────
 
@@ -165,11 +159,11 @@ export default function ChatTab() {
 
   const fetchChats = useCallback(() => {
     setChatsLoading(true);
-    
+
     loadConversations()
       .then((list) => {
         setConversations(list);
-        
+
       })
       .catch(() => setConversations([]))
       .finally(() => setChatsLoading(false));
@@ -181,7 +175,7 @@ export default function ChatTab() {
       .then((users) => {
         if (!cancelled) {
           setRecommendedUsers(users);
-          
+
         }
       })
       .catch(() => {});
@@ -588,7 +582,7 @@ export default function ChatTab() {
                     ).length === 0 ? (
                     <View style={styles.emptyContacts}>
                       <Text style={styles.emptyContactsEmoji}>👪</Text>
-                      <Text style={styles.emptyContactsText}>You haven't joined a family group yet</Text>
+                      <Text style={styles.emptyContactsText}>You haven&apos;t joined a family group yet</Text>
                     </View>
                   ) : (
                     familyGroups
@@ -763,7 +757,7 @@ export default function ChatTab() {
                 <Text style={styles.bannerIconEmoji}>📬</Text>
               </View>
               <Text style={styles.bannerText}>
-                Tap "Allow" and never miss the amazing people and moments on TukTuk!
+                Tap &quot;Allow&quot; and never miss the amazing people and moments on TukTuk!
               </Text>
               <TouchableOpacity style={styles.bannerBtn} activeOpacity={0.8}>
                 <Text style={styles.bannerBtnText}>Notify me</Text>

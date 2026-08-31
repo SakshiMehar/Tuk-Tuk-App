@@ -11,9 +11,7 @@ import {
 import { openUserChat } from "../src/utils/chatNavigation";
 
 // ── Global font-scale guard ────────────────────────────────────────────────
-// Prevents Android "Large Font" / "Huge Font" accessibility settings from
-// breaking the app layout. Cap at 1.3× so the UI stays intact while still
-// respecting moderate accessibility preferences.
+
 // This runs once at module load, before any component mounts.
 if (Text.defaultProps == null) Text.defaultProps = {};
 Text.defaultProps.maxFontSizeMultiplier = 1.3;

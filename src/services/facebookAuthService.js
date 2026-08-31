@@ -20,7 +20,6 @@ const shouldUseNativeSdk =
 
 export const configureFacebookSdk = () => {
   if (!shouldUseNativeSdk) return;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   require("./facebookSdkNative").configureFacebookSdk();
 };
 
@@ -30,12 +29,11 @@ export const signInWithFacebook = async (options = {}) => {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     return await require("./facebookSdkNative").signInWithFacebook();
   } catch (err) {
     const msg = (err?.message ?? "").toLowerCase();
     if (msg.includes("cancelled")) throw err;
-    
+
     return signInWithFacebookWeb(options);
   }
 };

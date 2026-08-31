@@ -15,8 +15,7 @@
  * For components that need to react to dimension changes, use useResponsive().
  */
 
-import { Dimensions, PixelRatio } from "react-native";
-import { useWindowDimensions } from "react-native";
+import { Dimensions, PixelRatio, useWindowDimensions } from "react-native";
 
 // ── Design baseline ────────────────────────────────────────────────────────
 const BASE_W = 375;

@@ -29,14 +29,14 @@ export default function BlockedAccounts() {
 
   const fetchBlockedAccounts = useCallback(async () => {
     setLoading(true);
-    
+
     try {
       setLoadError(null);
       const list = await loadBlocked();
       setBlockedAccounts(list);
-      
+
     } catch (err) {
-      
+
       setLoadError(err?.message || "Could not load blocked users.");
       setBlockedAccounts([]);
     } finally {
@@ -55,15 +55,15 @@ export default function BlockedAccounts() {
     if (!targetId || unblockingId) return;
 
     setUnblockingId(String(targetId));
-    
+
     try {
-      const response = await unblockUser(targetId);
-      
+      await unblockUser(targetId);
+
       setBlockedAccounts((prev) =>
         prev.filter((item) => String(item.userId ?? item.id) !== String(targetId))
       );
     } catch (err) {
-      
+
       Alert.alert("Unblock failed", err?.message || "Please try again.");
     } finally {
       setUnblockingId(null);

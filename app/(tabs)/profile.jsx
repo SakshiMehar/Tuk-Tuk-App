@@ -1,10 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import React from "react";
 import {
   View,
   Text,
   Image,
-  ImageBackground,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
@@ -44,7 +42,6 @@ import BackpackPanel from "../../Components/BackpackPanel";
 import PremiumPanel from "../../Components/PremiumPanel";
 import {
   avatarMap,
-  avatarOptions,
   getAvatarOptionsForGender,
   getAvatarSource,
   DEFAULT_AVATAR_ID,
@@ -111,7 +108,7 @@ const menuPages = [
   [
     { icon: "gift",         label: "Get Rewards",  badge: true  },
     { icon: "tasks",        label: "Task",         badge: true  },
-    { icon: "id-card",      label: "Monthly Card", badge: true  },
+    { icon: "id-card",      label: "Monthly Card", badge: true,  comingSoon: true },
     { icon: "store",        label: "Store",        badge: true  },
     { icon: "users",        label: "Relationship", badge: true  },
     { icon: "wallet",       label: "Wallet",       badge: false },
@@ -129,7 +126,7 @@ const menuPages = [
     { icon: "id-badge",     label: "TukTuk Pass",   badge: true  },
   ],
   [
-    { icon: "level-up-alt", label: "Level",        badge: true  },
+    { icon: "level-up-alt", label: "Level",        badge: true,  comingSoon: true },
     { icon: "instagram",    label: "Instagram",    badge: false },
     { icon: "share-alt",    label: "Share",        badge: false },
     { icon: "headset",      label: "Help",         badge: true  },
@@ -1012,13 +1009,11 @@ export default function Profile() {
   const [giftsReceived, setGiftsReceived] = useState([]);
   const [giftsSent, setGiftsSent] = useState([]);
   const [giftsLoading, setGiftsLoading] = useState(false);
-  const menuRef = useRef(null);
 
   // Editable profile state
   const [name, setName] = useState("Tuk Tuk User");
   const [avatarId, setAvatarId] = useState(DEFAULT_AVATAR_ID);
   const [editAvatarId, setEditAvatarId] = useState(DEFAULT_AVATAR_ID);
-  const [useLocalAvatar, setUseLocalAvatar] = useState(true);
   const [profilePicUrl, setProfilePicUrl] = useState(null);
   const [editVisible, setEditVisible] = useState(false);
   const [editName, setEditName] = useState("");
@@ -1064,9 +1059,7 @@ export default function Profile() {
     try {
       const list = await fetchSavedUsersFromServer();
       setSavedUsers(list);
-      
-    } catch (err) {
-      
+    } catch {
       setSavedUsers([]);
     } finally {
       setSavedUsersLoading(false);
@@ -1110,7 +1103,6 @@ export default function Profile() {
     } else {
       setAvatarId(null);
     }
-    setUseLocalAvatar(user.useLocalAvatar !== false);
     setProfilePicUrl(user.profilePicUrl ?? user.avatarUrl ?? null);
     if (user.gender) setUserGender(user.gender);
     const frameSource = await syncNewUserFrameForSession();
@@ -1136,13 +1128,11 @@ export default function Profile() {
       if (serverProfile?.avatarId) {
         setAvatarId(serverProfile.avatarId);
         setEditAvatarId(serverProfile.avatarId);
-        setUseLocalAvatar(true);
         setProfilePicUrl(null);
         await updateUser({ avatarId: serverProfile.avatarId, profilePicUrl: null, useLocalAvatar: true });
       } else if (serverProfile?.profilePicUrl) {
         setAvatarId(null);
         setProfilePicUrl(serverProfile.profilePicUrl);
-        setUseLocalAvatar(false);
         await updateUser({ profilePicUrl: serverProfile.profilePicUrl, avatarUrl: serverProfile.profilePicUrl, useLocalAvatar: false });
       }
     } catch {
@@ -1178,12 +1168,10 @@ export default function Profile() {
       if (serverProfile.avatarId) {
         setAvatarId(serverProfile.avatarId);
         setEditAvatarId(serverProfile.avatarId);
-        setUseLocalAvatar(true);
         setProfilePicUrl(null);
       } else if (serverProfile.profilePicUrl) {
         setAvatarId(null);
         setProfilePicUrl(serverProfile.profilePicUrl);
-        setUseLocalAvatar(false);
       }
       await updateUser({
         name: serverProfile.name || user?.name,
@@ -1296,12 +1284,12 @@ export default function Profile() {
   const handleRemoveSavedUser = useCallback(async (userId) => {
     if (removingSavedUserId) return;
     setRemovingSavedUserId(String(userId));
-    
+
     try {
       await removeFavoriteUser(userId);
       setSavedUsers((prev) => prev.filter((u) => u.userId !== String(userId)));
     } catch (err) {
-      
+
       Alert.alert(
         "Remove failed",
         err?.message || "Could not remove this user from Saved."
@@ -1322,7 +1310,7 @@ export default function Profile() {
       })
       .catch((err) => {
         if (!cancelled) {
-          
+
           setDailyTasks([]);
         }
       })
@@ -1340,19 +1328,19 @@ export default function Profile() {
   const handleClaimTask = async (task) => {
     if (task.claimed || !task.completed || claimingTask) return;
     setClaimingTask(task.taskType);
-    
+
     try {
       await claimRewardTask(task);
       const tasks = await loadDailyTasks();
       setDailyTasks(tasks);
       await refreshWalletBalance();
-      
+
       Alert.alert(
         "Reward claimed!",
         `You earned ${task.reward}💎 for "${task.label}".`
       );
     } catch (err) {
-      
+
       Alert.alert(
         "Could not claim",
         err?.message || "This task can't be claimed yet. Please try again."
@@ -1391,7 +1379,6 @@ export default function Profile() {
       setName(nextName);
       setAvatarId(nextAvatarId);
       setProfilePicUrl(nextProfilePicUrl);
-      setUseLocalAvatar(Boolean(nextAvatarId) || !nextProfilePicUrl);
 
       await updateUser({
         name: nextName,
@@ -1401,9 +1388,9 @@ export default function Profile() {
       });
 
       setEditVisible(false);
-      
+
     } catch (err) {
-      
+
       Alert.alert("Save failed", err?.message || "Could not save your profile. Please try again.");
     } finally {
       setProfileSaving(false);
@@ -1415,6 +1402,16 @@ export default function Profile() {
   const renderMenuContent = () => {
     if (!activeMenu) return null;
     const { label } = activeMenu;
+
+    if (activeMenu.comingSoon) {
+      return (
+        <View style={styles.comingSoonPanel}>
+          <Text style={styles.comingSoonPanelEmoji}>🚧</Text>
+          <Text style={styles.comingSoonPanelTitle}>Coming Soon</Text>
+          <Text style={styles.comingSoonPanelSub}>{label} is on its way — check back soon!</Text>
+        </View>
+      );
+    }
 
     // ── SAVED / FAVOURITE USERS ───────────────────────────────────────────────
     if (label === "Saved") {
@@ -1497,7 +1494,7 @@ export default function Profile() {
     }
 
     // ── MENU UI COMMENTED OUT ─────────────────────────────────────────────────
-   
+
 
     // ── GET REWARDS (invite friends → diamonds) ───────────────────────────────
     if (label === "Get Rewards") {
@@ -2600,7 +2597,7 @@ export default function Profile() {
     </View>
   );
 }
- 
+
 
 const styles = StyleSheet.create({
   container: {
@@ -2988,6 +2985,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.2)",
   },
+  comingSoonPanel: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  comingSoonPanelEmoji: { fontSize: 48, marginBottom: 12 },
+  comingSoonPanelTitle: { color: "#ff9800", fontSize: 22, fontWeight: "800", marginBottom: 8 },
+  comingSoonPanelSub: { color: "rgba(255,255,255,0.6)", fontSize: 14, textAlign: "center" },
   menuBadgeDot: {
     position: "absolute",
     top: 6,

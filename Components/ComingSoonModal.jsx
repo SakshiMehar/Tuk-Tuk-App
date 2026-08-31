@@ -34,7 +34,7 @@ export default function ComingSoonModal({ feature, onClose }) {
             <Text style={styles.feature}>{feature}</Text>
           ) : null}
           <Text style={styles.subtitle}>
-            We're putting the finishing touches on this feature. Stay tuned — it'll be here soon!
+            We&apos;re putting the finishing touches on this feature. Stay tuned — it&apos;ll be here soon!
           </Text>
           <TouchableOpacity activeOpacity={0.85} onPress={onClose} style={styles.btnWrap}>
             <LinearGradient
