@@ -14,9 +14,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-  loadUserSettings,
-  updateUserSettings,
-} from "../src/services/userSettingsService";
+  getNotificationSwitch,
+  patchNotificationSwitch,
+} from "../src/api/notificationApi";
 
 export default function MessageNotification() {
   const router = useRouter();
@@ -26,19 +26,16 @@ export default function MessageNotification() {
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  // Keep a snapshot so updateUserSettings can merge correctly
-  const [settingsSnapshot, setSettingsSnapshot] = useState({});
 
-  // Load persisted setting on mount
+  // Load the current message notification switch state on mount
   useEffect(() => {
-    loadUserSettings()
-      .then((settings) => {
-        // messageNotification maps to notificationOption from the settings object;
-        // treat anything other than "No notifications" as enabled.
-        const isEnabled =
-          settings.notificationOption !== "No notifications";
+    getNotificationSwitch()
+      .then((data) => {
+        // The backend returns:
+        // { notificationsEnabled, messageNotificationsEnabled, message }
+        // We read messageNotificationsEnabled for this screen.
+        const isEnabled = Boolean(data?.messageNotificationsEnabled ?? true);
         setEnabled(isEnabled);
-        setSettingsSnapshot(settings);
       })
       .catch(() => {
         // Keep default (enabled) on load failure — non-critical
@@ -48,18 +45,14 @@ export default function MessageNotification() {
 
   const handleToggle = async (value) => {
     if (saving) return;
+
+    // Optimistic update
     setEnabled(value);
     setSaving(true);
+
     try {
-      const updated = await updateUserSettings(
-        {
-          notificationOption: value
-            ? "All notifications"
-            : "No notifications",
-        },
-        settingsSnapshot
-      );
-      setSettingsSnapshot(updated);
+      await patchNotificationSwitch(value);
+      // If the PATCH succeeds the local state is already correct — nothing else needed
     } catch {
       // Revert on failure
       setEnabled(!value);

@@ -45,6 +45,8 @@ export const getBearerToken = async () => {
   if (!_s.token) {
     _s.token = await AsyncStorage.getItem("@auth_token");
   }
+  // debug
+  // console.log("AUTH TOKEN:", _s.token);
   return _s.token;
 };
 

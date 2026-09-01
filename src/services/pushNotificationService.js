@@ -1,5 +1,6 @@
 import { Platform, PermissionsAndroid } from "react-native";
 import messaging from "@react-native-firebase/messaging";
+import { registerDeviceToken } from "../api/notificationApi";
 
 let listenersInitialized = false;
 let currentDeviceToken = null;
@@ -34,7 +35,17 @@ export const registerForPushNotifications = async () => {
     const granted = await requestNotificationPermission();
     if (!granted) return null;
     const deviceToken = await messaging().getToken();
+
+    if (!deviceToken) return null;
     currentDeviceToken = deviceToken;
+
+    // Register the device token with the backend.
+    try {
+      await registerDeviceToken(deviceToken);
+    } catch (error) {
+      console.warn("Failed to register device token with backend:", error?.response?.data ?? error?.message);
+    }
+
     return deviceToken;
   } catch {
     return null;
@@ -64,8 +75,15 @@ export const initPushNotificationListeners = ({
     });
   });
 
-  const unsubscribeOnTokenRefresh = messaging().onTokenRefresh((token) => {
+  const unsubscribeOnTokenRefresh = messaging().onTokenRefresh(async (token) => {
     currentDeviceToken = token;
+
+    //when firebase Generates new token then backend update
+    try {
+      await registerDeviceToken(token);
+    } catch (error) {
+      console.warn("Failed to update refreshed FCM token ", error?.response?.data ?? error?.message);
+    }
   });
 
   // Tapped a notification while the app was backgrounded (not killed).
