@@ -1,6 +1,8 @@
 import { Platform, PermissionsAndroid } from "react-native";
 import messaging from "@react-native-firebase/messaging";
-import { registerDeviceToken } from "../api/notificationApi";
+import { registerDeviceToken, unregisterDeviceToken } from "../api/notificationApi";
+import { getBearerToken } from "../api/axios";
+import { setPendingNotification } from "../utils/notificationNavigation";
 
 let listenersInitialized = false;
 let currentDeviceToken = null;
@@ -28,7 +30,7 @@ export const requestNotificationPermission = async () => {
 
 /**
  * Requests OS permission and fetches the FCM token.
- * Device token registration with the backend has been removed.
+ * Registers the device token with the backend if an active user session exists.
  */
 export const registerForPushNotifications = async () => {
   try {
@@ -38,6 +40,12 @@ export const registerForPushNotifications = async () => {
 
     if (!deviceToken) return null;
     currentDeviceToken = deviceToken;
+
+    // Only register with backend if user has an active, valid login session
+    const authToken = await getBearerToken();
+    if (!authToken) {
+      return deviceToken;
+    }
 
     // Register the device token with the backend.
     try {
@@ -54,10 +62,35 @@ export const registerForPushNotifications = async () => {
 
 export const getCurrentDeviceToken = () => currentDeviceToken;
 
+/** Unregisters the device token with the backend and deletes it locally on logout. */
+export const unregisterDevicePushToken = async () => {
+  try {
+    const token = currentDeviceToken || (await messaging().getToken().catch(() => null));
+    if (token) {
+      // 1. Unregister from backend
+      try {
+        await unregisterDeviceToken(token);
+      } catch (err) {
+        console.warn("Failed to unregister FCM token from backend:", err?.response?.data ?? err?.message);
+      }
+    }
+    // 2. Delete FCM token from device so next session gets a fresh token
+    try {
+      await messaging().deleteToken();
+    } catch (delErr) {
+      console.warn("Failed to delete local FCM token:", delErr?.message);
+    }
+  } catch (error) {
+    console.warn("Failed to clean up push token on logout:", error?.message);
+  } finally {
+    currentDeviceToken = null;
+  }
+};
+
 /**
  * Wires up foreground/tap/refresh listeners. Call once from the root layout.
  *   onForegroundMessage({ title, body, data }) — a push arrived while the app was open.
- *   onNotificationTap({ data })                — user tapped a push (background or killed state).
+ *   onNotificationTap({ data, isInitial })      — user tapped a push (background or killed state).
  * Returns an unsubscribe function.
  */
 export const initPushNotificationListeners = ({
@@ -78,24 +111,32 @@ export const initPushNotificationListeners = ({
   const unsubscribeOnTokenRefresh = messaging().onTokenRefresh(async (token) => {
     currentDeviceToken = token;
 
-    //when firebase Generates new token then backend update
+    // When Firebase generates a new token, update backend only if logged in
     try {
-      await registerDeviceToken(token);
+      const authToken = await getBearerToken();
+      if (authToken) {
+        await registerDeviceToken(token);
+      }
     } catch (error) {
-      console.warn("Failed to update refreshed FCM token ", error?.response?.data ?? error?.message);
+      console.warn("Failed to update refreshed FCM token:", error?.response?.data ?? error?.message);
     }
   });
 
   // Tapped a notification while the app was backgrounded (not killed).
   const unsubscribeOnOpenedApp = messaging().onNotificationOpenedApp((remoteMessage) => {
-    if (remoteMessage) onNotificationTap?.({ data: remoteMessage?.data ?? {} });
+    if (remoteMessage?.data) {
+      onNotificationTap?.({ data: remoteMessage.data, isInitial: false });
+    }
   });
 
   // Tapped a notification that launched the app from a killed state.
   messaging()
     .getInitialNotification()
     .then((remoteMessage) => {
-      if (remoteMessage) onNotificationTap?.({ data: remoteMessage?.data ?? {} });
+      if (remoteMessage?.data) {
+        setPendingNotification(remoteMessage.data);
+        onNotificationTap?.({ data: remoteMessage.data, isInitial: true });
+      }
     })
     .catch(() => {});
 

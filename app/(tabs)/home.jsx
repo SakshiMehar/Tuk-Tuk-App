@@ -3007,7 +3007,17 @@ export default function Home() {
             }
           : {};
         await updateUser({ gender, ...countryFields });
-        await patchMyProfile({ gender, ...countryFields }).catch(() => {});
+        const user = (await getUser()) || {};
+        const profilePayload = { gender, ...countryFields };
+        if (!profilePayload.countryName && user?.name) {
+          profilePayload.name = user.name;
+        }
+        if (!profilePayload.countryName && !profilePayload.name && user?.avatarId) {
+          profilePayload.avatar = user.avatarId;
+        }
+        if (profilePayload.countryName || profilePayload.name || profilePayload.avatar) {
+          await patchMyProfile(profilePayload).catch(() => {});
+        }
         if (match) {
           await syncUserCountryToServer({
             country: match.name,

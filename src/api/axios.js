@@ -34,6 +34,37 @@ AsyncStorage.getItem("@auth_token")
   .then((t) => { _s.token = t; })
   .catch(() => {});
 
+const isTokenExpired = (token) => {
+  if (!token || typeof token !== "string") return true;
+  const parts = token.split(".");
+  if (parts.length < 2) return false;
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    let jsonStr = "";
+    if (typeof globalThis.atob === "function") {
+      jsonStr = globalThis.atob(padded);
+    } else {
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+      let str = padded.replace(/=+$/, "");
+      for (let bc = 0, bs = 0, buffer, i = 0; (buffer = str.charAt(i++)); ) {
+        const idx = chars.indexOf(buffer);
+        if (idx === -1) continue;
+        bs = bc % 4 ? bs * 64 + idx : idx;
+        if (bc++ % 4) jsonStr += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6)));
+      }
+    }
+    const payload = JSON.parse(jsonStr);
+    if (payload?.exp && typeof payload.exp === "number") {
+      // 5-second buffer for potential clock drift
+      return Date.now() >= payload.exp * 1000 - 5000;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 export const refreshTokenCache = async () => {
   _s.token = await AsyncStorage.getItem("@auth_token");
   // Reset the 401 guard so future expiry is caught after re-login.
@@ -45,8 +76,15 @@ export const getBearerToken = async () => {
   if (!_s.token) {
     _s.token = await AsyncStorage.getItem("@auth_token");
   }
-  // debug
-  // console.log("AUTH TOKEN:", _s.token);
+  if (_s.token && isTokenExpired(_s.token)) {
+    _s.token = null;
+    AsyncStorage.multiRemove(["@auth_token", "@auth_user"]).catch(() => {});
+    if (!_s.handlingUnauth) {
+      _s.handlingUnauth = true;
+      _s.onSessionExpired?.();
+    }
+    return null;
+  }
   return _s.token;
 };
 
@@ -113,6 +151,15 @@ API.interceptors.response.use(
     const status = error?.response?.status;
     const requestUrl = `${error?.config?.baseURL ?? ""}${error?.config?.url ?? ""}`;
 
+    const isAuthEndpoint = /\/api\/auth\//i.test(requestUrl);
+    const isExplicitTokenError =
+      status === 401 &&
+      (error?.response?.data?.error === "Invalid or expired token" ||
+       error?.response?.data?.message === "Invalid or expired token" ||
+       error?.response?.data?.error === "Authentication token is required" ||
+       error?.response?.data?.message === "Authentication token is required");
+    const isCoreProfileEndpoint = /\/api\/app\/users\/me\/profile/i.test(requestUrl);
+
     // Suppress noisy but expected 409 seat-occupied conflicts — the calling
     // code handles them via retry logic, no need to log them as errors.
     const isSeatOccupied =
@@ -126,7 +173,12 @@ API.interceptors.response.use(
       status === 404 &&
       /\/api\/app\/invite-friends\//i.test(requestUrl);
 
-    if (!isSeatOccupied && !isPendingInviteFriendsApi) {
+    const shouldSuppressLog =
+      isSeatOccupied ||
+      isPendingInviteFriendsApi ||
+      (status === 401 && _s.handlingUnauth);
+
+    if (!shouldSuppressLog) {
       console.error(
         "[axios] request failed:",
         status,
@@ -139,16 +191,9 @@ API.interceptors.response.use(
     }
 
     // ── 401: token expired / missing ────────────────────────────
-    // Skip auth endpoints so wrong-password errors propagate normally.
-    // Only auto-logout on 401s from core, auth-critical endpoints (your own
-    // profile) — a 401 there reliably means the token itself is dead. A 401
-    // from any OTHER endpoint used to wipe the session too, which meant a
-    // single half-finished/buggy route could force a real logout even
-    // though the token was still perfectly valid. Those now just propagate
-    // as a normal rejected request for the caller to handle.
-    const isAuthEndpoint = /\/api\/auth\//i.test(requestUrl);
-    const isCoreProfileEndpoint = /\/api\/app\/users\/me\/profile/i.test(requestUrl);
-    if (status === 401 && !isAuthEndpoint && isCoreProfileEndpoint && !_s.handlingUnauth) {
+    // If the server explicitly returns "Invalid or expired token" or "Authentication token is required",
+    // or if the core profile endpoint fails with 401, trigger session expiry immediately.
+    if (status === 401 && !isAuthEndpoint && (isExplicitTokenError || isCoreProfileEndpoint) && !_s.handlingUnauth) {
       _s.handlingUnauth = true;
       _s.token = null;
       // Wipe stored session so the app starts clean on next launch.

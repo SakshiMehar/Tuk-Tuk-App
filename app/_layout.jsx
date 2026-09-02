@@ -9,6 +9,7 @@ import {
   initPushNotificationListeners,
 } from "../src/services/pushNotificationService";
 import { openUserChat } from "../src/utils/chatNavigation";
+import { navigateFromNotification } from "../src/utils/notificationNavigation";
 
 // ── Global font-scale guard ────────────────────────────────────────────────
 
@@ -51,14 +52,28 @@ export default function RootLayout() {
     });
 
     const unsubscribePush = initPushNotificationListeners({
-      onForegroundMessage: ({ title, body }) => {
-        if (body) Alert.alert(title, body);
+      onForegroundMessage: ({ title, body, data }) => {
+        if (!body && !title) return;
+        Alert.alert(
+          title || "Tuk-Tuk",
+          body || "",
+          [
+            { text: "Dismiss", style: "cancel" },
+            {
+              text: "View",
+              onPress: () => {
+                if (data) navigateFromNotification(router, data);
+              },
+            },
+          ],
+          { cancelable: true }
+        );
       },
-      onNotificationTap: ({ data }) => {
-        // Placeholder payload shape (chatUserId/senderName) — adjust once
-        // backend confirms what a push notification's `data` actually contains.
-        if (data?.chatUserId) {
-          openUserChat(router, { userId: data.chatUserId, name: data.senderName });
+      onNotificationTap: ({ data, isInitial }) => {
+        // Initial notification on cold boot is consumed by app/index.jsx after splash finishes.
+        // For background notifications, navigate immediately.
+        if (!isInitial && data) {
+          navigateFromNotification(router, data);
         }
       },
     });

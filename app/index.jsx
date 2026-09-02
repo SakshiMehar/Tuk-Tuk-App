@@ -10,6 +10,10 @@ import {
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { getToken } from "../src/store/authStore";
+import {
+  consumePendingNotification,
+  navigateFromNotification,
+} from "../src/utils/notificationNavigation";
 
 const splashIcon = require("../assets/images/splash-icon.png");
 
@@ -71,9 +75,13 @@ export default function Index() {
       }),
     ]).start(() => {
       // Check if the user is already logged in — skip the login screen if so
-      getToken().then((token) => {
+      getToken().then(async (token) => {
         if (token) {
           router.replace("/(tabs)/home");
+          const pending = consumePendingNotification();
+          if (pending) {
+            navigateFromNotification(router, pending);
+          }
         } else {
           router.replace("/login");
         }

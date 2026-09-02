@@ -15,31 +15,41 @@ import { loadMyProfile } from "./meProfileService";
 import { applyNewUserFrameForLogin } from "./newUserFrameService";
 import { applyInitialUserLevelForLogin } from "./userLevelService";
 import { redeemInviteCode } from "./inviteFriendsService";
+import { unregisterDevicePushToken } from "./pushNotificationService";
 
 export const endLocalSession = async () => {
   wsService.disconnect();
+  await unregisterDevicePushToken().catch(() => {});
   await clearSession();
   clearTokenCache();
 };
 
 export const logoutSession = async () => {
   try {
+    // 1. Unregister FCM token from backend & delete local FCM token while user JWT is still valid
+    await unregisterDevicePushToken().catch(() => {});
+    // 2. Call backend logout API
     const data = await apiLogout();
-
     return data;
   } catch (err) {
-
     throw err;
   } finally {
+    // 3. Clear local session (websocket, storage, token cache)
     await endLocalSession();
   }
 };
 
 export const deleteAccountSession = async ({ reason, additionalComment }) => {
-  const data = await apiDeleteAccount({ reason, additionalComment });
-
-  await endLocalSession();
-  return data;
+  try {
+    // 1. Unregister FCM token from backend & delete local FCM token while user JWT is still valid
+    await unregisterDevicePushToken().catch(() => {});
+    // 2. Call backend delete account API
+    const data = await apiDeleteAccount({ reason, additionalComment });
+    return data;
+  } finally {
+    // 3. Clear local session (websocket, storage, token cache)
+    await endLocalSession();
+  }
 };
 
 /** Login/auth responses omit avatar — load persisted profile from GET /api/app/users/me/profile. */
