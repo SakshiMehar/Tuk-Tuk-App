@@ -399,12 +399,12 @@ export const createPartyRoom = async (payload = {}) => {
   const roomName = rest.name ?? "My Room";
 
   // Confirmed POST /api/v1/tuktuk/rooms/create contract — just these fields.
-  // The backend infers the creator from the auth token; no roomId/creatorId/
-  // hostId/userId/invite-list fields belong in this body.
+  const roomAnnouncement = rest.body ?? rest.announcement;
+
   const createBody = {
     name: roomName,
     ...(rest.profileImageUrl ? { profileImageUrl: rest.profileImageUrl } : {}),
-    ...(rest.body ? { body: rest.body } : {}),
+    ...(roomAnnouncement ? { body: roomAnnouncement } : {}),
     ...(rest.category ? { category: rest.category } : {}),
     ...(rest.roomType ? { roomType: rest.roomType } : {}),
   };

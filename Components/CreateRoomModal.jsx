@@ -149,28 +149,11 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
     try {
       const user = await getUser();
 
-      /*
-       * IMPORTANT:
-       * The room should only be created after the room image
-       * has been successfully uploaded.
-       *
-       * This part should use your partyService upload method
-       * and then pass the returned URL to createAndEnterPartyRoom.
-       */
-
-      const uploadedUrl = await updateRoomCoverPhoto(`temp-${userId}`, {
-        uri: roomPhotoUri,
-      });
-
-      if (!uploadedUrl) {
-        throw new Error("The room photo could not be uploaded.");
-      }
-
       const session = await createAndEnterPartyRoom({
         userId,
         name: trimmedName,
         announcement: trimmedAnnouncement,
-        profileImageUrl: uploadedUrl,
+        body: trimmedAnnouncement,
         ...(user?.profilePicUrl || user?.avatarUrl
           ? {
               userProfileImageUrl: user.profilePicUrl ?? user.avatarUrl,
@@ -178,11 +161,23 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
           : {}),
       });
 
+      const targetRoomId = String(session.roomId ?? userId);
+
+      if (roomPhotoUri) {
+        try {
+          await updateRoomCoverPhoto(targetRoomId, {
+            uri: roomPhotoUri,
+          });
+        } catch (uploadErr) {
+          console.warn("[CreateRoomModal] Cover photo upload failed:", uploadErr);
+        }
+      }
+
       refreshWalletBalance();
 
       onClose();
 
-      onEntered?.(String(session.roomId ?? userId), session.room);
+      onEntered?.(targetRoomId, session.room);
     } catch (err) {
       const msg = err?.message || "Please try again.";
 
