@@ -1,7 +1,7 @@
+import { Tabs, useRouter } from "expo-router";
+import { Home, MessageCircle, Mic, User } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { Tabs, useRouter } from "expo-router";
-import { Home, Mic, MessageCircle, User } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getToken, hasAcceptedTerms } from "../../src/store/authStore";
 
@@ -70,7 +70,7 @@ const TabLayout = () => {
           borderTopColor: "rgba(166,152,255,0.28)",
           paddingTop: 6,
           paddingBottom: bottomInset,
-          height: 56 + bottomInset,
+          height: 65 + bottomInset,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600", marginBottom: 2 },
       }}
@@ -105,10 +105,7 @@ const TabLayout = () => {
           tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="blind-pick"
-        options={{ href: null }}
-      />
+      <Tabs.Screen name="blind-pick" options={{ href: null }} />
     </Tabs>
   );
 };
