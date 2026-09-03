@@ -103,6 +103,17 @@ export const getUserById = async (userId) => {
   return response.data;
 };
 
+export const getUserProfileDetails = async (targetUserId) => {
+  const id = String(targetUserId);
+
+  const response = await API.get(
+    `/api/app/users/${id}/profile-details`,
+    await authRequestConfig()
+  );
+  console.log(`[userApi] GET /api/app/users/${id}/profile-details -> RAW`, JSON.stringify(response.data));
+  return response.data;
+};
+
 export const getProfileVisits = async (limit = 50) => {
   const url = `/api/app/users/me/profile-visits?limit=${limit}`;
   

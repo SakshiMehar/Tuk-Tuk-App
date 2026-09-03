@@ -2,7 +2,7 @@ import axios from "axios";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { API_BASE_URL, API_TIMEOUT_MS, isNgrokBaseUrl } from "../config/env";
+import { API_BASE_URL, API_TIMEOUT_MS } from "../config/env";
 
 const API = axios.create({
 
@@ -11,8 +11,6 @@ const API = axios.create({
   headers: {
 
     "Content-Type": "application/json",
-
-    ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
 
   },
 
@@ -155,22 +153,11 @@ API.interceptors.response.use(
       _s.onSessionExpired?.();
     }
 
-    const responseData = error?.response?.data;
-    const responseText =
-      typeof responseData === "string" ? responseData : JSON.stringify(responseData ?? "");
-
     let message =
       error?.response?.data?.message ||
       error?.response?.data?.error ||
       error?.message ||
       "Something went wrong";
-
-    if (
-      /ERR_NGROK_3200|endpoint.*is offline|ngrok-free\.dev is offline/i.test(responseText)
-    ) {
-      message =
-        "Backend is offline. Start your server and ngrok tunnel, then update EXPO_PUBLIC_API_BASE_URL in .env if the ngrok URL changed.";
-    }
 
     const err = new Error(message);
     err.status = status;

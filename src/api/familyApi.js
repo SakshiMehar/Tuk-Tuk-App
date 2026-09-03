@@ -15,7 +15,7 @@
 // ============================================================
 
 import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
-import { API_BASE_URL, isNgrokBaseUrl } from "../config/env";
+import { API_BASE_URL } from "../config/env";
 
 const LOG_TAG = "[FamilyAPI]";
 
@@ -96,7 +96,6 @@ export const updateFamilyCover = async (familyGroupId, { uri, mimeType, fileName
 
   const headers = {
     Authorization: `Bearer ${token}`,
-    ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
   };
 
   logRequest("PATCH", path, { icon: fileName ?? uri });

@@ -38,8 +38,10 @@ import {
   VIP_TIER_THRESHOLDS,
   resolveVipTierFromAssetUrl,
 } from "../src/constants/vip";
+import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
 import { loadPublicProfile, toggleFollowUser } from "../src/services/publicProfileService";
 import { fetchVipProfileFrameForUser } from "../src/services/vipService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import { blockUser } from "../src/services/relationshipService";
 import { reportUser } from "../src/api/postApi";
 import { openUserChat } from "../src/utils/chatNavigation";
@@ -73,7 +75,9 @@ export default function UserProfileView({ user, onBack }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState(null);
+  const [posts, setPosts] = useState([]);
   const [vipProfileFrameUrl, setVipProfileFrameUrl] = useState(null);
+  const [decorations, setDecorations] = useState({ badgeUrl: null, frameUrl: null });
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -95,12 +99,15 @@ export default function UserProfileView({ user, onBack }) {
     setLoading(true);
     setLoadFailed(false);
     try {
-      const [{ profile: loaded, status }, frameUrl] = await Promise.all([
+      const [{ profile: loaded, status, posts: loadedPosts }, frameUrl, userDecorations] = await Promise.all([
         loadPublicProfile(userId),
         fetchVipProfileFrameForUser(userId),
+        fetchUserDecorations(userId),
       ]);
       setProfile(loaded);
+      setPosts(Array.isArray(loadedPosts) ? loadedPosts : []);
       setVipProfileFrameUrl(frameUrl);
+      setDecorations(userDecorations);
       setIsFollowing(Boolean(status?.following));
       if (!loaded) setLoadFailed(true);
     } catch {
@@ -204,6 +211,9 @@ export default function UserProfileView({ user, onBack }) {
   const levelBadge = profile?.level != null ? resolveLocalLevelBadge(profile.level) : null;
   const vipTier = resolveVipTierFromAssetUrl(vipProfileFrameUrl);
   const vipLogo = vipTier != null ? VIP_LOGO_BY_TIER[vipTier] : null;
+  // A user-specific decoration frame (backend-assigned, independent of VIP
+  // tier) takes priority over the VIP frame when both are present.
+  const profileFrameSource = decorations?.frameUrl ?? vipProfileFrameUrl;
 
   return (
     <View style={styles.container}>
@@ -380,18 +390,22 @@ export default function UserProfileView({ user, onBack }) {
               <View style={styles.cardTopRow}>
                 <ProfileAvatarWithFrame
                   avatarSource={avatarSource}
-                  frameSource={vipProfileFrameUrl}
+                  frameSource={profileFrameSource}
                   size={s(72)}
                   avatarStyle={styles.avatar}
                   placeholderInitial={displayName?.[0]?.toUpperCase() ?? "?"}
-                  {...(vipProfileFrameUrl
+                  {...(decorations?.frameUrl
+                    ? {
+                        frameResizeMode: "contain",
+                      }
+                    : profileFrameSource
                     ? {
                         frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                         frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                         frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
                         frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
                         frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
                         avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                       }
                     : {})}
@@ -424,6 +438,12 @@ export default function UserProfileView({ user, onBack }) {
                         resizeMode="contain"
                       />
                     )}
+                    {decorations?.badgeUrl && (
+                      <Badge
+                        source={resolveImageSource(decorations.badgeUrl)}
+                        aspectRatio={BADGE_ASPECT.verified}
+                      />
+                    )}
                     {profile?.verified && (
                       <Badge source={VERIFIED_BADGE} aspectRatio={BADGE_ASPECT.verified} />
                     )}
@@ -433,11 +453,9 @@ export default function UserProfileView({ user, onBack }) {
             </View>
 
             {/* ── STATS ── */}
-            {/* Following / Followers / Visitors aren't returned by
-                GET /api/app/users/{id} for an arbitrary userId today (only
-                self-scoped via /api/relationships/following|followers and
-                /api/app/users/me/profile-visits) — shown as "—" rather than
-                a fake 0 until the backend adds them. */}
+            {/* Sourced from GET /api/app/users/{id}/profile-details via
+                loadPublicProfile — shown as "—" rather than a fake 0 if
+                the field is missing from the response. */}
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>
@@ -479,13 +497,33 @@ export default function UserProfileView({ user, onBack }) {
 
             {/* ── MOMENT ── */}
             {activeTab === "Moment" && (
-              // GET /api/posts/user/{userId} doesn't exist yet (only the
-              // self-scoped /api/posts/me/profile), so this stays a
-              // placeholder instead of faking post data.
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyEmoji}>📦</Text>
-                <Text style={styles.emptyText}>Posts will appear here soon</Text>
-              </View>
+              posts.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyEmoji}>📦</Text>
+                  <Text style={styles.emptyText}>No posts yet</Text>
+                </View>
+              ) : (
+                <View style={styles.postsGrid}>
+                  {posts.map((post) => {
+                    const imageUri = post.mediaUrl ?? post.imageUrl ?? post.mediaUrls?.[0] ?? null;
+                    if (!imageUri) return null;
+                    return (
+                      <View key={post.id} style={styles.postThumb}>
+                        <Image
+                          source={{ uri: imageUri }}
+                          style={styles.postThumbImage}
+                          resizeMode="cover"
+                        />
+                        {post.hasVideo && (
+                          <View style={styles.videoOverlay}>
+                            <Text style={styles.videoIcon}>▶</Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              )
             )}
             {activeTab === "Profile" && (
               <View style={styles.emptyState}>
@@ -758,6 +796,27 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: "center", paddingVertical: 40 },
   emptyEmoji: { fontSize: 40, marginBottom: 10 },
   emptyText: { color: "rgba(255,255,255,0.4)", fontSize: 14, fontWeight: "600" },
+  postsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 3,
+    marginTop: 4,
+  },
+  postThumb: {
+    width: "32.5%",
+    aspectRatio: 1,
+    borderRadius: 6,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  postThumbImage: { width: "100%", height: "100%" },
+  videoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  videoIcon: { color: "white", fontSize: 22 },
   retryBtn: {
     marginTop: 16,
     backgroundColor: "rgba(124,77,255,0.25)",

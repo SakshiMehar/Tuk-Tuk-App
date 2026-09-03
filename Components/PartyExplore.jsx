@@ -24,6 +24,7 @@ import {
   Mic,
 } from "lucide-react-native";
 import { getRecommendedUsers } from "../src/services/homeService";
+import { getRoomUserCount } from "../src/api/partyApi";
 import {
   loadRoomRecommendations,
   loadRecentlyRooms,
@@ -115,7 +116,39 @@ function EmptyState({ message }) {
   );
 }
 
+function useRoomUserCount(roomId) {
+  const [count, setCount] = useState(null);
+
+  useEffect(() => {
+    if (!roomId) return;
+    let cancelled = false;
+
+    const fetchCount = () => {
+      getRoomUserCount(roomId)
+        .then((response) => {
+          console.log(`[getRoomUserCount] room ${roomId} response:`, response);
+          if (cancelled) return;
+          setCount(typeof response === "number" ? response : response?.onlineCount);
+        })
+        .catch((error) => {
+          console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
+        });
+    };
+
+    fetchCount();
+    const interval = setInterval(fetchCount, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [roomId]);
+
+  return count;
+}
+
 function ExploreRoomItem({ room, onPress }) {
+  const userCount = useRoomUserCount(room.id);
+
   return (
     <TouchableOpacity style={styles.exploreRoomCard} activeOpacity={0.8} onPress={onPress}>
       {room.thumbnail ? (
@@ -140,7 +173,7 @@ function ExploreRoomItem({ room, onPress }) {
         <MessageCircle size={16} color={THEME.textMuted} />
         <View style={styles.roomCount}>
           <Signal size={14} color={THEME.purple} />
-          <Text style={styles.roomCountText}>{room.participantCount ?? 0}</Text>
+          <Text style={styles.roomCountText}>{userCount ?? ""}</Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -149,6 +182,7 @@ function ExploreRoomItem({ room, onPress }) {
 
 function RelatedRoomItem({ room, onPress, showFollow }) {
   const [followed, setFollowed] = useState(false);
+  const userCount = useRoomUserCount(room.id);
 
   return (
     <TouchableOpacity style={styles.relatedRoomCard} activeOpacity={0.8} onPress={onPress}>
@@ -193,7 +227,7 @@ function RelatedRoomItem({ room, onPress, showFollow }) {
         ) : (
           <View style={styles.roomCount}>
             <Signal size={14} color={THEME.purple} />
-            <Text style={styles.roomCountText}>{room.participantCount ?? 0}</Text>
+            <Text style={styles.roomCountText}>{userCount ?? ""}</Text>
           </View>
         )}
       </View>

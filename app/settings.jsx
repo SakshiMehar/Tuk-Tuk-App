@@ -35,7 +35,9 @@ import {
 import ClearChatCacheModal from "../Components/ClearChatCacheModal";
 import ProfileAvatarWithFrame from "../Components/ProfileAvatarWithFrame";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
 
 const DELETE_ACCOUNT_REASONS = [
   "Privacy concerns",
@@ -123,10 +125,15 @@ export default function Settings() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [currentUserAvatar, setCurrentUserAvatar] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
+  const [decorations, setDecorations] = useState({ badgeUrl: null, frameUrl: null });
 
   useEffect(() => {
     getUser().then((u) => {
       if (u) setCurrentUserAvatar(u.avatarUrl ?? u.avatar ?? u.profileImage ?? null);
+      const id = u?.userId ?? u?.id ?? null;
+      if (id != null) {
+        fetchUserDecorations(String(id)).then(setDecorations).catch(() => {});
+      }
     }).catch(() => {});
     loadMyVipAssets().then((vipAssets) => {
       setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
@@ -579,10 +586,14 @@ export default function Settings() {
                             ? { uri: currentUserAvatar }
                             : require("../assets/images/splash-icon.png")
                         }
-                        frameSource={vipProfileFrame}
+                        frameSource={decorations.frameUrl ?? vipProfileFrame}
                         size={112}
                         avatarStyle={styles.profileImage}
-                        {...(vipProfileFrame
+                        {...(decorations.frameUrl
+                          ? {
+                              frameResizeMode: "contain",
+                            }
+                          : vipProfileFrame
                           ? {
                               frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                               frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,

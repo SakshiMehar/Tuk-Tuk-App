@@ -51,7 +51,7 @@ import {
   upsertChatMessage,
 } from "../src/services/partyService";
 import { wsService } from "../src/services/websocket";
-import { getRoomState, getRoomChatMessages, postSeatHeartbeat } from "../src/api/partyApi";
+import { getRoomState, getRoomChatMessages, postSeatHeartbeat, postRoomHeartbeat, getRoomUserCount } from "../src/api/partyApi";
 import { refreshTokenCache } from "../src/api/axios";
 import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
 import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
@@ -87,6 +87,8 @@ import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
 import { reportUser } from "../src/api/postApi";
 import ReportReasonModal from "./ReportReasonModal";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
@@ -619,12 +621,22 @@ export default function VoiceParty() {
             extractVipProfileFrameUrl(response) ?? extractVipProfileFrameUrl(response?.data);
           setUserFrameData((prev) => ({
             ...prev,
-            [userId]: { hasNewUserFrame: showFrame, newUserFrameUrl: frameUrl, vipProfileFrameUrl },
+            [userId]: { ...prev[userId], hasNewUserFrame: showFrame, newUserFrameUrl: frameUrl, vipProfileFrameUrl },
           }));
         })
         .catch((err) => {
           if (__DEV__) console.warn(`[VoiceParty] ui-assets fetch failed userId=${userId}:`, err?.message ?? err);
         });
+
+      // Backend-assigned decorations for this specific user (separate from
+      // the VIP/new-user frame system above) — badge + frame overlay.
+      fetchUserDecorations(userId).then(({ badgeUrl, frameUrl }) => {
+        if (!badgeUrl && !frameUrl) return;
+        setUserFrameData((prev) => ({
+          ...prev,
+          [userId]: { ...prev[userId], decorationBadgeUrl: badgeUrl, decorationFrameUrl: frameUrl },
+        }));
+      });
     });
   }, [seats, onlineUsers, messages]);
 
@@ -960,6 +972,9 @@ export default function VoiceParty() {
           );
         }
         setOnlineUsers(session.onlineUsers);
+        console.log(
+          `[joinRoom onlineCount] room ${roomId}: onlineCount=${session.onlineCount}, onlineUsers.length=${session.onlineUsers?.length}`
+        );
         setOnlineCount(session.onlineCount);
         // Chat is session-local: start with a clean screen on every entry
         // instead of replaying the room's persisted message history.
@@ -1362,6 +1377,56 @@ export default function VoiceParty() {
     const interval = setInterval(ping, 25_000);
     return () => clearInterval(interval);
   }, [onMic, mySeatNumber, roomId]);
+
+  // Room presence heartbeat — fires every 25 s for ANY user in the room
+  // (seated or just listening), independent of the mic-seat heartbeat above.
+  // Backend auto-expires the room session (and decrements the public count)
+  // after 90 s without one, so this must run for the whole time the room
+  // screen is open, not just while on a seat.
+  useEffect(() => {
+    if (!roomId) return;
+
+    const ping = async () => {
+      try {
+        if (wsService.connected) {
+          wsService.sendRoomHeartbeat(String(roomId));
+        } else {
+          await postRoomHeartbeat(String(roomId));
+        }
+      } catch {
+        // Non-critical — backend will expire the session after the timeout automatically
+      }
+    };
+
+    ping(); // send immediately on entry
+    const interval = setInterval(ping, 25_000);
+    return () => clearInterval(interval);
+  }, [roomId]);
+
+  // Room user-count badge — refresh from the public count endpoint.
+  useEffect(() => {
+    if (!roomId) return;
+    let cancelled = false;
+
+    const fetchUserCount = async () => {
+      try {
+        const response = await getRoomUserCount(String(roomId));
+        console.log(`[getRoomUserCount] room ${roomId} response:`, response);
+        if (cancelled) return;
+        const count = typeof response === "number" ? response : response?.onlineCount;
+        if (typeof count === "number") setOnlineCount(count);
+      } catch (error) {
+        console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
+      }
+    };
+
+    fetchUserCount();
+    const interval = setInterval(fetchUserCount, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [roomId]);
 
   const handleTakeMic = async () => {
     if (!roomId || voiceConnecting) return;
@@ -2135,10 +2200,16 @@ export default function VoiceParty() {
     const selfVipProfileFrame = isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
     const otherUserVipProfileFrame =
       !isSelf && fetched.vipProfileFrameUrl ? { uri: fetched.vipProfileFrameUrl } : null;
+    // A user-specific decoration frame (backend-assigned, independent of VIP
+    // tier) takes priority over the VIP frame when both are present.
+    const decorationFrame = fetched.decorationFrameUrl ? { uri: fetched.decorationFrameUrl } : null;
     const isVipProfileFrame = Boolean(selfVipProfileFrame || otherUserVipProfileFrame);
-    const frameSource = selfVipProfileFrame ?? otherUserVipProfileFrame ?? resolveNewUserFrameSource(userWithFrame);
+    const frameSource =
+      decorationFrame ?? selfVipProfileFrame ?? otherUserVipProfileFrame ?? resolveNewUserFrameSource(userWithFrame);
     const hasFrame = Boolean(frameSource);
-    const activeFrameConfig = isVipProfileFrame ? VIP_PROFILE_FRAME_LAYOUT : frameConfig;
+    const activeFrameConfig = isVipProfileFrame
+      ? VIP_PROFILE_FRAME_LAYOUT
+      : frameConfig;
 
     return (
       <ProfileAvatarWithFrame
@@ -2146,13 +2217,21 @@ export default function VoiceParty() {
         avatarSource={imageSource}
         frameSource={frameSource}
         size={typeof size === "number" ? size : 48}
-        frameScale={hasFrame ? activeFrameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale}
-        frameResizeMode={hasFrame ? activeFrameConfig.frameResizeMode : "contain"}
-        frameOffsetX={hasFrame ? activeFrameConfig.frameOffsetX : 0}
-        frameOffsetY={hasFrame ? activeFrameConfig.frameOffsetY : 0}
-        frameBleed={hasFrame ? activeFrameConfig.frameBleed : 0}
-        avatarBoost={hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost}
-        avatarOffsetY={hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY}
+        {...(decorationFrame
+          ? {
+              // Decoration frames: no explicit props — ProfileAvatarWithFrame
+              // auto-measures the frame image and scales it around the photo.
+              frameResizeMode: "contain",
+            }
+          : {
+              frameScale: hasFrame ? activeFrameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale,
+              frameResizeMode: hasFrame ? activeFrameConfig.frameResizeMode : "contain",
+              frameOffsetX: hasFrame ? activeFrameConfig.frameOffsetX : 0,
+              frameOffsetY: hasFrame ? activeFrameConfig.frameOffsetY : 0,
+              frameBleed: hasFrame ? activeFrameConfig.frameBleed : 0,
+              avatarBoost: hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost,
+              avatarOffsetY: hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
+            })}
         avatarStyle={imageStyle}
         placeholderStyle={placeholderStyle}
         initialStyle={initialStyle}
@@ -2988,13 +3067,16 @@ export default function VoiceParty() {
         user={profilePopupUser}
         avatarSource={profilePopupAvatarSource}
         frameSource={
-          isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
+          userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl ??
+          (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
-            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null
+            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null)
         }
         frameLayout={
-          (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked) ||
-          userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
+          userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl
+            ? null  // decoration frames: auto-fit in ProfileAvatarWithFrame
+            : (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked) ||
+              userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
             ? VIP_PROFILE_FRAME_LAYOUT
             : null
         }
@@ -3003,6 +3085,7 @@ export default function VoiceParty() {
             ? myVipAssets.logo
             : null
         }
+        badgeSource={userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ?? null}
         loading={profilePopupLoading}
         isFollowing={profilePopupFollowing}
         followLoading={profileFollowLoading}
