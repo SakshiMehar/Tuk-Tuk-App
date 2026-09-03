@@ -154,7 +154,7 @@ export const resolveVipTierForXp = (xp) => {
  *  zeroed offsets + a slightly smaller avatar gives the ring room to fully
  *  enclose the photo instead. Re-tune here if it's still not fully covering. */
 export const VIP_PROFILE_FRAME_LAYOUT = {
-  frameScale: 1.3,
+  frameScale: 1.2,
   frameResizeMode: "contain",
   frameOffsetX: 0,
   frameOffsetY: 0,

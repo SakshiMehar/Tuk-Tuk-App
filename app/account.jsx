@@ -35,7 +35,9 @@ import {
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
 import ProfileAvatarWithFrame from "../Components/ProfileAvatarWithFrame";
 import {
   COUNTRY_OPTIONS,
@@ -101,6 +103,7 @@ export default function Account() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [newUserFrameSource, setNewUserFrameSource] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
+  const [decorations, setDecorations] = useState({ badgeUrl: null, frameUrl: null });
   const currentAvatar = resolveProfileAvatarSource({
     avatarId: profile.avatarId,
     useLocalAvatar: profile.useLocalAvatar,
@@ -279,6 +282,12 @@ export default function Account() {
         const vipAssets = await loadMyVipAssets().catch(() => null);
         if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
 
+        const myId = user?.id ?? user?.userId ?? null;
+        if (myId != null) {
+          const userDecorations = await fetchUserDecorations(String(myId));
+          if (!cancelled) setDecorations(userDecorations);
+        }
+
         const useLocalAvatar = Boolean(user?.useLocalAvatar);
         const storedProfile = {
           name: user?.nickname ?? user?.name ?? "",
@@ -369,11 +378,15 @@ export default function Account() {
               <View style={styles.avatarWrapper}>
                 <ProfileAvatarWithFrame
                   avatarSource={currentAvatar}
-                  frameSource={vipProfileFrame ?? newUserFrameSource}
+                  frameSource={decorations.frameUrl ?? vipProfileFrame ?? newUserFrameSource}
                   size={104}
                   avatarStyle={styles.accountAvatar}
                   wrapperStyle={styles.accountAvatarFrameWrap}
-                  {...(vipProfileFrame
+                  {...(decorations.frameUrl
+                    ? {
+                        frameResizeMode: "contain",
+                      }
+                    : vipProfileFrame
                     ? {
                         frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                         frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,

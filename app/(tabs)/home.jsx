@@ -1673,18 +1673,12 @@ const cs = StyleSheet.create({
   sendIcon: { color: "#fff", fontSize: 15 },
 });
 
-// Add ngrok-skip-browser-warning header when URL is served through ngrok.
-// Without this header, ngrok returns an HTML warning page instead of the
-// actual image, causing blank image containers.
 const toImageSource = (uri) => {
   if (!uri) return null;
   // Backend may send a bundled preset id (e.g. "avatar3") instead of a real
   // image URL — resolve those to the local asset, otherwise treat as a URI.
   if (isBundledAvatarId(uri)) return getAvatarSource(uri);
-  const needsNgrokHeader = /ngrok-free\.dev|ngrok\.io/i.test(uri);
-  return needsNgrokHeader
-    ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
-    : { uri };
+  return { uri };
 };
 
 const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, onImagePress, currentUserId, currentUserAvatarSource, currentUserFrameSource, currentUserVipFrameSource }) => {
