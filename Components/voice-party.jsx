@@ -117,6 +117,7 @@ import {
   Dimensions,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -4408,7 +4409,10 @@ export default function VoiceParty() {
       />
       <View style={styles.bgOverlay} />
 
-      <View style={{ flex: 1, position: "relative" }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, position: "relative" }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         {/* ── HEADER ── */}
         <View style={styles.header}>
           {/* Room info + follow button */}
@@ -4597,6 +4601,7 @@ export default function VoiceParty() {
 
         {/* ── CHAT + RIGHT PANEL ── */}
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={{
             flexGrow: 1,
           }}
@@ -4617,7 +4622,7 @@ export default function VoiceParty() {
               />
             ))}
           </View>
-          <View style={[styles.chatArea, { paddingBottom: 52 + safeBottom }]}>
+          <View style={styles.chatArea}>
             <View style={styles.chatLeft}>
               <ScrollView
                 ref={scrollRef}
@@ -4970,8 +4975,7 @@ export default function VoiceParty() {
           style={[
             styles.bottomDock,
             {
-              bottom: keyboardHeight > 0 ? keyboardHeight : safeBottom,
-              paddingBottom: keyboardHeight > 0 ? 4 : 0,
+              paddingBottom: safeBottom > 0 ? safeBottom : 4,
             },
           ]}
         >
@@ -5097,7 +5101,7 @@ export default function VoiceParty() {
             </View>
           )}
 
-          {/* Bottom icon bar — always visible */}
+          {/* Bottom icon bar — always visible except on Android when typing to avoid adjustPan overlay issues */}
           <View style={styles.bottomBar}>
             <TouchableOpacity
               style={styles.bottomIconBtn}
@@ -5139,7 +5143,7 @@ export default function VoiceParty() {
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -5595,9 +5599,6 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   bottomDock: {
-    position: "absolute",
-    left: 0,
-    right: 0,
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
     backgroundColor: "#110720",
@@ -5646,19 +5647,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 10,
-    paddingBottom: 4,
+    paddingBottom: Platform.OS === "android" ? 0 : 5,
     paddingTop: 6,
     gap: 8,
-    borderBottomWidth: 1,
+    borderBottomWidth: Platform.OS === "android" ? 0 : 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
   input: {
     flex: 1,
-    height: 34,
+    height: Platform.OS === "android" ? 46 : 34,
     backgroundColor: "transparent",
     borderRadius: 0,
     paddingHorizontal: 6,
     paddingVertical: 0,
+    paddingBottom: Platform.OS === "android" ? 12 : 0,
     color: "white",
     fontSize: 14,
     borderWidth: 0,
@@ -5698,7 +5700,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
-    height: 36,
+    height: Platform.OS === "android" ? 46 : 36,
     paddingHorizontal: 8,
     overflow: "hidden",
   },
