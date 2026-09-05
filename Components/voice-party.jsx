@@ -32,6 +32,7 @@ import { Image as ExpoImage } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import {
+<<<<<<< Updated upstream
   followUser,
   unfollowUser,
   blockUser,
@@ -114,6 +115,8 @@ import {
   VolumeX,
   LayoutGrid,
   MessageCircle,
+=======
+>>>>>>> Stashed changes
   AlertCircle,
   Ban,
   Crown,
@@ -621,7 +624,15 @@ export default function VoiceParty() {
             extractVipProfileFrameUrl(response) ?? extractVipProfileFrameUrl(response?.data);
           setUserFrameData((prev) => ({
             ...prev,
+<<<<<<< Updated upstream
             [userId]: { ...prev[userId], hasNewUserFrame: showFrame, newUserFrameUrl: frameUrl, vipProfileFrameUrl },
+=======
+            [userId]: {
+              hasNewUserFrame: showFrame,
+              newUserFrameUrl: frameUrl,
+              vipProfileFrameUrl,
+            },
+>>>>>>> Stashed changes
           }));
         })
         .catch((err) => {
@@ -2199,6 +2210,7 @@ export default function VoiceParty() {
     const isSelf = userId != null && myUserId != null && userId === String(myUserId);
     const selfVipProfileFrame = isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
     const otherUserVipProfileFrame =
+<<<<<<< Updated upstream
       !isSelf && fetched.vipProfileFrameUrl ? { uri: fetched.vipProfileFrameUrl } : null;
     // A user-specific decoration frame (backend-assigned, independent of VIP
     // tier) takes priority over the VIP frame when both are present.
@@ -2206,6 +2218,18 @@ export default function VoiceParty() {
     const isVipProfileFrame = Boolean(selfVipProfileFrame || otherUserVipProfileFrame);
     const frameSource =
       decorationFrame ?? selfVipProfileFrame ?? otherUserVipProfileFrame ?? resolveNewUserFrameSource(userWithFrame);
+=======
+      !isSelf && fetched.vipProfileFrameUrl
+        ? { uri: fetched.vipProfileFrameUrl }
+        : null;
+    const isVipProfileFrame = Boolean(
+      selfVipProfileFrame || otherUserVipProfileFrame,
+    );
+    const frameSource =
+      selfVipProfileFrame ??
+      otherUserVipProfileFrame ??
+      resolveNewUserFrameSource(userWithFrame);
+>>>>>>> Stashed changes
     const hasFrame = Boolean(frameSource);
     const activeFrameConfig = isVipProfileFrame
       ? VIP_PROFILE_FRAME_LAYOUT
@@ -2217,6 +2241,7 @@ export default function VoiceParty() {
         avatarSource={imageSource}
         frameSource={frameSource}
         size={typeof size === "number" ? size : 48}
+<<<<<<< Updated upstream
         {...(decorationFrame
           ? {
               // Decoration frames: no explicit props — ProfileAvatarWithFrame
@@ -2232,6 +2257,29 @@ export default function VoiceParty() {
               avatarBoost: hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost,
               avatarOffsetY: hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
             })}
+=======
+        frameScale={
+          hasFrame
+            ? activeFrameConfig.frameScale
+            : NEW_USER_FRAME_LAYOUT.frameScale
+        }
+        frameResizeMode={
+          hasFrame ? activeFrameConfig.frameResizeMode : "contain"
+        }
+        frameOffsetX={hasFrame ? activeFrameConfig.frameOffsetX : 0}
+        frameOffsetY={hasFrame ? activeFrameConfig.frameOffsetY : 0}
+        frameBleed={hasFrame ? activeFrameConfig.frameBleed : 0}
+        avatarBoost={
+          hasFrame
+            ? activeFrameConfig.avatarBoost
+            : NEW_USER_FRAME_LAYOUT.avatarBoost
+        }
+        avatarOffsetY={
+          hasFrame
+            ? activeFrameConfig.avatarOffsetY
+            : NEW_USER_FRAME_LAYOUT.avatarOffsetY
+        }
+>>>>>>> Stashed changes
         avatarStyle={imageStyle}
         placeholderStyle={placeholderStyle}
         initialStyle={initialStyle}
