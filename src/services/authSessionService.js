@@ -15,6 +15,12 @@ import { loadMyProfile } from "./meProfileService";
 import { applyNewUserFrameForLogin } from "./newUserFrameService";
 import { applyInitialUserLevelForLogin } from "./userLevelService";
 import { redeemInviteCode } from "./inviteFriendsService";
+import {
+  registerForPushNotifications,
+  getCurrentDeviceToken,
+} from "./pushNotificationService";
+import { registerDeviceToken } from "../api/userApi";
+import { Platform } from "react-native";
 
 export const endLocalSession = async () => {
   wsService.disconnect();
@@ -106,6 +112,26 @@ export const establishSessionFromApi = async (apiCall, credential) => {
   } catch {
     // WebSocket optional on login — reconnect when chat/party opens
   }
+
+  // Register FCM token with backend so the server can send push notifications.
+  try {
+    let fcmToken = getCurrentDeviceToken();
+    if (!fcmToken) {
+      fcmToken = await registerForPushNotifications();
+    }
+    const sessionUser = (await getUser()) ?? user;
+    const userId = sessionUser?.id ?? sessionUser?.userId;
+    if (fcmToken && userId) {
+      await registerDeviceToken({
+        userId,
+        fcmToken,
+        platform: Platform.OS.toUpperCase(), // "ANDROID" or "IOS"
+      });
+    }
+  } catch {
+    // Non-critical — push notifications will still work if this fails
+  }
+
   const sessionUser = (await getUser()) ?? user;
   return { token, user: sessionUser };
 };

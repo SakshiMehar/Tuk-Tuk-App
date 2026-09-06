@@ -57,10 +57,20 @@ export const initPushNotificationListeners = ({
   listenersInitialized = true;
 
   const unsubscribeOnMessage = messaging().onMessage(async (remoteMessage) => {
+    // Extract image URL — FCM sends it under different keys depending on platform
+    const imageUrl =
+      remoteMessage?.notification?.android?.imageUrl ??
+      remoteMessage?.notification?.apple?.imageUrl ??
+      remoteMessage?.notification?.imageUrl ??
+      remoteMessage?.data?.imageUrl ??
+      remoteMessage?.data?.image ??
+      null;
+
     onForegroundMessage?.({
-      title: remoteMessage?.notification?.title ?? "Tuk-Tuk",
-      body: remoteMessage?.notification?.body ?? "",
-      data: remoteMessage?.data ?? {},
+      title:    remoteMessage?.notification?.title ?? "Tuk-Tuk",
+      body:     remoteMessage?.notification?.body  ?? "",
+      data:     remoteMessage?.data ?? {},
+      imageUrl: imageUrl,
     });
   });
 

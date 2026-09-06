@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Alert, DeviceEventEmitter, Text, TextInput } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { DeviceEventEmitter, Text, TextInput } from "react-native";
 import { Stack, router } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { initFirebase } from "../src/lib/firebase";
@@ -9,6 +9,7 @@ import {
   initPushNotificationListeners,
 } from "../src/services/pushNotificationService";
 import { openUserChat } from "../src/utils/chatNavigation";
+import NotificationBanner from "../Components/NotificationBanner";
 
 // ── Global font-scale guard ────────────────────────────────────────────────
 
@@ -25,6 +26,14 @@ TextInput.defaultProps.maxFontSizeMultiplier = 1.3;
 // is intentionally NOT called here to avoid the keep-awake error.
 
 export default function RootLayout() {
+  const [banner, setBanner] = useState({
+    visible:  false,
+    title:    "",
+    body:     "",
+    imageUrl: null,
+    data:     {},
+  });
+  const bannerOnPressRef = useRef(null);
   useEffect(() => {
     initFirebase();
   }, []);
@@ -51,12 +60,15 @@ export default function RootLayout() {
     });
 
     const unsubscribePush = initPushNotificationListeners({
-      onForegroundMessage: ({ title, body }) => {
-        if (body) Alert.alert(title, body);
+      onForegroundMessage: ({ title, body, imageUrl, data }) => {
+        // Store tap handler for when user presses the banner
+        bannerOnPressRef.current = data?.chatUserId
+          ? () => openUserChat(router, { userId: data.chatUserId, name: data.senderName })
+          : null;
+
+        setBanner({ visible: true, title, body, imageUrl: imageUrl ?? null, data });
       },
       onNotificationTap: ({ data }) => {
-        // Placeholder payload shape (chatUserId/senderName) — adjust once
-        // backend confirms what a push notification's `data` actually contains.
         if (data?.chatUserId) {
           openUserChat(router, { userId: data.chatUserId, name: data.senderName });
         }
@@ -71,20 +83,30 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" />
-      <Stack.Screen name="login" />
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="enter-mobile" />
-      <Stack.Screen name="verify-otp" />
-      <Stack.Screen name="terms-of-use" />
-      <Stack.Screen name="privacy-policy" />
-      <Stack.Screen name="settings" />
-      <Stack.Screen name="account" />
-      <Stack.Screen name="voice-party" />
-      <Stack.Screen name="find-friends" />
-      <Stack.Screen name="nearby" />
-    </Stack>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="login" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="enter-mobile" />
+        <Stack.Screen name="verify-otp" />
+        <Stack.Screen name="terms-of-use" />
+        <Stack.Screen name="privacy-policy" />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="account" />
+        <Stack.Screen name="voice-party" />
+        <Stack.Screen name="find-friends" />
+        <Stack.Screen name="nearby" />
+      </Stack>
+
+      {/* In-app push notification banner */}
+      <NotificationBanner
+        visible={banner.visible}
+        title={banner.title}
+        body={banner.body}
+        imageUrl={banner.imageUrl}
+        onPress={() => bannerOnPressRef.current?.()}
+        onHide={() => setBanner((prev) => ({ ...prev, visible: false }))}
+      />
     </SafeAreaProvider>
   );
 }

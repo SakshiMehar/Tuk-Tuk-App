@@ -155,6 +155,17 @@ export const getDailyTasks = async () => {
   return response.data;
 };
 
+/** POST /api/app/users/me/device-token — register FCM token after login. */
+export const registerDeviceToken = async ({ userId, fcmToken, platform }) => {
+  const { headers } = await buildAuthedConfig("register-device-token");
+  const response = await API.post(
+    "/api/app/users/me/device-token",
+    { userId, fcmToken, platform },
+    { headers }
+  );
+  return response.data;
+};
+
 /** POST /api/app/daily-tasks/{taskType}/claim — claim a daily task reward. */
 export const claimDailyTask = async (taskType) => {
   const { token, headers } = await buildAuthedConfig("claim-daily-task");
