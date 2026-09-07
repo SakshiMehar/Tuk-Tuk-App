@@ -19,6 +19,7 @@ export default function RoomUserProfilePopup({
   frameSource = null,
   frameLayout = null,
   logoSource = null,
+  badgeSource = null,
   loading = false,
   isFollowing = false,
   followLoading = false,
@@ -92,6 +93,9 @@ export default function RoomUserProfilePopup({
                 </Text>
                 {logoSource && (
                   <Image source={{ uri: logoSource }} style={styles.vipLogo} resizeMode="contain" />
+                )}
+                {badgeSource && (
+                  <Image source={{ uri: badgeSource }} style={styles.vipLogo} resizeMode="contain" />
                 )}
               </View>
               <Text style={styles.username} numberOfLines={1}>

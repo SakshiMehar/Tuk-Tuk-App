@@ -1,4 +1,4 @@
-# EAS Build upload archive — reduces upload size & time.
+r# EAS Build upload archive — reduces upload size & time.
 # When present, this replaces .gitignore for `eas build` packaging.
 # See: https://expo.fyi/eas-build-archive
 

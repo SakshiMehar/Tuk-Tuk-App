@@ -28,6 +28,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -38,11 +39,6 @@ import PostImageViewer from "../../Components/PostImageViewer";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import ReportReasonModal from "../../Components/ReportReasonModal";
 import Toast from "../../Components/Toast";
-import {
-  getNotifications,
-  getUnreadNotificationCount,
-  markNotificationsRead,
-} from "../../src/api/notificationApi";
 import {
   addComment,
   createPost,
@@ -851,6 +847,23 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
   const canPost = caption.trim().length > 0 || hasMedia;
   const showComposer = !hasMedia || confirmed;
 
+  const renderPhotosItem = ({ item, index }) => {
+    return (
+      <View key={index} style={[postCreateStyles.photoItem]}>
+        <Image
+          source={{ uri: item.uri }}
+          style={postCreateStyles.confirmedThumbImg1}
+          contentFit="cover"
+        />
+        <TouchableOpacity
+          style={postCreateStyles.removeBtnSmall}
+          onPress={() => removePhotoAt(index)}
+        >
+          <Text style={postCreateStyles.removeTxt}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
   return (
     <Modal
       visible={visible}
@@ -864,13 +877,18 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
           onPress={onClose}
           activeOpacity={1}
         />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ width: "100%" }}
+        <View
+          style={{
+            width: "100%",
+            justifyContent: "flex-end",
+            paddingBottom: 45,
+            flexGrow: 1,
+          }}
         >
           <View style={postCreateStyles.sheet}>
             <LinearGradient
               colors={["#1e0a3c", "#16082a", "#0d0618"]}
+              // colors={["#1e0a3c", "#16082a", "#6308f5ff"]}
               style={StyleSheet.absoluteFill}
             />
             <LinearGradient
@@ -892,90 +910,71 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView
+            <KeyboardAwareScrollView
               ref={scrollRef}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 24 }}
+              contentContainerStyle={{ paddingBottom: 48 }}
+              enableOnAndroid={true}
+              extraScrollHeight={70}
             >
               {/* ── STEP 1: media picker (hidden after confirmed) ── */}
+              <View style={postCreateStyles.mediaRow}>
+                <TouchableOpacity
+                  style={postCreateStyles.mediaCard}
+                  onPress={() => pickMedia("photo")}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["rgba(124,77,255,0.25)", "rgba(124,77,255,0.08)"]}
+                    style={postCreateStyles.mediaCardGrad}
+                  >
+                    <Text style={postCreateStyles.mediaCardEmoji}>🖼️</Text>
+                    <Text style={postCreateStyles.mediaCardLabel}>Gallery</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={postCreateStyles.mediaCard}
+                  onPress={() => openCamera("photo")}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["rgba(255,78,163,0.25)", "rgba(255,78,163,0.08)"]}
+                    style={postCreateStyles.mediaCardGrad}
+                  >
+                    <Text style={postCreateStyles.mediaCardEmoji}>📷</Text>
+                    <Text style={postCreateStyles.mediaCardLabel}>Camera</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={postCreateStyles.mediaCard}
+                  onPress={() => pickMedia("video")}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["rgba(255,107,53,0.25)", "rgba(255,107,53,0.08)"]}
+                    style={postCreateStyles.mediaCardGrad}
+                  >
+                    <Text style={postCreateStyles.mediaCardEmoji}>🎬</Text>
+                    <Text style={postCreateStyles.mediaCardLabel}>Video</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={postCreateStyles.mediaCard}
+                  onPress={() => openCamera("video")}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["rgba(0,180,216,0.25)", "rgba(0,180,216,0.08)"]}
+                    style={postCreateStyles.mediaCardGrad}
+                  >
+                    <Text style={postCreateStyles.mediaCardEmoji}>🎥</Text>
+                    <Text style={postCreateStyles.mediaCardLabel}>Record</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
               {!confirmed && (
                 <>
-                  <View style={postCreateStyles.mediaRow}>
-                    <TouchableOpacity
-                      style={postCreateStyles.mediaCard}
-                      onPress={() => pickMedia("photo")}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={[
-                          "rgba(124,77,255,0.25)",
-                          "rgba(124,77,255,0.08)",
-                        ]}
-                        style={postCreateStyles.mediaCardGrad}
-                      >
-                        <Text style={postCreateStyles.mediaCardEmoji}>🖼️</Text>
-                        <Text style={postCreateStyles.mediaCardLabel}>
-                          Gallery
-                        </Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={postCreateStyles.mediaCard}
-                      onPress={() => openCamera("photo")}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={[
-                          "rgba(255,78,163,0.25)",
-                          "rgba(255,78,163,0.08)",
-                        ]}
-                        style={postCreateStyles.mediaCardGrad}
-                      >
-                        <Text style={postCreateStyles.mediaCardEmoji}>📷</Text>
-                        <Text style={postCreateStyles.mediaCardLabel}>
-                          Camera
-                        </Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={postCreateStyles.mediaCard}
-                      onPress={() => pickMedia("video")}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={[
-                          "rgba(255,107,53,0.25)",
-                          "rgba(255,107,53,0.08)",
-                        ]}
-                        style={postCreateStyles.mediaCardGrad}
-                      >
-                        <Text style={postCreateStyles.mediaCardEmoji}>🎬</Text>
-                        <Text style={postCreateStyles.mediaCardLabel}>
-                          Video
-                        </Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={postCreateStyles.mediaCard}
-                      onPress={() => openCamera("video")}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={[
-                          "rgba(0,180,216,0.25)",
-                          "rgba(0,180,216,0.08)",
-                        ]}
-                        style={postCreateStyles.mediaCardGrad}
-                      >
-                        <Text style={postCreateStyles.mediaCardEmoji}>🎥</Text>
-                        <Text style={postCreateStyles.mediaCardLabel}>
-                          Record
-                        </Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
-
                   {/* ── FULL PREVIEW + BOTTOM ACTION BUTTONS ── */}
                   {hasMedia && (
                     <View style={postCreateStyles.confirmBlock}>
@@ -1121,34 +1120,37 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
               {/* ── STEP 2: confirmed — show thumbnail(s) + caption + post ── */}
               {confirmed && hasMedia && (
                 <View style={postCreateStyles.confirmedCard}>
-                  <LinearGradient
+                  {/* <LinearGradient
                     colors={["rgba(124,77,255,0.22)", "rgba(255,78,163,0.12)"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFill}
-                  />
-                  <View style={postCreateStyles.confirmedThumbBox}>
-                    <Image
-                      source={{ uri: video ? video.uri : photos[0].uri }}
-                      style={postCreateStyles.confirmedThumbImg}
-                      contentFit="cover"
-                    />
-                    {video && (
+                  /> */}
+                  {video && (
+                    <View style={postCreateStyles.confirmedThumbBox}>
+                      <Image
+                        source={{ uri: video ? video.uri : photos[0].uri }}
+                        style={postCreateStyles.confirmedThumbImg}
+                        contentFit="cover"
+                      />
                       <View style={postCreateStyles.thumbVideoOverlay}>
                         <Text style={postCreateStyles.thumbVideoIcon}>▶</Text>
                       </View>
-                    )}
-                    {photos.length > 1 && (
-                      <View style={postCreateStyles.thumbCountBadge}>
-                        <Text style={postCreateStyles.thumbCountTxt}>
-                          +{photos.length - 1}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={postCreateStyles.thumbTick}>
-                      <Text style={postCreateStyles.thumbTickTxt}>✓</Text>
                     </View>
-                  </View>
+                  )}
+                  {!video && (
+                    <View style={postCreateStyles.photoStrip}>
+                      <FlatList
+                        data={photos}
+                        extraData={photos}
+                        numColumns={4}
+                        style={{
+                          marginTop: 10,
+                        }}
+                        renderItem={renderPhotosItem}
+                      />
+                    </View>
+                  )}
                   <Text style={postCreateStyles.confirmedLabel}>
                     {video
                       ? "🎬 Video attached"
@@ -1182,33 +1184,32 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                   </Text>
                 </View>
               )}
-
-              {showComposer && (
-                <TouchableOpacity
-                  onPress={handlePost}
-                  disabled={!canPost || loading}
-                  activeOpacity={0.85}
-                  style={postCreateStyles.postBtnOuter}
+            </KeyboardAwareScrollView>
+            {showComposer && (
+              <TouchableOpacity
+                onPress={handlePost}
+                disabled={!canPost || loading}
+                activeOpacity={0.85}
+                style={postCreateStyles.postBtnOuter}
+              >
+                <LinearGradient
+                  colors={
+                    canPost ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={postCreateStyles.postBtnGrad}
                 >
-                  <LinearGradient
-                    colors={
-                      canPost ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={postCreateStyles.postBtnGrad}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="white" size="small" />
-                    ) : (
-                      <Text style={postCreateStyles.postBtnTxt}>✦ Post</Text>
-                    )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              )}
-            </ScrollView>
+                  {loading ? (
+                    <ActivityIndicator color="white" size="small" />
+                  ) : (
+                    <Text style={postCreateStyles.postBtnTxt}>✦ Post</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </View>
     </Modal>
   );
@@ -1221,14 +1222,15 @@ const postCreateStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.65)",
-    paddingHorizontal: 16,
   },
   sheet: {
     width: "100%",
-    borderRadius: 28,
+    justifyContent: "flex-end",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     overflow: "hidden",
     paddingHorizontal: 18,
-    maxHeight: SCREEN_HEIGHT * 0.88,
+    height: SCREEN_HEIGHT * 0.88,
   },
   topGlow: { height: 2, width: "100%" },
   handle: {
@@ -1313,21 +1315,31 @@ const postCreateStyles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "#ff0000ff",
     alignItems: "center",
     justifyContent: "center",
   },
   removeTxt: { color: "white", fontSize: 12 },
 
   // Multi-photo strip (step 1)
-  photoStrip: { marginBottom: 4 },
-  photoStripContent: { gap: 10, paddingRight: 4 },
+  photoStrip: { marginBottom: 4, flex: 1 },
+  photoStripContent: { gap: 10, paddingRight: 4, justifyContent: "center" },
   photoStripItem: {
     width: 96,
     height: 96,
     borderRadius: 14,
     overflow: "hidden",
     position: "relative",
+  },
+  photoItem: {
+    width: SCREEN_WIDTH / 5.5,
+    height: SCREEN_WIDTH / 5.5,
+    borderRadius: 14,
+    overflow: "hidden",
+    marginHorizontal: 5,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
   },
   photoStripImg: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
   photoStripAdd: {
@@ -1398,16 +1410,10 @@ const postCreateStyles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 22,
     overflow: "hidden",
+    paddingBottom: 10,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.3)",
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    marginBottom: 14,
-    shadowColor: "#7c4dff",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 18,
-    elevation: 10,
   },
   confirmedThumbBox: {
     width: 148,
@@ -1415,7 +1421,7 @@ const postCreateStyles = StyleSheet.create({
     borderRadius: 20,
     overflow: "hidden",
     position: "relative",
-    marginBottom: 12,
+    marginVertical: 12,
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.18)",
     shadowColor: "#000",
@@ -1428,6 +1434,12 @@ const postCreateStyles = StyleSheet.create({
     width: "100%",
     height: "100%",
     backgroundColor: "#1a0a2e",
+  },
+  confirmedThumbImg1: {
+    width: SCREEN_WIDTH / 5.5,
+    height: SCREEN_WIDTH / 5.5,
+    borderRadius: 14,
+    overflow: "hidden",
   },
   thumbVideoOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1474,15 +1486,15 @@ const postCreateStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 16,
-    minHeight: 50,
+    paddingBottom: 10,
+    marginBottom: 15,
+    minHeight: 150,
   },
   captionInput: {
     color: "#ffffff",
     fontSize: 14,
     lineHeight: 20,
-    minHeight: 24,
+    minHeight: 120,
     textAlignVertical: "top",
   },
   charCount: {
@@ -1493,7 +1505,7 @@ const postCreateStyles = StyleSheet.create({
   },
 
   // Post button
-  postBtnOuter: { borderRadius: 26, overflow: "hidden" },
+  postBtnOuter: { borderRadius: 26, overflow: "hidden", marginBottom: 20 },
   postBtnGrad: { height: 52, alignItems: "center", justifyContent: "center" },
   postBtnTxt: {
     color: "white",
@@ -1502,7 +1514,6 @@ const postCreateStyles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 });
-
 // ── Floating Action Button ─────────────────────────────────────
 const PostFAB = memo(({ onPress }) => (
   <TouchableOpacity
@@ -1525,7 +1536,7 @@ PostFAB.displayName = "PostFAB";
 const fabStyles = StyleSheet.create({
   fab: {
     position: "absolute",
-    bottom: 90,
+    bottom: 40,
     right: 18,
     width: 56,
     height: 56,
@@ -2069,44 +2080,12 @@ const cs = StyleSheet.create({
   sendIcon: { color: "#fff", fontSize: 15 },
 });
 
-// Add ngrok-skip-browser-warning header when URL is served through ngrok.
-// Without this header, ngrok returns an HTML warning page instead of the
-// actual image, causing blank image containers.
 const toImageSource = (uri) => {
   if (!uri) return null;
   // Backend may send a bundled preset id (e.g. "avatar3") instead of a real
   // image URL — resolve those to the local asset, otherwise treat as a URI.
   if (isBundledAvatarId(uri)) return getAvatarSource(uri);
-  const needsNgrokHeader = /ngrok-free\.dev|ngrok\.io/i.test(uri);
-  return needsNgrokHeader
-    ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
-    : { uri };
-};
-
-const resolveNotifIcon = (icon, type) => {
-  if (!icon && !type) return "🔔";
-  const str = String(icon || type).toLowerCase();
-  if (
-    str.includes("message") ||
-    str.includes("chat") ||
-    str.includes("direct_message")
-  )
-    return "💬";
-  if (str.includes("gift")) return "🎁";
-  if (str.includes("like") || str.includes("heart")) return "❤️";
-  if (str.includes("follow") || str.includes("friend")) return "👤";
-  if (str.includes("party") || str.includes("room") || str.includes("voice"))
-    return "🎉";
-  if (
-    str.includes("diamond") ||
-    str.includes("wallet") ||
-    str.includes("recharge")
-  )
-    return "💎";
-  if (str.includes("comment")) return "💭";
-  if (str.includes("system") || str.includes("announcement")) return "📢";
-  if (icon && icon.length <= 4) return icon;
-  return "🔔";
+  return { uri };
 };
 
 const PostCard = memo(
@@ -2160,6 +2139,13 @@ const PostCard = memo(
     const hasVideo = post.hasVideo || post._mediaType === "video";
     const [galleryIndex, setGalleryIndex] = useState(0);
     const [galleryWidth, setGalleryWidth] = useState(0);
+    const [isTextExpanded, setIsTextExpanded] = useState(false);
+    const [showMoreButton, setShowMoreButton] = useState(false);
+    const handleTextLayout = useCallback((e) => {
+      if (e.nativeEvent.lines.length > 2) {
+        setShowMoreButton(true);
+      }
+    }, []);
     // Stable object identity across re-renders — cachePolicy="none" makes
     // expo-image treat a new `{ uri }` object as a brand-new source and
     // restart loading from scratch.
@@ -2188,7 +2174,6 @@ const PostCard = memo(
         cancelled = true;
       };
     }, [imageUri]);
-
     return (
       <View style={styles.postOuter}>
         <View style={styles.postCard}>
@@ -2254,9 +2239,25 @@ const PostCard = memo(
 
           {/* Text / caption */}
           {!!post.text && (
-            <Text style={styles.postText} numberOfLines={4}>
-              {post.text} <Text style={styles.moreText}>More</Text>
-            </Text>
+            <View>
+              <Text
+                style={styles.postText}
+                numberOfLines={isTextExpanded ? undefined : 2}
+                onTextLayout={handleTextLayout}
+              >
+                {post.text}
+              </Text>
+              {showMoreButton && (
+                <TouchableOpacity
+                  onPress={() => setIsTextExpanded(!isTextExpanded)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.moreText}>
+                    {isTextExpanded ? "Less" : "More"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           )}
 
           {/* Image — box sized to the image's own aspect ratio, clamped to a
@@ -3007,17 +3008,7 @@ export default function Home() {
             }
           : {};
         await updateUser({ gender, ...countryFields });
-        const user = (await getUser()) || {};
-        const profilePayload = { gender, ...countryFields };
-        if (!profilePayload.countryName && user?.name) {
-          profilePayload.name = user.name;
-        }
-        if (!profilePayload.countryName && !profilePayload.name && user?.avatarId) {
-          profilePayload.avatar = user.avatarId;
-        }
-        if (profilePayload.countryName || profilePayload.name || profilePayload.avatar) {
-          await patchMyProfile(profilePayload).catch(() => {});
-        }
+        await patchMyProfile({ gender, ...countryFields }).catch(() => {});
         if (match) {
           await syncUserCountryToServer({
             country: match.name,
@@ -3237,95 +3228,6 @@ export default function Home() {
       console.error("[notifications] markAllRead failed:", error);
     }
   }, []);
-
-  const handleNotifItemPress = useCallback(
-    async (notif) => {
-      if (!notif) return;
-
-      // 1. Mark as read immediately in UI + background API call
-      const isUnread =
-        unreadNotifications.includes(notif.id) ||
-        notif.unread === true ||
-        notif.read === false;
-
-      if (isUnread) {
-        setUnreadNotifications((prev) => prev.filter((id) => id !== notif.id));
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-        markNotificationsRead([notif.id]).catch((error) => {
-          console.error("[notifications] markRead failed:", error);
-        });
-      }
-
-      // 2. Dismiss the modal
-      closeNotif();
-
-      // 3. Navigate based on targetUrl or notification type
-      const targetUrl = notif.targetUrl;
-      const type = notif.type;
-
-      if (targetUrl) {
-        if (targetUrl.includes("/chats/") || type === "DIRECT_MESSAGE") {
-          const parts = targetUrl.split("/").pop().split("_");
-          let partnerId = null;
-          if (parts.length === 2) {
-            partnerId =
-              parts[0] === String(currentUserId) ? parts[1] : parts[0];
-          } else if (parts.length === 1 && parts[0]) {
-            partnerId = parts[0];
-          }
-
-          if (partnerId) {
-            await openUserChat(router, {
-              userId: partnerId,
-              name: notif.title,
-              avatar: notif.avatar,
-            });
-            return;
-          }
-        }
-
-        if (
-          targetUrl.includes("/user/") ||
-          targetUrl.includes("/profile/") ||
-          type === "FOLLOW"
-        ) {
-          const targetId = targetUrl.split("/").pop();
-          if (targetId) {
-            openUserProfile(router, {
-              userId: targetId,
-              name: notif.title,
-              avatar: notif.avatar,
-            });
-            return;
-          }
-        }
-
-        try {
-          if (
-            targetUrl.startsWith("/(tabs)/") ||
-            targetUrl.startsWith("/account") ||
-            targetUrl.startsWith("/settings")
-          ) {
-            router.push(targetUrl);
-            return;
-          }
-        } catch (err) {
-          console.warn(
-            "[notifications] Navigation failed for targetUrl:",
-            targetUrl,
-            err,
-          );
-        }
-      } else if (type === "DIRECT_MESSAGE" && notif.userId) {
-        await openUserChat(router, {
-          userId: notif.userId,
-          name: notif.title,
-          avatar: notif.avatar,
-        });
-      }
-    },
-    [unreadNotifications, currentUserId, closeNotif, router],
-  );
 
   const handleSearchQuery = useCallback(
     (text) => {
@@ -3734,41 +3636,7 @@ export default function Home() {
   }, []);
 
   const openSearch = useCallback(() => setSearchVisible(true), []);
-
-  const openNotif = useCallback(async () => {
-    setNotifVisible(true);
-    setNotificationsLoading(true);
-    setNotificationsError(false);
-    try {
-      const [listRes, countRes] = await Promise.all([
-        getNotifications({ page: 0, size: 20 }),
-        getUnreadNotificationCount(),
-      ]);
-      console.log(
-        "[notifications] API content:",
-        listRes?.notifications?.content,
-      );
-      const content = listRes?.notifications?.content ?? [];
-      setNotifications(content);
-      const count = Number(countRes?.unreadCount ?? 0);
-      setUnreadCount(count);
-      setUnreadNotifications(
-        count > 0
-          ? content
-              .filter(
-                (n) =>
-                  n.unread === true || n.read === false || n.isRead === false,
-              )
-              .map((n) => n.id)
-          : [],
-      );
-    } catch (error) {
-      console.error("[notifications] Failed to load:", error);
-      setNotificationsError(true);
-    } finally {
-      setNotificationsLoading(false);
-    }
-  }, []);
+  const openNotif = useCallback(() => setNotifVisible(true), []);
   const openGifts = useCallback(() => setGiftsVisible(true), []);
   const closeSearch = useCallback(() => {
     setSearchVisible(false);
@@ -4257,85 +4125,50 @@ export default function Home() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 30 }}
               >
-                {/* ── Loading state ── */}
-                {notificationsLoading && (
-                  <View style={styles.notifStateBox}>
-                    <ActivityIndicator color="#7c4dff" size="small" />
-                    <Text style={styles.notifStateText}>Loading…</Text>
-                  </View>
-                )}
-
-                {/* ── Error state ── */}
-                {!notificationsLoading && notificationsError && (
-                  <View style={styles.notifStateBox}>
-                    <Text style={styles.notifStateEmoji}>⚠️</Text>
-                    <Text style={styles.notifStateText}>
-                      Could not load notifications
-                    </Text>
-                  </View>
-                )}
-
-                {/* ── Empty state ── */}
-                {!notificationsLoading &&
-                  !notificationsError &&
-                  notifications.length === 0 && (
-                    <View style={styles.notifStateBox}>
-                      <Text style={styles.notifStateEmoji}>🔔</Text>
-                      <Text style={styles.notifStateText}>
-                        No notifications yet
-                      </Text>
-                    </View>
-                  )}
-
-                {/* ── Notification list ── */}
-                {!notificationsLoading &&
-                  notifications.map((notif) => (
-                    <TouchableOpacity
-                      key={notif.id}
-                      style={[
-                        styles.notifItem,
-                        unreadNotifications.includes(notif.id) &&
-                          styles.notifItemUnread,
-                      ]}
-                      activeOpacity={0.8}
-                      onPress={() => handleNotifItemPress(notif)}
-                    >
-                      {unreadNotifications.includes(notif.id) && (
-                        <View style={styles.unreadDot} />
-                      )}
-                      {notif.avatar ? (
-                        <View style={styles.notifAvatarWrapper}>
-                          <Image
-                            source={toImageSource(notif.avatar)}
-                            style={styles.notifAvatar}
-                            cachePolicy="memory-disk"
-                            transition={150}
-                          />
-                          <View style={styles.notifIconBubble}>
-                            <Text style={styles.notifIconBubbleTxt}>
-                              {resolveNotifIcon(notif.icon, notif.type)}
-                            </Text>
-                          </View>
-                        </View>
-                      ) : (
-                        <LinearGradient
-                          colors={["#3d1a6e", "#7c4dff"]}
-                          style={styles.notifSystemIcon}
-                        >
-                          <Text style={{ fontSize: 20 }}>
-                            {resolveNotifIcon(notif.icon, notif.type)}
+                {notifications.map((notif) => (
+                  <TouchableOpacity
+                    key={notif.id}
+                    style={[
+                      styles.notifItem,
+                      unreadNotifications.includes(notif.id) &&
+                        styles.notifItemUnread,
+                    ]}
+                    activeOpacity={0.8}
+                  >
+                    {unreadNotifications.includes(notif.id) && (
+                      <View style={styles.unreadDot} />
+                    )}
+                    {notif.avatar ? (
+                      <View style={styles.notifAvatarWrapper}>
+                        <Image
+                          source={toImageSource(notif.avatar)}
+                          style={styles.notifAvatar}
+                          cachePolicy="memory-disk"
+                          transition={150}
+                        />
+                        <View style={styles.notifIconBubble}>
+                          <Text style={styles.notifIconBubbleTxt}>
+                            {notif.icon}
                           </Text>
-                        </LinearGradient>
-                      )}
-                      <View style={styles.notifTextCol}>
-                        <Text style={styles.notifItemTitle}>{notif.title}</Text>
-                        <Text style={styles.notifItemSub} numberOfLines={1}>
-                          {notif.subtitle ?? notif.body ?? ""}
-                        </Text>
-                        <Text style={styles.notifTime}>{notif.time}</Text>
+                        </View>
                       </View>
-                    </TouchableOpacity>
-                  ))}
+                    ) : (
+                      <LinearGradient
+                        colors={["#3d1a6e", "#7c4dff"]}
+                        style={styles.notifSystemIcon}
+                      >
+                        <Text style={{ fontSize: 20 }}>{notif.icon}</Text>
+                      </LinearGradient>
+                    )}
+                    <View style={styles.notifTextCol}>
+                      <Text style={styles.notifItemTitle}>{notif.title}</Text>
+                      <Text style={styles.notifItemSub} numberOfLines={1}>
+                        {notif.subtitle}
+                      </Text>
+                      <Text style={styles.notifTime}>{notif.time}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
               </ScrollView>
             </SafeAreaView>
           )}
@@ -5010,6 +4843,7 @@ const styles = StyleSheet.create({
   },
 
   // Background orbs (same as login)
+  // Background orbs (same as login)
   orbPink: {
     position: "absolute",
     width: 300,
@@ -5018,7 +4852,8 @@ const styles = StyleSheet.create({
     left: -80,
     borderRadius: 150,
     backgroundColor: "rgba(255,0,128,0.18)",
-    shadowColor: "#ff0080",
+    // backgroundColor: "rgba(253, 131, 74, 0.88)",
+    // shadowColor: "#ff0080",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
     shadowRadius: 80,
@@ -5031,6 +4866,7 @@ const styles = StyleSheet.create({
     right: -120,
     borderRadius: 175,
     backgroundColor: "rgba(138,43,226,0.22)",
+    // backgroundColor: "rgba(43, 226, 141, 0.22)",
     shadowColor: "#8a2be2",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
@@ -5042,10 +4878,16 @@ const styles = StyleSheet.create({
     marginTop: vs(20),
     marginHorizontal: H_PAD,
     marginBottom: vs(14),
-    backgroundColor: "rgba(255,255,255,0.07)",
+    backgroundColor: "rgba(255, 255, 255, 0.27)", // Light theme glass effect
     borderRadius: s(22),
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255, 255, 255, 1)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 3,
+
     paddingHorizontal: s(14),
     paddingVertical: vs(10),
     gap: vs(10),
@@ -5066,7 +4908,7 @@ const styles = StyleSheet.create({
     height: s(62),
     borderRadius: s(31),
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.35)",
+    borderColor: "#FFFFFF",
   },
   onlineDot: {
     position: "absolute",
@@ -5077,30 +4919,31 @@ const styles = StyleSheet.create({
     borderRadius: s(6),
     backgroundColor: "#00e676",
     borderWidth: 2,
-    borderColor: "#1a0a2e",
+    borderColor: "#FFFFFF",
   },
   headerTitleCol: {
     flex: 1,
     minWidth: 0,
   },
   helloText: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(0,0,0,0.55)",
     fontSize: ms(11),
     fontWeight: "500",
     lineHeight: ms(14),
   },
   appName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "900",
-    color: "white",
-    lineHeight: 19,
+    color: "#2C1A4D",
+    lineHeight: 20,
+    letterSpacing: -0.5,
   },
   appNameWrapper: {
     position: "relative",
     width: "100%",
   },
   appNameOutline: {
-    color: "#7f3f89",
+    color: "#FFFFFF",
   },
   headerIcons: {
     flexDirection: "row",
@@ -5110,19 +4953,19 @@ const styles = StyleSheet.create({
   diamondPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(80,50,160,0.6)",
+    backgroundColor: "#F3E8FF",
     borderRadius: s(14),
     paddingHorizontal: s(6),
     paddingVertical: vs(4),
     borderWidth: 1,
-    borderColor: "rgba(124,77,255,0.5)",
+    borderColor: "#E9D5FF",
     gap: s(2),
   },
   diamondEmoji: { fontSize: ms(10) },
   diamondCount: {
-    color: "white",
-    fontSize: ms(10),
-    fontWeight: "700",
+    color: "#6D28D9",
+    fontSize: ms(11),
+    fontWeight: "800",
   },
   diamondPlusBtn: {
     width: s(15),
@@ -5143,9 +4986,9 @@ const styles = StyleSheet.create({
     width: s(28),
     height: s(28),
     borderRadius: s(14),
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#F3F4F6",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -5161,7 +5004,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: s(2),
     borderWidth: 1.5,
-    borderColor: "#0d0618",
+    borderColor: "#FFFFFF",
   },
   headerIconBadgeText: {
     color: "white",
@@ -5170,7 +5013,7 @@ const styles = StyleSheet.create({
   },
   headerDivider: {
     height: 1,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(0,0,0,0.09)",
   },
   // Active now row
   activeRow: {
@@ -5182,18 +5025,23 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#d63384",
+    backgroundColor: "#FF2A70",
     borderRadius: 28,
     paddingVertical: 8,
     paddingHorizontal: 10,
     gap: 7,
+    shadowColor: "#FF2A70",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   matchAvatar: {
     width: s(34),
     height: s(34),
     borderRadius: s(17),
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.5)",
+    borderColor: "#FFFFFF",
   },
   matchWaves: {
     flexDirection: "row",
@@ -5215,15 +5063,16 @@ const styles = StyleSheet.create({
     lineHeight: ms(19),
   },
   activeLabel: {
-    color: "rgba(255,255,255,0.9)",
-    fontSize: ms(11),
+    color: "rgba(255,255,255,0.95)",
+    fontSize: ms(12),
+    fontWeight: "600",
     lineHeight: ms(14),
   },
   matchArrow: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(255,255,255,0.3)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -5231,11 +5080,16 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#F3F4F6",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   searchIcon: { fontSize: 18 },
 
@@ -5251,14 +5105,14 @@ const styles = StyleSheet.create({
   },
   feedStateEmoji: { fontSize: 44, marginBottom: 14 },
   feedStateTitle: {
-    color: "white",
+    color: "rgba(0,0,0,0.55)",
     fontSize: 16,
     fontWeight: "700",
     marginTop: 12,
     textAlign: "center",
   },
   feedStateSubtitle: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(0,0,0,0.55)",
     fontSize: 13,
     marginTop: 6,
     textAlign: "center",
@@ -5320,7 +5174,7 @@ const styles = StyleSheet.create({
   // Icon row
   iconContainer: { marginBottom: 14 },
   iconScroll: {
-    paddingHorizontal: H_PAD,
+    paddingHorizontal: 33,
     gap: 14,
   },
   iconItem: {
@@ -5336,7 +5190,7 @@ const styles = StyleSheet.create({
   },
   iconImg: { width: s(44), height: s(44) },
   iconLabel: {
-    color: "rgba(255,255,255,0.7)",
+    color: "rgba(0, 0,  0, 0.9)",
     fontSize: ms(11),
     marginTop: vs(6),
     textAlign: "center",
@@ -5346,7 +5200,7 @@ const styles = StyleSheet.create({
   // Tabs
   tabsBar: {
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.1)",
+    borderBottomColor: "rgba(0,0,0,0.1)",
     marginBottom: 12,
   },
   tabsScroll: {
@@ -5400,7 +5254,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: H_PAD,
   },
   postCard: {
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: "rgba(194, 194, 194, 0.09)",
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
@@ -5462,7 +5316,7 @@ const styles = StyleSheet.create({
     width: 12,
   },
   postName: {
-    color: "white",
+    color: "black",
     fontSize: ms(14),
     fontWeight: "700",
     flex: 1,
@@ -5491,7 +5345,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 12,
-    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.06)",
   },
@@ -5503,7 +5356,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   postLikeCount: {
-    color: "rgba(255,255,255,0.45)",
+    color: "rgba(0,0,0,0.9)",
     fontSize: 12,
   },
   postActionBtn: {
@@ -5513,9 +5366,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(0,0,0,0.08)",
   },
   postActionBtnLiked: {
     backgroundColor: "rgba(255,78,163,0.12)",
@@ -5525,18 +5378,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   postActionLabel: {
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(0,0,0,0.6)",
     fontSize: 12,
     fontWeight: "500",
   },
   moreBtn: { paddingHorizontal: 4 },
   moreBtnText: {
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(0,0,0,0.6)",
     fontSize: 18,
     letterSpacing: 1,
   },
   postText: {
-    color: "rgba(255,255,255,0.82)",
+    color: "rgba(0,0,0,0.82)",
     fontSize: ms(13),
     lineHeight: ms(20),
     marginBottom: vs(10),
@@ -5581,7 +5434,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   recommendTitle: {
-    color: "white",
+    color: "black",
     fontSize: ms(16),
     fontWeight: "700",
     marginBottom: vs(14),
@@ -5616,7 +5469,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   recommendName: {
-    color: "rgba(255,255,255,0.85)",
+    color: "black",
     fontSize: ms(12),
     textAlign: "center",
     fontWeight: "500",
@@ -5671,7 +5524,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.3)",
+    backgroundColor: "rgba(0,0,0,0.09)",
   },
   bannerDotActive: {
     width: 20,

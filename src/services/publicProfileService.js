@@ -1,4 +1,4 @@
-import { getUserById } from "../api/userApi";
+import { getUserById, getUserProfileDetails } from "../api/userApi";
 import {
   loadRelationshipStatus,
   followUser as apiFollowUser,
@@ -20,22 +20,29 @@ const firstNumber = (...values) => {
   return null;
 };
 
-// GET /api/app/users/{id} does not currently return post/follower/following
-// counts for another user (the backend only exposes those for "me" via
-// /api/relationships/following|followers, which are self-scoped). These are
-// read defensively in case the backend adds them to this response later —
-// a missing value stays `null` ("unavailable"), it must never be shown as 0.
-export const normalizePublicProfile = (data) => {
+// GET /api/app/users/{id} does not return post/follower/following/visitor
+// counts for another user, so those are filled in from
+// GET /api/app/users/{id}/profile-details (see getUserProfileDetails)
+// when available. A missing value stays `null` ("unavailable"), it must
+// never be shown as 0.
+export const normalizePublicProfile = (data, details) => {
   const user = data?.user ?? data?.data ?? data ?? {};
   const profile = user?.profile ?? user?.userProfile ?? user;
 
-  const userId = firstValue(user?.id, user?.userId, user?._id, profile?.id, profile?.userId);
+  const detailsUser = details?.user ?? details?.data ?? details ?? {};
+
+  const userId = firstValue(
+    user?.id, user?.userId, user?._id, profile?.id, profile?.userId,
+    detailsUser?.id, detailsUser?.userId
+  );
 
   return {
     userId: userId != null ? String(userId) : null,
     name:
-      firstText(user?.name, user?.username, user?.displayName, profile?.name, profile?.username) ??
-      "User",
+      firstText(
+        user?.name, user?.username, user?.displayName, profile?.name, profile?.username,
+        detailsUser?.name, detailsUser?.username
+      ) ?? "User",
     avatarUrl: firstText(
       user?.profilePicUrl,
       user?.avatarUrl,
@@ -43,9 +50,14 @@ export const normalizePublicProfile = (data) => {
       user?.profileImageUrl,
       profile?.profilePicUrl,
       profile?.avatarUrl,
-      profile?.avatar
+      profile?.avatar,
+      detailsUser?.profilePicUrl,
+      detailsUser?.avatarUrl
     ),
-    bio: firstText(user?.bio, user?.about, user?.status, profile?.bio, profile?.about),
+    bio: firstText(
+      detailsUser?.introduction, detailsUser?.bio, detailsUser?.about,
+      user?.bio, user?.about, user?.status, profile?.bio, profile?.about
+    ),
     // A VIP user counts as verified too — same convention as
     // normalizeRelationshipUser (following/followers lists), where a VIP
     // badge already implies the verified checkmark.
@@ -54,37 +66,55 @@ export const normalizePublicProfile = (data) => {
       user?.isVerified ??
       profile?.verified ??
       user?.vip ??
-      profile?.vip
+      profile?.vip ??
+      detailsUser?.verified ??
+      detailsUser?.vip
     ),
     vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
-    age: firstNumber(user?.age, profile?.age),
-    gender: firstText(user?.gender, profile?.gender),
-    // Not returned by the current endpoint — see note above.
-    followingCount: firstNumber(user?.followingCount, profile?.followingCount),
-    followersCount: firstNumber(user?.followersCount, profile?.followersCount),
-    visitorCount: firstNumber(user?.visitorCount, profile?.visitorCount),
-    postsCount: firstNumber(user?.postsCount, profile?.postsCount),
-    // Also not returned anywhere today — no gamification-by-userId endpoint
-    // exists yet (/api/app/gamification/me is self-scoped only).
-    level: firstNumber(user?.level, profile?.level),
+    age: firstNumber(user?.age, profile?.age, detailsUser?.age),
+    gender: firstText(user?.gender, profile?.gender, detailsUser?.gender),
+    followingCount: firstNumber(
+      detailsUser?.followingCount, detailsUser?.followingsCount,
+      user?.followingCount, profile?.followingCount
+    ),
+    followersCount: firstNumber(
+      detailsUser?.followersCount, detailsUser?.followerCount,
+      user?.followersCount, profile?.followersCount
+    ),
+    visitorCount: firstNumber(
+      detailsUser?.visitorCount, detailsUser?.visitorsCount, detailsUser?.visitCount,
+      user?.visitorCount, profile?.visitorCount
+    ),
+    postsCount: firstNumber(detailsUser?.postsCount, user?.postsCount, profile?.postsCount),
+    level: firstNumber(detailsUser?.level, user?.level, profile?.level),
   };
 };
 
 export const loadPublicProfile = async (userId) => {
-  const [profileResult, statusResult] = await Promise.allSettled([
+  const [profileResult, detailsResult, statusResult] = await Promise.allSettled([
     getUserById(userId),
+    getUserProfileDetails(userId),
     loadRelationshipStatus(userId),
   ]);
 
+  const detailsData =
+    detailsResult.status === "fulfilled" ? detailsResult.value : null;
+
   const profile =
-    profileResult.status === "fulfilled" ? normalizePublicProfile(profileResult.value) : null;
+    profileResult.status === "fulfilled"
+      ? normalizePublicProfile(profileResult.value, detailsData)
+      : null;
 
   const status =
     statusResult.status === "fulfilled"
       ? statusResult.value
       : { following: false, followedBy: false, blocked: false };
 
-  return { profile, status };
+  // The /profile-details endpoint returns a `posts` array directly —
+  // use it so the Moment tab shows real content without a separate request.
+  const posts = Array.isArray(detailsData?.posts) ? detailsData.posts : [];
+
+  return { profile, status, posts };
 };
 
 export const toggleFollowUser = (userId, currentlyFollowing) =>

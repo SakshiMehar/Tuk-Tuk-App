@@ -440,6 +440,14 @@ class WebSocketService {
     this.client!.publish({ destination, body: JSON.stringify({}) });
   }
 
+  // Keeps the room presence session alive for ANY user in the room (seated
+  // or listening); backend auto-expires the session after 90 s without one.
+  sendRoomHeartbeat(roomId: string): void {
+    this._assertConnected();
+    const destination = `/app/room/${roomId}/heartbeat`;
+    this.client!.publish({ destination, body: JSON.stringify({}) });
+  }
+
   onRoomChat(roomId: string, handler: Handler<RoomChatPayload>): () => void {
     return this._onRoomTopic(roomId, 'chat', handler as Handler<unknown>);
   }

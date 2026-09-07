@@ -3,7 +3,7 @@ import API, {
   getBearerToken,
   refreshTokenCache,
 } from "./axios";
-import { API_BASE_URL, isNgrokBaseUrl } from "../config/env";
+import { API_BASE_URL } from "../config/env";
 
 const buildAuthedConfig = async (label) => {
   await refreshTokenCache();
@@ -101,7 +101,6 @@ export const uploadMyProfilePic = async ({ uri, mimeType, fileName }) => {
   // "multipart/form-data; boundary=..." itself from the FormData body.
   const uploadHeaders = {
     Authorization: headers.Authorization,
-    ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
   };
 
   const response = await fetch(`${API_BASE_URL}/api/app/users/me/profile-pic`, {
