@@ -315,8 +315,14 @@ export const getPartyRanking = async (period = "daily") => {
   return response.data;
 };
 
-/** GET /api/app/party/families — list of families. */
-export const getFamilies = async () => {
+/** GET /api/v1/tuktuk/rooms/search?q={query} — search rooms by name */
+export const searchRooms = async (query) => {
+  const response = await API.get(
+    `/api/v1/tuktuk/rooms/search?q=${encodeURIComponent(query)}`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
   const url = "/api/app/party/families";
   
   const response = await API.get(url, await authRequestConfig());

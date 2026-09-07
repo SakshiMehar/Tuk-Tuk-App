@@ -4,91 +4,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
 import {
-<<<<<<< HEAD
-  followUser,
-  unfollowUser,
-  blockUser,
-  loadRelationshipStatus,
-  isSameUser,
-} from "../src/services/relationshipService";
-import { getAppUserId } from "../src/utils/sessionUser";
-import {
-  enterRoomSession,
-  exitRoomSession,
-  enterRandomPartySession,
-  parseSeats,
-  parseOnlineUsers,
-  normalizeChatMessage,
-  normalizeChatMessages,
-  createLocalChatMessage,
-  upsertChatMessage,
-} from "../src/services/partyService";
-import { wsService } from "../src/services/websocket";
-import { getRoomState, getRoomChatMessages, postSeatHeartbeat, postRoomHeartbeat, getRoomUserCount } from "../src/api/partyApi";
-import { refreshTokenCache } from "../src/api/axios";
-import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
-import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
-import { useWalletBalance } from "../src/hooks/useWalletBalance";
-import { refreshWalletBalance, applyWalletFromSources } from "../src/store/walletStore";
-import {
-  buyGiftToBackpack,
-  loadPartyGiftCatalog,
-  loadGiftInventory,
-  normalizeGiftAnimation,
-  sendPartyRoomGift,
-  findInventoryGift,
-  adjustInventoryQty,
-  reconcileInventory,
-  parseBuyResultInventory,
-  giftsMatch,
-} from "../src/services/giftCatalogService";
-import TreasureBoxModal from "./TreasureBoxModal";
-import RoomUserProfilePopup from "./RoomUserProfilePopup";
-import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
-import {
-  MEDIA_SECTIONS,
-  emojiCategories,
-  stickerPacks,
-  gifCategories,
-  isChatMediaUrl,
-} from "../src/data/voicePartyMediaPicker";
-import { loadConversations } from "../src/services/chatService";
-import { getUser } from "../src/store/authStore";
-import { resolveProfileAvatarUri, resolveProfileAvatarSource } from "../src/utils/profileAvatar";
-import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
-import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
-import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
-import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
-import { getUserUiAssets } from "../src/api/uiAssetsApi";
-import { fetchUserDecorations } from "../src/services/decorationsService";
-import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
-import { reportUser } from "../src/api/postApi";
-import ReportReasonModal from "./ReportReasonModal";
-import { syncUserLevelForSession } from "../src/services/userLevelService";
-import { loadUserDetail } from "../src/services/nearbyService";
-import { resolveVideoSource, resolveImageSource } from "../src/utils/videoSource";
-import * as partyVoice from "../src/services/partyVoiceService";
-import * as agoraVoice from "../src/services/agoraVoiceService";
-import { loadMyVipAssets } from "../src/services/vipService";
-import {
-  VIP_PROFILE_FRAME_LAYOUT,
-  VIP_CHAT_FRAME_FITTED_BY_TIER,
-} from "../src/constants/vip";
-import {
-  Share2,
-  MoreVertical,
-  Power,
-  Plus,
-  Mic,
-  MicOff,
-  Smile,
-  MessageSquare,
-  Volume2,
-  VolumeX,
-  LayoutGrid,
-  MessageCircle,
-=======
->>>>>>> 00c8b16 (UI issue fix)
   AlertCircle,
   Ban,
   Crown,
@@ -846,15 +761,11 @@ export default function VoiceParty() {
             extractVipProfileFrameUrl(response?.data);
           setUserFrameData((prev) => ({
             ...prev,
-<<<<<<< HEAD
-            [userId]: { ...prev[userId], hasNewUserFrame: showFrame, newUserFrameUrl: frameUrl, vipProfileFrameUrl },
-=======
             [userId]: {
               hasNewUserFrame: showFrame,
               newUserFrameUrl: frameUrl,
               vipProfileFrameUrl,
             },
->>>>>>> 00c8b16 (UI issue fix)
           }));
         })
         .catch((err) => {
@@ -865,15 +776,6 @@ export default function VoiceParty() {
             );
         });
 
-      // Backend-assigned decorations for this specific user (separate from
-      // the VIP/new-user frame system above) — badge + frame overlay.
-      fetchUserDecorations(userId).then(({ badgeUrl, frameUrl }) => {
-        if (!badgeUrl && !frameUrl) return;
-        setUserFrameData((prev) => ({
-          ...prev,
-          [userId]: { ...prev[userId], decorationBadgeUrl: badgeUrl, decorationFrameUrl: frameUrl },
-        }));
-      });
     });
   }, [seats, onlineUsers, messages]);
 
@@ -2568,15 +2470,6 @@ export default function VoiceParty() {
     const selfVipProfileFrame =
       isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
     const otherUserVipProfileFrame =
-<<<<<<< HEAD
-      !isSelf && fetched.vipProfileFrameUrl ? { uri: fetched.vipProfileFrameUrl } : null;
-    // A user-specific decoration frame (backend-assigned, independent of VIP
-    // tier) takes priority over the VIP frame when both are present.
-    const decorationFrame = fetched.decorationFrameUrl ? { uri: fetched.decorationFrameUrl } : null;
-    const isVipProfileFrame = Boolean(selfVipProfileFrame || otherUserVipProfileFrame);
-    const frameSource =
-      decorationFrame ?? selfVipProfileFrame ?? otherUserVipProfileFrame ?? resolveNewUserFrameSource(userWithFrame);
-=======
       !isSelf && fetched.vipProfileFrameUrl
         ? { uri: fetched.vipProfileFrameUrl }
         : null;
@@ -2587,7 +2480,6 @@ export default function VoiceParty() {
       selfVipProfileFrame ??
       otherUserVipProfileFrame ??
       resolveNewUserFrameSource(userWithFrame);
->>>>>>> 00c8b16 (UI issue fix)
     const hasFrame = Boolean(frameSource);
     const activeFrameConfig = isVipProfileFrame
       ? VIP_PROFILE_FRAME_LAYOUT
@@ -2599,23 +2491,6 @@ export default function VoiceParty() {
         avatarSource={imageSource}
         frameSource={frameSource}
         size={typeof size === "number" ? size : 48}
-<<<<<<< HEAD
-        {...(decorationFrame
-          ? {
-              // Decoration frames: no explicit props — ProfileAvatarWithFrame
-              // auto-measures the frame image and scales it around the photo.
-              frameResizeMode: "contain",
-            }
-          : {
-              frameScale: hasFrame ? activeFrameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale,
-              frameResizeMode: hasFrame ? activeFrameConfig.frameResizeMode : "contain",
-              frameOffsetX: hasFrame ? activeFrameConfig.frameOffsetX : 0,
-              frameOffsetY: hasFrame ? activeFrameConfig.frameOffsetY : 0,
-              frameBleed: hasFrame ? activeFrameConfig.frameBleed : 0,
-              avatarBoost: hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost,
-              avatarOffsetY: hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
-            })}
-=======
         frameScale={
           hasFrame
             ? activeFrameConfig.frameScale
@@ -2637,7 +2512,6 @@ export default function VoiceParty() {
             ? activeFrameConfig.avatarOffsetY
             : NEW_USER_FRAME_LAYOUT.avatarOffsetY
         }
->>>>>>> 00c8b16 (UI issue fix)
         avatarStyle={imageStyle}
         placeholderStyle={placeholderStyle}
         initialStyle={initialStyle}
@@ -3728,18 +3602,8 @@ export default function VoiceParty() {
         user={profilePopupUser}
         avatarSource={profilePopupAvatarSource}
         frameSource={
-          userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl ??
-          (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
+          isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
-<<<<<<< HEAD
-            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null)
-        }
-        frameLayout={
-          userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl
-            ? null  // decoration frames: auto-fit in ProfileAvatarWithFrame
-            : (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked) ||
-              userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
-=======
             : (userFrameData[String(profilePopupUser?.id)]
                 ?.vipProfileFrameUrl ?? null)
         }
@@ -3747,7 +3611,6 @@ export default function VoiceParty() {
           (isSameUser(profilePopupUser?.id, myUserId) &&
             myVipAssets.unlocked) ||
           userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
->>>>>>> 00c8b16 (UI issue fix)
             ? VIP_PROFILE_FRAME_LAYOUT
             : null
         }
@@ -3756,7 +3619,6 @@ export default function VoiceParty() {
             ? myVipAssets.logo
             : null
         }
-        badgeSource={userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ?? null}
         loading={profilePopupLoading}
         isFollowing={profilePopupFollowing}
         followLoading={profileFollowLoading}
