@@ -1,6 +1,10 @@
+import { AntDesign, FontAwesome, FontAwesome5 } from "@expo/vector-icons";
+import MaskedView from "@react-native-masked-view/masked-view";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   ScrollView,
@@ -9,34 +13,34 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  ActivityIndicator,
 } from "react-native";
-import { FontAwesome, FontAwesome5, AntDesign } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-import MaskedView from "@react-native-masked-view/masked-view";
+import FacebookLoginWebViewModal from "../Components/FacebookLoginWebViewModal";
 import { googleLogin } from "../src/api/authApi";
 import { getUsersCount } from "../src/api/userApi";
-import { hasAcceptedTerms, setTermsAccepted, setPendingInviteCode } from "../src/store/authStore";
+import {
+  configureGoogleSignIn,
+  getGoogleAuthErrorMessage,
+  signInWithGoogle,
+} from "../src/hooks/useGoogleSignIn";
 import { establishSessionFromApi } from "../src/services/authSessionService";
 import {
   configureFacebookSdk,
-  signInWithFacebook,
   getFacebookAuthErrorMessage,
+  signInWithFacebook,
 } from "../src/services/facebookAuthService";
-import FacebookLoginWebViewModal from "../Components/FacebookLoginWebViewModal";
-import {
-  configureGoogleSignIn,
-  signInWithGoogle,
-  getGoogleAuthErrorMessage,
-} from "../src/hooks/useGoogleSignIn";
-import { s, vs, ms, wp } from "../src/utils/responsive";
+import { hasAcceptedTerms, setPendingInviteCode, setTermsAccepted } from "../src/store/authStore";
+import { ms, s, vs } from "react-native-size-matters";
+import { wp } from "../src/utils/responsive";
+import { Colors } from "../src/constants/colors";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const logo = require("../assets/images/splash-icon.png");
 
 // ── Main Login Screen ────────────────────────────────────────
 export default function Login() {
   const router = useRouter();
-  const [accepted, setAccepted]           = useState(false);
+  const insets = useSafeAreaInsets();
+  const [accepted, setAccepted] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [facebookLoading, setFacebookLoading] = useState(false);
   const [facebookWebView, setFacebookWebView] = useState(null);
@@ -57,7 +61,7 @@ export default function Login() {
         const count = data?.userCount ?? data?.count ?? null;
         if (count != null) setUserCount(Number(count));
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => { cancelled = true; };
   }, []);
 
@@ -149,12 +153,12 @@ export default function Login() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0d0618" }}>
-      <StatusBar barStyle="light-content" backgroundColor="#0d0618" />
+    <View style={{ flex: 1, backgroundColor: Colors.backgroundLogin }}>
+      <StatusBar barStyle="light-content" backgroundColor={Colors.backgroundLogin} />
 
       {/* Background gradient */}
       <LinearGradient
-        colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
+        colors={Colors.loginGradient}
         locations={[0, 0.25, 0.5, 0.75, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -167,7 +171,7 @@ export default function Login() {
         width: s(300), height: s(300),
         top: vs(-80), left: s(-80),
         borderRadius: s(150),
-        backgroundColor: "rgba(255,0,128,0.18)",
+        backgroundColor: Colors.orbPinkLogin,
       }} />
 
       {/* Bottom-right purple orb */}
@@ -176,48 +180,57 @@ export default function Login() {
         width: s(350), height: s(350),
         bottom: vs(-120), right: s(-120),
         borderRadius: s(175),
-        backgroundColor: "rgba(138,43,226,0.22)",
+        backgroundColor: Colors.orbPurpleLogin,
       }} />
 
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: "space-between",
+          paddingHorizontal: s(22),
+          paddingTop: Math.max(insets.top, vs(14)),
+          paddingBottom: Math.max(insets.bottom, vs(14)),
+        }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={{
           flex: 1,
           alignItems: "center",
           justifyContent: "center",
-          paddingHorizontal: s(28),
-          paddingVertical: vs(48),
+          width: "100%",
         }}>
 
           {/* Logo */}
           <Image
             source={logo}
-            style={{ width: wp(80), height: vs(90), borderRadius: s(20) }}
+            style={{ width: wp(55), height: vs(76), borderRadius: s(16) }}
             resizeMode="contain"
           />
 
           {/* Title */}
           <MaskedView
-            style={{ marginTop: vs(28) }}
+            style={{ marginTop: vs(12) }}
             maskElement={
-              <Text style={{ fontSize: ms(38), fontWeight: "800", letterSpacing: 1, textAlign: "center" }}>
+              <Text style={{ fontSize: ms(32), fontWeight: "800", letterSpacing: 1, textAlign: "center" }}>
                 Tuk Tuk
               </Text>
             }
           >
-            <LinearGradient colors={["#ffffff", "#f0e6ff", "#ff69b4"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-              <Text style={{ fontSize: ms(48), fontWeight: "800", opacity: 0 }}>Tuk Tuk</Text>
+            <LinearGradient colors={Colors.titleGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+              <Text style={{ fontSize: ms(40), fontWeight: "800", opacity: 0 }}>Tuk Tuk</Text>
             </LinearGradient>
           </MaskedView>
 
           {/* User count */}
           <MaskedView
-            style={{ marginTop: vs(8) }}
+            style={{ marginTop: vs(4) }}
             maskElement={
-              <Text style={{ fontSize: ms(46), fontWeight: "800", textAlign: "center" }}>{userCountLabel}</Text>
+              <Text style={{ fontSize: ms(36), fontWeight: "800", textAlign: "center" }}>{userCountLabel}</Text>
             }
           >
-            <LinearGradient colors={["#00ffff", "#ff00ff", "#ff69b4"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-              <Text style={{ fontSize: ms(46), fontWeight: "800", opacity: 0 }}>{userCountLabel}</Text>
+            <LinearGradient colors={Colors.counterGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+              <Text style={{ fontSize: ms(36), fontWeight: "800", opacity: 0 }}>{userCountLabel}</Text>
             </LinearGradient>
           </MaskedView>
 
@@ -226,9 +239,9 @@ export default function Login() {
             allowFontScaling={false}
             style={{
               color: "rgba(255,255,255,0.6)",
-              fontSize: ms(15),
-              marginTop: vs(6),
-              marginBottom: vs(36),
+              fontSize: ms(13),
+              marginTop: vs(4),
+              marginBottom: vs(18),
               letterSpacing: 0.5,
               textAlign: "center",
               alignSelf: "stretch",
@@ -243,29 +256,29 @@ export default function Login() {
             disabled={facebookLoading}
             activeOpacity={0.8}
             style={{
-              width: "100%", height: vs(62), borderRadius: s(16),
+              width: "100%", height: vs(54), borderRadius: s(14),
               borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
               backgroundColor: "rgba(255,255,255,0.07)",
               flexDirection: "row", alignItems: "center",
-              paddingHorizontal: s(18), marginBottom: vs(14),
-              shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.3, shadowRadius: 16, elevation: 6,
+              paddingHorizontal: s(16), marginBottom: vs(10),
+              shadowColor: "#000", shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.25, shadowRadius: 12, elevation: 5,
             }}
           >
             <View style={{
-              width: s(42), height: s(42), borderRadius: s(12),
+              width: s(36), height: s(36), borderRadius: s(10),
               backgroundColor: "white",
               alignItems: "center", justifyContent: "center",
-              marginRight: s(18),
+              marginRight: s(14),
             }}>
-              <FontAwesome name="facebook-f" size={ms(20)} color="#1877F2" />
+              <FontAwesome name="facebook-f" size={ms(18)} color={Colors.facebook} />
             </View>
-            {facebookLoading
-              ? <ActivityIndicator color="white" style={{ marginLeft: "auto" }} />
-              : <Text style={{ color: "white", fontSize: ms(16), fontWeight: "600", letterSpacing: 0.3 }}>
-                  Sign in with Facebook
-                </Text>
-            }
+            <Text style={{ color: "white", fontSize: ms(15), fontWeight: "600", letterSpacing: 0.3 }}>
+              Sign in with Facebook
+            </Text>
+            {facebookLoading && (
+              <ActivityIndicator color="white" size="small" style={{ marginLeft: "auto" }} />
+            )}
           </TouchableOpacity>
 
           {/* Google Button */}
@@ -274,39 +287,39 @@ export default function Login() {
             disabled={googleLoading}
             activeOpacity={0.8}
             style={{
-              width: "100%", height: vs(62), borderRadius: s(16),
+              width: "100%", height: vs(54), borderRadius: s(14),
               borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
               backgroundColor: "rgba(255,255,255,0.07)",
               flexDirection: "row", alignItems: "center",
-              paddingHorizontal: s(18), marginBottom: vs(32),
-              shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.3, shadowRadius: 16, elevation: 6,
+              paddingHorizontal: s(16), marginBottom: vs(18),
+              shadowColor: "#000", shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.25, shadowRadius: 12, elevation: 5,
             }}
           >
             <View style={{
-              width: s(42), height: s(42), borderRadius: s(12),
+              width: s(36), height: s(36), borderRadius: s(10),
               backgroundColor: "white",
               alignItems: "center", justifyContent: "center",
-              marginRight: s(18),
+              marginRight: s(14),
             }}>
-              <AntDesign name="google" size={ms(22)} color="#EA4335" />
+              <AntDesign name="google" size={ms(18)} color={Colors.google} />
             </View>
-            {googleLoading
-              ? <ActivityIndicator color="white" style={{ marginLeft: "auto" }} />
-              : <Text style={{ color: "white", fontSize: ms(16), fontWeight: "600", letterSpacing: 0.3 }}>
-                  Sign in with Google
-                </Text>
-            }
+            <Text style={{ color: "white", fontSize: ms(15), fontWeight: "600", letterSpacing: 0.3 }}>
+              Sign in with Google
+            </Text>
+            {googleLoading && (
+              <ActivityIndicator color="white" size="small" style={{ marginLeft: "auto" }} />
+            )}
           </TouchableOpacity>
 
           {/* Divider */}
-          <View style={{ flexDirection: "row", alignItems: "center", width: "100%", marginBottom: vs(28) }}>
+          <View style={{ flexDirection: "row", alignItems: "center", width: "100%", marginBottom: vs(16) }}>
             <View style={{ flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" }} />
             <Text
               allowFontScaling={false}
               numberOfLines={1}
               adjustsFontSizeToFit
-              style={{ color: "rgba(255,255,255,0.55)", fontSize: ms(14), marginHorizontal: s(8), flexShrink: 1 }}
+              style={{ color: "rgba(255,255,255,0.55)", fontSize: ms(13), marginHorizontal: s(8), flexShrink: 1 }}
             >
               More login options
             </Text>
@@ -314,20 +327,20 @@ export default function Login() {
           </View>
 
           {/* Phone login */}
-          <View style={{ alignItems: "center", width: "100%", marginBottom: vs(40) }}>
+          <View style={{ alignItems: "center", width: "100%", marginBottom: vs(18) }}>
             <TouchableOpacity onPress={handlePhoneLogin} activeOpacity={0.8} style={circleBtn}>
-              <FontAwesome5 name="phone-alt" size={ms(24)} color="white" />
+              <FontAwesome5 name="phone-alt" size={ms(20)} color="white" />
             </TouchableOpacity>
           </View>
 
           {/* Invite code (optional) */}
           <View style={{
             flexDirection: "row", alignItems: "center", width: "100%",
-            backgroundColor: "rgba(255,255,255,0.05)", borderRadius: s(14),
+            backgroundColor: "rgba(255,255,255,0.05)", borderRadius: s(12),
             borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
-            paddingLeft: s(16), paddingRight: s(6), marginBottom: vs(20),
+            paddingLeft: s(14), paddingRight: s(6), marginBottom: vs(10),
           }}>
-            <FontAwesome5 name="gift" size={ms(16)} color="rgba(255,255,255,0.45)" style={{ marginRight: s(12) }} />
+            <FontAwesome5 name="gift" size={ms(15)} color="rgba(255,255,255,0.45)" style={{ marginRight: s(10) }} />
             <TextInput
               value={inviteCode}
               onChangeText={(text) => setInviteCode(text.toUpperCase())}
@@ -337,8 +350,8 @@ export default function Login() {
               autoCorrect={false}
               maxLength={12}
               style={{
-                flex: 1, color: "white", fontSize: ms(14),
-                paddingVertical: vs(14),
+                flex: 1, color: "white", fontSize: ms(13),
+                paddingVertical: vs(10),
               }}
             />
             <TouchableOpacity
@@ -347,14 +360,14 @@ export default function Login() {
               disabled={!inviteCode.trim()}
               style={{
                 backgroundColor: inviteCode.trim() ? "rgba(255,0,128,0.25)" : "rgba(255,255,255,0.06)",
-                borderRadius: s(10),
-                paddingHorizontal: s(14),
-                paddingVertical: vs(9),
+                borderRadius: s(8),
+                paddingHorizontal: s(12),
+                paddingVertical: vs(7),
               }}
             >
               <Text style={{
-                color: inviteCode.trim() ? "#ff69b4" : "rgba(255,255,255,0.3)",
-                fontSize: ms(13), fontWeight: "700",
+                color: inviteCode.trim() ? Colors.hotPink : "rgba(255,255,255,0.3)",
+                fontSize: ms(12), fontWeight: "700",
               }}>
                 Apply
               </Text>
@@ -364,31 +377,31 @@ export default function Login() {
           {/* Terms Checkbox */}
           <View style={{
             flexDirection: "row", alignItems: "center", width: "100%",
-            backgroundColor: "rgba(255,255,255,0.04)", borderRadius: s(14),
+            backgroundColor: "rgba(255,255,255,0.04)", borderRadius: s(12),
             borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
-            paddingVertical: vs(16), paddingHorizontal: s(16),
+            paddingVertical: vs(10), paddingHorizontal: s(14),
           }}>
             <TouchableOpacity
               onPress={toggleAccepted}
               activeOpacity={0.8}
               style={{
-                width: s(22), height: s(22), borderRadius: s(5), borderWidth: 2,
+                width: s(20), height: s(20), borderRadius: s(5), borderWidth: 2,
                 borderColor: accepted ? "transparent" : "rgba(255,255,255,0.35)",
-                backgroundColor: accepted ? "#ff0080" : "rgba(255,255,255,0.08)",
-                alignItems: "center", justifyContent: "center", marginRight: s(12),
-                shadowColor: accepted ? "#ff0080" : "transparent",
+                backgroundColor: accepted ? Colors.accentPinkDeep : "rgba(255,255,255,0.08)",
+                alignItems: "center", justifyContent: "center", marginRight: s(10),
+                shadowColor: accepted ? Colors.accentPinkDeep : "transparent",
                 shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 8,
               }}
             >
-              {accepted && <FontAwesome name="check" size={ms(11)} color="white" />}
+              {accepted && <FontAwesome name="check" size={ms(10)} color="white" />}
             </TouchableOpacity>
-            <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: ms(13), flex: 1, lineHeight: ms(20) }}>
+            <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: ms(12), flex: 1, lineHeight: ms(18) }}>
               I agree to the{" "}
-              <Text style={{ color: "#ff69b4", fontWeight: "700" }} onPress={() => router.push("/terms-of-use")}>
+              <Text style={{ color: Colors.hotPink, fontWeight: "700" }} onPress={() => router.push("/terms-of-use")}>
                 Terms and Conditions
               </Text>
               {" "}and{" "}
-              <Text style={{ color: "#ff69b4", fontWeight: "700" }} onPress={() => router.push("/privacy-policy")}>
+              <Text style={{ color: Colors.hotPink, fontWeight: "700" }} onPress={() => router.push("/privacy-policy")}>
                 Privacy Policy
               </Text>
             </Text>
@@ -405,10 +418,10 @@ export default function Login() {
 }
 
 const circleBtn = {
-  width: s(68), height: s(68), borderRadius: s(34),
+  width: s(54), height: s(54), borderRadius: s(27),
   backgroundColor: "rgba(255,255,255,0.08)",
   borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
   alignItems: "center", justifyContent: "center",
-  shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.3, shadowRadius: 16, elevation: 6,
+  shadowColor: "#000", shadowOffset: { width: 0, height: 6 },
+  shadowOpacity: 0.25, shadowRadius: 12, elevation: 5,
 };

@@ -1,14 +1,17 @@
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
 import {
-  View,
-  Text,
-  Image,
-  StyleSheet,
   Animated,
+  Easing,
+  Image,
   StatusBar,
+  StyleSheet,
+  Text,
+  View
 } from "react-native";
-import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
+import { moderateScale, scale, verticalScale } from "react-native-size-matters";
+import { Colors } from "../src/constants/colors";
 import { getToken } from "../src/store/authStore";
 
 const splashIcon = require("../assets/images/splash-icon.png");
@@ -16,41 +19,87 @@ const splashIcon = require("../assets/images/splash-icon.png");
 export default function Index() {
   const router = useRouter();
 
-  const logoScale = useRef(new Animated.Value(0.3)).current;
+  const logoScale = useRef(new Animated.Value(0)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
+  const logoRotation = useRef(new Animated.Value(0)).current;
   const nameOpacity = useRef(new Animated.Value(0)).current;
-  const nameTranslateY = useRef(new Animated.Value(20)).current;
+  const nameTranslateY = useRef(new Animated.Value(verticalScale(30))).current;
   const taglineOpacity = useRef(new Animated.Value(0)).current;
-  const taglineTranslateY = useRef(new Animated.Value(20)).current;
+  const taglineTranslateY = useRef(new Animated.Value(verticalScale(20))).current;
+  const glowPulse = useRef(new Animated.Value(0.5)).current;
   const screenOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowPulse, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        Animated.timing(glowPulse, {
+          toValue: 0.5,
+          duration: 1500,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+      ])
+    ).start();
+
+    const checkAuth = async () => {
+      try {
+        const token = await getToken();
+        const targetRoute = token ? "/(tabs)/home" : "/login";
+        startAnimations(() => {
+          router.replace(targetRoute);
+        });
+      } catch (error) {
+        startAnimations(() => {
+          router.replace("/login");
+        });
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  const startAnimations = (onComplete) => {
     Animated.sequence([
       Animated.parallel([
         Animated.spring(logoScale, {
           toValue: 1,
-          tension: 60,
-          friction: 7,
+          tension: 40,
+          friction: 6,
           useNativeDriver: true,
         }),
         Animated.timing(logoOpacity, {
           toValue: 1,
-          duration: 500,
+          duration: 600,
           useNativeDriver: true,
+        }),
+        Animated.timing(logoRotation, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.back(1.5)),
         }),
       ]),
       Animated.parallel([
         Animated.timing(nameOpacity, {
           toValue: 1,
-          duration: 400,
+          duration: 500,
           useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
         }),
         Animated.timing(nameTranslateY, {
           toValue: 0,
-          duration: 400,
+          duration: 500,
           useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
         }),
       ]),
+      Animated.delay(200),
       Animated.parallel([
         Animated.timing(taglineOpacity, {
           toValue: 1,
@@ -61,41 +110,46 @@ export default function Index() {
           toValue: 0,
           duration: 400,
           useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
         }),
       ]),
-      Animated.delay(900),
-      Animated.timing(screenOpacity, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-      }),
+      Animated.delay(1500),
     ]).start(() => {
-      // Check if the user is already logged in — skip the login screen if so
-      getToken().then((token) => {
-        if (token) {
-          router.replace("/(tabs)/home");
-        } else {
-          router.replace("/login");
-        }
-      }).catch(() => {
-        router.replace("/login");
-      });
+      onComplete();
     });
-  }, []);
+  };
+
+  const rotateInterpolate = logoRotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["-15deg", "0deg"],
+  });
+
+  const glowOpacity = glowPulse.interpolate({
+    inputRange: [0.5, 1],
+    outputRange: [0.4, 0.8],
+  });
 
   return (
     <Animated.View style={[styles.container, { opacity: screenOpacity }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#070616" />
+      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
 
       <LinearGradient
-        colors={["#0d0618", "#1a0a2e", "#110d2f", "#150f3d"]}
+        colors={Colors.splashGradient}
         locations={[0, 0.3, 0.65, 1]}
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.8, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={styles.orbPink} />
+      <Animated.View
+        style={[
+          styles.orbPink,
+          {
+            opacity: glowOpacity,
+            transform: [{ scale: glowPulse }],
+          },
+        ]}
+      />
       <View style={styles.orbCyan} />
       <View style={styles.orbPurple} />
 
@@ -103,7 +157,7 @@ export default function Index() {
         <Animated.View
           style={{
             opacity: logoOpacity,
-            transform: [{ scale: logoScale }],
+            transform: [{ scale: logoScale }, { rotate: rotateInterpolate }],
           }}
         >
           <View style={styles.logoWrapper}>
@@ -111,6 +165,15 @@ export default function Index() {
               source={splashIcon}
               style={styles.logo}
               resizeMode="contain"
+            />
+            <Animated.View
+              style={[
+                styles.logoGlowRing,
+                {
+                  opacity: glowOpacity,
+                  transform: [{ scale: glowPulse }],
+                },
+              ]}
             />
           </View>
         </Animated.View>
@@ -141,6 +204,31 @@ export default function Index() {
         <Text style={styles.tagline}>Connect · Talk · Earn</Text>
         <View style={styles.taglineDivider} />
       </Animated.View>
+
+      <Animated.View
+        style={[
+          styles.loadingBar,
+          {
+            opacity: taglineOpacity,
+          },
+        ]}
+      >
+        <Animated.View
+          style={[
+            styles.loadingBarFill,
+            {
+              transform: [
+                {
+                  scaleX: glowPulse.interpolate({
+                    inputRange: [0.5, 1],
+                    outputRange: [0.3, 0.7],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -148,82 +236,112 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#070616",
+    backgroundColor: Colors.background,
     alignItems: "center",
     justifyContent: "center",
   },
   orbPink: {
     position: "absolute",
-    width: 320,
-    height: 320,
-    top: -80,
-    left: -80,
-    borderRadius: 160,
-    backgroundColor: "rgba(255,0,128,0.18)",
+    width: scale(350),
+    height: scale(350),
+    top: verticalScale(-100),
+    left: scale(-100),
+    borderRadius: scale(175),
+    backgroundColor: Colors.orbPink,
   },
   orbCyan: {
     position: "absolute",
-    width: 260,
-    height: 260,
-    top: -40,
-    right: -80,
-    borderRadius: 130,
-    backgroundColor: "rgba(0,224,255,0.12)",
+    width: scale(280),
+    height: scale(280),
+    top: verticalScale(-50),
+    right: scale(-90),
+    borderRadius: scale(140),
+    backgroundColor: Colors.orbCyan,
   },
   orbPurple: {
     position: "absolute",
-    width: 340,
-    height: 340,
-    bottom: -100,
+    width: scale(360),
+    height: scale(360),
+    bottom: verticalScale(-120),
     left: "10%",
-    borderRadius: 170,
-    backgroundColor: "rgba(132,66,255,0.18)",
+    borderRadius: scale(190),
+    backgroundColor: Colors.orbPurple,
   },
   center: {
     alignItems: "center",
+    marginBottom: verticalScale(20),
   },
   logoWrapper: {
-    width: 130,
-    height: 130,
-    borderRadius: 32,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    width: scale(110),
+    height: scale(110),
+    borderRadius: moderateScale(35),
+    backgroundColor: Colors.borderGlassSubtle,
+    borderWidth: 1.5,
+    borderColor: Colors.borderGlass,
     alignItems: "center",
     justifyContent: "center",
     elevation: 20,
+    shadowColor: Colors.glowPinkRing,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 30,
+  },
+  logoGlowRing: {
+    position: "absolute",
+    width: scale(140),
+    height: scale(140),
+    borderRadius: moderateScale(42),
+    borderWidth: 2,
+    borderColor: Colors.borderPinkGlow,
+    top: -scale(15),
+    left: -scale(15),
   },
   logo: {
-    width: 100,
-    height: 100,
+    width: scale(80),
+    height: scale(80),
   },
   appName: {
-    marginTop: 22,
-    fontSize: 42,
+    marginTop: verticalScale(24),
+    fontSize: moderateScale(32),
     fontWeight: "800",
-    color: "white",
-    letterSpacing: 1.5,
-    textShadowColor: "rgba(255,78,163,0.6)",
+    color: Colors.white,
+    letterSpacing: 2,
+    textShadowColor: Colors.glowPink,
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 20,
+    textShadowRadius: 25,
   },
   taglineContainer: {
     position: "absolute",
-    bottom: 52,
+    bottom: verticalScale(60),
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: scale(12),
   },
   taglineDivider: {
-    width: 28,
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.3)",
+    width: scale(30),
+    height: 1.5,
+    backgroundColor: Colors.borderGlassLight,
   },
   tagline: {
-    color: "rgba(255,255,255,0.65)",
-    fontSize: 13,
+    color: Colors.textSecondary,
+    fontSize: moderateScale(12),
     fontWeight: "600",
-    letterSpacing: 1.8,
+    letterSpacing: 2.2,
     textTransform: "uppercase",
+  },
+  loadingBar: {
+    position: "absolute",
+    bottom: verticalScale(30),
+    width: scale(120),
+    height: 2,
+    backgroundColor: Colors.loadingBarBg,
+    borderRadius: 1,
+    overflow: "hidden",
+  },
+  loadingBarFill: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: Colors.loadingBarFill,
+    borderRadius: 1,
   },
 });
