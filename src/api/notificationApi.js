@@ -4,6 +4,7 @@ import API, {
   getBearerToken,
   refreshTokenCache,
 } from "./axios";
+import { getAppUserId } from "../utils/sessionUser";
 
 const buildAuthConfig = async () => {
   await refreshTokenCache();
@@ -42,6 +43,7 @@ export const getNotifications = async ({
     },
   });
 
+  console.log("[notificationApi] GET /api/notifications -> RAW", JSON.stringify(response.data, null, 2));
   return response.data;
 };
 
@@ -52,6 +54,7 @@ export const getUnreadNotificationCount = async () => {
   const config = await buildAuthConfig();
 
   const response = await API.get("/api/notifications/unread-count", config);
+  console.log("[notificationApi] GET /api/notifications/unread-count -> RAW", JSON.stringify(response.data, null, 2));
   return response.data;
 };
 
@@ -80,44 +83,115 @@ export const markNotificationsRead = async (notificationIds) => {
 
 // POST - Register FCM device token
 
-export const registerDeviceToken = async (deviceToken, platform = Platform.OS) => {
+export const registerDeviceToken = async (
+  deviceToken,
+  platform = Platform.OS,
+  userId = null
+) => {
   if (!deviceToken || typeof deviceToken !== "string") {
     throw new Error("FCM device token is required.");
   }
 
   const config = await buildAuthConfig();
 
+  let resolvedUserId = userId;
+  if (!resolvedUserId) {
+    resolvedUserId = await getAppUserId().catch(() => null);
+  }
+
+  const numericUserId =
+    resolvedUserId && !isNaN(Number(resolvedUserId))
+      ? Number(resolvedUserId)
+      : resolvedUserId;
+
+  const normalizedPlatform = (platform || Platform.OS || "ANDROID").toUpperCase();
+
   const body = {
-    token: deviceToken,
-    platform: (platform || Platform.OS || "android").toLowerCase(),
+    ...(numericUserId ? { userId: numericUserId } : {}),
+    fcmToken: deviceToken,
+    platform: normalizedPlatform,
   };
 
-  const response = await API.post(
-    "/api/app/users/me/device-token",
-    body,
-    config
-  );
-
-  return response.data;
+  try {
+    const response = await API.post(
+      "/api/app/users/me/device-token",
+      body,
+      config
+    );
+    console.log("[notificationApi] POST /api/app/users/me/device-token -> SUCCESS", {
+      userId: numericUserId ?? "none",
+      tokenExists: Boolean(deviceToken),
+      tokenLength: deviceToken.length,
+      platform: normalizedPlatform,
+      status: response.status,
+    });
+    return response.data;
+  } catch (error) {
+    const status = error?.response?.status;
+    console.error("[notificationApi] POST /api/app/users/me/device-token -> FAILED", {
+      userId: numericUserId ?? "none",
+      tokenExists: Boolean(deviceToken),
+      tokenLength: deviceToken.length,
+      platform: normalizedPlatform,
+      status,
+      error: error?.response?.data ?? error?.message,
+    });
+    throw error;
+  }
 };
 
 // DELETE - Unregister FCM device token - Removes the current FCM device token.
 
-export const unregisterDeviceToken = async (deviceToken, platform = Platform.OS) => {
+export const unregisterDeviceToken = async (
+  deviceToken,
+  platform = Platform.OS,
+  userId = null
+) => {
   const config = await buildAuthConfig();
 
-  const response = await API.delete(
-    "/api/app/users/me/device-token",
-    {
-      ...config,
-      data: {
-        token: deviceToken,
-        platform: (platform || Platform.OS || "android").toLowerCase(),
-      },
-    }
-  );
+  let resolvedUserId = userId;
+  if (!resolvedUserId) {
+    resolvedUserId = await getAppUserId().catch(() => null);
+  }
 
-  return response.data;
+  const numericUserId =
+    resolvedUserId && !isNaN(Number(resolvedUserId))
+      ? Number(resolvedUserId)
+      : resolvedUserId;
+
+  const normalizedPlatform = (platform || Platform.OS || "ANDROID").toUpperCase();
+
+  const body = {
+    ...(numericUserId ? { userId: numericUserId } : {}),
+    fcmToken: deviceToken,
+    platform: normalizedPlatform,
+  };
+
+  try {
+    const response = await API.delete("/api/app/users/me/device-token", {
+      ...config,
+      data: body,
+    });
+    console.log("[notificationApi] DELETE /api/app/users/me/device-token -> SUCCESS", {
+      userId: numericUserId ?? "none",
+      tokenExists: Boolean(deviceToken),
+      tokenLength: deviceToken ? deviceToken.length : 0,
+      platform: normalizedPlatform,
+      status: response.status,
+    });
+    return response.data;
+  } catch (error) {
+    const status = error?.response?.status;
+    console.error("[notificationApi] DELETE /api/app/users/me/device-token -> FAILED", {
+      userId: numericUserId ?? "none",
+      tokenExists: Boolean(deviceToken),
+      tokenLength: deviceToken ? deviceToken.length : 0,
+      platform: normalizedPlatform,
+      status,
+      error: error?.response?.data ?? error?.message,
+    });
+    throw error;
+  }
 };
 
 // ── Legacy Token APIs (Optional compatibility helpers — NOT called in normal flow) ──

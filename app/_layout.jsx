@@ -77,13 +77,9 @@ export default function RootLayout() {
         );
       },
       onNotificationTap: ({ data }) => {
-        // Placeholder payload shape (chatUserId/senderName) — adjust once
-        // backend confirms what a push notification's `data` actually contains.
-        if (data?.chatUserId) {
-          openUserChat(router, {
-            userId: data.chatUserId,
-            name: data.senderName,
-          });
+        if (data) {
+          console.log("[_layout] Push notification tapped -> navigating:", data);
+          navigateFromNotification(router, data);
         }
       },
     });
@@ -109,6 +105,10 @@ export default function RootLayout() {
         <Stack.Screen name="voice-party" />
         <Stack.Screen name="find-friends" />
         <Stack.Screen name="nearby" />
+        <Stack.Screen name="chat-box" />
+        <Stack.Screen name="user-profile" />
+        <Stack.Screen name="blocked-accounts" />
+        <Stack.Screen name="message-notification" />
       </Stack>
     </SafeAreaProvider>
   );

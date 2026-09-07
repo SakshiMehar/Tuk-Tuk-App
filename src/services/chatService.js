@@ -115,6 +115,7 @@ const normalizeMessage = (message) => ({
   senderId: firstValue(message?.senderId, message?.fromUserId),
   receiverId: firstValue(message?.receiverId, message?.toUserId),
   content: firstText(message?.content, message?.text, message?.message, message?.body) ?? "",
+  imageUrl: firstText(message?.imageUrl, message?.image, message?.mediaUrl, message?.attachmentUrl, message?.attachment) ?? null,
   timestamp: firstText(message?.timestamp, message?.createdAt, message?.sentAt) ?? "",
   status: message?.status ?? "MESSAGE_SENT",
 });
@@ -131,7 +132,7 @@ export const loadChatHistory = async (userId) => {
   const data = await getUserMessages(userId);
   const messages = Array.isArray(data) ? data : listFrom(data, "messages");
   const list = messages.map(normalizeMessage);
-  
+
   return {
     messages: list,
     hasMore: data?.hasMore ?? false,

@@ -77,10 +77,12 @@ export default function Index() {
       // Check if the user is already logged in — skip the login screen if so
       getToken().then(async (token) => {
         if (token) {
-          router.replace("/(tabs)/home");
           const pending = consumePendingNotification();
+          router.replace("/(tabs)/home");
           if (pending) {
-            navigateFromNotification(router, pending);
+            setTimeout(() => {
+              navigateFromNotification(router, pending);
+            }, 300);
           }
         } else {
           router.replace("/login");

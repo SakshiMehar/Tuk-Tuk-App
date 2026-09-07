@@ -20,6 +20,7 @@ import { resolveAppUserId } from "../utils/sessionUser";
 import { API_BASE_URL } from "../config/env";
 import { entityHasNewUserFrame } from "../utils/newUserFrame";
 import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
+import { fetchNotificationsData } from "./notificationService";
 
 // Backend returns relative paths like "/uploads/feed/abc.jpg".
 // React Native Image requires a full https:// URL.
@@ -280,13 +281,14 @@ const hasMoreFrom = (data) => {
 // Uses Promise.allSettled so a failing secondary call (gifts, wallet, etc.)
 // never prevents the feed and profile from loading.
 export const getHomeData = async () => {
-  const [initResult, feedResult, giftsResult, walletResult, activeCountResult] =
+  const [initResult, feedResult, giftsResult, walletResult, activeCountResult, notifResult] =
     await Promise.allSettled([
       getHomeInit(),
       getFeedPosts("for_you", 1, 10),
       getDailyGifts(),
       getWallet(),
       getActiveUsersCount(),
+      fetchNotificationsData({ page: 0, size: 20 }),
     ]);
 
   const initData        = initResult.status        === "fulfilled" ? initResult.value        : null;
@@ -294,6 +296,7 @@ export const getHomeData = async () => {
   const giftsData       = giftsResult.status       === "fulfilled" ? giftsResult.value       : null;
   const walletData      = walletResult.status      === "fulfilled" ? walletResult.value      : null;
   const activeCountData = activeCountResult.status === "fulfilled" ? activeCountResult.value : null;
+  const notifData       = notifResult.status       === "fulfilled" ? notifResult.value       : null;
 
   const gifts = Array.isArray(giftsData) ? giftsData : (giftsData?.gifts ?? []);
   const token = await getToken();
@@ -305,6 +308,12 @@ export const getHomeData = async () => {
     activeCountData?.count ??
     initData?.stats?.activeUsers ??
     0;
+
+  const notifications = notifData?.content ?? [];
+  const unreadCount =
+    typeof notifData?.unreadCount === "number"
+      ? notifData.unreadCount
+      : notifications.filter((n) => n.unread === true || n.read === false || n.isRead === false).length;
 
   return {
     userProfile,
@@ -318,8 +327,8 @@ export const getHomeData = async () => {
     trendingTags:      initData?.trendingTags        ?? [],
     feedPosts,
     feedHasMore:       feedData?.hasMore             ?? false,
-    notifications:     [],
-    unreadCount:       0,
+    notifications,
+    unreadCount,
     gifts,
     wallet:            walletData                    ?? null,
   };

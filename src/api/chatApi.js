@@ -2,7 +2,7 @@ import API, { authRequestConfig } from "./axios";
 
 export const getChats = async () => {
   const response = await API.get("/api/app/chats", await authRequestConfig());
-  
+
   return response.data;
 };
 
@@ -11,7 +11,11 @@ export const getUserMessages = async (userId) => {
     `/api/app/chats/users/${userId}/messages`,
     await authRequestConfig()
   );
-  
+
+  console.log("[CHAT API] Status:", response.status);
+  console.log("[CHAT API] Response:", response.data);
+
+
   return response.data;
 };
 
@@ -21,6 +25,6 @@ export const markUserMessagesRead = async (userId) => {
     {},
     await authRequestConfig()
   );
-  
+
   return response.data;
 };

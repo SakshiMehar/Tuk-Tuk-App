@@ -45,7 +45,16 @@ const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", 
 // image URL — resolve those to the local asset, otherwise treat as a URI.
 const resolveAvatarSource = (avatar) => {
   if (isBundledAvatarId(avatar)) return getAvatarSource(avatar);
-  return { uri: avatar };
+  return /ngrok-free\.dev|ngrok\.io/i.test(avatar)
+    ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri: avatar };
+};
+
+const resolveImageUriSource = (uri) => {
+  if (!uri) return null;
+  return /ngrok-free\.dev|ngrok\.io/i.test(uri)
+    ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri };
 };
 
 export default function ChatBox({ user = {}, onBack }) {
@@ -76,8 +85,9 @@ export default function ChatBox({ user = {}, onBack }) {
   const mapApiMessage = (m, currentUserId) => ({
     id: String(m.messageId ?? m.id ?? Date.now()),
     text: m.content ?? m.message ?? m.text ?? "",
+    imageUrl: m.imageUrl ?? m.image ?? m.mediaUrl ?? null,
     fromMe: String(m.senderId) === String(currentUserId),
-    time: m.timestamp ? new Date(m.timestamp) : new Date(),
+    time: m.timestamp || m.createdAt ? new Date(m.timestamp || m.createdAt) : new Date(),
   });
 
   useEffect(() => {
@@ -138,7 +148,8 @@ export default function ChatBox({ user = {}, onBack }) {
       if (!isThisChat) return;
 
       const text = payload?.content ?? payload?.message ?? "";
-      if (!text) return;
+      const imageUrl = payload?.imageUrl ?? payload?.image ?? payload?.mediaUrl ?? null;
+      if (!text && !imageUrl) return;
 
       const id = String(payload?.messageId ?? payload?.id ?? `ws-${Date.now()}`);
       const fromMe = String(senderId) === String(myUserId);
@@ -150,7 +161,7 @@ export default function ChatBox({ user = {}, onBack }) {
         // If the server echoes our own message back, replace the optimistic
         // pending entry (same text, fromMe) rather than adding a duplicate.
         const filtered = fromMe
-          ? prev.filter((m) => !(m._pending && m.text === text))
+          ? prev.filter((m) => !(m._pending && m.text === text && m.imageUrl === imageUrl))
           : prev;
 
         return [
@@ -158,6 +169,7 @@ export default function ChatBox({ user = {}, onBack }) {
           {
             id,
             text,
+            imageUrl,
             fromMe,
             time: payload?.timestamp ? new Date(payload.timestamp) : new Date(),
           },
@@ -413,7 +425,16 @@ export default function ChatBox({ user = {}, onBack }) {
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                       >
-                        <Text style={styles.msgTextMe}>{msg.text}</Text>
+                        {msg.imageUrl ? (
+                          <Image
+                            source={resolveImageUriSource(msg.imageUrl)}
+                            style={styles.msgImage}
+                            resizeMode="cover"
+                          />
+                        ) : null}
+                        {msg.text ? (
+                          <Text style={styles.msgTextMe}>{msg.text}</Text>
+                        ) : null}
                         <Text style={styles.msgTime}>{formatTime(msg.time)}</Text>
                       </LinearGradient>
                     ) : (
@@ -434,7 +455,16 @@ export default function ChatBox({ user = {}, onBack }) {
                           </View>
                         )}
                         <View style={styles.msgBubbleThemInner}>
-                          <Text style={styles.msgTextThem}>{msg.text}</Text>
+                          {msg.imageUrl ? (
+                            <Image
+                              source={resolveImageUriSource(msg.imageUrl)}
+                              style={styles.msgImage}
+                              resizeMode="cover"
+                            />
+                          ) : null}
+                          {msg.text ? (
+                            <Text style={styles.msgTextThem}>{msg.text}</Text>
+                          ) : null}
                           <Text style={[styles.msgTime, { color: "rgba(255,255,255,0.35)" }]}>
                             {formatTime(msg.time)}
                           </Text>
@@ -779,6 +809,15 @@ const styles = StyleSheet.create({
   },
   msgTextMe: { color: "white", fontSize: 14, lineHeight: 20 },
   msgTextThem: { color: "rgba(255,255,255,0.9)", fontSize: 14, lineHeight: 20 },
+  msgImage: {
+    width: "100%",
+    minWidth: 160,
+    maxWidth: W * 0.62,
+    height: 160,
+    borderRadius: 12,
+    marginBottom: 6,
+    backgroundColor: "rgba(124,77,255,0.15)",
+  },
   msgTime: { color: "rgba(255,255,255,0.45)", fontSize: 10, alignSelf: "flex-end" },
 
   // Input

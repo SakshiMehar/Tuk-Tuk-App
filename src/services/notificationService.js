@@ -32,18 +32,36 @@ export const loadUnreadNotificationCount = async () => {
 // Fetch notification list + unread count in a single parallel call.
 // Returns { content: [], unreadCount: 0 } so the caller only needs one await.
 export const fetchNotificationsData = async ({ page = 0, size = 20 } = {}) => {
-    const [listData, countData] = await Promise.all([
-        apiGetNotifications({ page, size }),
-        apiGetUnreadNotificationCount(),
-    ]);
+    try {
+        const [listData, countData] = await Promise.allSettled([
+            apiGetNotifications({ page, size }),
+            apiGetUnreadNotificationCount(),
+        ]);
 
-    const content = listData?.notifications?.content ?? [];
-    const unreadCount =
-        typeof countData === "number"
-            ? countData
-            : Number(countData?.unreadCount ?? 0);
+        const rawList = listData.status === "fulfilled" ? listData.value : null;
+        const rawCount = countData.status === "fulfilled" ? countData.value : null;
 
-    return { content, unreadCount };
+        const content =
+            rawList?.notifications?.content ??
+            rawList?.notifications ??
+            rawList?.content ??
+            rawList?.data ??
+            (Array.isArray(rawList) ? rawList : []);
+
+        const unreadCount =
+            typeof rawCount === "number"
+                ? rawCount
+                : Number(
+                    rawCount?.unreadCount ??
+                    rawCount?.count ??
+                    rawCount?.data?.unreadCount ??
+                    content.filter((n) => n.unread === true || n.read === false || n.isRead === false).length
+                );
+
+        return { content, unreadCount };
+    } catch {
+        return { content: [], unreadCount: 0 };
+    }
 };
 
 // Mark specific notifications as read by ID array.
@@ -57,16 +75,16 @@ export const markAllNotificationsAsRead = async () => {
 };
 
 // Register current FCM token with the backend.
-export const registerCurrentDeviceToken = async (token) => {
+export const registerCurrentDeviceToken = async (token, userId = null) => {
     if (!token) return null;
-    const response = await apiRegisterDeviceToken(token);
+    const response = await apiRegisterDeviceToken(token, undefined, userId);
     return { token, response };
 };
 
 // Unregister a specific FCM token.
-export const unregisterCurrentDeviceToken = async (token) => {
+export const unregisterCurrentDeviceToken = async (token, userId = null) => {
     if (!token) return null;
-    return apiUnregisterDeviceToken(token);
+    return apiUnregisterDeviceToken(token, undefined, userId);
 };
 
 // GET notification switch — returns the full response object so callers can

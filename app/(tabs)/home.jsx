@@ -28,7 +28,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -66,6 +65,10 @@ import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import * as homeService from "../../src/services/homeService";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import {
+  fetchNotificationsData,
+  markNotificationsAsRead,
+} from "../../src/services/notificationService";
+import {
   blockUser,
   followUser,
   isSameUser,
@@ -74,6 +77,7 @@ import {
   unfollowUser,
 } from "../../src/services/relationshipService";
 import { syncUserCountryToServer } from "../../src/services/userCountryService";
+import { updateUserProfile } from "../../src/services/userProfileService";
 import { loadMyVipAssets } from "../../src/services/vipService";
 import { getUser, updateUser } from "../../src/store/authStore";
 import {
@@ -83,6 +87,7 @@ import {
 import { openUserChat } from "../../src/utils/chatNavigation";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
 import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
+import { navigateFromNotification } from "../../src/utils/notificationNavigation";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 import { openUserProfile } from "../../src/utils/profileNavigation";
 import { ms, s, vs } from "../../src/utils/responsive";
@@ -325,11 +330,11 @@ const PostMoreMenu = memo(
         const text = `Check this out on Tuk Tuk! "${(post?.text ?? "").slice(0, 100)}..."`;
 
         if (post?.userId) {
-          shareUser(post.userId).catch(() => {});
+          shareUser(post.userId).catch(() => { });
         }
 
         if (platform.id === "more") {
-          await Share.share({ message: text }).catch(() => {});
+          await Share.share({ message: text }).catch(() => { });
           onClose();
           return;
         }
@@ -345,7 +350,7 @@ const PostMoreMenu = memo(
         if (canOpen) {
           Linking.openURL(url);
         } else {
-          await Share.share({ message: text }).catch(() => {});
+          await Share.share({ message: text }).catch(() => { });
         }
         onClose();
       },
@@ -444,18 +449,18 @@ const PostMoreMenu = memo(
                         avatarStyle={moreMenuStyles.friendAvatar}
                         {...(item.vipProfileFrameUrl
                           ? {
-                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                              frameResizeMode:
-                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                              frameOffsetX:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                              frameOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                              avatarOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                            }
+                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                            frameResizeMode:
+                              VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                            frameOffsetX:
+                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                            frameOffsetY:
+                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                            avatarOffsetY:
+                              VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                          }
                           : {})}
                       />
                     </LinearGradient>
@@ -910,13 +915,11 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
               </TouchableOpacity>
             </View>
 
-            <KeyboardAwareScrollView
+            <ScrollView
               ref={scrollRef}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={{ paddingBottom: 48 }}
-              enableOnAndroid={true}
-              extraScrollHeight={70}
             >
               {/* ── STEP 1: media picker (hidden after confirmed) ── */}
               <View style={postCreateStyles.mediaRow}>
@@ -1184,7 +1187,7 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                   </Text>
                 </View>
               )}
-            </KeyboardAwareScrollView>
+            </ScrollView>
             {showComposer && (
               <TouchableOpacity
                 onPress={handlePost}
@@ -2088,6 +2091,17 @@ const toImageSource = (uri) => {
   return { uri };
 };
 
+const resolveNotifIcon = (icon, type) => {
+  const str = String(type || "").toLowerCase();
+  if (str.includes("message") || str.includes("chat") || str.includes("direct_message")) return "💬";
+  if (str.includes("gift")) return "🎁";
+  if (str.includes("like") || str.includes("heart")) return "❤️";
+  if (str.includes("follow") || str.includes("friend")) return "👤";
+  if (str.includes("party") || str.includes("room") || str.includes("voice")) return "🎉";
+  if (icon && typeof icon === "string" && icon.trim().length > 0 && icon !== "🔔" && icon.length <= 4) return icon;
+  return "🔔";
+};
+
 const PostCard = memo(
   ({
     post,
@@ -2125,8 +2139,8 @@ const PostCard = memo(
     const postFrameSource = isOwnPost
       ? (currentUserVipFrameSource ?? currentUserFrameSource)
       : resolveEntityNewUserFrameSource({
-          hasNewUserFrame: post.authorHasNewUserFrame,
-        });
+        hasNewUserFrame: post.authorHasNewUserFrame,
+      });
     // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
     const imageUri = post.imageUrl ?? post._localMediaUri ?? null;
     const galleryUrls = post.imageUrls?.length
@@ -2168,7 +2182,7 @@ const PostCard = memo(
         (w, h) => {
           if (!cancelled && w && h) setImgAspectRatio(w / h);
         },
-        () => {},
+        () => { },
       );
       return () => {
         cancelled = true;
@@ -2188,15 +2202,15 @@ const PostCard = memo(
                   imageComponent={Image}
                   {...(isOwnVipFrame
                     ? {
-                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                        frameResizeMode:
-                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                      }
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode:
+                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
                     : {})}
                 />
               ) : (
@@ -2287,9 +2301,9 @@ const PostCard = memo(
                   styles.postImage,
                   imgAspectRatio
                     ? {
-                        aspectRatio: clampAspectRatio(imgAspectRatio),
-                        height: undefined,
-                      }
+                      aspectRatio: clampAspectRatio(imgAspectRatio),
+                      height: undefined,
+                    }
                     : { height: 220 },
                 ]}
                 contentFit="cover"
@@ -2310,9 +2324,9 @@ const PostCard = memo(
                 styles.postImage,
                 imgAspectRatio
                   ? {
-                      aspectRatio: clampAspectRatio(imgAspectRatio),
-                      height: undefined,
-                    }
+                    aspectRatio: clampAspectRatio(imgAspectRatio),
+                    height: undefined,
+                  }
                   : { height: 220 },
               ]}
               onLayout={(e) => setGalleryWidth(e.nativeEvent.layout.width)}
@@ -2462,14 +2476,14 @@ const RecommendedUserItem = memo(({ user }) => {
             avatarStyle={{ borderRadius: s(36) }}
             {...(user.vipProfileFrameUrl
               ? {
-                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                }
+                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+              }
               : {})}
           />
         ) : (
@@ -2599,14 +2613,14 @@ const HomeHeader = memo(
               imageComponent={Image}
               {...(vipProfileFrameSource
                 ? {
-                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                  }
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
                 : {})}
             />
             <View style={styles.onlineDot} />
@@ -2708,7 +2722,7 @@ const HomeHeader = memo(
             <Image
               source={toImageSource(
                 stats?.featuredUserAvatar ??
-                  "https://randomuser.me/api/portraits/men/45.jpg",
+                "https://randomuser.me/api/portraits/men/45.jpg",
               )}
               style={styles.matchAvatar}
               cachePolicy="memory-disk"
@@ -2987,7 +3001,7 @@ export default function Home() {
       .then((user) => {
         if (!user?.gender) setGenderPickerVisible(true);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // Saves gender + country from the "Who are you?" picker straight to the
@@ -3002,18 +3016,19 @@ export default function Home() {
           : null;
         const countryFields = match
           ? {
-              country: match.name,
-              countryCode: match.code,
-              countryName: match.name,
-            }
+            country: match.name,
+            countryCode: match.code,
+            countryName: match.name,
+          }
           : {};
         await updateUser({ gender, ...countryFields });
-        await patchMyProfile({ gender, ...countryFields }).catch(() => {});
+        await updateUserProfile({ gender, ...countryFields }).catch(() => { });
         if (match) {
+          await patchMyProfile(countryFields).catch(() => { });
           await syncUserCountryToServer({
             country: match.name,
             countryCode: match.code,
-          }).catch(() => {});
+          }).catch(() => { });
         }
       } finally {
         setGenderSaving(false);
@@ -3037,7 +3052,7 @@ export default function Home() {
         .then((activeUsers) => {
           setStats((prev) => ({ ...(prev ?? {}), activeUsers }));
         })
-        .catch(() => {});
+        .catch(() => { });
     }, []),
   );
 
@@ -3085,7 +3100,7 @@ export default function Home() {
   useEffect(() => {
     getAppUserId()
       .then((id) => setCurrentUserId(String(id)))
-      .catch(() => {});
+      .catch(() => { });
 
     syncSessionAvatar();
 
@@ -3140,7 +3155,7 @@ export default function Home() {
             setUnreadNotifications([]);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
 
       // Load following + followers in parallel after home data
       Promise.all([loadFollowing(), loadFollowers()]).then(([followingArr]) => {
@@ -3522,7 +3537,7 @@ export default function Home() {
       try {
         newPost = await createPost({ caption, photos, video, mediaType });
       } catch (e) {
-        await refreshFeed().catch(() => {});
+        await refreshFeed().catch(() => { });
         throw e;
       }
 
@@ -3584,7 +3599,7 @@ export default function Home() {
       setFeedPosts((prev) => [normalized, ...prev]);
 
       // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
-      await refreshFeed().catch(() => {});
+      await refreshFeed().catch(() => { });
     },
     [currentUserId],
   );
@@ -3636,7 +3651,58 @@ export default function Home() {
   }, []);
 
   const openSearch = useCallback(() => setSearchVisible(true), []);
-  const openNotif = useCallback(() => setNotifVisible(true), []);
+  const openNotif = useCallback(async () => {
+    setNotifVisible(true);
+    setNotificationsLoading(true);
+    setNotificationsError(false);
+    try {
+      const { content, unreadCount: count } = await fetchNotificationsData({
+        page: 0,
+        size: 30,
+      });
+      if (Array.isArray(content)) {
+        setNotifications(content);
+        const unreadIds = content
+          .filter((n) => n.unread === true || n.read === false || n.isRead === false)
+          .map((n) => n.id);
+        setUnreadNotifications(unreadIds);
+      }
+      if (typeof count === "number") {
+        setUnreadCount(count);
+      }
+    } catch (err) {
+      console.warn("[home] Failed to load notifications on open:", err?.message);
+      setNotificationsError(true);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, []);
+
+  const handleNotificationPress = useCallback(
+    async (notif) => {
+      if (!notif) return;
+      console.log("[home] Notification item tapped:", JSON.stringify(notif, null, 2));
+
+      if (unreadNotifications.includes(notif.id)) {
+        setUnreadNotifications((prev) => prev.filter((id) => id !== notif.id));
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+        markNotificationsAsRead([notif.id]).catch(() => { });
+      }
+
+      setNotifVisible(false);
+
+      setTimeout(async () => {
+        try {
+          const success = await navigateFromNotification(router, notif);
+          console.log("[home] navigateFromNotification outcome:", success);
+        } catch (navErr) {
+          console.error("[home] Navigation error on notification tap:", navErr);
+        }
+      }, 150);
+    },
+    [unreadNotifications, router],
+  );
+
   const openGifts = useCallback(() => setGiftsVisible(true), []);
   const closeSearch = useCallback(() => {
     setSearchVisible(false);
@@ -3902,19 +3968,19 @@ export default function Home() {
                           avatarStyle={styles.resultIconBox}
                           {...(result.vipProfileFrameUrl
                             ? {
-                                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                                frameResizeMode:
-                                  VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                                frameOffsetX:
-                                  VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                                frameOffsetY:
-                                  VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                                avatarBoost:
-                                  VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                                avatarOffsetY:
-                                  VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                              }
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode:
+                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX:
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY:
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost:
+                                VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY:
+                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
                             : {})}
                         />
                       ) : (
@@ -4125,50 +4191,81 @@ export default function Home() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 30 }}
               >
-                {notifications.map((notif) => (
-                  <TouchableOpacity
-                    key={notif.id}
-                    style={[
-                      styles.notifItem,
-                      unreadNotifications.includes(notif.id) &&
-                        styles.notifItemUnread,
-                    ]}
-                    activeOpacity={0.8}
-                  >
-                    {unreadNotifications.includes(notif.id) && (
-                      <View style={styles.unreadDot} />
-                    )}
-                    {notif.avatar ? (
-                      <View style={styles.notifAvatarWrapper}>
-                        <Image
-                          source={toImageSource(notif.avatar)}
-                          style={styles.notifAvatar}
-                          cachePolicy="memory-disk"
-                          transition={150}
-                        />
-                        <View style={styles.notifIconBubble}>
-                          <Text style={styles.notifIconBubbleTxt}>
-                            {notif.icon}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : (
-                      <LinearGradient
-                        colors={["#3d1a6e", "#7c4dff"]}
-                        style={styles.notifSystemIcon}
+                {notificationsLoading ? (
+                  <View style={styles.notifStateBox}>
+                    <ActivityIndicator size="small" color="#7c4dff" />
+                    <Text style={styles.notifStateText}>Loading notifications...</Text>
+                  </View>
+                ) : notifications.length === 0 ? (
+                  <View style={styles.notifStateBox}>
+                    <Text style={styles.notifStateEmoji}>🔔</Text>
+                    <Text style={styles.notifStateText}>No notifications yet</Text>
+                  </View>
+                ) : (
+                  notifications.map((notif) => {
+                    const avatarUri = notif.avatar || notif.senderAvatar || notif.userAvatar;
+                    const rightImageUri = notif.imageUrl || notif.image || notif.mediaUrl;
+                    const displayAvatar = avatarUri || (rightImageUri ? null : notif.imageUrl);
+                    const displaySub = notif.message ?? notif.subtitle ?? notif.body ?? "";
+                    const displayTime = notif.time ?? notif.createdAt ?? "";
+
+                    return (
+                      <TouchableOpacity
+                        key={notif.id ?? notif._id ?? Math.random()}
+                        style={[
+                          styles.notifItem,
+                          unreadNotifications.includes(notif.id) &&
+                          styles.notifItemUnread,
+                        ]}
+                        activeOpacity={0.8}
+                        onPress={() => handleNotificationPress(notif)}
                       >
-                        <Text style={{ fontSize: 20 }}>{notif.icon}</Text>
-                      </LinearGradient>
-                    )}
-                    <View style={styles.notifTextCol}>
-                      <Text style={styles.notifItemTitle}>{notif.title}</Text>
-                      <Text style={styles.notifItemSub} numberOfLines={1}>
-                        {notif.subtitle}
-                      </Text>
-                      <Text style={styles.notifTime}>{notif.time}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                        {unreadNotifications.includes(notif.id) && (
+                          <View style={styles.unreadDot} />
+                        )}
+
+                        {/* Left: Default system icon related to notification */}
+                        <View style={styles.notifAvatarWrapper}>
+                          <LinearGradient
+                            colors={["#3d1a6e", "#7c4dff"]}
+                            style={styles.notifSystemIcon}
+                          >
+                            <Text style={{ fontSize: 24 }}>
+                              {resolveNotifIcon(notif.icon, notif.type)}
+                            </Text>
+                          </LinearGradient>
+                        </View>
+
+                        {/* Middle: Title, text message & timestamp */}
+                        <View style={styles.notifTextCol}>
+                          <Text style={styles.notifItemTitle} numberOfLines={1}>
+                            {notif.title ?? notif.senderName ?? "Tuk-Tuk"}
+                          </Text>
+                          {displaySub ? (
+                            <Text style={styles.notifItemSub} numberOfLines={2}>
+                              {displaySub}
+                            </Text>
+                          ) : null}
+                          {displayTime ? (
+                            <Text style={styles.notifTime}>{displayTime}</Text>
+                          ) : null}
+                        </View>
+
+                        {/* Right: Small image preview thumbnail (like Instagram notifications) */}
+                        {rightImageUri ? (
+                          <View style={styles.notifRightImageWrap}>
+                            <Image
+                              source={toImageSource(rightImageUri)}
+                              style={styles.notifRightImage}
+                              cachePolicy="memory-disk"
+                              transition={150}
+                            />
+                          </View>
+                        ) : null}
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
               </ScrollView>
             </SafeAreaView>
           )}
@@ -4189,8 +4286,8 @@ export default function Home() {
         isFollowing={
           imageViewerData
             ? followingIds.some((id) =>
-                isSameUser(id, imageViewerData.post.userId),
-              )
+              isSameUser(id, imageViewerData.post.userId),
+            )
             : false
         }
         isLiked={
@@ -4261,7 +4358,7 @@ export default function Home() {
         visible={genderPickerVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => {}}
+        onRequestClose={() => { }}
       >
         <View style={styles.genderOverlay}>
           <LinearGradient
@@ -4325,7 +4422,7 @@ export default function Home() {
                       style={[
                         styles.countryRow,
                         selectedCountry === country.name &&
-                          styles.countryRowSelected,
+                        styles.countryRowSelected,
                       ]}
                       onPress={() => {
                         setSelectedCountry(country.name);
@@ -4337,7 +4434,7 @@ export default function Home() {
                         style={[
                           styles.countryRowText,
                           selectedCountry === country.name &&
-                            styles.countryRowTextSelected,
+                          styles.countryRowTextSelected,
                         ]}
                       >
                         {country.flag} {country.name}
@@ -4461,15 +4558,15 @@ export default function Home() {
                   avatarStyle={styles.searchProfileAvatar}
                   {...(searchProfile.vipProfileFrameUrl
                     ? {
-                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                        frameResizeMode:
-                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                      }
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode:
+                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
                     : {})}
                 />
               ) : (
@@ -5768,6 +5865,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   notifTextCol: { flex: 1 },
+  notifRightImageWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "rgba(124,77,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.2)",
+    marginLeft: 6,
+  },
+  notifRightImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 8,
+  },
   notifItemTitle: {
     color: "white",
     fontSize: 14,
@@ -5775,8 +5887,9 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   notifItemSub: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(255,255,255,0.65)",
     fontSize: 12,
+    lineHeight: 16,
     marginBottom: 4,
   },
   notifTime: {
