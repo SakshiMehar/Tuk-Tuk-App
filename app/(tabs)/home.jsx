@@ -1,91 +1,101 @@
-import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  FlatList,
-  TouchableOpacity,
-  StyleSheet,
-  StatusBar,
-  Dimensions,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  Animated,
-  Easing,
-  InteractionManager,
-  ActivityIndicator,
-  Share,
-  Linking,
-  Alert,
-  BackHandler,
-  Image as RNImage,
-} from "react-native";
-import { Image } from "expo-image";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import { ChevronRight } from "lucide-react-native";
-import * as homeService from "../../src/services/homeService";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  followUser,
-  unfollowUser,
-  blockUser,
-  loadFollowing,
-  loadFollowers,
-  isSameUser,
-} from "../../src/services/relationshipService";
-import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
-import { getUser, updateUser } from "../../src/store/authStore";
-import { patchMyProfile } from "../../src/api/profileApi";
-import { syncUserCountryToServer } from "../../src/services/userCountryService";
-import { COUNTRY_OPTIONS, findCountryByName } from "../../src/data/countryOptions";
-import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
-import { isBundledAvatarId, getAvatarSource } from "../../src/data/avatarOptions";
-import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
-import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
-import { loadMyVipAssets } from "../../src/services/vipService";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
-import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
-import { resolveImageSource } from "../../src/utils/videoSource";
-import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+  ActivityIndicator,
+  Alert,
+  Animated,
+  BackHandler,
+  Dimensions,
+  Easing,
+  FlatList,
+  InteractionManager,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  Image as RNImage,
+  ScrollView,
+  Share,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
+import ComingSoonModal from "../../Components/ComingSoonModal";
+import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import PostImageViewer from "../../Components/PostImageViewer";
-import { useWalletBalance } from "../../src/hooks/useWalletBalance";
-import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
+import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+import ReportReasonModal from "../../Components/ReportReasonModal";
+import Toast from "../../Components/Toast";
 import {
-  applyWalletFromSources,
-  refreshWalletBalance,
-} from "../../src/store/walletStore";
-import {
+  addComment,
   createPost,
   deletePost,
-  likePost,
-  unlikePost,
   getPostComments,
-  addComment,
+  likePost,
   markInterested,
   markNotInterested,
   reportUser,
   shareUser,
+  unlikePost,
 } from "../../src/api/postApi";
-import * as ImagePicker from "expo-image-picker";
-import Toast from "../../Components/Toast";
-import ComingSoonModal from "../../Components/ComingSoonModal";
-import ReportReasonModal from "../../Components/ReportReasonModal";
-import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
-import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
+import { patchMyProfile } from "../../src/api/profileApi";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import {
+  getAvatarSource,
+  isBundledAvatarId,
+} from "../../src/data/avatarOptions";
+import {
+  COUNTRY_OPTIONS,
+  findCountryByName,
+} from "../../src/data/countryOptions";
+import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
+import { useWalletBalance } from "../../src/hooks/useWalletBalance";
+import * as homeService from "../../src/services/homeService";
+import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
+import {
+  blockUser,
+  followUser,
+  isSameUser,
+  loadFollowers,
+  loadFollowing,
+  unfollowUser,
+} from "../../src/services/relationshipService";
+import { syncUserCountryToServer } from "../../src/services/userCountryService";
+import { loadMyVipAssets } from "../../src/services/vipService";
+import { getUser, updateUser } from "../../src/store/authStore";
+import {
+  applyWalletFromSources,
+  refreshWalletBalance,
+} from "../../src/store/walletStore";
 import { openUserChat } from "../../src/utils/chatNavigation";
+import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
+import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
+import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 import { openUserProfile } from "../../src/utils/profileNavigation";
-import { s, vs, ms } from "../../src/utils/responsive";
+import { ms, s, vs } from "../../src/utils/responsive";
+import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
+import { resolveImageSource } from "../../src/utils/videoSource";
+import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
 
 const H_PAD = 14;
 const CARD_GAP = 10;
 // Module-level fallbacks using Dimensions — used in StyleSheet.create and
 // stable module-level arrays.
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2 * 0.88;
+const CARD_SIZE = ((SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2) * 0.88;
 const BANNER_SLIDE_WIDTH = SCREEN_WIDTH - H_PAD * 2;
 
 // Instagram-style bounds: never taller than 4:5 portrait, never wider than
@@ -122,7 +132,7 @@ const actionCards = [
     img: require("../../assets/images/TM1.png"),
     partyRandom: true,
     showWave: true,
-    imgSize: CARD_SIZE * 0.80,
+    imgSize: CARD_SIZE * 0.8,
     gifDelay: 0,
   },
   {
@@ -140,7 +150,7 @@ const actionCards = [
     colors: ["#143238ff", "#0077b6"],
     img: require("../../assets/images/TM3.gif"),
     route: "/nearby",
-    imgSize: CARD_SIZE * 0.90,
+    imgSize: CARD_SIZE * 0.9,
     gifDelay: 800,
   },
   {
@@ -149,7 +159,7 @@ const actionCards = [
     colors: ["#dc62bcff", "#351743ff"],
     img: require("../../assets/images/TM2B.gif"),
     route: "/(tabs)/blind-pick",
-    imgSize: CARD_SIZE * 0.80,
+    imgSize: CARD_SIZE * 0.8,
     gifDelay: 1200,
   },
 ];
@@ -210,10 +220,26 @@ const TABS = ["For You", "Online", "Following", "New"];
 
 // Per-tab empty-state copy shown when a tab has no content yet.
 const TAB_EMPTY_COPY = {
-  "For You":   { emoji: "✨", title: "Nothing here yet",        subtitle: "Posts picked for you will show up here." },
-  "Online":    { emoji: "🟢", title: "No one's online",          subtitle: "Active people will appear here when they come online." },
-  "Following": { emoji: "👥", title: "No posts from following",  subtitle: "Follow people to see their latest posts here." },
-  "New":       { emoji: "🆕", title: "No new posts",             subtitle: "Fresh posts will appear here as they're shared." },
+  "For You": {
+    emoji: "✨",
+    title: "Nothing here yet",
+    subtitle: "Posts picked for you will show up here.",
+  },
+  Online: {
+    emoji: "🟢",
+    title: "No one's online",
+    subtitle: "Active people will appear here when they come online.",
+  },
+  Following: {
+    emoji: "👥",
+    title: "No posts from following",
+    subtitle: "Follow people to see their latest posts here.",
+  },
+  New: {
+    emoji: "🆕",
+    title: "No new posts",
+    subtitle: "Fresh posts will appear here as they're shared.",
+  },
 };
 
 // Local fallback images for banner slides.
@@ -247,232 +273,305 @@ const StaggeredImage = memo(({ source, style, contentFit, delay }) => {
   }, []);
 
   if (!ready) return null;
-  return <Image source={source} style={style} contentFit={contentFit ?? "contain"} />;
+  return (
+    <Image source={source} style={style} contentFit={contentFit ?? "contain"} />
+  );
 });
 StaggeredImage.displayName = "StaggeredImage";
 
 // ── More-menu constants ───────────────────────────────────────
 const SOCIAL_PLATFORMS = [
-  { id: "whatsapp",  label: "WhatsApp",  bg: "#25D366", emoji: "💬" },
-  { id: "telegram",  label: "Telegram",  bg: "#2CA5E0", emoji: "✈️" },
+  { id: "whatsapp", label: "WhatsApp", bg: "#25D366", emoji: "💬" },
+  { id: "telegram", label: "Telegram", bg: "#2CA5E0", emoji: "✈️" },
   { id: "instagram", label: "Instagram", bg: "#E1306C", emoji: "📸" },
-  { id: "facebook",  label: "Facebook",  bg: "#1877F2", emoji: "📘" },
-  { id: "twitter",   label: "X / Twitter", bg: "#14171A", emoji: "🐦" },
-  { id: "more",      label: "More",      bg: "#7c4dff", emoji: "⋯"  },
+  { id: "facebook", label: "Facebook", bg: "#1877F2", emoji: "📘" },
+  { id: "twitter", label: "X / Twitter", bg: "#14171A", emoji: "🐦" },
+  { id: "more", label: "More", bg: "#7c4dff", emoji: "⋯" },
 ];
 
 const MENU_ACTIONS = [
-  { id: "interested",     label: "Interested",    emoji: "👍", color: "#7c4dff" },
-  { id: "not_interested", label: "Not Interested", emoji: "👎", color: "#ff4ea3" },
-  { id: "report",         label: "Report",         emoji: "🚩", color: "#ff6b35" },
-  { id: "block",          label: "Block User",      emoji: "🚫", color: "#ff3f72" },
+  { id: "interested", label: "Interested", emoji: "👍", color: "#7c4dff" },
+  {
+    id: "not_interested",
+    label: "Not Interested",
+    emoji: "👎",
+    color: "#ff4ea3",
+  },
+  { id: "report", label: "Report", emoji: "🚩", color: "#ff6b35" },
+  { id: "block", label: "Block User", emoji: "🚫", color: "#ff3f72" },
 ];
 
 // ── Post more-menu bottom sheet ───────────────────────────────
-const PostMoreMenu = memo(({ visible, post, friends, onClose, onBlock, onDelete, onReport, currentUserId }) => {
-  // Show delete if: post was created by this user (flag), OR userId matches current user
-  const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
-  const menuActions = isOwnPost
-    ? MENU_ACTIONS.filter((action) => action.id !== "block")
-    : MENU_ACTIONS;
+const PostMoreMenu = memo(
+  ({
+    visible,
+    post,
+    friends,
+    onClose,
+    onBlock,
+    onDelete,
+    onReport,
+    currentUserId,
+  }) => {
+    // Show delete if: post was created by this user (flag), OR userId matches current user
+    const isOwnPost =
+      post?._isOwn === true || isOwnContent(post, currentUserId);
+    const menuActions = isOwnPost
+      ? MENU_ACTIONS.filter((action) => action.id !== "block")
+      : MENU_ACTIONS;
 
-  const handleSocialShare = useCallback(async (platform) => {
-    const text = `Check this out on Tuk Tuk! "${(post?.text ?? "").slice(0, 100)}..."`;
+    const handleSocialShare = useCallback(
+      async (platform) => {
+        const text = `Check this out on Tuk Tuk! "${(post?.text ?? "").slice(0, 100)}..."`;
 
-    if (post?.userId) {
-      shareUser(post.userId).catch(() => {});
-    }
-
-    if (platform.id === "more") {
-      await Share.share({ message: text }).catch(() => {});
-      onClose();
-      return;
-    }
-    const deepLinks = {
-      whatsapp:  `whatsapp://send?text=${encodeURIComponent(text)}`,
-      telegram:  `tg://msg?text=${encodeURIComponent(text)}`,
-      instagram: `instagram://`,
-      facebook:  `fb://facewebmodal/f?href=${encodeURIComponent("https://tuktuk.app")}`,
-      twitter:   `twitter://post?message=${encodeURIComponent(text)}`,
-    };
-    const url = deepLinks[platform.id];
-    const canOpen = await Linking.canOpenURL(url).catch(() => false);
-    if (canOpen) {
-      Linking.openURL(url);
-    } else {
-      await Share.share({ message: text }).catch(() => {});
-    }
-    onClose();
-  }, [post, onClose]);
-
-  const handleAction = useCallback(async (action) => {
-    onClose();
-    const targetUserId = post?.userId;
-    switch (action.id) {
-      case "block":
-        onBlock(targetUserId, post?.name);
-        break;
-      case "interested":
-        try {
-          await markInterested(targetUserId);
-        } catch {
-          // Ignore — non-critical interaction.
+        if (post?.userId) {
+          shareUser(post.userId).catch(() => {});
         }
-        break;
-      case "not_interested":
-        try {
-          await markNotInterested(targetUserId);
-        } catch {
-          // Ignore — non-critical interaction.
+
+        if (platform.id === "more") {
+          await Share.share({ message: text }).catch(() => {});
+          onClose();
+          return;
         }
-        break;
-      case "report":
-        onReport?.(targetUserId, post?.name);
-        break;
-      case "delete":
-        onDelete?.(post?.id);
-        break;
-      default:
-        break;
-    }
-  }, [post, onClose, onBlock, onReport]);
+        const deepLinks = {
+          whatsapp: `whatsapp://send?text=${encodeURIComponent(text)}`,
+          telegram: `tg://msg?text=${encodeURIComponent(text)}`,
+          instagram: `instagram://`,
+          facebook: `fb://facewebmodal/f?href=${encodeURIComponent("https://tuktuk.app")}`,
+          twitter: `twitter://post?message=${encodeURIComponent(text)}`,
+        };
+        const url = deepLinks[platform.id];
+        const canOpen = await Linking.canOpenURL(url).catch(() => false);
+        if (canOpen) {
+          Linking.openURL(url);
+        } else {
+          await Share.share({ message: text }).catch(() => {});
+        }
+        onClose();
+      },
+      [post, onClose],
+    );
 
-  if (!post) return null;
+    const handleAction = useCallback(
+      async (action) => {
+        onClose();
+        const targetUserId = post?.userId;
+        switch (action.id) {
+          case "block":
+            onBlock(targetUserId, post?.name);
+            break;
+          case "interested":
+            try {
+              await markInterested(targetUserId);
+            } catch {
+              // Ignore — non-critical interaction.
+            }
+            break;
+          case "not_interested":
+            try {
+              await markNotInterested(targetUserId);
+            } catch {
+              // Ignore — non-critical interaction.
+            }
+            break;
+          case "report":
+            onReport?.(targetUserId, post?.name);
+            break;
+          case "delete":
+            onDelete?.(post?.id);
+            break;
+          default:
+            break;
+        }
+      },
+      [post, onClose, onBlock, onReport],
+    );
 
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={moreMenuStyles.overlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
-        <View style={moreMenuStyles.sheet}>
-          <LinearGradient
-            colors={["#1e0a3c", "#16082a", "#0d0618"]}
+    if (!post) return null;
+
+    return (
+      <Modal
+        visible={visible}
+        transparent
+        animationType="slide"
+        onRequestClose={onClose}
+      >
+        <View style={moreMenuStyles.overlay}>
+          <TouchableOpacity
             style={StyleSheet.absoluteFill}
+            onPress={onClose}
+            activeOpacity={1}
           />
-          {/* Top border glow */}
-          <LinearGradient
-            colors={["#7c4dff", "#ff4ea3"]}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={moreMenuStyles.topGlow}
-          />
-          {/* Drag handle */}
-          <View style={moreMenuStyles.handle} />
-
-          {/* ── SHARE WITH FRIENDS ── */}
-          <Text style={moreMenuStyles.sectionTitle}>Share with friends</Text>
-          {friends.length > 0 ? (
-            <FlatList
-              data={friends}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={(f) => f.id}
-              contentContainerStyle={moreMenuStyles.friendsRow}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={moreMenuStyles.friendItem} activeOpacity={0.8}>
-                  <LinearGradient
-                    colors={["#7c4dff", "#ff4ea3"]}
-                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                    style={moreMenuStyles.friendRing}
-                  >
-                    <ProfileAvatarWithFrame
-                      avatarSource={toImageSource(item.avatar)}
-                      frameSource={item.vipProfileFrameUrl}
-                      size={52}
-                      avatarStyle={moreMenuStyles.friendAvatar}
-                      {...(item.vipProfileFrameUrl
-                        ? {
-                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                            frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                            frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                            frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                            avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                          }
-                        : {})}
-                    />
-                  </LinearGradient>
-                  <Text style={moreMenuStyles.friendName} numberOfLines={1}>{item.name}</Text>
-                </TouchableOpacity>
-              )}
+          <View style={moreMenuStyles.sheet}>
+            <LinearGradient
+              colors={["#1e0a3c", "#16082a", "#0d0618"]}
+              style={StyleSheet.absoluteFill}
             />
-          ) : (
-            <Text style={moreMenuStyles.emptyFriends}>No friends to show</Text>
-          )}
+            {/* Top border glow */}
+            <LinearGradient
+              colors={["#7c4dff", "#ff4ea3"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={moreMenuStyles.topGlow}
+            />
+            {/* Drag handle */}
+            <View style={moreMenuStyles.handle} />
 
-          {/* ── SHARE ON SOCIAL ── */}
-          <Text style={moreMenuStyles.sectionTitle}>Share on</Text>
-          <View style={moreMenuStyles.platformsRow}>
-            {SOCIAL_PLATFORMS.map((p) => (
-              <TouchableOpacity
-                key={p.id}
-                style={moreMenuStyles.platformItem}
-                onPress={() => handleSocialShare(p)}
-                activeOpacity={0.75}
-              >
-                <View style={[moreMenuStyles.platformIcon, { backgroundColor: p.bg }]}>
-                  <Text style={moreMenuStyles.platformEmoji}>{p.emoji}</Text>
-                </View>
-                <Text style={moreMenuStyles.platformLabel}>{p.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+            {/* ── SHARE WITH FRIENDS ── */}
+            <Text style={moreMenuStyles.sectionTitle}>Share with friends</Text>
+            {friends.length > 0 ? (
+              <FlatList
+                data={friends}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyExtractor={(f) => f.id}
+                contentContainerStyle={moreMenuStyles.friendsRow}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={moreMenuStyles.friendItem}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={["#7c4dff", "#ff4ea3"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={moreMenuStyles.friendRing}
+                    >
+                      <ProfileAvatarWithFrame
+                        avatarSource={toImageSource(item.avatar)}
+                        frameSource={item.vipProfileFrameUrl}
+                        size={52}
+                        avatarStyle={moreMenuStyles.friendAvatar}
+                        {...(item.vipProfileFrameUrl
+                          ? {
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode:
+                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX:
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY:
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY:
+                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
+                          : {})}
+                      />
+                    </LinearGradient>
+                    <Text style={moreMenuStyles.friendName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            ) : (
+              <Text style={moreMenuStyles.emptyFriends}>
+                No friends to show
+              </Text>
+            )}
 
-          {/* Divider */}
-          <LinearGradient
-            colors={["transparent", "rgba(124,77,255,0.4)", "transparent"]}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={moreMenuStyles.divider}
-          />
-
-          {/* ── ACTION BUTTONS ── */}
-          {menuActions.map((action, i) => (
-            <View key={action.id}>
-              <TouchableOpacity
-                style={moreMenuStyles.actionRow}
-                onPress={() => handleAction(action)}
-                activeOpacity={0.75}
-              >
-                <View style={[moreMenuStyles.actionIconBox, { backgroundColor: action.color + "25" }]}>
-                  <Text style={moreMenuStyles.actionEmoji}>{action.emoji}</Text>
-                </View>
-                <Text style={[
-                  moreMenuStyles.actionLabel,
-                  action.id === "block" && { color: "#ff3f72" },
-                ]}>
-                  {action.id === "block" && post?.name ? `Block ${post.name}` : action.label}
-                </Text>
-                <Text style={moreMenuStyles.actionChevron}>›</Text>
-              </TouchableOpacity>
-              {i < menuActions.length - 1 && <View style={moreMenuStyles.actionDivider} />}
+            {/* ── SHARE ON SOCIAL ── */}
+            <Text style={moreMenuStyles.sectionTitle}>Share on</Text>
+            <View style={moreMenuStyles.platformsRow}>
+              {SOCIAL_PLATFORMS.map((p) => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={moreMenuStyles.platformItem}
+                  onPress={() => handleSocialShare(p)}
+                  activeOpacity={0.75}
+                >
+                  <View
+                    style={[
+                      moreMenuStyles.platformIcon,
+                      { backgroundColor: p.bg },
+                    ]}
+                  >
+                    <Text style={moreMenuStyles.platformEmoji}>{p.emoji}</Text>
+                  </View>
+                  <Text style={moreMenuStyles.platformLabel}>{p.label}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
-          ))}
 
-          {/* ── DELETE (own posts only) ── */}
-          {isOwnPost && (
-            <>
-              <View style={moreMenuStyles.actionDivider} />
-              <TouchableOpacity
-                style={moreMenuStyles.actionRow}
-                onPress={() => handleAction({ id: "delete" })}
-                activeOpacity={0.75}
-              >
-                <View style={[moreMenuStyles.actionIconBox, { backgroundColor: "#ff3f7225" }]}>
-                  <Text style={moreMenuStyles.actionEmoji}>🗑️</Text>
-                </View>
-                <Text style={[moreMenuStyles.actionLabel, { color: "#ff3f72" }]}>
-                  Delete Post
-                </Text>
-                <Text style={moreMenuStyles.actionChevron}>›</Text>
-              </TouchableOpacity>
-            </>
-          )}
+            {/* Divider */}
+            <LinearGradient
+              colors={["transparent", "rgba(124,77,255,0.4)", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={moreMenuStyles.divider}
+            />
 
-          <View style={moreMenuStyles.bottomPad} />
+            {/* ── ACTION BUTTONS ── */}
+            {menuActions.map((action, i) => (
+              <View key={action.id}>
+                <TouchableOpacity
+                  style={moreMenuStyles.actionRow}
+                  onPress={() => handleAction(action)}
+                  activeOpacity={0.75}
+                >
+                  <View
+                    style={[
+                      moreMenuStyles.actionIconBox,
+                      { backgroundColor: action.color + "25" },
+                    ]}
+                  >
+                    <Text style={moreMenuStyles.actionEmoji}>
+                      {action.emoji}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      moreMenuStyles.actionLabel,
+                      action.id === "block" && { color: "#ff3f72" },
+                    ]}
+                  >
+                    {action.id === "block" && post?.name
+                      ? `Block ${post.name}`
+                      : action.label}
+                  </Text>
+                  <Text style={moreMenuStyles.actionChevron}>›</Text>
+                </TouchableOpacity>
+                {i < menuActions.length - 1 && (
+                  <View style={moreMenuStyles.actionDivider} />
+                )}
+              </View>
+            ))}
+
+            {/* ── DELETE (own posts only) ── */}
+            {isOwnPost && (
+              <>
+                <View style={moreMenuStyles.actionDivider} />
+                <TouchableOpacity
+                  style={moreMenuStyles.actionRow}
+                  onPress={() => handleAction({ id: "delete" })}
+                  activeOpacity={0.75}
+                >
+                  <View
+                    style={[
+                      moreMenuStyles.actionIconBox,
+                      { backgroundColor: "#ff3f7225" },
+                    ]}
+                  >
+                    <Text style={moreMenuStyles.actionEmoji}>🗑️</Text>
+                  </View>
+                  <Text
+                    style={[moreMenuStyles.actionLabel, { color: "#ff3f72" }]}
+                  >
+                    Delete Post
+                  </Text>
+                  <Text style={moreMenuStyles.actionChevron}>›</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            <View style={moreMenuStyles.bottomPad} />
+          </View>
         </View>
-      </View>
-    </Modal>
-  );
-});
+      </Modal>
+    );
+  },
+);
 PostMoreMenu.displayName = "PostMoreMenu";
 
 const moreMenuStyles = StyleSheet.create({
@@ -612,18 +711,18 @@ const moreMenuStyles = StyleSheet.create({
 const MAX_POST_PHOTOS = 10;
 
 const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
-  const [caption, setCaption]         = useState("");
+  const [caption, setCaption] = useState("");
   // Photos and video are mutually exclusive (same convention most social
   // apps use) — photos support picking/attaching several at once, video
   // stays a single attachment.
-  const [photos, setPhotos]           = useState([]);
-  const [video, setVideo]             = useState(null);
-  const [confirmed, setConfirmed]     = useState(false); // true after user taps "Attach"
-  const [loading, setLoading]         = useState(false);
-  const captionRef                    = useRef(null);
-  const scrollRef                     = useRef(null);
+  const [photos, setPhotos] = useState([]);
+  const [video, setVideo] = useState(null);
+  const [confirmed, setConfirmed] = useState(false); // true after user taps "Attach"
+  const [loading, setLoading] = useState(false);
+  const captionRef = useRef(null);
+  const scrollRef = useRef(null);
 
-  const mediaType = video ? "video" : (photos.length > 0 ? "photo" : null);
+  const mediaType = video ? "video" : photos.length > 0 ? "photo" : null;
   const hasMedia = photos.length > 0 || Boolean(video?.uri);
 
   useEffect(() => {
@@ -644,54 +743,63 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
     setVideo(null);
   }, []);
 
-  const pickMedia = useCallback(async (type) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission needed", "Gallery access is required to attach a photo or video.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: type === "photo"
-        ? ["images"]
-        : ["videos"],
-      allowsEditing: false,
-      allowsMultipleSelection: type === "photo",
-      selectionLimit: type === "photo" ? MAX_POST_PHOTOS : 1,
-      quality: 0.85,
-      videoMaxDuration: 60,
-    });
-    if (result.canceled || !result.assets?.length) return;
-    if (type === "photo") {
-      addPhotos(result.assets);
-    } else {
-      setVideo(result.assets[0]);
-      setPhotos([]);
-    }
-    setConfirmed(true);
-  }, [addPhotos]);
+  const pickMedia = useCallback(
+    async (type) => {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission needed",
+          "Gallery access is required to attach a photo or video.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: type === "photo" ? ["images"] : ["videos"],
+        allowsEditing: false,
+        allowsMultipleSelection: type === "photo",
+        selectionLimit: type === "photo" ? MAX_POST_PHOTOS : 1,
+        quality: 0.85,
+        videoMaxDuration: 60,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      if (type === "photo") {
+        addPhotos(result.assets);
+      } else {
+        setVideo(result.assets[0]);
+        setPhotos([]);
+      }
+      setConfirmed(true);
+    },
+    [addPhotos],
+  );
 
-  const openCamera = useCallback(async (type) => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission needed", "Camera access is required to take a photo or video.");
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: type === "photo"
-        ? ["images"]
-        : ["videos"],
-      allowsEditing: false,
-      quality: 0.85,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    if (type === "photo") {
-      addPhotos([result.assets[0]]);
-    } else {
-      setVideo(result.assets[0]);
-      setPhotos([]);
-    }
-    setConfirmed(true);
-  }, [addPhotos]);
+  const openCamera = useCallback(
+    async (type) => {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission needed",
+          "Camera access is required to take a photo or video.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: type === "photo" ? ["images"] : ["videos"],
+        allowsEditing: false,
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      if (type === "photo") {
+        addPhotos([result.assets[0]]);
+      } else {
+        setVideo(result.assets[0]);
+        setPhotos([]);
+      }
+      setConfirmed(true);
+    },
+    [addPhotos],
+  );
 
   const removePhotoAt = useCallback((index) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -711,7 +819,7 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
     if (photos.length !== 1) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: true,   // native crop UI
+      allowsEditing: true, // native crop UI
       quality: 0.85,
     });
     if (!result.canceled && result.assets?.[0]) {
@@ -729,7 +837,7 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
     } catch (e) {
       Alert.alert(
         "Post failed",
-        e?.message || "Could not create your post. Please try again."
+        e?.message || "Could not create your post. Please try again.",
       );
     } finally {
       setLoading(false);
@@ -739,68 +847,148 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
   const canPost = caption.trim().length > 0 || hasMedia;
   const showComposer = !hasMedia || confirmed;
 
+  const renderPhotosItem = ({ item, index }) => {
+    return (
+      <View key={index} style={[postCreateStyles.photoItem]}>
+        <Image
+          source={{ uri: item.uri }}
+          style={postCreateStyles.confirmedThumbImg1}
+          contentFit="cover"
+        />
+        <TouchableOpacity
+          style={postCreateStyles.removeBtnSmall}
+          onPress={() => removePhotoAt(index)}
+        >
+          <Text style={postCreateStyles.removeTxt}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <View style={postCreateStyles.overlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          activeOpacity={1}
+        />
+        <View
+          style={{
+            width: "100%",
+            justifyContent: "flex-end",
+            paddingBottom: 45,
+            flexGrow: 1,
+          }}
+        >
           <View style={postCreateStyles.sheet}>
-            <LinearGradient colors={["#1e0a3c", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
-            <LinearGradient colors={["#7c4dff", "#ff4ea3"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={postCreateStyles.topGlow} />
+            <LinearGradient
+              colors={["#1e0a3c", "#16082a", "#0d0618"]}
+              // colors={["#1e0a3c", "#16082a", "#6308f5ff"]}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={["#7c4dff", "#ff4ea3"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={postCreateStyles.topGlow}
+            />
             <View style={postCreateStyles.handle} />
 
             {/* ── HEADER ── */}
             <View style={postCreateStyles.header}>
               <Text style={postCreateStyles.title}>Create Post</Text>
-              <TouchableOpacity onPress={onClose} style={postCreateStyles.closeBtn}>
+              <TouchableOpacity
+                onPress={onClose}
+                style={postCreateStyles.closeBtn}
+              >
                 <Text style={postCreateStyles.closeTxt}>✕</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView
+            <KeyboardAwareScrollView
               ref={scrollRef}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 24 }}
+              contentContainerStyle={{ paddingBottom: 48 }}
+              enableOnAndroid={true}
+              extraScrollHeight={70}
             >
               {/* ── STEP 1: media picker (hidden after confirmed) ── */}
+              <View style={postCreateStyles.mediaRow}>
+                <TouchableOpacity
+                  style={postCreateStyles.mediaCard}
+                  onPress={() => pickMedia("photo")}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["rgba(124,77,255,0.25)", "rgba(124,77,255,0.08)"]}
+                    style={postCreateStyles.mediaCardGrad}
+                  >
+                    <Text style={postCreateStyles.mediaCardEmoji}>🖼️</Text>
+                    <Text style={postCreateStyles.mediaCardLabel}>Gallery</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={postCreateStyles.mediaCard}
+                  onPress={() => openCamera("photo")}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["rgba(255,78,163,0.25)", "rgba(255,78,163,0.08)"]}
+                    style={postCreateStyles.mediaCardGrad}
+                  >
+                    <Text style={postCreateStyles.mediaCardEmoji}>📷</Text>
+                    <Text style={postCreateStyles.mediaCardLabel}>Camera</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={postCreateStyles.mediaCard}
+                  onPress={() => pickMedia("video")}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["rgba(255,107,53,0.25)", "rgba(255,107,53,0.08)"]}
+                    style={postCreateStyles.mediaCardGrad}
+                  >
+                    <Text style={postCreateStyles.mediaCardEmoji}>🎬</Text>
+                    <Text style={postCreateStyles.mediaCardLabel}>Video</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={postCreateStyles.mediaCard}
+                  onPress={() => openCamera("video")}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["rgba(0,180,216,0.25)", "rgba(0,180,216,0.08)"]}
+                    style={postCreateStyles.mediaCardGrad}
+                  >
+                    <Text style={postCreateStyles.mediaCardEmoji}>🎥</Text>
+                    <Text style={postCreateStyles.mediaCardLabel}>Record</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
               {!confirmed && (
                 <>
-                  <View style={postCreateStyles.mediaRow}>
-                    <TouchableOpacity style={postCreateStyles.mediaCard} onPress={() => pickMedia("photo")} activeOpacity={0.8}>
-                      <LinearGradient colors={["rgba(124,77,255,0.25)", "rgba(124,77,255,0.08)"]} style={postCreateStyles.mediaCardGrad}>
-                        <Text style={postCreateStyles.mediaCardEmoji}>🖼️</Text>
-                        <Text style={postCreateStyles.mediaCardLabel}>Gallery</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={postCreateStyles.mediaCard} onPress={() => openCamera("photo")} activeOpacity={0.8}>
-                      <LinearGradient colors={["rgba(255,78,163,0.25)", "rgba(255,78,163,0.08)"]} style={postCreateStyles.mediaCardGrad}>
-                        <Text style={postCreateStyles.mediaCardEmoji}>📷</Text>
-                        <Text style={postCreateStyles.mediaCardLabel}>Camera</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={postCreateStyles.mediaCard} onPress={() => pickMedia("video")} activeOpacity={0.8}>
-                      <LinearGradient colors={["rgba(255,107,53,0.25)", "rgba(255,107,53,0.08)"]} style={postCreateStyles.mediaCardGrad}>
-                        <Text style={postCreateStyles.mediaCardEmoji}>🎬</Text>
-                        <Text style={postCreateStyles.mediaCardLabel}>Video</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={postCreateStyles.mediaCard} onPress={() => openCamera("video")} activeOpacity={0.8}>
-                      <LinearGradient colors={["rgba(0,180,216,0.25)", "rgba(0,180,216,0.08)"]} style={postCreateStyles.mediaCardGrad}>
-                        <Text style={postCreateStyles.mediaCardEmoji}>🎥</Text>
-                        <Text style={postCreateStyles.mediaCardLabel}>Record</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
-
                   {/* ── FULL PREVIEW + BOTTOM ACTION BUTTONS ── */}
                   {hasMedia && (
                     <View style={postCreateStyles.confirmBlock}>
                       {video ? (
                         <View style={postCreateStyles.previewWrapper}>
-                          <Image source={{ uri: video.uri }} style={postCreateStyles.preview} contentFit="cover" />
+                          <Image
+                            source={{ uri: video.uri }}
+                            style={postCreateStyles.preview}
+                            contentFit="cover"
+                          />
                           <View style={postCreateStyles.videoOverlay}>
-                            <Text style={postCreateStyles.videoPlayIcon}>▶</Text>
+                            <Text style={postCreateStyles.videoPlayIcon}>
+                              ▶
+                            </Text>
                           </View>
                           <TouchableOpacity
                             style={postCreateStyles.removeBtn}
@@ -813,17 +1001,28 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                         <ScrollView
                           horizontal
                           showsHorizontalScrollIndicator={false}
-                          contentContainerStyle={postCreateStyles.photoStripContent}
+                          contentContainerStyle={
+                            postCreateStyles.photoStripContent
+                          }
                           style={postCreateStyles.photoStrip}
                         >
                           {photos.map((photo, index) => (
-                            <View key={photo.uri} style={postCreateStyles.photoStripItem}>
-                              <Image source={{ uri: photo.uri }} style={postCreateStyles.photoStripImg} contentFit="cover" />
+                            <View
+                              key={photo.uri}
+                              style={postCreateStyles.photoStripItem}
+                            >
+                              <Image
+                                source={{ uri: photo.uri }}
+                                style={postCreateStyles.photoStripImg}
+                                contentFit="cover"
+                              />
                               <TouchableOpacity
                                 style={postCreateStyles.removeBtnSmall}
                                 onPress={() => removePhotoAt(index)}
                               >
-                                <Text style={postCreateStyles.removeTxt}>✕</Text>
+                                <Text style={postCreateStyles.removeTxt}>
+                                  ✕
+                                </Text>
                               </TouchableOpacity>
                             </View>
                           ))}
@@ -833,7 +1032,9 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                               activeOpacity={0.8}
                               onPress={() => pickMedia("photo")}
                             >
-                              <Text style={postCreateStyles.photoStripAddTxt}>＋</Text>
+                              <Text style={postCreateStyles.photoStripAddTxt}>
+                                ＋
+                              </Text>
                             </TouchableOpacity>
                           )}
                         </ScrollView>
@@ -852,21 +1053,39 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                             onPress={handleCrop}
                             activeOpacity={0.8}
                           >
-                            <Text style={postCreateStyles.previewActionEmoji}>✂️</Text>
-                            <Text style={postCreateStyles.previewActionLabel}>Crop</Text>
+                            <Text style={postCreateStyles.previewActionEmoji}>
+                              ✂️
+                            </Text>
+                            <Text style={postCreateStyles.previewActionLabel}>
+                              Crop
+                            </Text>
                           </TouchableOpacity>
                         )}
 
                         {!video && (
                           <>
-                            <TouchableOpacity style={postCreateStyles.previewActionBtn} activeOpacity={0.8}>
-                              <Text style={postCreateStyles.previewActionEmoji}>🔄</Text>
-                              <Text style={postCreateStyles.previewActionLabel}>Rotate</Text>
+                            <TouchableOpacity
+                              style={postCreateStyles.previewActionBtn}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={postCreateStyles.previewActionEmoji}>
+                                🔄
+                              </Text>
+                              <Text style={postCreateStyles.previewActionLabel}>
+                                Rotate
+                              </Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={postCreateStyles.previewActionBtn} activeOpacity={0.8}>
-                              <Text style={postCreateStyles.previewActionEmoji}>↔️</Text>
-                              <Text style={postCreateStyles.previewActionLabel}>Flip</Text>
+                            <TouchableOpacity
+                              style={postCreateStyles.previewActionBtn}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={postCreateStyles.previewActionEmoji}>
+                                ↔️
+                              </Text>
+                              <Text style={postCreateStyles.previewActionLabel}>
+                                Flip
+                              </Text>
                             </TouchableOpacity>
                           </>
                         )}
@@ -879,13 +1098,17 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                         >
                           <LinearGradient
                             colors={["#7c4dff", "#a855f7"]}
-                            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
                             style={postCreateStyles.previewDoneGrad}
                           >
-                            {loading
-                              ? <ActivityIndicator color="white" size="small" />
-                              : <Text style={postCreateStyles.previewDoneTxt}>✓  Done</Text>
-                            }
+                            {loading ? (
+                              <ActivityIndicator color="white" size="small" />
+                            ) : (
+                              <Text style={postCreateStyles.previewDoneTxt}>
+                                ✓ Done
+                              </Text>
+                            )}
                           </LinearGradient>
                         </TouchableOpacity>
                       </View>
@@ -897,37 +1120,47 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
               {/* ── STEP 2: confirmed — show thumbnail(s) + caption + post ── */}
               {confirmed && hasMedia && (
                 <View style={postCreateStyles.confirmedCard}>
-                  <LinearGradient
+                  {/* <LinearGradient
                     colors={["rgba(124,77,255,0.22)", "rgba(255,78,163,0.12)"]}
-                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFill}
-                  />
-                  <View style={postCreateStyles.confirmedThumbBox}>
-                    <Image
-                      source={{ uri: video ? video.uri : photos[0].uri }}
-                      style={postCreateStyles.confirmedThumbImg}
-                      contentFit="cover"
-                    />
-                    {video && (
+                  /> */}
+                  {video && (
+                    <View style={postCreateStyles.confirmedThumbBox}>
+                      <Image
+                        source={{ uri: video ? video.uri : photos[0].uri }}
+                        style={postCreateStyles.confirmedThumbImg}
+                        contentFit="cover"
+                      />
                       <View style={postCreateStyles.thumbVideoOverlay}>
                         <Text style={postCreateStyles.thumbVideoIcon}>▶</Text>
                       </View>
-                    )}
-                    {photos.length > 1 && (
-                      <View style={postCreateStyles.thumbCountBadge}>
-                        <Text style={postCreateStyles.thumbCountTxt}>+{photos.length - 1}</Text>
-                      </View>
-                    )}
-                    <View style={postCreateStyles.thumbTick}>
-                      <Text style={postCreateStyles.thumbTickTxt}>✓</Text>
                     </View>
-                  </View>
+                  )}
+                  {!video && (
+                    <View style={postCreateStyles.photoStrip}>
+                      <FlatList
+                        data={photos}
+                        extraData={photos}
+                        numColumns={4}
+                        style={{
+                          marginTop: 10,
+                        }}
+                        renderItem={renderPhotosItem}
+                      />
+                    </View>
+                  )}
                   <Text style={postCreateStyles.confirmedLabel}>
                     {video
                       ? "🎬 Video attached"
                       : `📷 ${photos.length} photo${photos.length > 1 ? "s" : ""} attached`}
                   </Text>
-                  <TouchableOpacity onPress={() => { setConfirmed(false); }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setConfirmed(false);
+                    }}
+                  >
                     <Text style={postCreateStyles.changeMediaTxt}>Change</Text>
                   </TouchableOpacity>
                 </View>
@@ -946,32 +1179,37 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                     multiline
                     maxLength={500}
                   />
-                  <Text style={postCreateStyles.charCount}>{caption.length}/500</Text>
+                  <Text style={postCreateStyles.charCount}>
+                    {caption.length}/500
+                  </Text>
                 </View>
               )}
-
-              {showComposer && (
-                <TouchableOpacity
-                  onPress={handlePost}
-                  disabled={!canPost || loading}
-                  activeOpacity={0.85}
-                  style={postCreateStyles.postBtnOuter}
+            </KeyboardAwareScrollView>
+            {showComposer && (
+              <TouchableOpacity
+                onPress={handlePost}
+                disabled={!canPost || loading}
+                activeOpacity={0.85}
+                style={postCreateStyles.postBtnOuter}
+              >
+                <LinearGradient
+                  colors={
+                    canPost ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={postCreateStyles.postBtnGrad}
                 >
-                  <LinearGradient
-                    colors={canPost ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]}
-                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                    style={postCreateStyles.postBtnGrad}
-                  >
-                    {loading
-                      ? <ActivityIndicator color="white" size="small" />
-                      : <Text style={postCreateStyles.postBtnTxt}>✦  Post</Text>
-                    }
-                  </LinearGradient>
-                </TouchableOpacity>
-              )}
-            </ScrollView>
+                  {loading ? (
+                    <ActivityIndicator color="white" size="small" />
+                  ) : (
+                    <Text style={postCreateStyles.postBtnTxt}>✦ Post</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </View>
     </Modal>
   );
@@ -984,20 +1222,25 @@ const postCreateStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.65)",
-    paddingHorizontal: 16,
   },
   sheet: {
     width: "100%",
-    borderRadius: 28,
+    justifyContent: "flex-end",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     overflow: "hidden",
     paddingHorizontal: 18,
-    maxHeight: SCREEN_HEIGHT * 0.88,
+    height: SCREEN_HEIGHT * 0.88,
   },
   topGlow: { height: 2, width: "100%" },
   handle: {
-    width: 42, height: 4, borderRadius: 2,
+    width: 42,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.22)",
-    alignSelf: "center", marginTop: 14, marginBottom: 18,
+    alignSelf: "center",
+    marginTop: 14,
+    marginBottom: 18,
   },
   header: {
     flexDirection: "row",
@@ -1005,67 +1248,117 @@ const postCreateStyles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 20,
   },
-  title: { color: "#ffffff", fontSize: 18, fontWeight: "700", letterSpacing: 0.3 },
+  title: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
   closeBtn: {
-    width: 32, height: 32, borderRadius: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   closeTxt: { color: "rgba(255,255,255,0.7)", fontSize: 14 },
 
   // Media picker row
   mediaRow: { flexDirection: "row", gap: 10, marginBottom: 18 },
   mediaCard: {
-    flex: 1, borderRadius: 14, overflow: "hidden",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    flex: 1,
+    borderRadius: 14,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
   mediaCardGrad: { paddingVertical: 14, alignItems: "center", gap: 6 },
   mediaCardEmoji: { fontSize: 24 },
-  mediaCardLabel: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600" },
+  mediaCardLabel: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 11,
+    fontWeight: "600",
+  },
 
   // Full preview (step 1)
   confirmBlock: { marginBottom: 4 },
-  previewWrapper: { height: 220, borderRadius: 16, overflow: "hidden", marginBottom: 12 },
+  previewWrapper: {
+    height: 220,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
   preview: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
   videoOverlay: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.3)",
   },
   videoPlayIcon: { fontSize: 36, color: "white" },
   removeBtn: {
-    position: "absolute", top: 8, right: 8,
-    width: 28, height: 28, borderRadius: 14,
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   removeBtnSmall: {
-    position: "absolute", top: 4, right: 4,
-    width: 20, height: 20, borderRadius: 10,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    alignItems: "center", justifyContent: "center",
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#ff0000ff",
+    alignItems: "center",
+    justifyContent: "center",
   },
   removeTxt: { color: "white", fontSize: 12 },
 
   // Multi-photo strip (step 1)
-  photoStrip: { marginBottom: 4 },
-  photoStripContent: { gap: 10, paddingRight: 4 },
+  photoStrip: { marginBottom: 4, flex: 1 },
+  photoStripContent: { gap: 10, paddingRight: 4, justifyContent: "center" },
   photoStripItem: {
-    width: 96, height: 96, borderRadius: 14,
-    overflow: "hidden", position: "relative",
+    width: 96,
+    height: 96,
+    borderRadius: 14,
+    overflow: "hidden",
+    position: "relative",
+  },
+  photoItem: {
+    width: SCREEN_WIDTH / 5.5,
+    height: SCREEN_WIDTH / 5.5,
+    borderRadius: 14,
+    overflow: "hidden",
+    marginHorizontal: 5,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
   },
   photoStripImg: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
   photoStripAdd: {
-    width: 96, height: 96, borderRadius: 14,
-    borderWidth: 1.5, borderColor: "rgba(167,139,250,0.35)",
+    width: 96,
+    height: 96,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "rgba(167,139,250,0.35)",
     borderStyle: "dashed",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "rgba(124,77,255,0.08)",
   },
   photoStripAddTxt: { color: "#b388ff", fontSize: 26, fontWeight: "300" },
   photoCountTxt: {
-    color: "rgba(255,255,255,0.45)", fontSize: 12,
-    marginTop: 8, marginBottom: 4,
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
+    marginTop: 8,
+    marginBottom: 4,
   },
 
   // Bottom action bar on preview (Rotate · Flip · Done)
@@ -1090,13 +1383,21 @@ const postCreateStyles = StyleSheet.create({
     gap: 4,
   },
   previewActionEmoji: { fontSize: 20 },
-  previewActionLabel: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "600" },
+  previewActionLabel: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
   previewDoneBtn: { flex: 2, borderRadius: 16, overflow: "hidden" },
   previewDoneGrad: {
     paddingVertical: 14,
-    alignItems: "center", justifyContent: "center",
-    shadowColor: "#7c3aed", shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5, shadowRadius: 12, elevation: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c3aed",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
   },
   previewDoneTxt: { color: "white", fontSize: 15, fontWeight: "800" },
 
@@ -1109,16 +1410,10 @@ const postCreateStyles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 22,
     overflow: "hidden",
+    paddingBottom: 10,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.3)",
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    marginBottom: 14,
-    shadowColor: "#7c4dff",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 18,
-    elevation: 10,
   },
   confirmedThumbBox: {
     width: 148,
@@ -1126,7 +1421,7 @@ const postCreateStyles = StyleSheet.create({
     borderRadius: 20,
     overflow: "hidden",
     position: "relative",
-    marginBottom: 12,
+    marginVertical: 12,
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.18)",
     shadowColor: "#000",
@@ -1135,7 +1430,17 @@ const postCreateStyles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-  confirmedThumbImg: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
+  confirmedThumbImg: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#1a0a2e",
+  },
+  confirmedThumbImg1: {
+    width: SCREEN_WIDTH / 5.5,
+    height: SCREEN_WIDTH / 5.5,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
   thumbVideoOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
@@ -1144,20 +1449,35 @@ const postCreateStyles = StyleSheet.create({
   },
   thumbVideoIcon: { fontSize: 34, color: "white" },
   thumbTick: {
-    position: "absolute", bottom: 6, right: 6,
-    width: 24, height: 24, borderRadius: 12,
+    position: "absolute",
+    bottom: 6,
+    right: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: "#22c55e",
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: "rgba(13,6,24,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(13,6,24,0.9)",
   },
   thumbTickTxt: { color: "white", fontSize: 12, fontWeight: "700" },
   thumbCountBadge: {
-    position: "absolute", top: 6, left: 6,
-    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 10,
+    position: "absolute",
+    top: 6,
+    left: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 10,
     backgroundColor: "rgba(0,0,0,0.65)",
   },
   thumbCountTxt: { color: "white", fontSize: 11, fontWeight: "700" },
-  confirmedLabel: { color: "#c4b5fd", fontSize: 13.5, fontWeight: "700", marginBottom: 4 },
+  confirmedLabel: {
+    color: "#c4b5fd",
+    fontSize: 13.5,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
 
   // Caption input
   inputWrapper: {
@@ -1166,15 +1486,15 @@ const postCreateStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 16,
-    minHeight: 50,
+    paddingBottom: 10,
+    marginBottom: 15,
+    minHeight: 150,
   },
   captionInput: {
     color: "#ffffff",
     fontSize: 14,
     lineHeight: 20,
-    minHeight: 24,
+    minHeight: 120,
     textAlignVertical: "top",
   },
   charCount: {
@@ -1185,11 +1505,15 @@ const postCreateStyles = StyleSheet.create({
   },
 
   // Post button
-  postBtnOuter: { borderRadius: 26, overflow: "hidden" },
+  postBtnOuter: { borderRadius: 26, overflow: "hidden", marginBottom: 20 },
   postBtnGrad: { height: 52, alignItems: "center", justifyContent: "center" },
-  postBtnTxt: { color: "white", fontSize: 16, fontWeight: "700", letterSpacing: 0.5 },
+  postBtnTxt: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
 });
-
 // ── Floating Action Button ─────────────────────────────────────
 const PostFAB = memo(({ onPress }) => (
   <TouchableOpacity
@@ -1199,7 +1523,8 @@ const PostFAB = memo(({ onPress }) => (
   >
     <LinearGradient
       colors={["#7c4dff", "#ff4ea3"]}
-      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
       style={fabStyles.gradient}
     >
       <Text style={fabStyles.icon}>+</Text>
@@ -1211,7 +1536,7 @@ PostFAB.displayName = "PostFAB";
 const fabStyles = StyleSheet.create({
   fab: {
     position: "absolute",
-    bottom: 90,
+    bottom: 40,
     right: 18,
     width: 56,
     height: 56,
@@ -1224,7 +1549,8 @@ const fabStyles = StyleSheet.create({
     zIndex: 100,
   },
   gradient: {
-    width: 56, height: 56,
+    width: 56,
+    height: 56,
     borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
@@ -1252,19 +1578,16 @@ const QUICK_EMOJIS = ["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", 
 // ── Comment Sheet ─────────────────────────────────────────────
 const CommentSheet = memo(({ visible, postId, onClose }) => {
   const insets = useSafeAreaInsets();
-  const [comments, setComments]     = useState([]);
-  const [text, setText]             = useState("");
-  const [loading, setLoading]       = useState(false);
-  const [sending, setSending]       = useState(false);
-  const [likedComments, setLiked]   = useState([]);
+  const [comments, setComments] = useState([]);
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [likedComments, setLiked] = useState([]);
   const [composerHeight, setComposerHeight] = useState(0);
   const [windowHeight, setWindowHeight] = useState(SCREEN_HEIGHT);
   const baselineWindowHeight = useRef(SCREEN_HEIGHT);
-  const inputRef                    = useRef(null);
-  const {
-    keyboardHeight,
-    syncKeyboardHeight,
-  } = useModalKeyboardInset(visible);
+  const inputRef = useRef(null);
+  const { keyboardHeight, syncKeyboardHeight } = useModalKeyboardInset(visible);
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -1279,16 +1602,18 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
   }, [visible]);
 
   // Lift only what adjustResize did not already handle — keeps input flush on the keyboard.
-  const resizeLift = keyboardHeight > 0
-    ? Math.max(0, baselineWindowHeight.current - windowHeight)
-    : 0;
-  const keyboardLift = keyboardHeight > 0
-    ? resizeLift >= keyboardHeight * 0.75
-      ? 0
-      : resizeLift <= 0
-        ? keyboardHeight
-        : Math.max(0, keyboardHeight - resizeLift)
-    : 0;
+  const resizeLift =
+    keyboardHeight > 0
+      ? Math.max(0, baselineWindowHeight.current - windowHeight)
+      : 0;
+  const keyboardLift =
+    keyboardHeight > 0
+      ? resizeLift >= keyboardHeight * 0.75
+        ? 0
+        : resizeLift <= 0
+          ? keyboardHeight
+          : Math.max(0, keyboardHeight - resizeLift)
+      : 0;
 
   // Load comments whenever sheet opens
   useEffect(() => {
@@ -1298,16 +1623,16 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
     setLoading(true);
     getPostComments(postId)
       .then((data) => {
-
         let list = [];
-        if (Array.isArray(data))                          list = data;
-        else if (Array.isArray(data?.content))            list = data.content;
-        else if (Array.isArray(data?.comments))           list = data.comments;
-        else if (Array.isArray(data?.comments?.content))  list = data.comments.content;
-        else if (Array.isArray(data?.data))               list = data.data;
-        else if (Array.isArray(data?.data?.content))      list = data.data.content;
-        else if (Array.isArray(data?.items))              list = data.items;
-        else if (Array.isArray(data?.result))             list = data.result;
+        if (Array.isArray(data)) list = data;
+        else if (Array.isArray(data?.content)) list = data.content;
+        else if (Array.isArray(data?.comments)) list = data.comments;
+        else if (Array.isArray(data?.comments?.content))
+          list = data.comments.content;
+        else if (Array.isArray(data?.data)) list = data.data;
+        else if (Array.isArray(data?.data?.content)) list = data.data.content;
+        else if (Array.isArray(data?.items)) list = data.items;
+        else if (Array.isArray(data?.result)) list = data.result;
 
         setComments(list);
       })
@@ -1341,7 +1666,9 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
       const saved = await addComment(postId, draft);
       // Replace temp with real saved comment, keep temp data as fallback
       setComments((prev) =>
-        prev.map((c) => c.id === temp.id ? { ...c, ...(saved ?? {}), _temp: false } : c)
+        prev.map((c) =>
+          c.id === temp.id ? { ...c, ...(saved ?? {}), _temp: false } : c,
+        ),
       );
     } catch {
       setComments((prev) => prev.filter((c) => c.id !== temp.id));
@@ -1351,72 +1678,112 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
     }
   }, [text, sending, postId]);
 
-  const handleQuickEmoji = useCallback((emoji) => {
-    setText((prev) => prev + emoji);
-    inputRef.current?.focus();
-    syncKeyboardHeight();
-  }, [syncKeyboardHeight]);
+  const handleQuickEmoji = useCallback(
+    (emoji) => {
+      setText((prev) => prev + emoji);
+      inputRef.current?.focus();
+      syncKeyboardHeight();
+    },
+    [syncKeyboardHeight],
+  );
 
-  const handleReply = useCallback((userName) => {
-    setText(`@${userName} `);
-    inputRef.current?.focus();
-    syncKeyboardHeight();
-  }, [syncKeyboardHeight]);
+  const handleReply = useCallback(
+    (userName) => {
+      setText(`@${userName} `);
+      inputRef.current?.focus();
+      syncKeyboardHeight();
+    },
+    [syncKeyboardHeight],
+  );
 
   const toggleCommentLike = useCallback((id) => {
     setLiked((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }, []);
 
-  const renderComment = useCallback(({ item }) => {
-    const avatarUri   = item.user?.avatar ?? item.user?.avatarUrl ?? item.author?.avatar ?? null;
-    const userName    = item.user?.name ?? item.user?.username ?? item.author?.name ?? item.userName ?? "User";
-    const commentText = item.text ?? item.content ?? item.comment ?? item.body ?? "";
-    const ts          = item.createdAt ?? item.timestamp ?? item.created_at ?? null;
-    const isLikedC    = likedComments.includes(item.id);
+  const renderComment = useCallback(
+    ({ item }) => {
+      const avatarUri =
+        item.user?.avatar ??
+        item.user?.avatarUrl ??
+        item.author?.avatar ??
+        null;
+      const userName =
+        item.user?.name ??
+        item.user?.username ??
+        item.author?.name ??
+        item.userName ??
+        "User";
+      const commentText =
+        item.text ?? item.content ?? item.comment ?? item.body ?? "";
+      const ts = item.createdAt ?? item.timestamp ?? item.created_at ?? null;
+      const isLikedC = likedComments.includes(item.id);
 
-    return (
-      <View style={cs.row}>
-        {/* Avatar with gradient ring */}
-        <LinearGradient colors={["#7c4dff", "#ff4ea3"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={cs.ring}>
-          <View style={cs.ringInner}>
-            {avatarUri
-              ? <Image source={toImageSource(avatarUri)} style={cs.avatarImg} cachePolicy="memory-disk" />
-              : <Text style={cs.avatarFallback}>👤</Text>
-            }
-          </View>
-        </LinearGradient>
+      return (
+        <View style={cs.row}>
+          {/* Avatar with gradient ring */}
+          <LinearGradient
+            colors={["#7c4dff", "#ff4ea3"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={cs.ring}
+          >
+            <View style={cs.ringInner}>
+              {avatarUri ? (
+                <Image
+                  source={toImageSource(avatarUri)}
+                  style={cs.avatarImg}
+                  cachePolicy="memory-disk"
+                />
+              ) : (
+                <Text style={cs.avatarFallback}>👤</Text>
+              )}
+            </View>
+          </LinearGradient>
 
-        {/* Text block */}
-        <View style={cs.bubble}>
-          <View style={cs.metaRow}>
-            <Text style={cs.username}>{userName}</Text>
-            <Text style={cs.timeText}>{timeAgo(ts)}</Text>
+          {/* Text block */}
+          <View style={cs.bubble}>
+            <View style={cs.metaRow}>
+              <Text style={cs.username}>{userName}</Text>
+              <Text style={cs.timeText}>{timeAgo(ts)}</Text>
+            </View>
+            <Text style={cs.commentText}>{commentText}</Text>
+            <TouchableOpacity onPress={() => handleReply(userName)}>
+              <Text style={cs.replyBtn}>Reply</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={cs.commentText}>{commentText}</Text>
-          <TouchableOpacity onPress={() => handleReply(userName)}>
-            <Text style={cs.replyBtn}>Reply</Text>
+
+          {/* Like heart */}
+          <TouchableOpacity
+            style={cs.heartBtn}
+            onPress={() => toggleCommentLike(item.id)}
+          >
+            <Text style={[cs.heartIcon, isLikedC && cs.heartIconLiked]}>
+              {isLikedC ? "❤️" : "🤍"}
+            </Text>
           </TouchableOpacity>
         </View>
-
-        {/* Like heart */}
-        <TouchableOpacity style={cs.heartBtn} onPress={() => toggleCommentLike(item.id)}>
-          <Text style={[cs.heartIcon, isLikedC && cs.heartIconLiked]}>
-            {isLikedC ? "❤️" : "🤍"}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }, [likedComments, handleReply, toggleCommentLike]);
+      );
+    },
+    [likedComments, handleReply, toggleCommentLike],
+  );
 
   if (!visible) return null;
 
   return (
     <View style={cs.hostOverlay}>
       <View style={cs.fullSheet}>
-        <LinearGradient colors={["#1e0a3c", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
-        <LinearGradient colors={["#7c4dff", "#ff4ea3"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={cs.topGlow} />
+        <LinearGradient
+          colors={["#1e0a3c", "#16082a", "#0d0618"]}
+          style={StyleSheet.absoluteFill}
+        />
+        <LinearGradient
+          colors={["#7c4dff", "#ff4ea3"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={cs.topGlow}
+        />
 
         <View style={[cs.sheetTop, { paddingTop: Math.max(insets.top, 12) }]}>
           <View style={cs.handle} />
@@ -1457,18 +1824,21 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
             </View>
           ) : (
             comments.map((item, i) => (
-              <View key={String(item.id ?? i)}>
-                {renderComment({ item })}
-              </View>
+              <View key={String(item.id ?? i)}>{renderComment({ item })}</View>
             ))
           )}
         </ScrollView>
 
         <View
           style={[cs.composerDock, cs.composerFloat, { bottom: keyboardLift }]}
-          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+          onLayout={(event) =>
+            setComposerHeight(event.nativeEvent.layout.height)
+          }
         >
-          <LinearGradient colors={["#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+          <LinearGradient
+            colors={["#16082a", "#0d0618"]}
+            style={StyleSheet.absoluteFill}
+          />
 
           <ScrollView
             horizontal
@@ -1478,7 +1848,12 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
             keyboardShouldPersistTaps="handled"
           >
             {QUICK_EMOJIS.map((e) => (
-              <TouchableOpacity key={e} style={cs.emojiBtn} onPress={() => handleQuickEmoji(e)} activeOpacity={0.7}>
+              <TouchableOpacity
+                key={e}
+                style={cs.emojiBtn}
+                onPress={() => handleQuickEmoji(e)}
+                activeOpacity={0.7}
+              >
                 <Text style={cs.emojiTxt}>{e}</Text>
               </TouchableOpacity>
             ))}
@@ -1507,15 +1882,18 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
               activeOpacity={0.85}
             >
               <LinearGradient
-                colors={text.trim() ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]}
+                colors={
+                  text.trim() ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]
+                }
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={[cs.sendBtn, (!text.trim() || sending) && cs.sendBtnOff]}
               >
-                {sending
-                  ? <ActivityIndicator color="white" size="small" />
-                  : <Text style={cs.sendIcon}>➤</Text>
-                }
+                {sending ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : (
+                  <Text style={cs.sendIcon}>➤</Text>
+                )}
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -1543,24 +1921,38 @@ const cs = StyleSheet.create({
   },
   topGlow: { height: 2 },
   handle: {
-    width: 44, height: 4, borderRadius: 2,
+    width: 44,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.2)",
-    alignSelf: "center", marginTop: 8, marginBottom: 14,
+    alignSelf: "center",
+    marginTop: 8,
+    marginBottom: 14,
   },
   header: {
-    flexDirection: "row", alignItems: "center",
-    justifyContent: "space-between", marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
   },
   title: { color: "#fff", fontSize: 16, fontWeight: "700" },
   closeBtn: {
-    width: 28, height: 28, borderRadius: 14,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   closeTxt: { color: "rgba(255,255,255,0.65)", fontSize: 13 },
   divider: { height: 1, marginBottom: 10 },
 
-  loadingBox: { flex: 1, minHeight: 160, alignItems: "center", justifyContent: "center" },
+  loadingBox: {
+    flex: 1,
+    minHeight: 160,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   listFill: {
     flex: 1,
     paddingHorizontal: 16,
@@ -1583,10 +1975,12 @@ const cs = StyleSheet.create({
   },
   ring: { width: 44, height: 44, borderRadius: 22, padding: 2 },
   ringInner: {
-    flex: 1, borderRadius: 20,
+    flex: 1,
+    borderRadius: 20,
     overflow: "hidden",
     backgroundColor: "#1a0a2e",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarImg: { width: "100%", height: "100%" },
   avatarFallback: { fontSize: 20 },
@@ -1594,7 +1988,11 @@ const cs = StyleSheet.create({
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   username: { color: "#e0ccff", fontSize: 13, fontWeight: "700" },
   timeText: { color: "rgba(255,255,255,0.35)", fontSize: 11 },
-  commentText: { color: "rgba(255,255,255,0.88)", fontSize: 14, lineHeight: 20 },
+  commentText: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 14,
+    lineHeight: 20,
+  },
   replyBtn: { color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 2 },
   heartBtn: { paddingTop: 2, paddingLeft: 4 },
   heartIcon: { fontSize: 16 },
@@ -1629,9 +2027,12 @@ const cs = StyleSheet.create({
     gap: 4,
   },
   emojiBtn: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "rgba(255,255,255,0.07)",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   emojiTxt: { fontSize: 20 },
 
@@ -1645,9 +2046,12 @@ const cs = StyleSheet.create({
     borderTopColor: "rgba(255,255,255,0.07)",
   },
   inputAvatar: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: "rgba(124,77,255,0.2)",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   inputWrap: {
     flex: 1,
@@ -1666,8 +2070,11 @@ const cs = StyleSheet.create({
     maxHeight: 88,
   },
   sendBtn: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems: "center", justifyContent: "center",
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sendBtnOff: { opacity: 0.35 },
   sendIcon: { color: "#fff", fontSize: 15 },
@@ -1681,303 +2088,404 @@ const toImageSource = (uri) => {
   return { uri };
 };
 
-const PostCard = memo(({ post, onMore, isFollowing, onFollowToggle, isLiked, onLikeToggle, onCommentPress, onImagePress, currentUserId, currentUserAvatarSource, currentUserFrameSource, currentUserVipFrameSource }) => {
-  const router = useRouter();
-  const [imgFailed, setImgFailed] = useState(false);
-  const [imgAspectRatio, setImgAspectRatio] = useState(null);
-  const isOwnPost = post?._isOwn === true || isOwnContent(post, currentUserId);
-  const handleAvatarPress = () => {
-    openUserProfile(router, { userId: post.userId, name: post.name, avatar: post.avatar });
-  };
-  const postAvatarSource =
-    isOwnPost && currentUserAvatarSource
-      ? currentUserAvatarSource
-      : post.avatar
-        ? toImageSource(post.avatar)
-        : null;
-  const isOwnVipFrame = isOwnPost && Boolean(currentUserVipFrameSource);
-  const postFrameSource = isOwnPost
-    ? currentUserVipFrameSource ?? currentUserFrameSource
-    : resolveEntityNewUserFrameSource({ hasNewUserFrame: post.authorHasNewUserFrame });
-  // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
-  const imageUri  = post.imageUrl      ?? post._localMediaUri ?? null;
-  const galleryUrls = post.imageUrls?.length ? post.imageUrls : (imageUri ? [imageUri] : []);
-  const isGallery = galleryUrls.length > 1;
-  const hasImage  = imageUri && (post._mediaType !== "video" && !post.hasVideo);
-  const hasVideo  = post.hasVideo || post._mediaType === "video";
-  const [galleryIndex, setGalleryIndex] = useState(0);
-  const [galleryWidth, setGalleryWidth] = useState(0);
-  // Stable object identity across re-renders — cachePolicy="none" makes
-  // expo-image treat a new `{ uri }` object as a brand-new source and
-  // restart loading from scratch.
-  const postImageSource = useMemo(() => toImageSource(imageUri), [imageUri]);
+const PostCard = memo(
+  ({
+    post,
+    onMore,
+    isFollowing,
+    onFollowToggle,
+    isLiked,
+    onLikeToggle,
+    onCommentPress,
+    onImagePress,
+    currentUserId,
+    currentUserAvatarSource,
+    currentUserFrameSource,
+    currentUserVipFrameSource,
+  }) => {
+    const router = useRouter();
+    const [imgFailed, setImgFailed] = useState(false);
+    const [imgAspectRatio, setImgAspectRatio] = useState(null);
+    const isOwnPost =
+      post?._isOwn === true || isOwnContent(post, currentUserId);
+    const handleAvatarPress = () => {
+      openUserProfile(router, {
+        userId: post.userId,
+        name: post.name,
+        avatar: post.avatar,
+      });
+    };
+    const postAvatarSource =
+      isOwnPost && currentUserAvatarSource
+        ? currentUserAvatarSource
+        : post.avatar
+          ? toImageSource(post.avatar)
+          : null;
+    const isOwnVipFrame = isOwnPost && Boolean(currentUserVipFrameSource);
+    const postFrameSource = isOwnPost
+      ? (currentUserVipFrameSource ?? currentUserFrameSource)
+      : resolveEntityNewUserFrameSource({
+          hasNewUserFrame: post.authorHasNewUserFrame,
+        });
+    // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
+    const imageUri = post.imageUrl ?? post._localMediaUri ?? null;
+    const galleryUrls = post.imageUrls?.length
+      ? post.imageUrls
+      : imageUri
+        ? [imageUri]
+        : [];
+    const isGallery = galleryUrls.length > 1;
+    const hasImage = imageUri && post._mediaType !== "video" && !post.hasVideo;
+    const hasVideo = post.hasVideo || post._mediaType === "video";
+    const [galleryIndex, setGalleryIndex] = useState(0);
+    const [galleryWidth, setGalleryWidth] = useState(0);
+    const [isTextExpanded, setIsTextExpanded] = useState(false);
+    const [showMoreButton, setShowMoreButton] = useState(false);
+    const handleTextLayout = useCallback((e) => {
+      if (e.nativeEvent.lines.length > 2) {
+        setShowMoreButton(true);
+      }
+    }, []);
+    // Stable object identity across re-renders — cachePolicy="none" makes
+    // expo-image treat a new `{ uri }` object as a brand-new source and
+    // restart loading from scratch.
+    const postImageSource = useMemo(() => toImageSource(imageUri), [imageUri]);
 
-  // Measure the first photo's real aspect ratio via a separate, one-shot
-  // RN Image.getSize() call BEFORE the visible (cachePolicy="none")
-  // expo-image ever mounts with its final layout. Deriving the ratio from
-  // the visible Image's own onLoad instead would change its style right
-  // after it finishes loading, which with cachePolicy="none" can make it
-  // restart the fetch from scratch — and if that reload gets interrupted
-  // (e.g. by list scroll/virtualization), the image is left stuck blank.
-  // For a gallery post, every slide shares this same box height (matching
-  // how Instagram carousels work) rather than re-measuring per slide.
-  useEffect(() => {
-    if (!imageUri) return undefined;
-    let cancelled = false;
-    RNImage.getSize(
-      imageUri,
-      (w, h) => { if (!cancelled && w && h) setImgAspectRatio(w / h); },
-      () => {}
-    );
-    return () => { cancelled = true; };
-  }, [imageUri]);
-
-  return (
-  <View style={styles.postOuter}>
-    <View style={styles.postCard}>
-      <View style={styles.postHeader}>
-        <TouchableOpacity activeOpacity={0.8} onPress={handleAvatarPress}>
-          {postAvatarSource ? (
-            <ProfileAvatarWithFrame
-              avatarSource={postAvatarSource}
-              frameSource={postFrameSource}
-              size={42}
-              avatarStyle={styles.postAvatar}
-              imageComponent={Image}
-              {...(isOwnVipFrame
-                ? {
-                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                  }
-                : {})}
-            />
-          ) : (
-            <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
-                <Text style={{ color: "white", fontSize: 16, fontWeight: "700" }}>
-                  {(post.name ?? "?")[0].toUpperCase()}
+    // Measure the first photo's real aspect ratio via a separate, one-shot
+    // RN Image.getSize() call BEFORE the visible (cachePolicy="none")
+    // expo-image ever mounts with its final layout. Deriving the ratio from
+    // the visible Image's own onLoad instead would change its style right
+    // after it finishes loading, which with cachePolicy="none" can make it
+    // restart the fetch from scratch — and if that reload gets interrupted
+    // (e.g. by list scroll/virtualization), the image is left stuck blank.
+    // For a gallery post, every slide shares this same box height (matching
+    // how Instagram carousels work) rather than re-measuring per slide.
+    useEffect(() => {
+      if (!imageUri) return undefined;
+      let cancelled = false;
+      RNImage.getSize(
+        imageUri,
+        (w, h) => {
+          if (!cancelled && w && h) setImgAspectRatio(w / h);
+        },
+        () => {},
+      );
+      return () => {
+        cancelled = true;
+      };
+    }, [imageUri]);
+    return (
+      <View style={styles.postOuter}>
+        <View style={styles.postCard}>
+          <View style={styles.postHeader}>
+            <TouchableOpacity activeOpacity={0.8} onPress={handleAvatarPress}>
+              {postAvatarSource ? (
+                <ProfileAvatarWithFrame
+                  avatarSource={postAvatarSource}
+                  frameSource={postFrameSource}
+                  size={42}
+                  avatarStyle={styles.postAvatar}
+                  imageComponent={Image}
+                  {...(isOwnVipFrame
+                    ? {
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode:
+                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
+                    : {})}
+                />
+              ) : (
+                <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
+                  <Text
+                    style={{ color: "white", fontSize: 16, fontWeight: "700" }}
+                  >
+                    {(post.name ?? "?")[0].toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <Text style={styles.postName}>{post.name ?? "User"}</Text>
+            {!isOwnPost && (
+              <TouchableOpacity
+                style={[
+                  styles.followBtn,
+                  isFollowing && styles.followBtnActive,
+                ]}
+                onPress={() => onFollowToggle?.(post.userId)}
+                activeOpacity={0.75}
+              >
+                <Text
+                  style={[
+                    styles.followBtnText,
+                    isFollowing && styles.followBtnTextActive,
+                  ]}
+                >
+                  {isFollowing ? "✓ Following" : "👤 Follow"}
                 </Text>
-              </View>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.moreBtn}
+              onPress={() => onMore?.(post)}
+            >
+              <Text style={styles.moreBtnText}>⋯</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Text / caption */}
+          {!!post.text && (
+            <View>
+              <Text
+                style={styles.postText}
+                numberOfLines={isTextExpanded ? undefined : 2}
+                onTextLayout={handleTextLayout}
+              >
+                {post.text}
+              </Text>
+              {showMoreButton && (
+                <TouchableOpacity
+                  onPress={() => setIsTextExpanded(!isTextExpanded)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.moreText}>
+                    {isTextExpanded ? "Less" : "More"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           )}
-        </TouchableOpacity>
-        <Text style={styles.postName}>{post.name ?? "User"}</Text>
-        {!isOwnPost && (
-          <TouchableOpacity
-            style={[styles.followBtn, isFollowing && styles.followBtnActive]}
-            onPress={() => onFollowToggle?.(post.userId)}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.followBtnText, isFollowing && styles.followBtnTextActive]}>
-              {isFollowing ? "✓ Following" : "👤 Follow"}
-            </Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity style={styles.moreBtn} onPress={() => onMore?.(post)}>
-          <Text style={styles.moreBtnText}>⋯</Text>
-        </TouchableOpacity>
-      </View>
 
-      {/* Text / caption */}
-      {!!post.text && (
-        <Text style={styles.postText} numberOfLines={4}>
-          {post.text}{" "}
-          <Text style={styles.moreText}>More</Text>
-        </Text>
-      )}
-
-      {/* Image — box sized to the image's own aspect ratio, clamped to a
+          {/* Image — box sized to the image's own aspect ratio, clamped to a
           sane range (Instagram-style: 4:5 portrait .. 1.91:1 landscape) so
           normal photos render edge-to-edge with zero cropping. contentFit
           stays "cover" so a matched ratio never gets letterboxed — only
           outlier shapes (extreme panorama/portrait) get a small edge crop
           instead of a big empty void that can blend into the dark theme. */}
-      {hasImage && !imgFailed && !isGallery && (
-        <TouchableOpacity
-          activeOpacity={0.92}
-          onPress={() =>
-            onImagePress?.({
-              post,
-              imageUrls: galleryUrls,
-              startIndex: 0,
-              avatarSource: postAvatarSource,
-              frameSource: postFrameSource,
-              isOwnVipFrame,
-              isOwnPost,
-            })
-          }
-        >
-          <Image
-            source={postImageSource}
-            style={[
-              styles.postImage,
-              imgAspectRatio
-                ? { aspectRatio: clampAspectRatio(imgAspectRatio), height: undefined }
-                : { height: 220 },
-            ]}
-            contentFit="cover"
-            transition={200}
-            cachePolicy="none"
-            onError={() => setImgFailed(true)}
-          />
-        </TouchableOpacity>
-      )}
+          {hasImage && !imgFailed && !isGallery && (
+            <TouchableOpacity
+              activeOpacity={0.92}
+              onPress={() =>
+                onImagePress?.({
+                  post,
+                  imageUrls: galleryUrls,
+                  startIndex: 0,
+                  avatarSource: postAvatarSource,
+                  frameSource: postFrameSource,
+                  isOwnVipFrame,
+                  isOwnPost,
+                })
+              }
+            >
+              <Image
+                source={postImageSource}
+                style={[
+                  styles.postImage,
+                  imgAspectRatio
+                    ? {
+                        aspectRatio: clampAspectRatio(imgAspectRatio),
+                        height: undefined,
+                      }
+                    : { height: 220 },
+                ]}
+                contentFit="cover"
+                transition={200}
+                cachePolicy="none"
+                onError={() => setImgFailed(true)}
+              />
+            </TouchableOpacity>
+          )}
 
-      {/* Multi-photo gallery — same shared-height box (Instagram carousels
+          {/* Multi-photo gallery — same shared-height box (Instagram carousels
           all lock to the first slide's ratio too), swipeable, with a
           "N/M" badge and dot pager. Tapping a slide opens the full-screen
           viewer starting at that exact photo. */}
-      {isGallery && !imgFailed && (
-        <View
-          style={[
-            styles.postImage,
-            imgAspectRatio
-              ? { aspectRatio: clampAspectRatio(imgAspectRatio), height: undefined }
-              : { height: 220 },
-          ]}
-          onLayout={(e) => setGalleryWidth(e.nativeEvent.layout.width)}
-        >
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e) => {
-              const w = e.nativeEvent.layoutMeasurement.width || 1;
-              setGalleryIndex(Math.round(e.nativeEvent.contentOffset.x / w));
-            }}
-            style={StyleSheet.absoluteFill}
-          >
-            {galleryUrls.map((uri, index) => (
-              <TouchableOpacity
-                key={uri}
-                activeOpacity={0.92}
-                style={[styles.galleryPage, galleryWidth ? { width: galleryWidth } : null]}
-                onPress={() =>
-                  onImagePress?.({
-                    post,
-                    imageUrls: galleryUrls,
-                    startIndex: index,
-                    avatarSource: postAvatarSource,
-                    frameSource: postFrameSource,
-                    isOwnVipFrame,
-                    isOwnPost,
-                  })
-                }
+          {isGallery && !imgFailed && (
+            <View
+              style={[
+                styles.postImage,
+                imgAspectRatio
+                  ? {
+                      aspectRatio: clampAspectRatio(imgAspectRatio),
+                      height: undefined,
+                    }
+                  : { height: 220 },
+              ]}
+              onLayout={(e) => setGalleryWidth(e.nativeEvent.layout.width)}
+            >
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(e) => {
+                  const w = e.nativeEvent.layoutMeasurement.width || 1;
+                  setGalleryIndex(
+                    Math.round(e.nativeEvent.contentOffset.x / w),
+                  );
+                }}
+                style={StyleSheet.absoluteFill}
               >
-                <Image
-                  source={toImageSource(uri)}
-                  style={StyleSheet.absoluteFill}
-                  contentFit="cover"
-                  transition={200}
-                  cachePolicy="none"
-                  onError={index === 0 ? () => setImgFailed(true) : undefined}
-                />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <View style={styles.galleryCountBadge}>
-            <Text style={styles.galleryCountText}>{galleryIndex + 1}/{galleryUrls.length}</Text>
-          </View>
-          <View style={styles.galleryDots}>
-            {galleryUrls.map((uri, index) => (
-              <View
-                key={uri}
-                style={[styles.galleryDot, index === galleryIndex && styles.galleryDotActive]}
-              />
-            ))}
-          </View>
-        </View>
-      )}
-
-      {/* Video */}
-      {hasVideo && (
-        <View style={styles.videoBox}>
-          <View style={styles.playBtn}>
-            <Text style={styles.playIcon}>▶</Text>
-          </View>
-          {post.duration && <Text style={styles.videoDuration}>{post.duration}</Text>}
-        </View>
-      )}
-
-      {/* ── POST FOOTER: Like + Comment ── */}
-      <View style={styles.postFooter}>
-        <View style={styles.postFooterLeft}>
-          {(post.likeCount ?? 0) > 0 && (
-            <Text style={styles.postLikeCount}>
-              ❤️ {post.likeCount}
-            </Text>
+                {galleryUrls.map((uri, index) => (
+                  <TouchableOpacity
+                    key={uri}
+                    activeOpacity={0.92}
+                    style={[
+                      styles.galleryPage,
+                      galleryWidth ? { width: galleryWidth } : null,
+                    ]}
+                    onPress={() =>
+                      onImagePress?.({
+                        post,
+                        imageUrls: galleryUrls,
+                        startIndex: index,
+                        avatarSource: postAvatarSource,
+                        frameSource: postFrameSource,
+                        isOwnVipFrame,
+                        isOwnPost,
+                      })
+                    }
+                  >
+                    <Image
+                      source={toImageSource(uri)}
+                      style={StyleSheet.absoluteFill}
+                      contentFit="cover"
+                      transition={200}
+                      cachePolicy="none"
+                      onError={
+                        index === 0 ? () => setImgFailed(true) : undefined
+                      }
+                    />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <View style={styles.galleryCountBadge}>
+                <Text style={styles.galleryCountText}>
+                  {galleryIndex + 1}/{galleryUrls.length}
+                </Text>
+              </View>
+              <View style={styles.galleryDots}>
+                {galleryUrls.map((uri, index) => (
+                  <View
+                    key={uri}
+                    style={[
+                      styles.galleryDot,
+                      index === galleryIndex && styles.galleryDotActive,
+                    ]}
+                  />
+                ))}
+              </View>
+            </View>
           )}
-        </View>
-        <View style={styles.postFooterRight}>
-          <TouchableOpacity
-            style={[styles.postActionBtn, isLiked && styles.postActionBtnLiked]}
-            onPress={() => onLikeToggle?.(post.id)}
-            activeOpacity={0.75}
-          >
-            <Text style={styles.postActionEmoji}>{isLiked ? "❤️" : "🤍"}</Text>
-            <Text style={[styles.postActionLabel, isLiked && { color: "#ff4ea3" }]}>Like</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.postActionBtn}
-            onPress={() => onCommentPress?.(post.id)}
-            activeOpacity={0.75}
-          >
-            <Text style={styles.postActionEmoji}>💬</Text>
-            <Text style={styles.postActionLabel}>Comment</Text>
-          </TouchableOpacity>
+
+          {/* Video */}
+          {hasVideo && (
+            <View style={styles.videoBox}>
+              <View style={styles.playBtn}>
+                <Text style={styles.playIcon}>▶</Text>
+              </View>
+              {post.duration && (
+                <Text style={styles.videoDuration}>{post.duration}</Text>
+              )}
+            </View>
+          )}
+
+          {/* ── POST FOOTER: Like + Comment ── */}
+          <View style={styles.postFooter}>
+            <View style={styles.postFooterLeft}>
+              {(post.likeCount ?? 0) > 0 && (
+                <Text style={styles.postLikeCount}>❤️ {post.likeCount}</Text>
+              )}
+            </View>
+            <View style={styles.postFooterRight}>
+              <TouchableOpacity
+                style={[
+                  styles.postActionBtn,
+                  isLiked && styles.postActionBtnLiked,
+                ]}
+                onPress={() => onLikeToggle?.(post.id)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.postActionEmoji}>
+                  {isLiked ? "❤️" : "🤍"}
+                </Text>
+                <Text
+                  style={[
+                    styles.postActionLabel,
+                    isLiked && { color: "#ff4ea3" },
+                  ]}
+                >
+                  Like
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.postActionBtn}
+                onPress={() => onCommentPress?.(post.id)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.postActionEmoji}>💬</Text>
+                <Text style={styles.postActionLabel}>Comment</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </View>
-    </View>
-  </View>
-  );
-});
+    );
+  },
+);
 PostCard.displayName = "PostCard";
 
 const RecommendedUserItem = memo(({ user }) => {
   const router = useRouter();
   return (
-  <TouchableOpacity
-    style={styles.recommendItem}
-    activeOpacity={0.8}
-    onPress={() =>
-      openUserProfile(router, {
-        userId: user.id,
-        name: user.name,
-        avatar: user.avatar,
-        vipProfileFrameUrl: user.vipProfileFrameUrl,
-      })
-    }
-  >
-    <View style={styles.recommendAvatarWrap}>
-      {user.avatar ? (
-        <ProfileAvatarWithFrame
-          avatarSource={toImageSource(user.avatar)}
-          frameSource={user.vipProfileFrameUrl}
-          size={s(72)}
-          avatarStyle={{ borderRadius: s(36) }}
-          {...(user.vipProfileFrameUrl
-            ? {
-                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-              }
-            : {})}
-        />
-      ) : (
-        <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
-          <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
-        </View>
-      )}
-    </View>
-    <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
-  </TouchableOpacity>
+    <TouchableOpacity
+      style={styles.recommendItem}
+      activeOpacity={0.8}
+      onPress={() =>
+        openUserProfile(router, {
+          userId: user.id,
+          name: user.name,
+          avatar: user.avatar,
+          vipProfileFrameUrl: user.vipProfileFrameUrl,
+        })
+      }
+    >
+      <View style={styles.recommendAvatarWrap}>
+        {user.avatar ? (
+          <ProfileAvatarWithFrame
+            avatarSource={toImageSource(user.avatar)}
+            frameSource={user.vipProfileFrameUrl}
+            size={s(72)}
+            avatarStyle={{ borderRadius: s(36) }}
+            {...(user.vipProfileFrameUrl
+              ? {
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
+              : {})}
+          />
+        ) : (
+          <View
+            style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}
+          >
+            <Text style={styles.recommendInitial}>
+              {user.name?.[0]?.toUpperCase() ?? "?"}
+            </Text>
+          </View>
+        )}
+      </View>
+      <Text style={styles.recommendName} numberOfLines={1}>
+        {user.name}
+      </Text>
+    </TouchableOpacity>
   );
 });
 RecommendedUserItem.displayName = "RecommendedUserItem";
@@ -2010,7 +2518,9 @@ const BannerSlider = memo(({ slides, activeBanner, onBannerChange }) => {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={(e) => {
-          const index = Math.round(e.nativeEvent.contentOffset.x / BANNER_SLIDE_WIDTH);
+          const index = Math.round(
+            e.nativeEvent.contentOffset.x / BANNER_SLIDE_WIDTH,
+          );
           onBannerChange(index);
         }}
         renderItem={({ item, index }) => (
@@ -2034,7 +2544,10 @@ const BannerSlider = memo(({ slides, activeBanner, onBannerChange }) => {
         {slides.map((_, i) => (
           <View
             key={i}
-            style={[styles.bannerDot, activeBanner === i && styles.bannerDotActive]}
+            style={[
+              styles.bannerDot,
+              activeBanner === i && styles.bannerDotActive,
+            ]}
           />
         ))}
       </View>
@@ -2045,250 +2558,332 @@ BannerSlider.displayName = "BannerSlider";
 
 // All content above the feed — memoized so it only re-renders when
 // its specific props change (e.g. diamonds update, tab switch)
-const HomeHeader = memo(({
-  userProfile,
-  walletDiamonds,
-  sessionAvatarSource,
-  sessionNewUserFrameSource,
-  vipProfileFrameSource,
-  stats,
-  unreadNotifications,
-  recommendedUsers,
-  selectedTab,
-  tabScales,
-  tabUnderlineScales,
-  onTabPress,
-  onSearchOpen,
-  onNotifOpen,
-  onGiftsOpen,
-  onRechargeOpen,
-  onNearbyPress,
-  onComingSoon,
-  router,
-}) => (
-  <>
-    {/* ── HEADER CARD ── */}
-    <View style={styles.headerCard}>
-      <View style={styles.headerTopRow}>
-        <View style={styles.avatarWrapper}>
-          <ProfileAvatarWithFrame
-            avatarSource={sessionAvatarSource ?? (userProfile?.avatarUrl ? { uri: userProfile.avatarUrl } : null)}
-            frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
-            size={s(62)}
-            avatarStyle={styles.headerAvatar}
-            placeholderInitial={(userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"}
-            imageComponent={Image}
-            {...(vipProfileFrameSource
-              ? {
-                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                }
-              : {})}
-          />
-          <View style={styles.onlineDot} />
-        </View>
-        <View style={styles.headerTitleCol}>
-          <View style={styles.appNameWrapper}>
-            {/* Thin #7f3f89 outline — 8 directions at 1px */}
-            {[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]].map(([dx, dy], i) => (
-              <Text key={i} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} allowFontScaling={false} style={[styles.appName, styles.appNameOutline, { position: "absolute", left: dx, top: dy }]}>
+const HomeHeader = memo(
+  ({
+    userProfile,
+    walletDiamonds,
+    sessionAvatarSource,
+    sessionNewUserFrameSource,
+    vipProfileFrameSource,
+    stats,
+    unreadNotifications,
+    recommendedUsers,
+    selectedTab,
+    tabScales,
+    tabUnderlineScales,
+    onTabPress,
+    onSearchOpen,
+    onNotifOpen,
+    onGiftsOpen,
+    onRechargeOpen,
+    onNearbyPress,
+    onComingSoon,
+    router,
+  }) => (
+    <>
+      {/* ── HEADER CARD ── */}
+      <View style={styles.headerCard}>
+        <View style={styles.headerTopRow}>
+          <View style={styles.avatarWrapper}>
+            <ProfileAvatarWithFrame
+              avatarSource={
+                sessionAvatarSource ??
+                (userProfile?.avatarUrl ? { uri: userProfile.avatarUrl } : null)
+              }
+              frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
+              size={s(62)}
+              avatarStyle={styles.headerAvatar}
+              placeholderInitial={
+                (userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"
+              }
+              imageComponent={Image}
+              {...(vipProfileFrameSource
+                ? {
+                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                  }
+                : {})}
+            />
+            <View style={styles.onlineDot} />
+          </View>
+          <View style={styles.headerTitleCol}>
+            <View style={styles.appNameWrapper}>
+              {/* Thin #7f3f89 outline — 8 directions at 1px */}
+              {[
+                [-1, 0],
+                [1, 0],
+                [0, -1],
+                [0, 1],
+                [-1, -1],
+                [1, -1],
+                [-1, 1],
+                [1, 1],
+              ].map(([dx, dy], i) => (
+                <Text
+                  key={i}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                  allowFontScaling={false}
+                  style={[
+                    styles.appName,
+                    styles.appNameOutline,
+                    { position: "absolute", left: dx, top: dy },
+                  ]}
+                >
+                  Tuk Tuk
+                </Text>
+              ))}
+              {/* White text on top */}
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.85}
+                allowFontScaling={false}
+                style={styles.appName}
+              >
                 Tuk Tuk
               </Text>
-            ))}
-            {/* White text on top */}
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} allowFontScaling={false} style={styles.appName}>Tuk Tuk</Text>
+            </View>
           </View>
-        </View>
-        <View style={styles.headerIcons}>
-          <View style={styles.diamondPill}>
-            <Text style={styles.diamondEmoji}>💎</Text>
-            <Text style={styles.diamondCount}>
-              {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString("en-IN")}
-            </Text>
+          <View style={styles.headerIcons}>
+            <View style={styles.diamondPill}>
+              <Text style={styles.diamondEmoji}>💎</Text>
+              <Text style={styles.diamondCount}>
+                {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString(
+                  "en-IN",
+                )}
+              </Text>
+              <TouchableOpacity
+                style={styles.diamondPlusBtn}
+                activeOpacity={0.85}
+                onPress={onRechargeOpen}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.diamondPlusText}>+</Text>
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity
-              style={styles.diamondPlusBtn}
-              activeOpacity={0.85}
-              onPress={onRechargeOpen}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.headerIconBtn}
+              activeOpacity={0.8}
+              onPress={onGiftsOpen}
             >
-              <Text style={styles.diamondPlusText}>+</Text>
+              <Text style={styles.headerIconEmoji}>🎁</Text>
+              <View
+                style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}
+              >
+                <Text style={styles.headerIconBadgeText}>!</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              activeOpacity={0.8}
+              onPress={onNotifOpen}
+            >
+              <Text style={styles.headerIconEmoji}>🔔</Text>
+              <View
+                style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}
+              >
+                <Text style={styles.headerIconBadgeText}>
+                  {unreadNotifications.length}
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8} onPress={onGiftsOpen}>
-            <Text style={styles.headerIconEmoji}>🎁</Text>
-            <View style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}>
-              <Text style={styles.headerIconBadgeText}>!</Text>
+        </View>
+
+        <View style={styles.headerDivider} />
+
+        <View style={styles.activeRow}>
+          <TouchableOpacity
+            style={styles.matchPill}
+            activeOpacity={0.85}
+            onPress={() => router.push("/chat")}
+          >
+            <Image
+              source={toImageSource(
+                stats?.featuredUserAvatar ??
+                  "https://randomuser.me/api/portraits/men/45.jpg",
+              )}
+              style={styles.matchAvatar}
+              cachePolicy="memory-disk"
+              transition={200}
+            />
+            <View style={styles.matchWaves}>
+              {MATCH_WAVE_HEIGHTS.map((h, i) => (
+                <View key={i} style={[styles.matchWaveBar, { height: h }]} />
+              ))}
+            </View>
+            <View style={styles.activeTextCol}>
+              <Text style={styles.activeNumber}>
+                {stats?.activeUsers?.toLocaleString() ?? "..."}
+              </Text>
+              <Text style={styles.activeLabel}>Active now</Text>
+            </View>
+            <View style={styles.matchArrow}>
+              <ChevronRight size={14} color="white" />
             </View>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIconBtn} activeOpacity={0.8} onPress={onNotifOpen}>
-            <Text style={styles.headerIconEmoji}>🔔</Text>
-            <View style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}>
-              <Text style={styles.headerIconBadgeText}>{unreadNotifications.length}</Text>
-            </View>
+          <TouchableOpacity
+            style={styles.searchBtn}
+            activeOpacity={0.8}
+            onPress={onSearchOpen}
+          >
+            <Text style={styles.searchIcon}>🔍</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <View style={styles.headerDivider} />
-
-      <View style={styles.activeRow}>
-        <TouchableOpacity
-          style={styles.matchPill}
-          activeOpacity={0.85}
-          onPress={() => router.push("/chat")}
-        >
-          <Image
-            source={toImageSource(stats?.featuredUserAvatar ?? "https://randomuser.me/api/portraits/men/45.jpg")}
-            style={styles.matchAvatar}
-            cachePolicy="memory-disk"
-            transition={200}
-          />
-          <View style={styles.matchWaves}>
-            {MATCH_WAVE_HEIGHTS.map((h, i) => (
-              <View key={i} style={[styles.matchWaveBar, { height: h }]} />
-            ))}
-          </View>
-          <View style={styles.activeTextCol}>
-            <Text style={styles.activeNumber}>{stats?.activeUsers?.toLocaleString() ?? "..."}</Text>
-            <Text style={styles.activeLabel}>Active now</Text>
-          </View>
-          <View style={styles.matchArrow}>
-            <ChevronRight size={14} color="white" />
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.searchBtn} activeOpacity={0.8} onPress={onSearchOpen}>
-          <Text style={styles.searchIcon}>🔍</Text>
-        </TouchableOpacity>
+      {/* ── 2×2 ACTION CARDS ── */}
+      <View style={styles.actionGrid}>
+        {actionCards.map((card) => (
+          <TouchableOpacity
+            key={card.title}
+            style={styles.actionCard}
+            activeOpacity={0.88}
+            onPress={() => {
+              if (card.partyRandom) {
+                router.push({
+                  pathname: "/voice-party",
+                  params: { party: "true" },
+                });
+              } else if (card.title === "Nearby" && onNearbyPress) {
+                onNearbyPress();
+              } else if (card.route) {
+                router.push(card.route);
+              }
+            }}
+          >
+            <LinearGradient
+              colors={card.colors}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.actionCardGradient}
+            >
+              <Text style={styles.cardTitle}>{card.title}</Text>
+              {card.subtitle && (
+                <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
+              )}
+              {card.showWave && (
+                <View style={styles.waveRow}>
+                  {WAVE_HEIGHTS.map((h, wi) => (
+                    <View key={wi} style={[styles.waveBar, { height: h }]} />
+                  ))}
+                </View>
+              )}
+              <StaggeredImage
+                source={
+                  typeof card.img === "string" ? { uri: card.img } : card.img
+                }
+                style={[
+                  styles.cardIllustration,
+                  card.imgSize && { width: card.imgSize, height: card.imgSize },
+                ]}
+                contentFit="contain"
+                delay={card.gifDelay}
+              />
+            </LinearGradient>
+          </TouchableOpacity>
+        ))}
       </View>
-    </View>
 
-    {/* ── 2×2 ACTION CARDS ── */}
-    <View style={styles.actionGrid}>
-      {actionCards.map((card) => (
-        <TouchableOpacity
-          key={card.title}
-          style={styles.actionCard}
-          activeOpacity={0.88}
-          onPress={() => {
-            if (card.partyRandom) {
-              router.push({ pathname: "/voice-party", params: { party: "true" } });
-            } else if (card.title === "Nearby" && onNearbyPress) {
-              onNearbyPress();
-            } else if (card.route) {
-              router.push(card.route);
-            }
-          }}
-        >
-          <LinearGradient
-            colors={card.colors}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.actionCardGradient}
-          >
-            <Text style={styles.cardTitle}>{card.title}</Text>
-            {card.subtitle && <Text style={styles.cardSubtitle}>{card.subtitle}</Text>}
-            {card.showWave && (
-              <View style={styles.waveRow}>
-                {WAVE_HEIGHTS.map((h, wi) => (
-                  <View key={wi} style={[styles.waveBar, { height: h }]} />
-                ))}
-              </View>
-            )}
-            <StaggeredImage
-              source={typeof card.img === "string" ? { uri: card.img } : card.img}
-              style={[styles.cardIllustration, card.imgSize && { width: card.imgSize, height: card.imgSize }]}
-              contentFit="contain"
-              delay={card.gifDelay}
-            />
-          </LinearGradient>
-        </TouchableOpacity>
-      ))}
-    </View>
-
-    {/* ── ICON ROW ── */}
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.iconScroll}
-      style={styles.iconContainer}
-    >
-      {iconItems.map((item) => (
-        <TouchableOpacity
-          key={item.label}
-          style={styles.iconItem}
-          activeOpacity={0.8}
-          onPress={item.comingSoon ? () => onComingSoon?.(item.label.replace(/\n/g, " ")) : undefined}
-        >
-          <LinearGradient
-            colors={item.colors}
-            style={styles.iconBox}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <Image
-              source={typeof item.img === "string" ? { uri: item.img } : item.img}
-              style={[styles.iconImg, item.imgSize && { width: item.imgSize, height: item.imgSize }]}
-              contentFit="contain"
-            />
-          </LinearGradient>
-          <Text style={styles.iconLabel}>{item.label}</Text>
-        </TouchableOpacity>
-      ))}
-    </ScrollView>
-
-    {/* ── TABS ── */}
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.tabsScroll}
-      style={styles.tabsBar}
-    >
-      {TABS.map((tab) => (
-        <TouchableOpacity
-          key={tab}
-          onPress={() => onTabPress(tab)}
-          style={styles.tabItem}
-          activeOpacity={1}
-        >
-          <Animated.Text
-            style={[
-              styles.tabText,
-              selectedTab === tab && styles.tabActive,
-              { transform: [{ scale: tabScales[tab] }] },
-            ]}
-          >
-            {tab}
-          </Animated.Text>
-          <Animated.View
-            style={[
-              styles.tabUnderline,
-              { transform: [{ scaleX: tabUnderlineScales[tab] }], opacity: tabUnderlineScales[tab] },
-            ]}
-          />
-        </TouchableOpacity>
-      ))}
-    </ScrollView>
-
-    {/* ── RECOMMENDED USERS ── */}
-    <View style={styles.recommendSection}>
-      <Text style={styles.recommendTitle}>Recommend user in the room</Text>
+      {/* ── ICON ROW ── */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.recommendScroll}
+        contentContainerStyle={styles.iconScroll}
+        style={styles.iconContainer}
       >
-        {recommendedUsers.map((user) => (
-          <RecommendedUserItem key={user.id} user={user} />
+        {iconItems.map((item) => (
+          <TouchableOpacity
+            key={item.label}
+            style={styles.iconItem}
+            activeOpacity={0.8}
+            onPress={
+              item.comingSoon
+                ? () => onComingSoon?.(item.label.replace(/\n/g, " "))
+                : undefined
+            }
+          >
+            <LinearGradient
+              colors={item.colors}
+              style={styles.iconBox}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Image
+                source={
+                  typeof item.img === "string" ? { uri: item.img } : item.img
+                }
+                style={[
+                  styles.iconImg,
+                  item.imgSize && { width: item.imgSize, height: item.imgSize },
+                ]}
+                contentFit="contain"
+              />
+            </LinearGradient>
+            <Text style={styles.iconLabel}>{item.label}</Text>
+          </TouchableOpacity>
         ))}
       </ScrollView>
-    </View>
-  </>
-));
+
+      {/* ── TABS ── */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tabsScroll}
+        style={styles.tabsBar}
+      >
+        {TABS.map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            onPress={() => onTabPress(tab)}
+            style={styles.tabItem}
+            activeOpacity={1}
+          >
+            <Animated.Text
+              style={[
+                styles.tabText,
+                selectedTab === tab && styles.tabActive,
+                { transform: [{ scale: tabScales[tab] }] },
+              ]}
+            >
+              {tab}
+            </Animated.Text>
+            <Animated.View
+              style={[
+                styles.tabUnderline,
+                {
+                  transform: [{ scaleX: tabUnderlineScales[tab] }],
+                  opacity: tabUnderlineScales[tab],
+                },
+              ]}
+            />
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* ── RECOMMENDED USERS ── */}
+      <View style={styles.recommendSection}>
+        <Text style={styles.recommendTitle}>Recommend user in the room</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.recommendScroll}
+        >
+          {recommendedUsers.map((user) => (
+            <RecommendedUserItem key={user.id} user={user} />
+          ))}
+        </ScrollView>
+      </View>
+    </>
+  ),
+);
 HomeHeader.displayName = "HomeHeader";
 
 // ─────────────────────────────────────────────────────────────
@@ -2343,7 +2938,8 @@ export default function Home() {
   const [toastMessage, setToastMessage] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   const [sessionAvatarSource, setSessionAvatarSource] = useState(null);
-  const [sessionNewUserFrameSource, setSessionNewUserFrameSource] = useState(null);
+  const [sessionNewUserFrameSource, setSessionNewUserFrameSource] =
+    useState(null);
   const [vipProfileFrameSource, setVipProfileFrameSource] = useState(null);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
   const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
@@ -2369,7 +2965,7 @@ export default function Home() {
       setVipProfileFrameSource(
         vipAssets.unlocked && vipAssets.profileFrame
           ? resolveImageSource(vipAssets.profileFrame)
-          : null
+          : null,
       );
     } catch {
       setVipProfileFrameSource(null);
@@ -2379,59 +2975,76 @@ export default function Home() {
   useFocusEffect(
     useCallback(() => {
       syncSessionAvatar();
-    }, [syncSessionAvatar])
+    }, [syncSessionAvatar]),
   );
 
   // Show gender picker once if user hasn't set their gender yet
   useEffect(() => {
-    getUser().then((user) => {
-      if (!user?.gender) setGenderPickerVisible(true);
-    }).catch(() => {});
+    getUser()
+      .then((user) => {
+        if (!user?.gender) setGenderPickerVisible(true);
+      })
+      .catch(() => {});
   }, []);
 
   // Saves gender + country from the "Who are you?" picker straight to the
   // session user and both profile endpoints, so Account screen reflects it
   // immediately (same fields/shape as the Account screen's own country save).
-  const saveGenderSelection = useCallback(async (gender) => {
-    setGenderSaving(true);
-    try {
-      const match = selectedCountry ? findCountryByName(selectedCountry) : null;
-      const countryFields = match
-        ? { country: match.name, countryCode: match.code, countryName: match.name }
-        : {};
-      await updateUser({ gender, ...countryFields });
-      await patchMyProfile({ gender, ...countryFields }).catch(() => {});
-      if (match) {
-        await syncUserCountryToServer({ country: match.name, countryCode: match.code }).catch(() => {});
+  const saveGenderSelection = useCallback(
+    async (gender) => {
+      setGenderSaving(true);
+      try {
+        const match = selectedCountry
+          ? findCountryByName(selectedCountry)
+          : null;
+        const countryFields = match
+          ? {
+              country: match.name,
+              countryCode: match.code,
+              countryName: match.name,
+            }
+          : {};
+        await updateUser({ gender, ...countryFields });
+        await patchMyProfile({ gender, ...countryFields }).catch(() => {});
+        if (match) {
+          await syncUserCountryToServer({
+            country: match.name,
+            countryCode: match.code,
+          }).catch(() => {});
+        }
+      } finally {
+        setGenderSaving(false);
+        setGenderPickerVisible(false);
+        setSelectedCountry("");
       }
-    } finally {
-      setGenderSaving(false);
-      setGenderPickerVisible(false);
-      setSelectedCountry("");
-    }
-  }, [selectedCountry]);
-
-  useFocusEffect(
-    useCallback(() => {
-      refreshWalletBalance();
-    }, [])
+    },
+    [selectedCountry],
   );
 
   useFocusEffect(
     useCallback(() => {
-      homeService.refreshActiveUsersCount()
+      refreshWalletBalance();
+    }, []),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      homeService
+        .refreshActiveUsersCount()
         .then((activeUsers) => {
           setStats((prev) => ({ ...(prev ?? {}), activeUsers }));
         })
         .catch(() => {});
-    }, [])
+    }, []),
   );
 
   const handleNearbyPress = useCallback(async () => {
     const coords = await getDeviceCoordinates();
     if (!coords.ok) {
       if (coords.reason === "module_unavailable") {
-        setToastMessage("Location unavailable. Rebuild the app: npx expo run:android");
+        setToastMessage(
+          "Location unavailable. Rebuild the app: npx expo run:android",
+        );
       } else {
         setToastMessage("Please turn on location on your device");
       }
@@ -2443,10 +3056,16 @@ export default function Home() {
 
   // Tab animation values — stable Animated refs, never recreated
   const tabScales = useRef(
-    TABS.reduce((acc, t) => { acc[t] = new Animated.Value(1); return acc; }, {})
+    TABS.reduce((acc, t) => {
+      acc[t] = new Animated.Value(1);
+      return acc;
+    }, {}),
   ).current;
   const tabUnderlineScales = useRef(
-    TABS.reduce((acc, t) => { acc[t] = new Animated.Value(t === "For You" ? 1 : 0); return acc; }, {})
+    TABS.reduce((acc, t) => {
+      acc[t] = new Animated.Value(t === "For You" ? 1 : 0);
+      return acc;
+    }, {}),
   ).current;
 
   // Ref for selectedTab — avoids stale closure in handleTabPress without adding it to deps
@@ -2468,14 +3087,16 @@ export default function Home() {
     syncSessionAvatar();
 
     const task = InteractionManager.runAfterInteractions(() => {
-      homeService.getHomeData()
+      homeService
+        .getHomeData()
         .then(async (data) => {
           let sessionUserId = currentUserId;
           try {
             sessionUserId = String(await getAppUserId());
             setCurrentUserId(sessionUserId);
           } catch {
-            const profileId = data.userProfile?.userId ?? data.userProfile?.id ?? null;
+            const profileId =
+              data.userProfile?.userId ?? data.userProfile?.id ?? null;
             if (profileId) {
               sessionUserId = String(profileId);
               setCurrentUserId(sessionUserId);
@@ -2490,9 +3111,11 @@ export default function Home() {
             dedupePostsById(
               (data.feedPosts ?? []).map((post) => ({
                 ...post,
-                _isOwn: sessionUserId ? isOwnContent(post, sessionUserId) : false,
-              }))
-            )
+                _isOwn: sessionUserId
+                  ? isOwnContent(post, sessionUserId)
+                  : false,
+              })),
+            ),
           );
           setFeedHasMore(data.feedHasMore ?? false);
           setNotifications(data.notifications);
@@ -2506,7 +3129,9 @@ export default function Home() {
           // Use server unreadCount when available, fall back to local filter
           if (data.unreadCount > 0) {
             setUnreadNotifications(
-              (data.notifications ?? []).filter((n) => n.unread).map((n) => n.id)
+              (data.notifications ?? [])
+                .filter((n) => n.unread)
+                .map((n) => n.id),
             );
           } else {
             setUnreadNotifications([]);
@@ -2515,13 +3140,12 @@ export default function Home() {
         .catch(() => {});
 
       // Load following + followers in parallel after home data
-      Promise.all([loadFollowing(), loadFollowers()])
-        .then(([followingArr]) => {
-          const ids = followingArr.map((u) => u.userId ?? u.id).filter(Boolean);
-          followingIdsRef.current = ids;
-          setFollowingIds(ids);
-          setFollowingList(followingArr);
-        })
+      Promise.all([loadFollowing(), loadFollowers()]).then(([followingArr]) => {
+        const ids = followingArr.map((u) => u.userId ?? u.id).filter(Boolean);
+        followingIdsRef.current = ids;
+        setFollowingIds(ids);
+        setFollowingList(followingArr);
+      });
     });
     return () => task.cancel();
   }, []);
@@ -2545,8 +3169,8 @@ export default function Home() {
           (res.posts ?? []).map((post) => ({
             ...post,
             _isOwn: uid ? isOwnContent(post, uid) : false,
-          }))
-        )
+          })),
+        ),
       );
       setFeedHasMore(res.hasMore ?? false);
     } catch {
@@ -2557,89 +3181,133 @@ export default function Home() {
     }
   }, []);
 
-  const handleTabPress = useCallback((tab) => {
-    const prev = selectedTabRef.current;
-    if (tab === prev) return;
-    Animated.timing(tabUnderlineScales[prev], { toValue: 0, duration: 150, useNativeDriver: true }).start();
-    Animated.sequence([
-      Animated.timing(tabScales[tab], { toValue: 0.82, duration: 80, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
-      Animated.spring(tabScales[tab], { toValue: 1, tension: 260, friction: 7, useNativeDriver: true }),
-    ]).start();
-    Animated.timing(tabUnderlineScales[tab], { toValue: 1, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.back(1.5)) }).start();
-    setSelectedTab(tab);
-    loadTabFeed(tab);
-  }, [tabScales, tabUnderlineScales, loadTabFeed]);
+  const handleTabPress = useCallback(
+    (tab) => {
+      const prev = selectedTabRef.current;
+      if (tab === prev) return;
+      Animated.timing(tabUnderlineScales[prev], {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+      Animated.sequence([
+        Animated.timing(tabScales[tab], {
+          toValue: 0.82,
+          duration: 80,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease),
+        }),
+        Animated.spring(tabScales[tab], {
+          toValue: 1,
+          tension: 260,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      Animated.timing(tabUnderlineScales[tab], {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.back(1.5)),
+      }).start();
+      setSelectedTab(tab);
+      loadTabFeed(tab);
+    },
+    [tabScales, tabUnderlineScales, loadTabFeed],
+  );
 
   const handleMarkAllRead = useCallback(async () => {
     setUnreadNotifications([]);
     await homeService.markAllNotificationsRead().catch(() => {});
   }, []);
 
-  const handleSearchQuery = useCallback((text) => {
-    setSearchQuery(text);
-    const trimmed = text.trim();
-    if (trimmed.length === 0) {
-      setSearchResults([]);
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-      searchSeqRef.current += 1; // cancel any in-flight people search
-      return;
-    }
-    const query = text.toLowerCase();
-    const results = [];
-    actionCards.forEach((card) => {
-      if (card.title.toLowerCase().includes(query) || card.subtitle.toLowerCase().includes(query)) {
-        results.push({
-          id: card.title,
-          title: card.title,
-          subtitle: card.subtitle,
-          type: "action",
-          route: card.route,
-          partyRandom: card.partyRandom,
-          colors: card.colors,
-        });
+  const handleSearchQuery = useCallback(
+    (text) => {
+      setSearchQuery(text);
+      const trimmed = text.trim();
+      if (trimmed.length === 0) {
+        setSearchResults([]);
+        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        searchSeqRef.current += 1; // cancel any in-flight people search
+        return;
       }
-    });
-    iconItems.forEach((item) => {
-      if (item.label.toLowerCase().includes(query)) {
-        results.push({ id: item.label, title: item.label, type: "icon", colors: item.colors });
-      }
-    });
-    searchSuggestions.forEach((suggestion) => {
-      if (suggestion.toLowerCase().includes(query) && !results.some((r) => r.title === suggestion)) {
-        results.push({ id: suggestion, title: suggestion, type: "suggestion" });
-      }
-    });
-    setSearchResults(results);
+      const query = text.toLowerCase();
+      const results = [];
+      actionCards.forEach((card) => {
+        if (
+          card.title.toLowerCase().includes(query) ||
+          card.subtitle.toLowerCase().includes(query)
+        ) {
+          results.push({
+            id: card.title,
+            title: card.title,
+            subtitle: card.subtitle,
+            type: "action",
+            route: card.route,
+            partyRandom: card.partyRandom,
+            colors: card.colors,
+          });
+        }
+      });
+      iconItems.forEach((item) => {
+        if (item.label.toLowerCase().includes(query)) {
+          results.push({
+            id: item.label,
+            title: item.label,
+            type: "icon",
+            colors: item.colors,
+          });
+        }
+      });
+      searchSuggestions.forEach((suggestion) => {
+        if (
+          suggestion.toLowerCase().includes(query) &&
+          !results.some((r) => r.title === suggestion)
+        ) {
+          results.push({
+            id: suggestion,
+            title: suggestion,
+            type: "suggestion",
+          });
+        }
+      });
+      setSearchResults(results);
 
-    // Debounced people search against the backend.
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    const seq = ++searchSeqRef.current;
-    searchDebounceRef.current = setTimeout(async () => {
-      try {
-        const people = await homeService.searchPeople(trimmed);
-        if (seq !== searchSeqRef.current) return; // a newer query superseded this
-        const userResults = people
-          .filter((u) => u.userId ?? u.id)
-          .map((u) => ({
-            id: `user-${u.userId ?? u.id}`,
-            userId: String(u.userId ?? u.id),
-            title: u.name ?? "User",
-            subtitle: u.isOnline ? "🟢 Online" : "Tap to view profile",
-            type: "user",
-            avatar: u.avatar ?? null,
-            level: u.level ?? null,
-            vip: Boolean(u.vip),
-            status: u.status ?? null,
-            vipProfileFrameUrl: u.vipProfileFrameUrl ?? extractVipProfileFrameUrl(u),
-            colors: ["#3d1a6e", "#5b2d8e"],
-          }));
-        // Keep feature matches, replace any previous user rows.
-        setSearchResults((prev) => [...prev.filter((r) => r.type !== "user"), ...userResults]);
-      } catch {
-        // Ignore — keep existing search results.
-      }
-    }, 350);
-  }, [searchSuggestions]);
+      // Debounced people search against the backend.
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      const seq = ++searchSeqRef.current;
+      searchDebounceRef.current = setTimeout(async () => {
+        try {
+          const people = await homeService.searchPeople(trimmed);
+          if (seq !== searchSeqRef.current) return; // a newer query superseded this
+          const userResults = people
+            .filter((u) => u.userId ?? u.id)
+            .map((u) => ({
+              id: `user-${u.userId ?? u.id}`,
+              userId: String(u.userId ?? u.id),
+              title: u.name ?? "User",
+              subtitle: u.isOnline ? "🟢 Online" : "Tap to view profile",
+              type: "user",
+              avatar: u.avatar ?? null,
+              level: u.level ?? null,
+              vip: Boolean(u.vip),
+              status: u.status ?? null,
+              vipProfileFrameUrl:
+                u.vipProfileFrameUrl ?? extractVipProfileFrameUrl(u),
+              colors: ["#3d1a6e", "#5b2d8e"],
+            }));
+          // Keep feature matches, replace any previous user rows.
+          setSearchResults((prev) => [
+            ...prev.filter((r) => r.type !== "user"),
+            ...userResults,
+          ]);
+        } catch {
+          // Ignore — keep existing search results.
+        }
+      }, 350);
+    },
+    [searchSuggestions],
+  );
 
   const handleOpenSearchUser = useCallback(async (result) => {
     // Show the profile immediately with the data we already have, then
@@ -2699,7 +3367,7 @@ export default function Home() {
             ...post,
             _isOwn: currentUserId ? isOwnContent(post, currentUserId) : false,
           })),
-        ])
+        ]),
       );
       setFeedHasMore(more.hasMore ?? false);
       setFeedPage(nextPage);
@@ -2714,44 +3382,47 @@ export default function Home() {
   const handleMoreClose = useCallback(() => setMoreMenuPost(null), []);
 
   // Follow / Unfollow — optimistic toggle backed by ref so callback is stable
-  const handleFollowToggle = useCallback(async (userId) => {
-    if (!userId) return;
-    if (isSameUser(userId, currentUserId)) return;
+  const handleFollowToggle = useCallback(
+    async (userId) => {
+      if (!userId) return;
+      if (isSameUser(userId, currentUserId)) return;
 
-    const targetId = String(userId);
-    const wasFollowing = followingIdsRef.current.some((id) => isSameUser(id, targetId));
+      const targetId = String(userId);
+      const wasFollowing = followingIdsRef.current.some((id) =>
+        isSameUser(id, targetId),
+      );
 
-    const updated = wasFollowing
-      ? followingIdsRef.current.filter((id) => !isSameUser(id, targetId))
-      : [...followingIdsRef.current, targetId];
-    followingIdsRef.current = updated;
-    setFollowingIds([...updated]);
+      const updated = wasFollowing
+        ? followingIdsRef.current.filter((id) => !isSameUser(id, targetId))
+        : [...followingIdsRef.current, targetId];
+      followingIdsRef.current = updated;
+      setFollowingIds([...updated]);
 
-    try {
-      if (wasFollowing) {
-        await unfollowUser(targetId);
-      } else {
-        await followUser(targetId);
+      try {
+        if (wasFollowing) {
+          await unfollowUser(targetId);
+        } else {
+          await followUser(targetId);
+        }
+      } catch (e) {
+        const msg = e?.message?.toLowerCase() ?? "";
+
+        // "not following" on unfollow → backend agrees, keep UI as not-following (already reverted)
+        if (wasFollowing && msg.includes("not following")) return;
+
+        // "already following" on follow → backend agrees, keep UI as following (already set)
+        if (!wasFollowing && msg.includes("already following")) return;
+
+        // Any other error → revert optimistic UI
+        const reverted = wasFollowing
+          ? [...followingIdsRef.current, targetId]
+          : followingIdsRef.current.filter((id) => !isSameUser(id, targetId));
+        followingIdsRef.current = reverted;
+        setFollowingIds([...reverted]);
       }
-
-    } catch (e) {
-
-      const msg = e?.message?.toLowerCase() ?? "";
-
-      // "not following" on unfollow → backend agrees, keep UI as not-following (already reverted)
-      if (wasFollowing && msg.includes("not following")) return;
-
-      // "already following" on follow → backend agrees, keep UI as following (already set)
-      if (!wasFollowing && msg.includes("already following")) return;
-
-      // Any other error → revert optimistic UI
-      const reverted = wasFollowing
-        ? [...followingIdsRef.current, targetId]
-        : followingIdsRef.current.filter((id) => !isSameUser(id, targetId));
-      followingIdsRef.current = reverted;
-      setFollowingIds([...reverted]);
-    }
-  }, [currentUserId]);
+    },
+    [currentUserId],
+  );
 
   // Like / Dislike — optimistic toggle
   const handleLikeToggle = useCallback(async (postId) => {
@@ -2763,11 +3434,13 @@ export default function Home() {
     likedPostIdsRef.current = updated;
     setLikedPostIds([...updated]);
     // Optimistic count update
-    setFeedPosts((prev) => prev.map((p) =>
-      p.id === postId
-        ? { ...p, likeCount: (p.likeCount ?? 0) + (wasLiked ? -1 : 1) }
-        : p
-    ));
+    setFeedPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId
+          ? { ...p, likeCount: (p.likeCount ?? 0) + (wasLiked ? -1 : 1) }
+          : p,
+      ),
+    );
     try {
       if (wasLiked) {
         await unlikePost(postId);
@@ -2781,11 +3454,13 @@ export default function Home() {
         : likedPostIdsRef.current.filter((id) => id !== postId);
       likedPostIdsRef.current = reverted;
       setLikedPostIds([...reverted]);
-      setFeedPosts((prev) => prev.map((p) =>
-        p.id === postId
-          ? { ...p, likeCount: (p.likeCount ?? 0) + (wasLiked ? 1 : -1) }
-          : p
-      ));
+      setFeedPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId
+            ? { ...p, likeCount: (p.likeCount ?? 0) + (wasLiked ? 1 : -1) }
+            : p,
+        ),
+      );
     }
   }, []);
 
@@ -2796,114 +3471,149 @@ export default function Home() {
   const handleOpenImageViewer = useCallback((payload) => {
     setImageViewerData(payload);
   }, []);
-  const handleCloseImageViewer = useCallback(() => setImageViewerData(null), []);
+  const handleCloseImageViewer = useCallback(
+    () => setImageViewerData(null),
+    [],
+  );
   const handleImageViewerAvatarPress = useCallback(() => {
     const post = imageViewerData?.post;
     if (!post) return;
     setImageViewerData(null);
-    openUserProfile(router, { userId: post.userId, name: post.name, avatar: post.avatar });
+    openUserProfile(router, {
+      userId: post.userId,
+      name: post.name,
+      avatar: post.avatar,
+    });
   }, [imageViewerData, router]);
 
-  const handlePostSubmit = useCallback(async ({ caption, photos, video, mediaType }) => {
-    // Helper — calls GET /api/home/feed?tab=for_you&page=1&limit=10 and resets the feed
-    const refreshFeed = async () => {
-      const fresh = await homeService.refreshFeed(selectedTabRef.current);
+  const handlePostSubmit = useCallback(
+    async ({ caption, photos, video, mediaType }) => {
+      // Helper — calls GET /api/home/feed?tab=for_you&page=1&limit=10 and resets the feed
+      const refreshFeed = async () => {
+        const fresh = await homeService.refreshFeed(selectedTabRef.current);
+        let sessionUserId = currentUserId;
+        try {
+          sessionUserId = String(await getAppUserId());
+        } catch {
+          // keep existing currentUserId
+        }
+        setFeedPosts(
+          (fresh.posts ?? []).map((post) => ({
+            ...post,
+            _isOwn: sessionUserId ? isOwnContent(post, sessionUserId) : false,
+          })),
+        );
+        setFeedHasMore(fresh.hasMore ?? false);
+        setFeedPage(1);
+      };
+
+      const localImageUris = (photos ?? []).map((p) => p.uri).filter(Boolean);
+      const mediaUri = video?.uri ?? localImageUris[0] ?? null;
+
+      let newPost = null;
+      try {
+        newPost = await createPost({ caption, photos, video, mediaType });
+      } catch (e) {
+        await refreshFeed().catch(() => {});
+        throw e;
+      }
+
+      // Normalize backend response so the optimistic item matches our feed shape
       let sessionUserId = currentUserId;
       try {
         sessionUserId = String(await getAppUserId());
       } catch {
         // keep existing currentUserId
       }
-      setFeedPosts(
-        (fresh.posts ?? []).map((post) => ({
-          ...post,
-          _isOwn: sessionUserId ? isOwnContent(post, sessionUserId) : false,
-        }))
-      );
-      setFeedHasMore(fresh.hasMore ?? false);
-      setFeedPage(1);
-    };
 
-    const localImageUris = (photos ?? []).map((p) => p.uri).filter(Boolean);
-    const mediaUri = video?.uri ?? localImageUris[0] ?? null;
+      // Backend may return one URL (imageUrl) or several (imageUrls/mediaUrls) —
+      // fall back to the locally-picked URIs so the post shows instantly even
+      // before the feed refresh brings back the real CDN URLs.
+      const returnedImageUrls = Array.isArray(newPost?.imageUrls)
+        ? newPost.imageUrls
+        : Array.isArray(newPost?.mediaUrls)
+          ? newPost.mediaUrls
+          : null;
+      const imageUrls =
+        mediaType === "video"
+          ? []
+          : returnedImageUrls?.length
+            ? returnedImageUrls
+            : localImageUris;
 
-    let newPost = null;
-    try {
-      newPost = await createPost({ caption, photos, video, mediaType });
-    } catch (e) {
+      const normalized = {
+        id: newPost?.id ?? newPost?.postId ?? `local-${Date.now()}`,
+        userId: newPost?.userId ?? newPost?.authorId ?? sessionUserId ?? null,
+        name:
+          newPost?.name ?? newPost?.username ?? newPost?.authorName ?? "You",
+        avatar:
+          newPost?.avatar ??
+          newPost?.profileImage ??
+          newPost?.authorAvatar ??
+          null,
+        text:
+          newPost?.text ??
+          newPost?.caption ??
+          newPost?.content ??
+          caption ??
+          "",
+        imageUrl:
+          newPost?.imageUrl ??
+          newPost?.mediaUrl ??
+          newPost?.image ??
+          imageUrls[0] ??
+          null,
+        imageUrls,
+        hasVideo: mediaType === "video",
+        duration: newPost?.duration ?? null,
+        likeCount: newPost?.likeCount ?? newPost?.likes ?? 0,
+        _localMediaUri: mediaUri,
+        _mediaType: mediaType ?? null,
+        _isOwn: true,
+      };
 
+      // Optimistically prepend so the post appears instantly while the refresh is in-flight
+      setFeedPosts((prev) => [normalized, ...prev]);
+
+      // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
       await refreshFeed().catch(() => {});
-      throw e;
-    }
-
-    // Normalize backend response so the optimistic item matches our feed shape
-    let sessionUserId = currentUserId;
-    try {
-      sessionUserId = String(await getAppUserId());
-    } catch {
-      // keep existing currentUserId
-    }
-
-    // Backend may return one URL (imageUrl) or several (imageUrls/mediaUrls) —
-    // fall back to the locally-picked URIs so the post shows instantly even
-    // before the feed refresh brings back the real CDN URLs.
-    const returnedImageUrls = Array.isArray(newPost?.imageUrls)
-      ? newPost.imageUrls
-      : Array.isArray(newPost?.mediaUrls)
-        ? newPost.mediaUrls
-        : null;
-    const imageUrls = mediaType === "video"
-      ? []
-      : (returnedImageUrls?.length ? returnedImageUrls : localImageUris);
-
-    const normalized = {
-      id:        newPost?.id        ?? newPost?.postId  ?? `local-${Date.now()}`,
-      userId:    newPost?.userId    ?? newPost?.authorId ?? sessionUserId ?? null,
-      name:      newPost?.name      ?? newPost?.username  ?? newPost?.authorName ?? "You",
-      avatar:    newPost?.avatar    ?? newPost?.profileImage ?? newPost?.authorAvatar ?? null,
-      text:      newPost?.text      ?? newPost?.caption  ?? newPost?.content ?? caption ?? "",
-      imageUrl:  newPost?.imageUrl  ?? newPost?.mediaUrl ?? newPost?.image ?? imageUrls[0] ?? null,
-      imageUrls,
-      hasVideo:  mediaType === "video",
-      duration:  newPost?.duration  ?? null,
-      likeCount: newPost?.likeCount ?? newPost?.likes ?? 0,
-      _localMediaUri: mediaUri,
-      _mediaType:     mediaType ?? null,
-      _isOwn:         true,
-    };
-
-    // Optimistically prepend so the post appears instantly while the refresh is in-flight
-    setFeedPosts((prev) => [normalized, ...prev]);
-
-    // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
-    await refreshFeed().catch(() => {});
-  }, [currentUserId]);
+    },
+    [currentUserId],
+  );
 
   // Block — removes user's posts from feed immediately
-  const handleBlockUser = useCallback(async (userId, userName) => {
-    if (!userId) return;
-    if (isSameUser(userId, currentUserId)) return;
+  const handleBlockUser = useCallback(
+    async (userId, userName) => {
+      if (!userId) return;
+      if (isSameUser(userId, currentUserId)) return;
 
-    try {
-      await blockUser(userId);
+      try {
+        await blockUser(userId);
 
-      setFeedPosts((prev) => prev.filter((p) => p.userId !== userId));
-    } catch (e) {
-      Alert.alert("Block failed", e?.message || "Please try again.");
-    }
-  }, [currentUserId]);
+        setFeedPosts((prev) => prev.filter((p) => p.userId !== userId));
+      } catch (e) {
+        Alert.alert("Block failed", e?.message || "Please try again.");
+      }
+    },
+    [currentUserId],
+  );
 
-  const handleReportSubmit = useCallback(async (reason) => {
-    if (!reportTarget?.userId) return;
-    try {
-      await reportUser(reportTarget.userId, reason);
-      setReportTarget(null);
-      setToastMessage("Report submitted. Thank you for letting us know.");
-      setToastVisible(true);
-    } catch (e) {
-      throw new Error(e?.message || "Could not submit report. Please try again.");
-    }
-  }, [reportTarget]);
+  const handleReportSubmit = useCallback(
+    async (reason) => {
+      if (!reportTarget?.userId) return;
+      try {
+        await reportUser(reportTarget.userId, reason);
+        setReportTarget(null);
+        setToastMessage("Report submitted. Thank you for letting us know.");
+        setToastVisible(true);
+      } catch (e) {
+        throw new Error(
+          e?.message || "Could not submit report. Please try again.",
+        );
+      }
+    },
+    [reportTarget],
+  );
 
   const handleDeletePost = useCallback(async (postId) => {
     if (!postId) return;
@@ -2917,12 +3627,15 @@ export default function Home() {
     }
   }, []);
 
-  const openSearch  = useCallback(() => setSearchVisible(true), []);
-  const openNotif   = useCallback(() => setNotifVisible(true), []);
-  const openGifts   = useCallback(() => setGiftsVisible(true), []);
-  const closeSearch = useCallback(() => { setSearchVisible(false); setSearchQuery(""); }, []);
-  const closeNotif  = useCallback(() => setNotifVisible(false), []);
-  const closeGifts  = useCallback(() => setGiftsVisible(false), []);
+  const openSearch = useCallback(() => setSearchVisible(true), []);
+  const openNotif = useCallback(() => setNotifVisible(true), []);
+  const openGifts = useCallback(() => setGiftsVisible(true), []);
+  const closeSearch = useCallback(() => {
+    setSearchVisible(false);
+    setSearchQuery("");
+  }, []);
+  const closeNotif = useCallback(() => setNotifVisible(false), []);
+  const closeGifts = useCallback(() => setGiftsVisible(false), []);
   const handleBannerChange = useCallback((idx) => setActiveBanner(idx), []);
 
   // ── Feed data ─────────────────────────────────────────────
@@ -2937,33 +3650,51 @@ export default function Home() {
     ];
   }, [feedPosts]);
 
-  const renderFeedItem = useCallback(({ item }) => {
-    if (item._type === "banner") {
+  const renderFeedItem = useCallback(
+    ({ item }) => {
+      if (item._type === "banner") {
+        return (
+          <BannerSlider
+            slides={bannerSlides}
+            activeBanner={activeBanner}
+            onBannerChange={handleBannerChange}
+          />
+        );
+      }
       return (
-        <BannerSlider
-          slides={bannerSlides}
-          activeBanner={activeBanner}
-          onBannerChange={handleBannerChange}
+        <PostCard
+          post={item}
+          onMore={handleMorePress}
+          isFollowing={followingIds.some((id) => isSameUser(id, item.userId))}
+          onFollowToggle={handleFollowToggle}
+          isLiked={likedPostIds.includes(item.id)}
+          onLikeToggle={handleLikeToggle}
+          onCommentPress={handleCommentPress}
+          onImagePress={handleOpenImageViewer}
+          currentUserId={currentUserId}
+          currentUserAvatarSource={sessionAvatarSource}
+          currentUserFrameSource={sessionNewUserFrameSource}
+          currentUserVipFrameSource={vipProfileFrameSource}
         />
       );
-    }
-    return (
-      <PostCard
-        post={item}
-        onMore={handleMorePress}
-        isFollowing={followingIds.some((id) => isSameUser(id, item.userId))}
-        onFollowToggle={handleFollowToggle}
-        isLiked={likedPostIds.includes(item.id)}
-        onLikeToggle={handleLikeToggle}
-        onCommentPress={handleCommentPress}
-        onImagePress={handleOpenImageViewer}
-        currentUserId={currentUserId}
-        currentUserAvatarSource={sessionAvatarSource}
-        currentUserFrameSource={sessionNewUserFrameSource}
-        currentUserVipFrameSource={vipProfileFrameSource}
-      />
-    );
-  }, [bannerSlides, activeBanner, handleBannerChange, handleMorePress, followingIds, handleFollowToggle, likedPostIds, handleLikeToggle, handleCommentPress, handleOpenImageViewer, currentUserId, sessionAvatarSource, sessionNewUserFrameSource, vipProfileFrameSource]);
+    },
+    [
+      bannerSlides,
+      activeBanner,
+      handleBannerChange,
+      handleMorePress,
+      followingIds,
+      handleFollowToggle,
+      likedPostIds,
+      handleLikeToggle,
+      handleCommentPress,
+      handleOpenImageViewer,
+      currentUserId,
+      sessionAvatarSource,
+      sessionNewUserFrameSource,
+      vipProfileFrameSource,
+    ],
+  );
 
   const keyExtractor = useCallback((item) => String(item.id), []);
 
@@ -2989,34 +3720,56 @@ export default function Home() {
 
   // ListHeaderComponent memoized — only re-creates when its specific
   // props change, not on every unrelated state update
-  const listHeader = useMemo(() => (
-    <HomeHeader
-      userProfile={userProfile}
-      walletDiamonds={walletDiamonds}
-      sessionAvatarSource={sessionAvatarSource}
-      sessionNewUserFrameSource={sessionNewUserFrameSource}
-      vipProfileFrameSource={vipProfileFrameSource}
-      stats={stats}
-      unreadNotifications={unreadNotifications}
-      recommendedUsers={recommendedUsers}
-      selectedTab={selectedTab}
-      tabScales={tabScales}
-      tabUnderlineScales={tabUnderlineScales}
-      onTabPress={handleTabPress}
-      onSearchOpen={openSearch}
-      onNotifOpen={openNotif}
-      onGiftsOpen={openGifts}
-      onRechargeOpen={() => setDiamondRechargeVisible(true)}
-      onNearbyPress={handleNearbyPress}
-      onComingSoon={setComingSoonFeature}
-      router={router}
-    />
-  ), [userProfile, walletDiamonds, sessionAvatarSource, sessionNewUserFrameSource, vipProfileFrameSource, stats, unreadNotifications, recommendedUsers, selectedTab,
-      handleTabPress, openSearch, openNotif, openGifts, handleNearbyPress, router]);
+  const listHeader = useMemo(
+    () => (
+      <HomeHeader
+        userProfile={userProfile}
+        walletDiamonds={walletDiamonds}
+        sessionAvatarSource={sessionAvatarSource}
+        sessionNewUserFrameSource={sessionNewUserFrameSource}
+        vipProfileFrameSource={vipProfileFrameSource}
+        stats={stats}
+        unreadNotifications={unreadNotifications}
+        recommendedUsers={recommendedUsers}
+        selectedTab={selectedTab}
+        tabScales={tabScales}
+        tabUnderlineScales={tabUnderlineScales}
+        onTabPress={handleTabPress}
+        onSearchOpen={openSearch}
+        onNotifOpen={openNotif}
+        onGiftsOpen={openGifts}
+        onRechargeOpen={() => setDiamondRechargeVisible(true)}
+        onNearbyPress={handleNearbyPress}
+        onComingSoon={setComingSoonFeature}
+        router={router}
+      />
+    ),
+    [
+      userProfile,
+      walletDiamonds,
+      sessionAvatarSource,
+      sessionNewUserFrameSource,
+      vipProfileFrameSource,
+      stats,
+      unreadNotifications,
+      recommendedUsers,
+      selectedTab,
+      handleTabPress,
+      openSearch,
+      openNotif,
+      openGifts,
+      handleNearbyPress,
+      router,
+    ],
+  );
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <StatusBar
+        barStyle="dark-content"
+        translucent
+        backgroundColor="transparent"
+      />
 
       <LinearGradient
         colors={["white", "white", "white", "white", "white"]}
@@ -3048,9 +3801,9 @@ export default function Home() {
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         ListFooterComponent={
-          feedLoading
-            ? <ActivityIndicator color="#7c4dff" style={{ marginVertical: 16 }} />
-            : null
+          feedLoading ? (
+            <ActivityIndicator color="#7c4dff" style={{ marginVertical: 16 }} />
+          ) : null
         }
       />
 
@@ -3065,7 +3818,11 @@ export default function Home() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.modalOverlay}
         >
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeSearch} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={closeSearch}
+          />
           {searchVisible && (
             <View style={styles.searchPanel}>
               <LinearGradient
@@ -3075,7 +3832,10 @@ export default function Home() {
               />
               <View style={styles.searchHeader}>
                 <Text style={styles.searchPanelTitle}>Search</Text>
-                <TouchableOpacity onPress={closeSearch} style={styles.searchCloseBtn}>
+                <TouchableOpacity
+                  onPress={closeSearch}
+                  style={styles.searchCloseBtn}
+                >
                   <Text style={styles.searchCloseTxt}>✕</Text>
                 </TouchableOpacity>
               </View>
@@ -3091,7 +3851,12 @@ export default function Home() {
                   selectionColor="#7c4dff"
                 />
                 {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearchQuery("");
+                      setSearchResults([]);
+                    }}
+                  >
                     <Text style={styles.searchClearBtn}>✕</Text>
                   </TouchableOpacity>
                 )}
@@ -3108,7 +3873,10 @@ export default function Home() {
                         if (result.type === "user") {
                           handleOpenSearchUser(result);
                         } else if (result.partyRandom) {
-                          router.push({ pathname: "/voice-party", params: { party: "true" } });
+                          router.push({
+                            pathname: "/voice-party",
+                            params: { party: "true" },
+                          });
                           closeSearch();
                           setSearchResults([]);
                         } else if (result.route) {
@@ -3127,12 +3895,17 @@ export default function Home() {
                           {...(result.vipProfileFrameUrl
                             ? {
                                 frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                frameResizeMode:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                frameOffsetX:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                frameOffsetY:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
                                 frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                                avatarBoost:
+                                  VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                avatarOffsetY:
+                                  VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                               }
                             : {})}
                         />
@@ -3144,13 +3917,21 @@ export default function Home() {
                           end={{ x: 1, y: 1 }}
                         >
                           <Text style={styles.resultIcon}>
-                            {result.type === "action" ? "🎮" : result.type === "user" ? "👤" : "✨"}
+                            {result.type === "action"
+                              ? "🎮"
+                              : result.type === "user"
+                                ? "👤"
+                                : "✨"}
                           </Text>
                         </LinearGradient>
                       )}
                       <View style={styles.resultTextCol}>
                         <Text style={styles.resultTitle}>{result.title}</Text>
-                        {result.subtitle && <Text style={styles.resultSubtitle}>{result.subtitle}</Text>}
+                        {result.subtitle && (
+                          <Text style={styles.resultSubtitle}>
+                            {result.subtitle}
+                          </Text>
+                        )}
                       </View>
                       <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
                     </TouchableOpacity>
@@ -3162,7 +3943,11 @@ export default function Home() {
                     <Text style={styles.searchSuggestLabel}>Quick explore</Text>
                     <View style={styles.searchSuggestRow}>
                       {searchSuggestions.map((s) => (
-                        <TouchableOpacity key={s} style={styles.searchChip} activeOpacity={0.8}>
+                        <TouchableOpacity
+                          key={s}
+                          style={styles.searchChip}
+                          activeOpacity={0.8}
+                        >
                           <LinearGradient
                             colors={["#3d1a6e", "#5b2d8e"]}
                             style={styles.searchChipGradient}
@@ -3176,7 +3961,9 @@ export default function Home() {
                     </View>
                   </View>
                   <View style={styles.searchSuggestSection}>
-                    <Text style={styles.searchSuggestLabel}>Trending now 🔥</Text>
+                    <Text style={styles.searchSuggestLabel}>
+                      Trending now 🔥
+                    </Text>
                     {trendingTags.map((tag) => (
                       <View key={tag} style={styles.trendingRow}>
                         <View style={styles.trendingDot} />
@@ -3190,7 +3977,8 @@ export default function Home() {
                   <Text style={styles.noResultsEmoji}>🔍</Text>
                   <Text style={styles.noResultsText}>No results found</Text>
                   <Text style={styles.noResultsSubtext}>
-                    Try searching for features like Voice Party, Games, or People
+                    Try searching for features like Voice Party, Games, or
+                    People
                   </Text>
                 </View>
               )}
@@ -3207,7 +3995,11 @@ export default function Home() {
         onRequestClose={closeGifts}
       >
         <View style={styles.giftsOverlay}>
-          <TouchableOpacity style={styles.giftBackdrop} activeOpacity={1} onPress={closeGifts} />
+          <TouchableOpacity
+            style={styles.giftBackdrop}
+            activeOpacity={1}
+            onPress={closeGifts}
+          />
           {giftsVisible && (
             <SafeAreaView style={styles.giftsPanel}>
               <LinearGradient
@@ -3216,7 +4008,10 @@ export default function Home() {
               />
               <View style={styles.giftsHeader}>
                 <Text style={styles.giftsTitle}>Daily Gifts</Text>
-                <TouchableOpacity onPress={closeGifts} style={styles.giftCloseBtn}>
+                <TouchableOpacity
+                  onPress={closeGifts}
+                  style={styles.giftCloseBtn}
+                >
                   <Text style={styles.giftCloseTxt}>✕</Text>
                 </TouchableOpacity>
               </View>
@@ -3231,7 +4026,9 @@ export default function Home() {
                     <Text style={styles.freeGiftEmoji}>🎉</Text>
                     <View style={styles.freeGiftText}>
                       <Text style={styles.freeGiftTitle}>Free Gift Daily!</Text>
-                      <Text style={styles.freeGiftSubtitle}>Claim one free gift every 24 hours</Text>
+                      <Text style={styles.freeGiftSubtitle}>
+                        Claim one free gift every 24 hours
+                      </Text>
                     </View>
                   </View>
                 </LinearGradient>
@@ -3242,7 +4039,11 @@ export default function Home() {
               >
                 <View style={styles.giftsGrid}>
                   {gifts.map((gift) => (
-                    <TouchableOpacity key={gift.id} style={styles.giftCard} activeOpacity={0.85}>
+                    <TouchableOpacity
+                      key={gift.id}
+                      style={styles.giftCard}
+                      activeOpacity={0.85}
+                    >
                       <LinearGradient
                         colors={gift.colors}
                         style={styles.giftCardGradient}
@@ -3252,7 +4053,9 @@ export default function Home() {
                         <Text style={styles.giftEmoji}>{gift.emoji}</Text>
                         <Text style={styles.giftName}>{gift.name}</Text>
                         <Text style={styles.giftValue}>+{gift.value}</Text>
-                        <Text style={styles.giftDescription}>{gift.description}</Text>
+                        <Text style={styles.giftDescription}>
+                          {gift.description}
+                        </Text>
                         {gift.isFree && (
                           <View style={styles.freeTag}>
                             <Text style={styles.freeTagText}>FREE</Text>
@@ -3276,7 +4079,11 @@ export default function Home() {
         onRequestClose={closeNotif}
       >
         <View style={styles.notifOverlay}>
-          <TouchableOpacity style={styles.notifBackdrop} activeOpacity={1} onPress={closeNotif} />
+          <TouchableOpacity
+            style={styles.notifBackdrop}
+            activeOpacity={1}
+            onPress={closeNotif}
+          />
           {notifVisible && (
             <SafeAreaView style={styles.notifPanel}>
               <LinearGradient
@@ -3286,10 +4093,16 @@ export default function Home() {
               <View style={styles.notifHeader}>
                 <Text style={styles.notifTitle}>Notifications</Text>
                 <View style={styles.notifHeaderRight}>
-                  <TouchableOpacity style={styles.notifMarkAll} onPress={handleMarkAllRead}>
+                  <TouchableOpacity
+                    style={styles.notifMarkAll}
+                    onPress={handleMarkAllRead}
+                  >
                     <Text style={styles.notifMarkAllText}>Mark all read</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={closeNotif} style={styles.notifCloseBtn}>
+                  <TouchableOpacity
+                    onPress={closeNotif}
+                    style={styles.notifCloseBtn}
+                  >
                     <Text style={styles.notifCloseTxt}>✕</Text>
                   </TouchableOpacity>
                 </View>
@@ -3309,7 +4122,8 @@ export default function Home() {
                     key={notif.id}
                     style={[
                       styles.notifItem,
-                      unreadNotifications.includes(notif.id) && styles.notifItemUnread,
+                      unreadNotifications.includes(notif.id) &&
+                        styles.notifItemUnread,
                     ]}
                     activeOpacity={0.8}
                   >
@@ -3318,9 +4132,16 @@ export default function Home() {
                     )}
                     {notif.avatar ? (
                       <View style={styles.notifAvatarWrapper}>
-                        <Image source={toImageSource(notif.avatar)} style={styles.notifAvatar} cachePolicy="memory-disk" transition={150} />
+                        <Image
+                          source={toImageSource(notif.avatar)}
+                          style={styles.notifAvatar}
+                          cachePolicy="memory-disk"
+                          transition={150}
+                        />
                         <View style={styles.notifIconBubble}>
-                          <Text style={styles.notifIconBubbleTxt}>{notif.icon}</Text>
+                          <Text style={styles.notifIconBubbleTxt}>
+                            {notif.icon}
+                          </Text>
                         </View>
                       </View>
                     ) : (
@@ -3333,7 +4154,9 @@ export default function Home() {
                     )}
                     <View style={styles.notifTextCol}>
                       <Text style={styles.notifItemTitle}>{notif.title}</Text>
-                      <Text style={styles.notifItemSub} numberOfLines={1}>{notif.subtitle}</Text>
+                      <Text style={styles.notifItemSub} numberOfLines={1}>
+                        {notif.subtitle}
+                      </Text>
                       <Text style={styles.notifTime}>{notif.time}</Text>
                     </View>
                   </TouchableOpacity>
@@ -3357,10 +4180,16 @@ export default function Home() {
         data={imageViewerData}
         isFollowing={
           imageViewerData
-            ? followingIds.some((id) => isSameUser(id, imageViewerData.post.userId))
+            ? followingIds.some((id) =>
+                isSameUser(id, imageViewerData.post.userId),
+              )
             : false
         }
-        isLiked={imageViewerData ? likedPostIds.includes(imageViewerData.post.id) : false}
+        isLiked={
+          imageViewerData
+            ? likedPostIds.includes(imageViewerData.post.id)
+            : false
+        }
         onClose={handleCloseImageViewer}
         onFollowToggle={handleFollowToggle}
         onLikeToggle={handleLikeToggle}
@@ -3437,7 +4266,8 @@ export default function Home() {
 
             <Text style={styles.genderHeaderTitle}>Who are you?</Text>
             <Text style={styles.genderHeaderSub}>
-              Choose your identity to personalize{"\n"}avatars and your experience
+              Choose your identity to personalize{"\n"}avatars and your
+              experience
             </Text>
 
             {/* ── Select Country button ── */}
@@ -3450,7 +4280,9 @@ export default function Home() {
               }}
             >
               <Text style={styles.countryPickerBtnText}>
-                {selectedCountry ? `🌍  ${selectedCountry}` : "🌍  Select Country"}
+                {selectedCountry
+                  ? `🌍  ${selectedCountry}`
+                  : "🌍  Select Country"}
               </Text>
               <Text style={styles.countryPickerArrow}>
                 {countryDropdownOpen ? "▲" : "▼"}
@@ -3477,14 +4309,15 @@ export default function Home() {
                   nestedScrollEnabled
                 >
                   {COUNTRY_OPTIONS.filter((c) =>
-                    c.name.toLowerCase().includes(countrySearch.toLowerCase())
+                    c.name.toLowerCase().includes(countrySearch.toLowerCase()),
                   ).map((country) => (
                     <TouchableOpacity
                       key={country.name}
                       activeOpacity={0.75}
                       style={[
                         styles.countryRow,
-                        selectedCountry === country.name && styles.countryRowSelected,
+                        selectedCountry === country.name &&
+                          styles.countryRowSelected,
                       ]}
                       onPress={() => {
                         setSelectedCountry(country.name);
@@ -3492,11 +4325,14 @@ export default function Home() {
                         setCountrySearch("");
                       }}
                     >
-                      <Text style={[
-                        styles.countryRowText,
-                        selectedCountry === country.name && styles.countryRowTextSelected,
-                      ]}>
-                        {country.flag}  {country.name}
+                      <Text
+                        style={[
+                          styles.countryRowText,
+                          selectedCountry === country.name &&
+                            styles.countryRowTextSelected,
+                        ]}
+                      >
+                        {country.flag} {country.name}
                       </Text>
                       {selectedCountry === country.name && (
                         <Text style={styles.countryRowCheck}>✓</Text>
@@ -3526,7 +4362,9 @@ export default function Home() {
                     >
                       <View style={styles.genderAvatarImgWrap}>
                         <Image
-                          source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Avatar/avatar1.webp" }}
+                          source={{
+                            uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Avatar/avatar1.webp",
+                          }}
                           style={styles.genderAvatarImg}
                           contentFit="cover"
                         />
@@ -3554,7 +4392,9 @@ export default function Home() {
                     >
                       <View style={styles.genderAvatarImgWrap}>
                         <Image
-                          source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Avatar/avatar5.webp" }}
+                          source={{
+                            uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Avatar/avatar5.webp",
+                          }}
                           style={styles.genderAvatarImg}
                           contentFit="cover"
                         />
@@ -3614,7 +4454,8 @@ export default function Home() {
                   {...(searchProfile.vipProfileFrameUrl
                     ? {
                         frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                        frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameResizeMode:
+                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                         frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
                         frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
                         frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
@@ -3626,10 +4467,15 @@ export default function Home() {
               ) : (
                 <Text style={styles.searchProfileEmoji}>👤</Text>
               )}
-              {searchProfile?.isOnline && <View style={styles.searchProfileOnlineDot} />}
+              {searchProfile?.isOnline && (
+                <View style={styles.searchProfileOnlineDot} />
+              )}
             </LinearGradient>
 
-            <TouchableOpacity style={styles.searchProfileClose} onPress={() => setSearchProfile(null)}>
+            <TouchableOpacity
+              style={styles.searchProfileClose}
+              onPress={() => setSearchProfile(null)}
+            >
               <Text style={styles.searchProfileCloseTxt}>✕</Text>
             </TouchableOpacity>
 
@@ -3638,28 +4484,42 @@ export default function Home() {
                 <Text style={styles.searchProfileName} numberOfLines={1}>
                   {searchProfile?.name ?? "User"}
                 </Text>
-                {searchProfile?.vip && <Text style={styles.searchProfileVip}>👑 VIP</Text>}
+                {searchProfile?.vip && (
+                  <Text style={styles.searchProfileVip}>👑 VIP</Text>
+                )}
               </View>
 
               <View style={styles.searchProfileMetaRow}>
                 {searchProfile?.level != null && (
                   <View style={styles.searchProfileBadge}>
-                    <Text style={styles.searchProfileBadgeTxt}>Lv {searchProfile.level}</Text>
+                    <Text style={styles.searchProfileBadgeTxt}>
+                      Lv {searchProfile.level}
+                    </Text>
                   </View>
                 )}
                 {searchProfile?.status && (
                   <View style={styles.searchProfileBadge}>
-                    <Text style={styles.searchProfileBadgeTxt}>{searchProfile.status}</Text>
+                    <Text style={styles.searchProfileBadgeTxt}>
+                      {searchProfile.status}
+                    </Text>
                   </View>
                 )}
-                {searchProfileLoading && <ActivityIndicator size="small" color="#a78bfa" />}
+                {searchProfileLoading && (
+                  <ActivityIndicator size="small" color="#a78bfa" />
+                )}
               </View>
 
               {searchProfile?.bio ? (
-                <Text style={styles.searchProfileBio} numberOfLines={3}>{searchProfile.bio}</Text>
+                <Text style={styles.searchProfileBio} numberOfLines={3}>
+                  {searchProfile.bio}
+                </Text>
               ) : null}
 
-              <TouchableOpacity style={styles.searchProfileMsgBtn} onPress={handleMessageSearchProfile} activeOpacity={0.85}>
+              <TouchableOpacity
+                style={styles.searchProfileMsgBtn}
+                onPress={handleMessageSearchProfile}
+                activeOpacity={0.85}
+              >
                 <LinearGradient
                   colors={["#7c4dff", "#a855f7"]}
                   start={{ x: 0, y: 0 }}
@@ -3673,7 +4533,6 @@ export default function Home() {
           </View>
         </View>
       </Modal>
-
     </View>
   );
 }
@@ -3685,22 +4544,83 @@ const styles = StyleSheet.create({
   },
 
   // ── Searched user profile modal ──
-  searchProfileWrap: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 28 },
-  searchProfileCard: { width: "100%", maxWidth: 360, backgroundColor: "#1a0a2e", borderRadius: 24, overflow: "hidden", borderWidth: 1, borderColor: "rgba(167,139,250,0.3)" },
-  searchProfileHero: { width: "100%", height: 170, alignItems: "center", justifyContent: "center" },
-  searchProfileAvatar: { width: 110, height: 110, borderRadius: 55, borderWidth: 3, borderColor: "rgba(255,255,255,0.25)" },
+  searchProfileWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 28,
+  },
+  searchProfileCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#1a0a2e",
+    borderRadius: 24,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.3)",
+  },
+  searchProfileHero: {
+    width: "100%",
+    height: 170,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchProfileAvatar: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
   searchProfileEmoji: { fontSize: 70 },
-  searchProfileOnlineDot: { position: "absolute", bottom: 20, right: "37%", width: 16, height: 16, borderRadius: 8, backgroundColor: "#00e676", borderWidth: 3, borderColor: "#1a0a2e" },
-  searchProfileClose: { position: "absolute", top: 12, right: 12, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
+  searchProfileOnlineDot: {
+    position: "absolute",
+    bottom: 20,
+    right: "37%",
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#00e676",
+    borderWidth: 3,
+    borderColor: "#1a0a2e",
+  },
+  searchProfileClose: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   searchProfileCloseTxt: { color: "white", fontSize: 15, fontWeight: "700" },
   searchProfileBody: { padding: 18, gap: 10 },
   searchProfileNameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  searchProfileName: { color: "white", fontSize: 20, fontWeight: "900", flexShrink: 1 },
+  searchProfileName: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "900",
+    flexShrink: 1,
+  },
   searchProfileVip: { color: "#ffd700", fontSize: 13, fontWeight: "800" },
   searchProfileMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  searchProfileBadge: { backgroundColor: "rgba(124,77,255,0.3)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(167,139,250,0.4)" },
+  searchProfileBadge: {
+    backgroundColor: "rgba(124,77,255,0.3)",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.4)",
+  },
   searchProfileBadgeTxt: { color: "#c4b5fd", fontSize: 11, fontWeight: "700" },
-  searchProfileBio: { color: "rgba(255,255,255,0.7)", fontSize: 13, lineHeight: 19 },
+  searchProfileBio: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 13,
+    lineHeight: 19,
+  },
   searchProfileMsgBtn: { borderRadius: 14, overflow: "hidden", marginTop: 4 },
   searchProfileMsgGradient: { paddingVertical: 13, alignItems: "center" },
   searchProfileMsgTxt: { color: "white", fontSize: 15, fontWeight: "800" },
@@ -3915,6 +4835,7 @@ const styles = StyleSheet.create({
   },
 
   // Background orbs (same as login)
+  // Background orbs (same as login)
   orbPink: {
     position: "absolute",
     width: 300,
@@ -3923,7 +4844,8 @@ const styles = StyleSheet.create({
     left: -80,
     borderRadius: 150,
     backgroundColor: "rgba(255,0,128,0.18)",
-    shadowColor: "#ff0080",
+    // backgroundColor: "rgba(253, 131, 74, 0.88)",
+    // shadowColor: "#ff0080",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
     shadowRadius: 80,
@@ -3936,6 +4858,7 @@ const styles = StyleSheet.create({
     right: -120,
     borderRadius: 175,
     backgroundColor: "rgba(138,43,226,0.22)",
+    // backgroundColor: "rgba(43, 226, 141, 0.22)",
     shadowColor: "#8a2be2",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
@@ -3947,10 +4870,16 @@ const styles = StyleSheet.create({
     marginTop: vs(20),
     marginHorizontal: H_PAD,
     marginBottom: vs(14),
-    backgroundColor: "rgba(255,255,255,0.07)",
+    backgroundColor: "rgba(255, 255, 255, 0.27)", // Light theme glass effect
     borderRadius: s(22),
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255, 255, 255, 1)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 3,
+
     paddingHorizontal: s(14),
     paddingVertical: vs(10),
     gap: vs(10),
@@ -3971,7 +4900,7 @@ const styles = StyleSheet.create({
     height: s(62),
     borderRadius: s(31),
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.35)",
+    borderColor: "#FFFFFF",
   },
   onlineDot: {
     position: "absolute",
@@ -3982,30 +4911,31 @@ const styles = StyleSheet.create({
     borderRadius: s(6),
     backgroundColor: "#00e676",
     borderWidth: 2,
-    borderColor: "#1a0a2e",
+    borderColor: "#FFFFFF",
   },
   headerTitleCol: {
     flex: 1,
     minWidth: 0,
   },
   helloText: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(0,0,0,0.55)",
     fontSize: ms(11),
     fontWeight: "500",
     lineHeight: ms(14),
   },
   appName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "900",
-    color: "white",
-    lineHeight: 19,
+    color: "#2C1A4D",
+    lineHeight: 20,
+    letterSpacing: -0.5,
   },
   appNameWrapper: {
     position: "relative",
     width: "100%",
   },
   appNameOutline: {
-    color: "#7f3f89",
+    color: "#FFFFFF",
   },
   headerIcons: {
     flexDirection: "row",
@@ -4015,19 +4945,19 @@ const styles = StyleSheet.create({
   diamondPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(80,50,160,0.6)",
+    backgroundColor: "#F3E8FF",
     borderRadius: s(14),
     paddingHorizontal: s(6),
     paddingVertical: vs(4),
     borderWidth: 1,
-    borderColor: "rgba(124,77,255,0.5)",
+    borderColor: "#E9D5FF",
     gap: s(2),
   },
   diamondEmoji: { fontSize: ms(10) },
   diamondCount: {
-    color: "white",
-    fontSize: ms(10),
-    fontWeight: "700",
+    color: "#6D28D9",
+    fontSize: ms(11),
+    fontWeight: "800",
   },
   diamondPlusBtn: {
     width: s(15),
@@ -4048,9 +4978,9 @@ const styles = StyleSheet.create({
     width: s(28),
     height: s(28),
     borderRadius: s(14),
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#F3F4F6",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -4066,7 +4996,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: s(2),
     borderWidth: 1.5,
-    borderColor: "#0d0618",
+    borderColor: "#FFFFFF",
   },
   headerIconBadgeText: {
     color: "white",
@@ -4075,7 +5005,7 @@ const styles = StyleSheet.create({
   },
   headerDivider: {
     height: 1,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(0,0,0,0.09)",
   },
   // Active now row
   activeRow: {
@@ -4087,18 +5017,23 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#d63384",
+    backgroundColor: "#FF2A70",
     borderRadius: 28,
     paddingVertical: 8,
     paddingHorizontal: 10,
     gap: 7,
+    shadowColor: "#FF2A70",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   matchAvatar: {
     width: s(34),
     height: s(34),
     borderRadius: s(17),
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.5)",
+    borderColor: "#FFFFFF",
   },
   matchWaves: {
     flexDirection: "row",
@@ -4120,15 +5055,16 @@ const styles = StyleSheet.create({
     lineHeight: ms(19),
   },
   activeLabel: {
-    color: "rgba(255,255,255,0.9)",
-    fontSize: ms(11),
+    color: "rgba(255,255,255,0.95)",
+    fontSize: ms(12),
+    fontWeight: "600",
     lineHeight: ms(14),
   },
   matchArrow: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(255,255,255,0.3)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -4136,11 +5072,16 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#F3F4F6",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   searchIcon: { fontSize: 18 },
 
@@ -4156,14 +5097,14 @@ const styles = StyleSheet.create({
   },
   feedStateEmoji: { fontSize: 44, marginBottom: 14 },
   feedStateTitle: {
-    color: "white",
+    color: "rgba(0,0,0,0.55)",
     fontSize: 16,
     fontWeight: "700",
     marginTop: 12,
     textAlign: "center",
   },
   feedStateSubtitle: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(0,0,0,0.55)",
     fontSize: 13,
     marginTop: 6,
     textAlign: "center",
@@ -4225,7 +5166,7 @@ const styles = StyleSheet.create({
   // Icon row
   iconContainer: { marginBottom: 14 },
   iconScroll: {
-    paddingHorizontal: H_PAD,
+    paddingHorizontal: 33,
     gap: 14,
   },
   iconItem: {
@@ -4241,7 +5182,7 @@ const styles = StyleSheet.create({
   },
   iconImg: { width: s(44), height: s(44) },
   iconLabel: {
-    color: "rgba(255,255,255,0.7)",
+    color: "rgba(0, 0,  0, 0.9)",
     fontSize: ms(11),
     marginTop: vs(6),
     textAlign: "center",
@@ -4251,7 +5192,7 @@ const styles = StyleSheet.create({
   // Tabs
   tabsBar: {
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.1)",
+    borderBottomColor: "rgba(0,0,0,0.1)",
     marginBottom: 12,
   },
   tabsScroll: {
@@ -4305,7 +5246,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: H_PAD,
   },
   postCard: {
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: "rgba(194, 194, 194, 0.09)",
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
@@ -4367,7 +5308,7 @@ const styles = StyleSheet.create({
     width: 12,
   },
   postName: {
-    color: "white",
+    color: "black",
     fontSize: ms(14),
     fontWeight: "700",
     flex: 1,
@@ -4396,7 +5337,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 12,
-    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.06)",
   },
@@ -4408,7 +5348,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   postLikeCount: {
-    color: "rgba(255,255,255,0.45)",
+    color: "rgba(0,0,0,0.9)",
     fontSize: 12,
   },
   postActionBtn: {
@@ -4418,9 +5358,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(0,0,0,0.08)",
   },
   postActionBtnLiked: {
     backgroundColor: "rgba(255,78,163,0.12)",
@@ -4430,18 +5370,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   postActionLabel: {
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(0,0,0,0.6)",
     fontSize: 12,
     fontWeight: "500",
   },
   moreBtn: { paddingHorizontal: 4 },
   moreBtnText: {
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(0,0,0,0.6)",
     fontSize: 18,
     letterSpacing: 1,
   },
   postText: {
-    color: "rgba(255,255,255,0.82)",
+    color: "rgba(0,0,0,0.82)",
     fontSize: ms(13),
     lineHeight: ms(20),
     marginBottom: vs(10),
@@ -4486,7 +5426,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   recommendTitle: {
-    color: "white",
+    color: "black",
     fontSize: ms(16),
     fontWeight: "700",
     marginBottom: vs(14),
@@ -4521,7 +5461,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   recommendName: {
-    color: "rgba(255,255,255,0.85)",
+    color: "black",
     fontSize: ms(12),
     textAlign: "center",
     fontWeight: "500",
@@ -4576,7 +5516,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.3)",
+    backgroundColor: "rgba(0,0,0,0.09)",
   },
   bannerDotActive: {
     width: 20,
