@@ -323,6 +323,9 @@ export const searchRooms = async (query) => {
   );
   return response.data;
 };
+
+/** GET /api/app/party/families — fetch party families list */
+export const getPartyFamilies = async () => {
   const url = "/api/app/party/families";
   
   const response = await API.get(url, await authRequestConfig());
