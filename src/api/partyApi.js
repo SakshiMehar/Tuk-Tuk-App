@@ -216,9 +216,37 @@ export const getRoomState = async (roomId) => {
   return response.data;
 };
 
+const parseRoomUserCount = (data) => {
+  if (typeof data === "number" && Number.isFinite(data)) return data;
+  const nested =
+    data?.onlineCount ??
+    data?.count ??
+    data?.userCount ??
+    data?.data?.onlineCount ??
+    data?.data?.count ??
+    data?.data;
+  if (typeof nested === "number" && Number.isFinite(nested)) return nested;
+  return null;
+};
+
 export const getRoomUserCount = async (roomId) => {
-  const response = await API.get(`/api/public/rooms/${roomId}/count`);
-  return response.data;
+  try {
+    const response = await API.get(`/api/public/rooms/${roomId}/count`);
+    const count = parseRoomUserCount(response.data);
+    if (count != null) return count;
+  } catch {
+    // Public count can fail if Redis is down — fall back to room state.
+  }
+
+  try {
+    const state = await getRoomState(roomId);
+    return (
+      parseRoomUserCount(state) ??
+      (Array.isArray(state?.onlineUsers) ? state.onlineUsers.length : 0)
+    );
+  } catch {
+    return 0;
+  }
 };
 
 export const getRoomChatMessages = async (roomId) => {

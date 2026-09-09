@@ -19,15 +19,17 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useScrollToTop, useFocusEffect } from "@react-navigation/native";
 import {
-  Home,
   Plus,
   MessageCircle,
   Mic,
   X,
   ArrowLeft,
+  Home,
 } from "lucide-react-native";
 import { getRecommendedUsers } from "../src/services/homeService";
 import { getRoomUserCount } from "../src/api/partyApi";
+import { getUser } from "../src/store/authStore";
+import { COUNTRY_OPTIONS } from "../src/data/countryOptions";
 import {
   loadRoomRecommendations,
   loadRecentlyRooms,
@@ -74,7 +76,7 @@ const THEME = {
   text: "#1a1a2e",
   textMuted: "#888",
   textDim: "#aaa",
-  recommendRing: ["#7c4dff", "#ff4ea3"],
+  recommendRing: ["#333333", "#888888"],
 };
 
 const TOP_TABS = exploreData.topTabs;
@@ -129,14 +131,11 @@ function useRoomUserCount(roomId) {
 
     const fetchCount = () => {
       getRoomUserCount(roomId)
-        .then((response) => {
-          console.log(`[getRoomUserCount] room ${roomId} response:`, response);
+        .then((count) => {
           if (cancelled) return;
-          setCount(typeof response === "number" ? response : response?.onlineCount);
+          if (typeof count === "number") setCount(count);
         })
-        .catch((error) => {
-          console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
-        });
+        .catch(() => {});
     };
 
     fetchCount();
@@ -150,8 +149,24 @@ function useRoomUserCount(roomId) {
   return count;
 }
 
+function useUserCountryFlag() {
+  const [flag, setFlag] = useState(null);
+  useEffect(() => {
+    getUser().then((user) => {
+      const countryName = user?.countryName ?? user?.country ?? null;
+      if (!countryName) return;
+      const match = COUNTRY_OPTIONS.find(
+        (c) => c.name.toLowerCase() === countryName.toLowerCase()
+      );
+      if (match?.flag) setFlag(match.flag);
+    }).catch(() => {});
+  }, []);
+  return flag;
+}
+
 function ExploreRoomItem({ room, onPress }) {
   const userCount = useRoomUserCount(room.id);
+  const countryFlag = useUserCountryFlag();
 
   return (
     <TouchableOpacity style={styles.exploreRoomCard} activeOpacity={0.8} onPress={onPress}>
@@ -174,7 +189,11 @@ function ExploreRoomItem({ room, onPress }) {
         )}
       </View>
       <View style={styles.roomMeta}>
-        <MessageCircle size={16} color={THEME.textMuted} />
+        {countryFlag ? (
+          <Text style={styles.roomFlagEmoji}>{countryFlag}</Text>
+        ) : (
+          <MessageCircle size={16} color={THEME.textMuted} />
+        )}
         <View style={styles.roomCount}>
           <Image source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png" }} style={styles.roomCountIcon} resizeMode="contain" />
           <Text style={styles.roomCountText}>{userCount ?? ""}</Text>
@@ -301,9 +320,11 @@ export default function PartyExplore() {
     setRoomsLoading(true);
     loadRoomRecommendations()
       .then((apiRooms) => {
+        console.log("[PartyExplore] loadRoomRecommendations resolved, count:", apiRooms?.length);
         if (!cancelled) setRooms(apiRooms);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[PartyExplore] loadRoomRecommendations failed:", err?.response?.status, err?.message ?? err);
         if (!cancelled) setRooms([]);
       })
       .finally(() => {
@@ -324,9 +345,11 @@ export default function PartyExplore() {
     setRelatedLoading(true);
     loader()
       .then((apiRooms) => {
+        console.log(`[PartyExplore] ${activeRelatedTab} rooms resolved, count:`, apiRooms?.length);
         if (!cancelled) setRelatedRooms(apiRooms);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error(`[PartyExplore] ${activeRelatedTab} rooms failed:`, err?.response?.status, err?.message ?? err);
         if (!cancelled) setRelatedRooms([]);
       })
       .finally(() => {
@@ -402,7 +425,11 @@ export default function PartyExplore() {
   const restRanking = useMemo(() => rankingList.slice(3), [rankingList]);
 
   const openRoom = (roomId) => {
-    router.push({ pathname: "/voice-party", params: { roomId } });
+    if (!roomId) {
+      console.warn("[PartyExplore] openRoom called with empty roomId — skipping navigation");
+      return;
+    }
+    router.push({ pathname: "/voice-party", params: { roomId: String(roomId) } });
   };
 
   const openCreateRoomModal = async () => {
@@ -493,12 +520,12 @@ export default function PartyExplore() {
               </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={openCreateRoomModal}>
-              <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.iconBtnGrad}>
-                <Home size={16} color={THEME.purpleLight} />
+              <View style={styles.homeIconWrap}>
+                <Image source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/home.png" }} style={styles.homeIcon} resizeMode="contain" />
                 <View style={styles.createRoomPlus}>
                   <Plus size={9} color="white" strokeWidth={3} />
                 </View>
-              </LinearGradient>
+              </View>
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -974,7 +1001,17 @@ const styles = StyleSheet.create({
   },
   searchIcon: {
     width: 40,
-    height: 35,
+    height: 30,
+  },
+  homeIcon: {
+    width: 32,
+    height: 32,
+  },
+  homeIconWrap: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   iconBtnGrad: {
     width: 34,
@@ -1415,15 +1452,17 @@ const styles = StyleSheet.create({
   },
   roomCountIcon: {
     width: 35,
-    height: 34,
-    marginRight: 1,
+    height: 35,
+    marginRight: -10,
     marginTop: 1,
-    marginLeft: 8,
   },
   roomCountText: {
     fontSize: 15,
     fontWeight: "700",
     color: THEME.purpleLight,
+  },
+  roomFlagEmoji: {
+    fontSize: 20,
   },
   emptyRooms: {
     paddingVertical: 32,

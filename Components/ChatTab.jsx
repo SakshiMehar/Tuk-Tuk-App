@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Search, UserPlus, X, Check, ChevronDown, AlignJustify } from "lucide-react-native";
+import { Search, Plus, X, Check, ChevronDown, AlignJustify } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { getRecommendedUsers } from "../src/services/homeService";
@@ -29,13 +29,12 @@ import {
   followUser,
   isSameUser,
 } from "../src/services/relationshipService";
-import { loadProfileStats } from "../src/services/profileStatsService";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 
-const RECOMMEND_RING_COLORS = ["#7c4dff", "#ff4ea3"];
+const RECOMMEND_RING_COLORS = ["#333333", "#888888"];
 
 // Backend may send a bundled preset id (e.g. "avatar3") instead of a real
 // image URL — resolve those to the local asset, otherwise treat as a URI.
@@ -48,60 +47,69 @@ const featureCards = [
   {
     id: "fc1",
     label: "Voice Party",
-    emoji: "🎙️",
-    colors: ["#ff8c00", "#ffb347"],
+    icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/mic.png",
+    colors: ["#2eebdbff", "#18b6c4ff"],
     badge: null,
-    borderColors: ["#ff8c00", "#ffd700"],
+    tint: "rgba(27, 169, 145, 0.15)",
+    shadowColor: "#0fc9f3ff",
   },
   {
     id: "fc2",
     label: "Game",
-    emoji: "🎮",
-    colors: ["#3a1fa0", "#7c4dff"],
+    icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/launch.png",
+    colors: ["#5b21b6", "#7c4dff"],
     badge: null,
-    borderColors: ["#7c4dff", "#a78bfa"],
+    tint: "rgba(124,77,255,0.15)",
+    shadowColor: "#7c4dff",
   },
   {
     id: "fc3",
     label: "Followers",
-    emoji: "🫂",
-    colors: ["#00693e", "#00c853"],
+    icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/follower.png",
+    colors: ["#133c72ff", "#163b60ff"],
     badge: null,
-    borderColors: ["#00c853", "#69f0ae"],
+    tint: "rgba(0,200,83,0.15)",
+    shadowColor: "#00c853",
   },
   {
     id: "fc4",
     label: "Visitors",
     emoji: "👀",
-    colors: ["#7a0f4d", "#f953c6"],
+    colors: ["#9d0b6e", "#f953c6"],
     badge: null,
-    borderColors: ["#f953c6", "#b91d73"],
+    tint: "rgba(249,83,198,0.15)",
+    shadowColor: "#f953c6",
   },
   {
     id: "fc5",
     label: "Nearby",
-    emoji: "📍",
-    colors: ["#f7971e", "#ffd200"],
+    icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/nearbyIcon.png",
+    colors: ["#e65c00", "#ffd200"],
     badge: null,
-    borderColors: ["#f7971e", "#ffd200"],
+    tint: "rgba(247,151,30,0.15)",
+    shadowColor: "#f7971e",
   },
   {
     id: "fc6",
     label: "Moments",
-    emoji: "✨",
-    colors: ["#0d2952", "#4a6cf7"],
-    badge: 12,
-    borderColors: ["#4a6cf7", "#a78bfa"],
+    icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/moments.png",
+    colors: ["#1a3a8f", "#4a6cf7"],
+    badge: null,
+    tint: "rgba(74,108,247,0.15)",
+    shadowColor: "#4a6cf7",
   },
 ];
 
 // ── Contacts data ─────────────────────────────────────────────────────────
 
+// ↓↓ Change this value to resize all contact menu icons at once ↓↓
+const CONTACT_MENU_ICON_SIZE = 28;
+
 const CONTACT_MENU_ITEMS = [
-  { id: "friends",   label: "Friends",   emoji: "👥", iconBg: ["#1a2a6c", "#4a6cf7"] },
-  { id: "followers", label: "Followers", emoji: "🫂", iconBg: ["#3a1080", "#7c4dff"] },
-  { id: "following", label: "Following", emoji: "⭐", iconBg: ["#7c2d00", "#ff8c00"] },
-  { id: "family",    label: "Family",    emoji: "🏠", iconBg: ["#064e3b", "#00c853"] },
+  { id: "friends",   label: "Friends",   icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png",     iconBg: ["#1a2a6c", "#4a6cf7"], iconSize: 70 },
+  { id: "followers", label: "Followers", icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/follower.png", iconBg: ["#3a1080", "#7c4dff"], iconSize: 38 },
+  { id: "following", label: "Following", icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/people.png",   iconBg: ["#7c2d00", "#ff8c00"], iconSize: 90 },
+  { id: "family",    label: "Family",    icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/home.png",     iconBg: ["#064e3b", "#00c853"], iconSize: 40 },
 ];
 
 const contactsData = {
@@ -152,7 +160,6 @@ export default function ChatTab() {
   const [chatsLoading, setChatsLoading] = useState(true);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
   const [connectionsModalType, setConnectionsModalType] = useState(null); // null | "followers" | "visitors"
-  const [profileStats, setProfileStats] = useState({ followersCount: 0, visitorCount: 0 });
   const [familyGroups, setFamilyGroups] = useState([]);
   const [familyGroupsLoading, setFamilyGroupsLoading] = useState(false);
   const [chatFamily, setChatFamily] = useState(null);
@@ -187,18 +194,6 @@ export default function ChatTab() {
       fetchChats();
       wsService.connect().catch(() => {});
     }, [fetchChats])
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      loadProfileStats()
-        .then((stats) => {
-          if (!cancelled) setProfileStats(stats);
-        })
-        .catch(() => {});
-      return () => { cancelled = true; };
-    }, [])
   );
 
   useEffect(() => {
@@ -272,16 +267,6 @@ export default function ChatTab() {
   const followingIdSet = useMemo(
     () => new Set(followingList.map((u) => String(u.userId ?? u.id))),
     [followingList]
-  );
-
-  const displayFeatureCards = useMemo(
-    () =>
-      featureCards.map((card) => {
-        if (card.id === "fc3") return { ...card, badge: profileStats.followersCount || null };
-        if (card.id === "fc4") return { ...card, badge: profileStats.visitorCount || null };
-        return card;
-      }),
-    [profileStats]
   );
 
   const handleFeatureCardPress = (card) => {
@@ -377,7 +362,7 @@ export default function ChatTab() {
           onPress={() => openUserProfile(router, item)}
         >
           <LinearGradient
-            colors={item.vipProfileFrameUrl ? ["#0f0720", "#0f0720"] : ["#7c4dff", "#4a6cf7"]}
+            colors={item.vipProfileFrameUrl ? ["white", "white"] : ["#7c4dff", "#4a6cf7"]}
             style={styles.chatAvatarRing}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -387,7 +372,7 @@ export default function ChatTab() {
                 avatarSource={resolveAvatarSource(item.avatar)}
                 frameSource={item.vipProfileFrameUrl}
                 size={52}
-                avatarStyle={{ borderRadius: 26, borderWidth: 1.5, borderColor: "#0f0720" }}
+                avatarStyle={{ borderRadius: 26, borderWidth: 1.5, borderColor: "white" }}
                 {...(item.vipProfileFrameUrl
                   ? {
                       frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
@@ -443,10 +428,13 @@ export default function ChatTab() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor="#0f0720" />
+      {/* Background decorative orbs */}
+      <View style={styles.orbPink} />
+      <View style={styles.orbPurple} />
+      <StatusBar barStyle="dark-content" backgroundColor="white" />
 
       {/* ── TOP HEADER ── */}
-      <LinearGradient colors={["#160d30", "#0f0720"]} style={styles.header}>
+      <LinearGradient colors={["transparent", "transparent"]} style={styles.header}>
         {contactsPage ? (
           /* Sub-page header */
           <View style={styles.subPageHeader}>
@@ -469,7 +457,12 @@ export default function ChatTab() {
                 setContactSearch("");
               }}
             >
-              <UserPlus size={20} color="#a78bfa" />
+              <View style={{ position: "relative" }}>
+                <Image source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png" }} style={{ width: 40, height: 40 }} resizeMode="contain" />
+                <View style={styles.addBtnPlus}>
+                  <Plus size={8} color="white" strokeWidth={3} />
+                </View>
+              </View>
             </TouchableOpacity>
           </View>
         ) : (
@@ -494,27 +487,32 @@ export default function ChatTab() {
             {/* Search + Add */}
             <View style={styles.headerActions}>
               <View style={styles.searchBar}>
-                <Search size={15} color="rgba(167,139,250,0.6)" />
+                <Search size={15} color="rgba(26,26,46,0.4)" />
                 <TextInput
                   style={styles.searchInput}
                   placeholder="Search"
-                  placeholderTextColor="rgba(167,139,250,0.45)"
+                  placeholderTextColor="rgba(26,26,46,0.35)"
                   value={searchText}
                   onChangeText={setSearchText}
                 />
               </View>
               <TouchableOpacity
-              style={styles.addBtn}
-              activeOpacity={0.8}
-              onPress={() => {
-                setActiveTopTab("Contacts");
-                setContactsPage("following");
-                setContactSearch("");
-              }}
-            >
-              <UserPlus size={20} color="#a78bfa" />
-            </TouchableOpacity>
-          </View>
+                style={styles.addBtn}
+                activeOpacity={0.8}
+                onPress={() => {
+                  setActiveTopTab("Contacts");
+                  setContactsPage("following");
+                  setContactSearch("");
+                }}
+              >
+                <View style={{ position: "relative" }}>
+                  <Image source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png" }} style={{ width: 36, height: 36 }} resizeMode="contain" />
+                  <View style={styles.addBtnPlus}>
+                    <Plus size={8} color="white" strokeWidth={3} />
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </LinearGradient>
@@ -532,7 +530,11 @@ export default function ChatTab() {
                 onPress={() => { setContactsPage(item.id); setContactSearch(""); }}
               >
                 <LinearGradient colors={item.iconBg} style={styles.contactMenuIcon}>
-                  <Text style={styles.contactMenuEmoji}>{item.emoji}</Text>
+                  {item.icon ? (
+                    <Image source={{ uri: item.icon }} style={{ width: item.iconSize, height: item.iconSize }} resizeMode="contain" />
+                  ) : (
+                    <Text style={styles.contactMenuEmoji}>{item.emoji}</Text>
+                  )}
                 </LinearGradient>
                 <Text style={styles.contactMenuLabel}>{item.label}</Text>
                 <View style={styles.contactMenuRight}>
@@ -551,17 +553,17 @@ export default function ChatTab() {
             {/* Search bar */}
             <View style={styles.contactSearchWrap}>
               <View style={styles.contactSearchBar}>
-                <Search size={15} color="rgba(167,139,250,0.55)" />
+                <Search size={15} color="rgba(26,26,46,0.4)" />
                 <TextInput
                   style={styles.contactSearchInput}
                   placeholder={`Search ${contactMenuItems.find((m) => m.id === contactsPage)?.label}`}
-                  placeholderTextColor="rgba(167,139,250,0.4)"
+                  placeholderTextColor="rgba(26,26,46,0.35)"
                   value={contactSearch}
                   onChangeText={setContactSearch}
                 />
                 {contactSearch.length > 0 && (
                   <TouchableOpacity onPress={() => setContactSearch("")}>
-                    <X size={14} color="rgba(167,139,250,0.5)" />
+                    <X size={14} color="rgba(26,26,46,0.4)" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -660,7 +662,7 @@ export default function ChatTab() {
                             avatarSource={resolveAvatarSource(user.avatar)}
                             frameSource={user.vipProfileFrameUrl}
                             size={46}
-                            avatarStyle={{ borderRadius: 23, borderWidth: 1.5, borderColor: "#0f0720" }}
+                            avatarStyle={{ borderRadius: 23, borderWidth: 1.5, borderColor: "white" }}
                             {...(user.vipProfileFrameUrl
                               ? {
                                   frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
@@ -745,148 +747,146 @@ export default function ChatTab() {
         {/* ══════════ CHATS TAB ══════════ */}
         {activeTopTab === "Chats" && (
           <>
-        {/* ── NOTIFICATION BANNER ── */}
-        {showBanner && (
-          <View style={styles.bannerWrap}>
-            <LinearGradient
-              colors={["rgba(124,77,255,0.18)", "rgba(74,108,247,0.18)"]}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-              style={styles.banner}
-            >
-              <View style={styles.bannerIconWrap}>
-                <Text style={styles.bannerIconEmoji}>📬</Text>
-              </View>
-              <Text style={styles.bannerText}>
-                Tap &quot;Allow&quot; and never miss the amazing people and moments on TukTuk!
-              </Text>
-              <TouchableOpacity style={styles.bannerBtn} activeOpacity={0.8}>
-                <Text style={styles.bannerBtnText}>Notify me</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.bannerClose} activeOpacity={0.8} onPress={() => setShowBanner(false)}>
-                <X size={14} color="rgba(167,139,250,0.6)" />
-              </TouchableOpacity>
-            </LinearGradient>
-          </View>
-        )}
-
-        {/* ── FEATURE CARDS ROW ── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.featureScroll}
-          contentContainerStyle={styles.featureContent}
-        >
-          {displayFeatureCards.map((card) => (
-            <TouchableOpacity
-              key={card.id}
-              style={styles.featureCard}
-              activeOpacity={0.8}
-              onPress={() => handleFeatureCardPress(card)}
-            >
-              {/* Gradient border ring */}
-              <LinearGradient
-                colors={card.borderColors}
-                style={styles.featureRing}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <View style={styles.featureInner}>
-                  {card.avatar ? (
-                    <Image source={resolveAvatarSource(card.avatar)} style={styles.featureAvatar} blurRadius={2} />
-                  ) : (
-                    <LinearGradient colors={card.colors} style={styles.featureEmojiWrap}>
-                      <Text style={styles.featureEmoji}>{card.emoji}</Text>
-                    </LinearGradient>
-                  )}
-                </View>
-              </LinearGradient>
-              {/* Badge */}
-              {card.badge !== null && (
-                <View style={styles.featureBadge}>
-                  <Text style={styles.featureBadgeText}>{card.badge}</Text>
-                </View>
-              )}
-              <Text style={styles.featureLabel}>{card.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* ── RECOMMENDED USERS ── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recommend user in the room</Text>
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.recommendScroll}
-          contentContainerStyle={styles.recommendContent}
-        >
-          {recommendedUsers.map((user) => (
-            <TouchableOpacity
-              key={user.id}
-              style={styles.recommendCard}
-              activeOpacity={0.8}
-              onPress={() => handleOpenUserChat(user)}
-            >
-              <LinearGradient
-                colors={RECOMMEND_RING_COLORS}
-                style={styles.recommendRing}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                {user.avatar ? (
-                  <ProfileAvatarWithFrame
-                    avatarSource={resolveAvatarSource(user.avatar)}
-                    frameSource={user.vipProfileFrameUrl}
-                    size={66}
-                    avatarStyle={{ borderRadius: 34, borderWidth: 2, borderColor: "#0f0720" }}
-                    {...(user.vipProfileFrameUrl
-                      ? {
-                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                        }
-                      : {})}
-                  />
-                ) : (
-                  <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
-                    <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
+            {/* ── NOTIFICATION BANNER ── */}
+            {showBanner && (
+              <View style={styles.bannerWrap}>
+                <LinearGradient
+                  colors={["rgba(124,77,255,0.18)", "rgba(74,108,247,0.18)"]}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                  style={styles.banner}
+                >
+                  <View style={styles.bannerIconWrap}>
+                    <Text style={styles.bannerIconEmoji}>📬</Text>
                   </View>
-                )}
-              </LinearGradient>
-              <View style={styles.recommendNameRow}>
-                <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
+                  <Text style={styles.bannerText}>
+                    Tap &quot;Allow&quot; and never miss the amazing people and moments on TukTuk!
+                  </Text>
+                  <TouchableOpacity style={styles.bannerBtn} activeOpacity={0.8}>
+                    <Text style={styles.bannerBtnText}>Notify me</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.bannerClose} activeOpacity={0.8} onPress={() => setShowBanner(false)}>
+                    <X size={14} color="rgba(26,26,46,0.4)" />
+                  </TouchableOpacity>
+                </LinearGradient>
               </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+            )}
 
-        {/* ── CHATLIST HEADER ── */}
-        <View style={styles.chatlistHeader}>
-          <Text style={styles.chatlistTitle}>Chatlist</Text>
-          <View style={styles.chatlistActions}>
-            <TouchableOpacity
-              style={styles.filterBtn}
-              activeOpacity={0.8}
-              onPress={() => setChatFilter(chatFilter === "All" ? "Unread" : "All")}
+            {/* ── FEATURE CARDS ROW ── */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.featureScroll}
+              contentContainerStyle={styles.featureContent}
             >
-              <LinearGradient
-                colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]}
-                style={styles.filterBtnGrad}
-              >
-                <Text style={styles.filterBtnText}>{chatFilter}</Text>
-                <ChevronDown size={13} color="#a78bfa" />
-              </LinearGradient>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuBtn} activeOpacity={0.8}>
-              <AlignJustify size={18} color="rgba(167,139,250,0.6)" />
-            </TouchableOpacity>
-          </View>
-        </View>
+              {featureCards.map((card) => (
+                <TouchableOpacity
+                  key={card.id}
+                  style={[styles.featureCard, { shadowColor: card.shadowColor }]}
+                  activeOpacity={0.8}
+                  onPress={() => handleFeatureCardPress(card)}
+                >
+                  <View style={[styles.featureContainer, { backgroundColor: card.tint }]}>
+                    <LinearGradient
+                      colors={card.colors}
+                      style={styles.featureInnerBox}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      {card.icon ? (
+                        <Image source={{ uri: card.icon }} style={styles.featureIconImg} resizeMode="contain" />
+                      ) : card.avatar ? (
+                        <Image source={resolveAvatarSource(card.avatar)} style={styles.featureAvatar} blurRadius={2} />
+                      ) : (
+                        <Text style={styles.featureEmoji}>{card.emoji}</Text>
+                      )}
+                    </LinearGradient>
+                  </View>
+                  {card.badge !== null && (
+                    <View style={[styles.featureBadge, { borderColor: card.shadowColor }]}>
+                      <Text style={styles.featureBadgeText}>{card.badge}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.featureLabel}>{card.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* ── RECOMMENDED USERS ── */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Recommend user in the room</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.recommendScroll}
+              contentContainerStyle={styles.recommendContent}
+            >
+              {recommendedUsers.map((user) => (
+                <TouchableOpacity
+                  key={user.id}
+                  style={styles.recommendCard}
+                  activeOpacity={0.8}
+                  onPress={() => handleOpenUserChat(user)}
+                >
+                  <LinearGradient
+                    colors={RECOMMEND_RING_COLORS}
+                    style={styles.recommendRing}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    {user.avatar ? (
+                      <ProfileAvatarWithFrame
+                        avatarSource={resolveAvatarSource(user.avatar)}
+                        frameSource={user.vipProfileFrameUrl}
+                        size={66}
+                        avatarStyle={{ borderRadius: 34, borderWidth: 2, borderColor: "white" }}
+                        {...(user.vipProfileFrameUrl
+                          ? {
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
+                          : {})}
+                      />
+                    ) : (
+                      <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
+                        <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
+                      </View>
+                    )}
+                  </LinearGradient>
+                  <View style={styles.recommendNameRow}>
+                    <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* ── CHATLIST HEADER ── */}
+            <View style={styles.chatlistHeader}>
+              <Text style={styles.chatlistTitle}>Chatlist</Text>
+              <View style={styles.chatlistActions}>
+                <TouchableOpacity
+                  style={styles.filterBtn}
+                  activeOpacity={0.8}
+                  onPress={() => setChatFilter(chatFilter === "All" ? "Unread" : "All")}
+                >
+                  <LinearGradient
+                    colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]}
+                    style={styles.filterBtnGrad}
+                  >
+                    <Text style={styles.filterBtnText}>{chatFilter}</Text>
+                    <ChevronDown size={13} color="#7c4dff" />
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuBtn} activeOpacity={0.8}>
+                  <AlignJustify size={18} color="rgba(26,26,46,0.4)" />
+                </TouchableOpacity>
+              </View>
+            </View>
 
         {/* ── CHAT LIST ── */}
         <View style={styles.chatList}>{renderChatList()}</View>
@@ -905,10 +905,7 @@ export default function ChatTab() {
       <ProfileConnectionsModal
         visible={connectionsModalType !== null}
         type={connectionsModalType}
-        onClose={() => {
-          setConnectionsModalType(null);
-          loadProfileStats().then(setProfileStats).catch(() => {});
-        }}
+        onClose={() => setConnectionsModalType(null)}
       />
 
       <FamilyChatModal
@@ -925,7 +922,27 @@ export default function ChatTab() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#0f0720",
+    backgroundColor: "white",
+  },
+
+  // Decorative orbs (matching party screen)
+  orbPink: {
+    position: "absolute",
+    width: 300,
+    height: 300,
+    top: -80,
+    left: -80,
+    borderRadius: 150,
+    backgroundColor: "rgba(255,0,128,0.18)",
+  },
+  orbPurple: {
+    position: "absolute",
+    width: 350,
+    height: 350,
+    bottom: -120,
+    right: -120,
+    borderRadius: 175,
+    backgroundColor: "rgba(138,43,226,0.22)",
   },
 
   // Header
@@ -947,10 +964,10 @@ const styles = StyleSheet.create({
   headerTabText: {
     fontSize: 20,
     fontWeight: "700",
-    color: "rgba(255,255,255,0.35)",
+    color: "rgba(26,26,46,0.35)",
   },
   headerTabTextActive: {
-    color: "white",
+    color: "#1a1a2e",
   },
   headerTabUnderline: {
     marginTop: 4,
@@ -969,28 +986,41 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "rgba(124,77,255,0.12)",
+    backgroundColor: "rgba(124,77,255,0.08)",
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: "rgba(124,77,255,0.2)",
     paddingHorizontal: 14,
     paddingVertical: 9,
   },
   searchInput: {
     flex: 1,
-    color: "white",
+    color: "#1a1a2e",
     fontSize: 14,
     padding: 0,
   },
   addBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "rgba(124,77,255,0.12)",
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "rgba(124,77,255,0.08)",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: "rgba(124,77,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  addBtnPlus: {
+    position: "absolute",
+    bottom: -3,
+    right: -3,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#7c4dff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "white",
   },
 
   // Body
@@ -1011,21 +1041,21 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 10,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: "rgba(124,77,255,0.2)",
     borderRadius: 16,
   },
   bannerIconWrap: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "rgba(124,77,255,0.2)",
+    backgroundColor: "rgba(124,77,255,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
   bannerIconEmoji: { fontSize: 24 },
   bannerText: {
     flex: 1,
-    color: "rgba(255,255,255,0.75)",
+    color: "rgba(26,26,46,0.75)",
     fontSize: 12,
     lineHeight: 18,
   },
@@ -1048,36 +1078,50 @@ const styles = StyleSheet.create({
   featureContent: {
     paddingHorizontal: 16,
     gap: 14,
+    paddingBottom: 6,
   },
   featureCard: {
     alignItems: "center",
     gap: 8,
     position: "relative",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  featureRing: {
-    width: 76,
-    height: 76,
-    borderRadius: 20,
-    padding: 2.5,
-  },
-  featureInner: {
-    flex: 1,
-    borderRadius: 18,
+  featureContainer: {
+    width: 82,
+    height: 82,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
     overflow: "hidden",
-    backgroundColor: "#0f0720",
+  },
+  featureInnerBox: {
+    width: 58,
+    height: 58,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   featureAvatar: {
     width: "100%",
     height: "100%",
-    borderRadius: 18,
+    borderRadius: 16,
+  },
+  featureIconImg: {
+    width: 100,
+    height: 50,
   },
   featureEmojiWrap: {
-    flex: 1,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 18,
   },
-  featureEmoji: { fontSize: 32 },
+  featureEmoji: { fontSize: 26 },
   featureBadge: {
     position: "absolute",
     top: -4,
@@ -1090,15 +1134,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 5,
     borderWidth: 1.5,
-    borderColor: "#0f0720",
+    borderColor: "white",
   },
   featureBadgeText: { color: "white", fontSize: 10, fontWeight: "800" },
   featureLabel: {
-    color: "rgba(255,255,255,0.75)",
+    color: "rgba(26,26,46,0.75)",
     fontSize: 12,
     fontWeight: "600",
     textAlign: "center",
-    maxWidth: 76,
+    maxWidth: 82,
   },
 
   // Section header
@@ -1108,7 +1152,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    color: "white",
+    color: "#1a1a2e",
     fontSize: 16,
     fontWeight: "700",
   },
@@ -1136,7 +1180,7 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 34,
     borderWidth: 2,
-    borderColor: "#0f0720",
+    borderColor: "white",
   },
   recommendAvatarPlaceholder: {
     backgroundColor: "rgba(124,77,255,0.45)",
@@ -1154,7 +1198,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   recommendName: {
-    color: "rgba(255,255,255,0.75)",
+    color: "rgba(26,26,46,0.75)",
     fontSize: 11,
     fontWeight: "500",
     textAlign: "center",
@@ -1171,7 +1215,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   chatlistTitle: {
-    color: "white",
+    color: "#1a1a2e",
     fontSize: 18,
     fontWeight: "700",
   },
@@ -1192,9 +1236,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.3)",
+    borderColor: "rgba(124,77,255,0.25)",
   },
-  filterBtnText: { color: "#a78bfa", fontSize: 13, fontWeight: "700" },
+  filterBtnText: { color: "#7c4dff", fontSize: 13, fontWeight: "700" },
   menuBtn: {
     padding: 4,
   },
@@ -1207,7 +1251,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   chatsLoadingText: {
-    color: "rgba(167,139,250,0.7)",
+    color: "rgba(26,26,46,0.5)",
     fontSize: 13,
   },
   chatsEmpty: {
@@ -1216,7 +1260,7 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
   },
   chatsEmptyText: {
-    color: "rgba(167,139,250,0.55)",
+    color: "rgba(26,26,46,0.4)",
     fontSize: 13,
   },
   chatList: {
@@ -1229,7 +1273,7 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingVertical: 13,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(167,139,250,0.08)",
+    borderBottomColor: "rgba(124,77,255,0.08)",
   },
   chatItemFirst: {},
   chatAvatarWrap: {
@@ -1246,7 +1290,7 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 26,
     borderWidth: 1.5,
-    borderColor: "#0f0720",
+    borderColor: "white",
   },
   chatAvatarPlaceholder: {
     backgroundColor: "rgba(124,77,255,0.45)",
@@ -1266,7 +1310,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: "hidden",
     borderWidth: 1.5,
-    borderColor: "#0f0720",
+    borderColor: "white",
   },
   liveBadgeGrad: {
     paddingHorizontal: 7,
@@ -1290,7 +1334,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   chatName: {
-    color: "white",
+    color: "#1a1a2e",
     fontSize: 15,
     fontWeight: "700",
     flexShrink: 1,
@@ -1305,7 +1349,7 @@ const styles = StyleSheet.create({
   },
   heartIcon: { fontSize: 13 },
   chatTime: {
-    color: "rgba(167,139,250,0.55)",
+    color: "rgba(26,26,46,0.45)",
     fontSize: 12,
     fontWeight: "500",
   },
@@ -1316,7 +1360,7 @@ const styles = StyleSheet.create({
   },
   chatLastMsg: {
     flex: 1,
-    color: "rgba(255,255,255,0.4)",
+    color: "rgba(26,26,46,0.45)",
     fontSize: 13,
     marginRight: 8,
   },
@@ -1341,16 +1385,16 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(124,77,255,0.12)",
+    backgroundColor: "rgba(124,77,255,0.08)",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: "rgba(124,77,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
   },
-  backArrow: { color: "white", fontSize: 28, lineHeight: 34, fontWeight: "300" },
+  backArrow: { color: "#1a1a2e", fontSize: 28, lineHeight: 34, fontWeight: "300" },
   subPageTitle: {
     flex: 1,
-    color: "white",
+    color: "#1a1a2e",
     fontSize: 18,
     fontWeight: "700",
     textAlign: "center",
@@ -1363,7 +1407,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.15)",
+    borderColor: "rgba(124,77,255,0.15)",
     backgroundColor: "rgba(124,77,255,0.07)",
   },
   contactMenuItem: {
@@ -1373,7 +1417,7 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     gap: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(167,139,250,0.1)",
+    borderBottomColor: "rgba(124,77,255,0.1)",
   },
   contactMenuIcon: {
     width: 46,
@@ -1383,10 +1427,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   contactMenuEmoji: { fontSize: 22 },
-  contactMenuLabel: { flex: 1, color: "white", fontSize: 16, fontWeight: "600" },
+  contactMenuIconImg: { width: CONTACT_MENU_ICON_SIZE, height: CONTACT_MENU_ICON_SIZE },
+  contactMenuLabel: { flex: 1, color: "#1a1a2e", fontSize: 16, fontWeight: "600" },
   contactMenuRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  contactMenuCount: { color: "rgba(167,139,250,0.6)", fontSize: 15, fontWeight: "600" },
-  contactMenuChevron: { color: "rgba(167,139,250,0.5)", fontSize: 22, fontWeight: "300" },
+  contactMenuCount: { color: "rgba(26,26,46,0.5)", fontSize: 15, fontWeight: "600" },
+  contactMenuChevron: { color: "rgba(26,26,46,0.4)", fontSize: 22, fontWeight: "300" },
 
   // Contact search
   contactSearchWrap: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 },
@@ -1394,19 +1439,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "rgba(124,77,255,0.1)",
+    backgroundColor: "rgba(124,77,255,0.08)",
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: "rgba(124,77,255,0.2)",
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
-  contactSearchInput: { flex: 1, color: "white", fontSize: 14, padding: 0 },
+  contactSearchInput: { flex: 1, color: "#1a1a2e", fontSize: 14, padding: 0 },
 
-  // Family groups section (real family group chats, shown above mock family contacts)
+  // Family groups section
   familyGroupsSection: { marginTop: 4 },
   familyGroupsHeader: {
-    color: "rgba(167,139,250,0.7)",
+    color: "rgba(26,26,46,0.5)",
     fontSize: 12,
     fontWeight: "700",
     textTransform: "uppercase",
@@ -1423,7 +1468,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.15)",
+    borderColor: "rgba(124,77,255,0.15)",
     backgroundColor: "rgba(124,77,255,0.07)",
   },
   contactItem: {
@@ -1433,7 +1478,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(167,139,250,0.08)",
+    borderBottomColor: "rgba(124,77,255,0.08)",
   },
   contactAvatarWrap: { position: "relative" },
   contactAvatarRing: {
@@ -1457,7 +1502,7 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 23,
     borderWidth: 1.5,
-    borderColor: "#0f0720",
+    borderColor: "white",
   },
   onlineDot: {
     position: "absolute",
@@ -1468,12 +1513,12 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: "#00c853",
     borderWidth: 2,
-    borderColor: "#0f0720",
+    borderColor: "white",
   },
   contactInfo: { flex: 1, gap: 3 },
   contactNameRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  contactName: { color: "white", fontSize: 14, fontWeight: "700", flexShrink: 1 },
-  contactHandle: { color: "rgba(167,139,250,0.55)", fontSize: 12 },
+  contactName: { color: "#1a1a2e", fontSize: 14, fontWeight: "700", flexShrink: 1 },
+  contactHandle: { color: "rgba(26,26,46,0.45)", fontSize: 12 },
 
   // Action buttons
   followBackBtn: { borderRadius: 20, overflow: "hidden" },
@@ -1482,7 +1527,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.3)",
+    borderColor: "rgba(124,77,255,0.3)",
   },
   followBackText: { color: "white", fontSize: 12, fontWeight: "700" },
   msgBtn: { borderRadius: 20, overflow: "hidden" },
@@ -1491,9 +1536,9 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
+    borderColor: "rgba(124,77,255,0.25)",
   },
-  msgBtnText: { color: "#a78bfa", fontSize: 12, fontWeight: "700" },
+  msgBtnText: { color: "#7c4dff", fontSize: 12, fontWeight: "700" },
 
   // Empty state
   emptyContacts: {
@@ -1502,5 +1547,5 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyContactsEmoji: { fontSize: 36 },
-  emptyContactsText: { color: "rgba(255,255,255,0.35)", fontSize: 14, fontWeight: "500" },
+  emptyContactsText: { color: "rgba(26,26,46,0.35)", fontSize: 14, fontWeight: "500" },
 });

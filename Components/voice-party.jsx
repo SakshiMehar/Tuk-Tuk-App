@@ -56,6 +56,7 @@ import { refreshTokenCache } from "../src/api/axios";
 import {
   getRoomChatMessages,
   getRoomState,
+  getRoomUserCount,
   postSeatHeartbeat,
 } from "../src/api/partyApi";
 import { reportUser } from "../src/api/postApi";
@@ -1621,10 +1622,8 @@ export default function VoiceParty() {
 
     const fetchUserCount = async () => {
       try {
-        const response = await getRoomUserCount(String(roomId));
-        console.log(`[getRoomUserCount] room ${roomId} response:`, response);
+        const count = await getRoomUserCount(String(roomId));
         if (cancelled) return;
-        const count = typeof response === "number" ? response : response?.onlineCount;
         if (typeof count === "number") setOnlineCount(count);
       } catch (error) {
         console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
