@@ -2045,6 +2045,7 @@ BannerSlider.displayName = "BannerSlider";
 
 // All content above the feed — memoized so it only re-renders when
 // its specific props change (e.g. diamonds update, tab switch)
+<<<<<<< Updated upstream
 const HomeHeader = memo(({
   userProfile,
   walletDiamonds,
@@ -2102,6 +2103,149 @@ const HomeHeader = memo(({
             ))}
             {/* White text on top */}
             <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} allowFontScaling={false} style={styles.appName}>Tuk Tuk</Text>
+=======
+const HomeHeader = memo(
+  ({
+    insets,
+    userProfile,
+    walletDiamonds,
+    sessionAvatarSource,
+    sessionNewUserFrameSource,
+    vipProfileFrameSource,
+    stats,
+    unreadNotifications,
+    recommendedUsers,
+    selectedTab,
+    tabScales,
+    tabUnderlineScales,
+    onTabPress,
+    onSearchOpen,
+    onNotifOpen,
+    onGiftsOpen,
+    onRechargeOpen,
+    onNearbyPress,
+    onComingSoon,
+    router,
+  }) => (
+    <>
+      {/* ── HEADER CARD ── */}
+      <View style={[styles.headerCard, { marginTop: Math.max((insets?.top || 0) + 10, 20) }]}>
+        <View style={styles.headerTopRow}>
+          <View style={styles.avatarWrapper}>
+            <ProfileAvatarWithFrame
+              avatarSource={
+                sessionAvatarSource ??
+                (userProfile?.avatarUrl ? { uri: userProfile.avatarUrl } : null)
+              }
+              frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
+              size={s(62)}
+              avatarStyle={styles.headerAvatar}
+              placeholderInitial={
+                (userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"
+              }
+              imageComponent={Image}
+              {...(vipProfileFrameSource
+                ? {
+                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                  }
+                : {})}
+            />
+            <View style={styles.onlineDot} />
+          </View>
+          <View style={styles.headerTitleCol}>
+            <View style={styles.appNameWrapper}>
+              {/* Thin #7f3f89 outline — 8 directions at 1px */}
+              {[
+                [-1, 0],
+                [1, 0],
+                [0, -1],
+                [0, 1],
+                [-1, -1],
+                [1, -1],
+                [-1, 1],
+                [1, 1],
+              ].map(([dx, dy], i) => (
+                <Text
+                  key={i}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                  allowFontScaling={false}
+                  style={[
+                    styles.appName,
+                    styles.appNameOutline,
+                    { position: "absolute", left: dx, top: dy },
+                  ]}
+                >
+                  Tuk Tuk
+                </Text>
+              ))}
+              {/* White text on top */}
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.85}
+                allowFontScaling={false}
+                style={styles.appName}
+              >
+                Tuk Tuk
+              </Text>
+            </View>
+          </View>
+          <View style={styles.headerIcons}>
+            <View style={styles.diamondPill}>
+              <Text style={styles.diamondEmoji}>💎</Text>
+              <Text 
+                style={[styles.diamondCount, { maxWidth: 60 }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString(
+                  "en-IN",
+                )}
+              </Text>
+              <TouchableOpacity
+                style={styles.diamondPlusBtn}
+                activeOpacity={0.85}
+                onPress={onRechargeOpen}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.diamondPlusText}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              activeOpacity={0.8}
+              onPress={onGiftsOpen}
+            >
+              <Text style={styles.headerIconEmoji}>🎁</Text>
+              <View
+                style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}
+              >
+                <Text style={styles.headerIconBadgeText}>!</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              activeOpacity={0.8}
+              onPress={onNotifOpen}
+            >
+              <Text style={styles.headerIconEmoji}>🔔</Text>
+              <View
+                style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}
+              >
+                <Text style={styles.headerIconBadgeText}>
+                  {unreadNotifications.length}
+                </Text>
+              </View>
+            </TouchableOpacity>
+>>>>>>> Stashed changes
           </View>
         </View>
         <View style={styles.headerIcons}>
@@ -2989,6 +3133,7 @@ export default function Home() {
 
   // ListHeaderComponent memoized — only re-creates when its specific
   // props change, not on every unrelated state update
+<<<<<<< Updated upstream
   const listHeader = useMemo(() => (
     <HomeHeader
       userProfile={userProfile}
@@ -3013,6 +3158,52 @@ export default function Home() {
     />
   ), [userProfile, walletDiamonds, sessionAvatarSource, sessionNewUserFrameSource, vipProfileFrameSource, stats, unreadNotifications, recommendedUsers, selectedTab,
       handleTabPress, openSearch, openNotif, openGifts, handleNearbyPress, router]);
+=======
+  const listHeader = useMemo(
+    () => (
+      <HomeHeader
+        insets={insets}
+        userProfile={userProfile}
+        walletDiamonds={walletDiamonds}
+        sessionAvatarSource={sessionAvatarSource}
+        sessionNewUserFrameSource={sessionNewUserFrameSource}
+        vipProfileFrameSource={vipProfileFrameSource}
+        stats={stats}
+        unreadNotifications={unreadNotifications}
+        recommendedUsers={recommendedUsers}
+        selectedTab={selectedTab}
+        tabScales={tabScales}
+        tabUnderlineScales={tabUnderlineScales}
+        onTabPress={handleTabPress}
+        onSearchOpen={openSearch}
+        onNotifOpen={openNotif}
+        onGiftsOpen={openGifts}
+        onRechargeOpen={() => setDiamondRechargeVisible(true)}
+        onNearbyPress={handleNearbyPress}
+        onComingSoon={setComingSoonFeature}
+        router={router}
+      />
+    ),
+    [
+      userProfile,
+      walletDiamonds,
+      sessionAvatarSource,
+      sessionNewUserFrameSource,
+      vipProfileFrameSource,
+      stats,
+      unreadNotifications,
+      recommendedUsers,
+      selectedTab,
+      handleTabPress,
+      openSearch,
+      openNotif,
+      openGifts,
+      handleNearbyPress,
+      router,
+      insets,
+    ],
+  );
+>>>>>>> Stashed changes
 
   return (
     <View style={styles.container}>

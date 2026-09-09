@@ -211,7 +211,11 @@ const reconcileSeatAssignments = (
       ? new Set(
         onlineUsers
           .map((u) => (u?.id != null ? String(u.id) : null))
+<<<<<<< Updated upstream
           .filter(Boolean)
+=======
+          .filter(Boolean),
+>>>>>>> Stashed changes
       )
       : null;
 
@@ -377,6 +381,57 @@ const SpeakingRing = ({ active }) => {
   );
 };
 
+<<<<<<< Updated upstream
+=======
+const UserEntryBanner = ({ user, onComplete }) => {
+  const animValue = useSharedValue(-350);
+
+  useEffect(() => {
+    // Continuously scroll from left to right (marquee effect)
+    // Starting at -350 ensures there's no long delay before it appears.
+    animValue.value = withRepeat(withTiming(W, { duration: 6000 }), -1, false);
+  }, []);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: animValue.value }],
+  }));
+
+  const frameUrl = user.entryFrameUrl || user.newUserFrameUrl;
+  const hasFrame = Boolean(frameUrl);
+
+  return (
+    <Animated.View style={[styles.entryBannerContainer, animStyle]}>
+      {hasFrame && (
+        <Image
+          source={{ uri: frameUrl }}
+          style={styles.entryBannerBg}
+        // resizeMode="stretch"
+        />
+      )}
+      <View
+        style={[
+          styles.entryBannerContent,
+          !hasFrame && styles.entryBannerBgDefault,
+        ]}
+      >
+        <Image
+          source={{
+            uri: user.avatar || "https://ui-avatars.com/api/?name=" + user.name,
+          }}
+          style={styles.entryBannerAvatar}
+          resizeMode="cover"
+        />
+        <View style={styles.entryBannerTextContainer}>
+          <Text style={styles.entryBannerName} numberOfLines={1}>
+            {user.name}
+          </Text>
+        </View>
+      </View>
+    </Animated.View>
+  );
+};
+
+>>>>>>> Stashed changes
 export default function VoiceParty() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -620,7 +675,15 @@ export default function VoiceParty() {
             extractVipProfileFrameUrl(response) ?? extractVipProfileFrameUrl(response?.data);
           setUserFrameData((prev) => ({
             ...prev,
+<<<<<<< Updated upstream
             [userId]: { ...prev[userId], hasNewUserFrame: showFrame, newUserFrameUrl: frameUrl, vipProfileFrameUrl },
+=======
+            [userId]: {
+              hasNewUserFrame: showFrame,
+              newUserFrameUrl: frameUrl,
+              vipProfileFrameUrl,
+            },
+>>>>>>> Stashed changes
           }));
         })
         .catch((err) => {
@@ -882,7 +945,13 @@ export default function VoiceParty() {
         if (!cancelled) setIsFollowing(status.following);
       })
       .catch(() => { });
+<<<<<<< Updated upstream
     return () => { cancelled = true; };
+=======
+    return () => {
+      cancelled = true;
+    };
+>>>>>>> Stashed changes
   }, [hostId, myUserId]);
 
   const handleFollowToggle = async () => {
@@ -929,9 +998,17 @@ export default function VoiceParty() {
       try {
         await syncNewUserFrameForSession();
         const levelData = await syncUserLevelForSession();
+<<<<<<< Updated upstream
         loadMyVipAssets(levelData?.xp?.totalXp)
           .then((vip) => { if (!cancelled) setMyVipAssets(vip); })
           .catch(() => { });
+=======
+        let loadedVip = null;
+        try {
+          loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
+          if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
+        } catch (e) { }
+>>>>>>> Stashed changes
         let session;
         if (isRandomParty) {
           session = await enterRandomPartySession();
@@ -1085,7 +1162,13 @@ export default function VoiceParty() {
         const seatToLeave = onMicRef.current ? mySeatNumberRef.current : null;
         const cleanup = async () => {
           if (seatToLeave) {
+<<<<<<< Updated upstream
             await partyVoice.leaveMic(String(activeRoomId), seatToLeave).catch(() => { });
+=======
+            await partyVoice
+              .leaveMic(String(activeRoomId), seatToLeave)
+              .catch(() => { });
+>>>>>>> Stashed changes
           }
           await partyVoice.teardownVoice().catch(() => { });
           await exitRoomSession(String(activeRoomId)).catch(() => { });
@@ -1508,9 +1591,23 @@ export default function VoiceParty() {
             setSeats((prev) =>
               prev.map((s) =>
                 s.id === seatId && !s.user
+<<<<<<< Updated upstream
                   ? { ...s, user: { id: null, name: "…", active: false, muted: false } }
                   : s
               )
+=======
+                  ? {
+                    ...s,
+                    user: {
+                      id: null,
+                      name: "…",
+                      active: false,
+                      muted: false,
+                    },
+                  }
+                  : s,
+              ),
+>>>>>>> Stashed changes
             );
             continue; // try next seat
           }
@@ -1665,11 +1762,21 @@ export default function VoiceParty() {
       },
     },
     ...(!isHostSelf
+<<<<<<< Updated upstream
       ? [{
         icon: <Ban size={22} color="#a78bfa" />,
         label: "Block",
         onPress: handleBlockHost,
       }]
+=======
+      ? [
+        {
+          icon: <Ban size={22} color="#a78bfa" />,
+          label: "Block",
+          onPress: handleBlockHost,
+        },
+      ]
+>>>>>>> Stashed changes
       : []),
     {
       icon: <Crown size={22} color="#a78bfa" />,
@@ -2186,7 +2293,15 @@ export default function VoiceParty() {
     const userId = user?.id != null ? String(user.id) : null;
     const fetched = userId ? (userFrameData[userId] ?? {}) : {};
     const userWithFrame = user
+<<<<<<< Updated upstream
       ? { ...user, hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame, newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl }
+=======
+      ? {
+        ...user,
+        hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame,
+        newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl,
+      }
+>>>>>>> Stashed changes
       : user;
     const imageSource = resolveRoomUserAvatarSource(userWithFrame);
     // Mic seats show the same circular VIP profile-frame ring used everywhere
@@ -2198,6 +2313,7 @@ export default function VoiceParty() {
     const isSelf = userId != null && myUserId != null && userId === String(myUserId);
     const selfVipProfileFrame = isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
     const otherUserVipProfileFrame =
+<<<<<<< Updated upstream
       !isSelf && fetched.vipProfileFrameUrl ? { uri: fetched.vipProfileFrameUrl } : null;
     // A user-specific decoration frame (backend-assigned, independent of VIP
     // tier) takes priority over the VIP frame when both are present.
@@ -2205,6 +2321,18 @@ export default function VoiceParty() {
     const isVipProfileFrame = Boolean(selfVipProfileFrame || otherUserVipProfileFrame);
     const frameSource =
       decorationFrame ?? selfVipProfileFrame ?? otherUserVipProfileFrame ?? resolveNewUserFrameSource(userWithFrame);
+=======
+      !isSelf && fetched.vipProfileFrameUrl
+        ? { uri: fetched.vipProfileFrameUrl }
+        : null;
+    const isVipProfileFrame = Boolean(
+      selfVipProfileFrame || otherUserVipProfileFrame,
+    );
+    const frameSource =
+      selfVipProfileFrame ??
+      otherUserVipProfileFrame ??
+      resolveNewUserFrameSource(userWithFrame);
+>>>>>>> Stashed changes
     const hasFrame = Boolean(frameSource);
     const activeFrameConfig = isVipProfileFrame
       ? VIP_PROFILE_FRAME_LAYOUT
@@ -2216,6 +2344,7 @@ export default function VoiceParty() {
         avatarSource={imageSource}
         frameSource={frameSource}
         size={typeof size === "number" ? size : 48}
+<<<<<<< Updated upstream
         {...(decorationFrame
           ? {
             // Decoration frames: no explicit props — ProfileAvatarWithFrame
@@ -2231,6 +2360,29 @@ export default function VoiceParty() {
             avatarBoost: hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost,
             avatarOffsetY: hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
           })}
+=======
+        frameScale={
+          hasFrame
+            ? activeFrameConfig.frameScale
+            : NEW_USER_FRAME_LAYOUT.frameScale
+        }
+        frameResizeMode={
+          hasFrame ? activeFrameConfig.frameResizeMode : "contain"
+        }
+        frameOffsetX={hasFrame ? activeFrameConfig.frameOffsetX : 0}
+        frameOffsetY={hasFrame ? activeFrameConfig.frameOffsetY : 0}
+        frameBleed={hasFrame ? activeFrameConfig.frameBleed : 0}
+        avatarBoost={
+          hasFrame
+            ? activeFrameConfig.avatarBoost
+            : NEW_USER_FRAME_LAYOUT.avatarBoost
+        }
+        avatarOffsetY={
+          hasFrame
+            ? activeFrameConfig.avatarOffsetY
+            : NEW_USER_FRAME_LAYOUT.avatarOffsetY
+        }
+>>>>>>> Stashed changes
         avatarStyle={imageStyle}
         placeholderStyle={placeholderStyle}
         initialStyle={initialStyle}
@@ -2450,6 +2602,7 @@ export default function VoiceParty() {
                         colors={canAfford && !catalogLoading ? ["#7c4dff", "#4a6cf7"] : ["#4a4a5a", "#3a3a4a"]}
                         style={styles.giftPurchaseBuyGrad}
                       >
+<<<<<<< Updated upstream
                         <Text style={styles.giftPurchaseBuyText}>
                           {catalogLoading ? "Buying..." : "Buy"}
                         </Text>
@@ -2459,6 +2612,37 @@ export default function VoiceParty() {
                 </>
               );
             })()}
+=======
+                        <Text style={styles.giftPurchaseCloseText}>Close</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.giftPurchaseBuyBtn,
+                          (!canAfford || catalogLoading) &&
+                          styles.giftPurchaseBuyBtnDisabled,
+                        ]}
+                        activeOpacity={0.85}
+                        disabled={!canAfford || catalogLoading}
+                        onPress={handleBuyGift}
+                      >
+                        <LinearGradient
+                          colors={
+                            canAfford && !catalogLoading
+                              ? ["#7c4dff", "#4a6cf7"]
+                              : ["#4a4a5a", "#3a3a4a"]
+                          }
+                          style={styles.giftPurchaseBuyGrad}
+                        >
+                          <Text style={styles.giftPurchaseBuyText}>
+                            {catalogLoading ? "Buying..." : "Buy"}
+                          </Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                );
+              })()}
+>>>>>>> Stashed changes
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -2665,7 +2849,12 @@ export default function VoiceParty() {
                             key={gift.id}
                             style={[
                               styles.bpGiftCard,
+<<<<<<< Updated upstream
                               giftsMatch(selectedGift, gift) && styles.bpGiftCardSelected,
+=======
+                              giftsMatch(selectedGift, gift) &&
+                              styles.bpGiftCardSelected,
+>>>>>>> Stashed changes
                             ]}
                             activeOpacity={0.8}
                             onPress={() => setSelectedGift(gift)}
@@ -2754,13 +2943,29 @@ export default function VoiceParty() {
                 <View style={{ flex: 1 }}>
                   <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
                     <View style={styles.bpGiftGrid}>
+<<<<<<< Updated upstream
                       {displayRelationshipVideos.length === 0 && !catalogLoading ? (
                         <Text style={styles.bpEmptyText}>No relationship videos available.</Text>
+=======
+                      {displayRelationshipVideos.length === 0 &&
+                        !catalogLoading ? (
+                        <Text style={styles.bpEmptyText}>
+                          No relationship videos available.
+                        </Text>
+>>>>>>> Stashed changes
                       ) : null}
                       {displayRelationshipVideos.map((video, idx) => (
                         <TouchableOpacity
                           key={video.id}
+<<<<<<< Updated upstream
                           style={[styles.bpGiftCard, selectedGift?.id === video.id && styles.bpGiftCardSelected]}
+=======
+                          style={[
+                            styles.bpGiftCard,
+                            selectedGift?.id === video.id &&
+                            styles.bpGiftCardSelected,
+                          ]}
+>>>>>>> Stashed changes
                           activeOpacity={0.85}
                           onPress={() => {
                             setSelectedGift(video);
@@ -2964,12 +3169,29 @@ export default function VoiceParty() {
               )}
 
               {/* ── OTHER TABS EMPTY STATE ── */}
+<<<<<<< Updated upstream
               {!["Gift", "Backpack", "Activity", "Relationship", "PK", "Special", "VIP"].includes(backpackMainTab) && (
                 <View style={styles.bpEmptyState}>
                   <Text style={styles.bpEmptyEmoji}>✨</Text>
                   <Text style={styles.bpEmptyText}>Coming soon</Text>
                 </View>
               )}
+=======
+              {![
+                "Gift",
+                "Backpack",
+                "Activity",
+                "Relationship",
+                "PK",
+                "Special",
+                "VIP",
+              ].includes(backpackMainTab) && (
+                  <View style={styles.bpEmptyState}>
+                    <Text style={styles.bpEmptyEmoji}>✨</Text>
+                    <Text style={styles.bpEmptyText}>Coming soon</Text>
+                  </View>
+                )}
+>>>>>>> Stashed changes
             </View>
             {renderGiftRecipientPickerOverlay()}
           </View>
@@ -3041,9 +3263,31 @@ export default function VoiceParty() {
 
                     <Text style={styles.giftCardLabel}>{LISTEN_THRESHOLD_LABELS[i]}</Text>
 
+<<<<<<< Updated upstream
                     <View style={[styles.giftCardBtn, isReady && styles.giftCardBtnActive, isClaimed && styles.giftCardBtnClaimed]}>
                       <Text style={[styles.giftCardBtnText, (isReady || isClaimed) && styles.giftCardBtnTextActive]}>
                         {isClaimed ? "Claimed ✓" : isReady ? "Claim!" : formatListenTime(remaining)}
+=======
+                    <View
+                      style={[
+                        styles.giftCardBtn,
+                        isReady && styles.giftCardBtnActive,
+                        isClaimed && styles.giftCardBtnClaimed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.giftCardBtnText,
+                          (isReady || isClaimed) &&
+                          styles.giftCardBtnTextActive,
+                        ]}
+                      >
+                        {isClaimed
+                          ? "Claimed ✓"
+                          : isReady
+                            ? "Claim!"
+                            : formatListenTime(remaining)}
+>>>>>>> Stashed changes
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -3069,6 +3313,7 @@ export default function VoiceParty() {
           userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl ??
           (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
+<<<<<<< Updated upstream
             : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null)
         }
         frameLayout={
@@ -3078,6 +3323,17 @@ export default function VoiceParty() {
               userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
               ? VIP_PROFILE_FRAME_LAYOUT
               : null
+=======
+            : (userFrameData[String(profilePopupUser?.id)]
+              ?.vipProfileFrameUrl ?? null))
+        }
+        frameLayout={
+          (isSameUser(profilePopupUser?.id, myUserId) &&
+            myVipAssets.unlocked) ||
+            userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
+            ? VIP_PROFILE_FRAME_LAYOUT
+            : null
+>>>>>>> Stashed changes
         }
         logoSource={
           isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
@@ -3115,7 +3371,12 @@ export default function VoiceParty() {
                     key={section.id}
                     style={[
                       styles.mediaSectionTab,
+<<<<<<< Updated upstream
                       mediaSection === section.id && styles.mediaSectionTabActive,
+=======
+                      mediaSection === section.id &&
+                      styles.mediaSectionTabActive,
+>>>>>>> Stashed changes
                     ]}
                     onPress={() => setMediaSection(section.id)}
                     activeOpacity={0.8}
@@ -3123,7 +3384,12 @@ export default function VoiceParty() {
                     <Text
                       style={[
                         styles.mediaSectionTabText,
+<<<<<<< Updated upstream
                         mediaSection === section.id && styles.mediaSectionTabTextActive,
+=======
+                        mediaSection === section.id &&
+                        styles.mediaSectionTabTextActive,
+>>>>>>> Stashed changes
                       ]}
                     >
                       {section.label}
@@ -3185,7 +3451,12 @@ export default function VoiceParty() {
                       <Text
                         style={[
                           styles.mediaSubTabLabel,
+<<<<<<< Updated upstream
                           stickerTab === pack.id && styles.mediaSubTabLabelActive,
+=======
+                          stickerTab === pack.id &&
+                          styles.mediaSubTabLabelActive,
+>>>>>>> Stashed changes
                         ]}
                         numberOfLines={1}
                       >
@@ -3886,6 +4157,7 @@ export default function VoiceParty() {
                 )}
               </View>
 
+<<<<<<< Updated upstream
               {/* Card 3 — share prompt */}
               <View style={styles.pinnedShareCard}>
                 <Text style={styles.pinnedShareText}>Share your room to others!</Text>
@@ -3897,6 +4169,78 @@ export default function VoiceParty() {
                   <Text style={styles.pinnedShareBtnText}>Share</Text>
                 </TouchableOpacity>
               </View>
+=======
+                {messages.map((msg) => {
+                  if (msg.system) {
+                    return (
+                      <View key={msg.id} style={styles.systemMsg}>
+                        <Text style={styles.systemMsgText}>{msg.text}</Text>
+                      </View>
+                    );
+                  }
+
+                  // The message's own user/avatar fields are a snapshot from when it
+                  // was sent — resolve the sender's CURRENT name/avatar instead, so a
+                  // later username/avatar change is reflected on old messages too.
+                  const senderName = resolveChatSenderName(
+                    msg.userId,
+                    msg.user,
+                  );
+                  const senderAvatar =
+                    resolveChatSenderAvatar(msg.userId) ?? msg.avatar;
+                  // VIP chat cosmetics — the chat-bubble background frame and
+                  // corner logo are only known for the logged-in user's own
+                  // messages (myVipAssets), but the avatar ring itself is also
+                  // shown for other senders when the backend embeds
+                  // vipProfileFrameUrl on their message (their own XP >= threshold).
+                  const isSenderSelf =
+                    msg.userId != null &&
+                    myUserId != null &&
+                    String(msg.userId) === String(myUserId);
+                  const isSenderVip = isSenderSelf && myVipAssets.unlocked;
+                  const otherSenderVipProfileFrame =
+                    !isSenderSelf && msg.vipProfileFrameUrl
+                      ? { uri: msg.vipProfileFrameUrl }
+                      : null;
+                  const senderProfileFrame = isSenderVip
+                    ? myVipAssets.profileFrame
+                    : otherSenderVipProfileFrame;
+                  // Trimmed whole-image chat frame for this sender's tier (keyed
+                  // by tier number, not by URL — the URL can vary once the real
+                  // API is wired up). Falls back to the raw remote asset (old
+                  // behavior) for any tier without a trimmed image yet.
+                  const vipChatFrameAsset = isSenderVip
+                    ? VIP_CHAT_FRAME_FITTED_BY_TIER[myVipAssets.tier]
+                    : null;
+                  // Re-wrapped as a bare {uri} (dropping the asset's known
+                  // width/height) so resizeMode="stretch" fills the bubble's
+                  // actual box exactly — with the width/height metadata local
+                  // require()'d images carry, Fabric's Android image view
+                  // partially preserves aspect ratio even under "stretch",
+                  // rendering oversized and clipped. A plain uri (like the
+                  // remote chatFrame fallback below already used) has no
+                  // intrinsic size to preserve, so it stretches correctly.
+                  const vipChatFrameSource = vipChatFrameAsset
+                    ? {
+                      uri: Image.resolveAssetSource(vipChatFrameAsset.source)
+                        .uri,
+                    }
+                    : null;
+                  // The image is taller than the bubble by topFrac+bottomFrac
+                  // (as fractions of the bubble's own height) and shifted up
+                  // by topFrac, so the border rail still lines up exactly
+                  // with the bubble's edges while the crown/gem art bleeds
+                  // above/below instead of being cropped off.
+                  const vipChatFrameStyle = vipChatFrameAsset
+                    ? {
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: `${-vipChatFrameAsset.topFrac * 100}%`,
+                      bottom: `${-vipChatFrameAsset.bottomFrac * 100}%`,
+                    }
+                    : null;
+>>>>>>> Stashed changes
 
               {messages.map((msg) => {
                 if (msg.system) {
