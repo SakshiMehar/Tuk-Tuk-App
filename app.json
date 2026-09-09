@@ -30,7 +30,7 @@
       "minSdkVersion": 24,
       "targetSdkVersion": 35,
       "compileSdkVersion": 35,
-      "softwareKeyboardLayoutMode": "pan",
+      "softwareKeyboardLayoutMode": "resize",
       "allowBackup": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -47,24 +47,7 @@
         "monochromeImage": "./assets/images/adaptive-icon-foreground.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "autoVerify": false,
-          "data": [
-            {
-              "scheme": "tuktuk",
-              "host": "oauth",
-              "pathPrefix": "/facebook"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        }
-      ]
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "bundler": "metro",

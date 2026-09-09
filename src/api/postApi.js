@@ -1,5 +1,5 @@
 import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
-import { API_BASE_URL, isNgrokBaseUrl } from "../config/env";
+import { API_BASE_URL } from "../config/env";
 
 // ── Create a post (text only or with media) ──────────────────
 // POST /api/posts
@@ -76,7 +76,6 @@ const buildAuthHeaders = async (contentType) => {
     ...authConfig.headers,
     Authorization: `Bearer ${token}`,
     Accept: "application/json",
-    ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
   };
 
   if (contentType) {

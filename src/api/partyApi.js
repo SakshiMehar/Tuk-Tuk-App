@@ -14,7 +14,7 @@
 // ============================================================
 
 import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
-import { API_BASE_URL, isNgrokBaseUrl } from "../config/env";
+import { API_BASE_URL } from "../config/env";
 
 const LOG_TAG = "[PartyAPI]";
 
@@ -163,7 +163,6 @@ export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fiel
 
   const headers = {
     Authorization: `Bearer ${token}`,
-    ...(isNgrokBaseUrl() ? { "ngrok-skip-browser-warning": "true" } : {}),
   };
 
   logRequest("PATCH", path, { image: fileName ?? imageUri, ...fields });
@@ -217,6 +216,11 @@ export const getRoomState = async (roomId) => {
   return response.data;
 };
 
+export const getRoomUserCount = async (roomId) => {
+  const response = await API.get(`/api/public/rooms/${roomId}/count`);
+  return response.data;
+};
+
 export const getRoomChatMessages = async (roomId) => {
   const response = await API.get(
     `/api/v1/tuktuk/rooms/${roomId}/chat/messages`,
@@ -249,6 +253,18 @@ export const leaveSeat = async (roomId, seatNumber) => {
 export const postSeatHeartbeat = async (roomId) => {
   const response = await API.post(
     `/api/v1/tuktuk/rooms/${roomId}/seat/heartbeat`,
+    {},
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
+/** POST .../heartbeat — keep the room presence session alive for ANY user
+ *  in the room (seated or listening); backend auto-expires the session
+ *  (and decrements the public count) after 90 s without one. */
+export const postRoomHeartbeat = async (roomId) => {
+  const response = await API.post(
+    `/api/v1/tuktuk/rooms/${roomId}/heartbeat`,
     {},
     await authRequestConfig()
   );

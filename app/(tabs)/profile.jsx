@@ -50,9 +50,11 @@ import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import { syncUserLevelForSession } from "../../src/services/userLevelService";
 import { loadMyVipAssets } from "../../src/services/vipService";
+import { fetchUserDecorations } from "../../src/services/decorationsService";
 import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import { DECORATION_FRAME_LAYOUT } from "../../src/constants/decorations";
 import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
 import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
 import { openUserChat } from "../../src/utils/chatNavigation";
@@ -1030,6 +1032,7 @@ export default function Profile() {
     chatFrame: null,
     logo: null,
   });
+  const [decorations, setDecorations] = useState({ badgeUrl: null, frameUrl: null });
   const avatarSource = resolveProfileAvatarSource({
     avatarId,
     profilePicUrl,
@@ -1111,6 +1114,7 @@ export default function Profile() {
     if (levelData?.level != null) setUserLevel(levelData.level);
     setLevelBadgeSource(levelData?.badgeSource ?? null);
     setVipAssets(await loadMyVipAssets(levelData?.xp?.totalXp));
+    if (localId != null) setDecorations(await fetchUserDecorations(String(localId)));
 
     try {
       await refreshTokenCache();
@@ -1120,6 +1124,7 @@ export default function Profile() {
         setUserId(id);
         if (String(localId ?? "") !== id) {
           await updateUser({ id: serverProfile.id, userId: serverProfile.id });
+          setDecorations(await fetchUserDecorations(id));
         }
       }
       // Refresh the avatar from the server on every focus — the cached
@@ -1163,6 +1168,7 @@ export default function Profile() {
       if (serverProfile.id != null) {
         const id = String(serverProfile.id);
         setUserId(id);
+        setDecorations(await fetchUserDecorations(id));
       }
       if (serverProfile.name) setName(serverProfile.name);
       if (serverProfile.avatarId) {
@@ -1443,9 +1449,7 @@ export default function Profile() {
               >
                 {u.avatarUrl ? (
                   <ProfileAvatarWithFrame
-                    avatarSource={/ngrok-free\.dev|ngrok\.io/i.test(u.avatarUrl ?? "")
-                      ? { uri: u.avatarUrl, headers: { "ngrok-skip-browser-warning": "true" } }
-                      : { uri: u.avatarUrl }}
+                    avatarSource={{ uri: u.avatarUrl }}
                     frameSource={u.vipProfileFrameUrl}
                     size={48}
                     avatarStyle={styles.savedAvatar}
@@ -1456,7 +1460,7 @@ export default function Profile() {
                           frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
                           frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
                           frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                          avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                          innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
                           avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                         }
                       : {})}
@@ -2094,18 +2098,22 @@ export default function Profile() {
             <View style={styles.profilePicWrapper}>
               <ProfileAvatarWithFrame
                 avatarSource={avatarSource}
-                frameSource={vipAssets.profileFrame ?? newUserFrameSource}
+                frameSource={decorations.frameUrl ?? vipAssets.profileFrame ?? newUserFrameSource}
                 size={s(72)}
                 avatarStyle={styles.profilePic}
                 wrapperStyle={styles.profilePicFrameWrap}
-                {...(vipAssets.profileFrame
+                {...(decorations.frameUrl
+                  ? {
+                      frameResizeMode: "contain",
+                    }
+                  : vipAssets.profileFrame
                   ? {
                       frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                       frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                       frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX - 2,
                       frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
                       frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
                       avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                     }
                   : {})}
@@ -2117,7 +2125,14 @@ export default function Profile() {
 
               {/* Row 1: Username + Edit */}
               <View style={styles.nameRow}>
-                <Text style={styles.userName} numberOfLines={1}>{name}</Text>
+                <Text
+                  style={styles.userName}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                >
+                  {name}
+                </Text>
                 <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={handleOpenEditProfile}>
                   <FontAwesome name="pencil" size={13} color="#7c3aed" />
                   <Text style={styles.editText}>Edit</Text>
@@ -2147,6 +2162,9 @@ export default function Profile() {
                 )}
                 {vipAssets.unlocked && vipAssets.logo && (
                   <ProfileBadge source={{ uri: vipAssets.logo }} aspectRatio={PROFILE_BADGE_ASPECT.vip} />
+                )}
+                {decorations.badgeUrl && (
+                  <ProfileBadge source={{ uri: decorations.badgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
                 )}
                 <ProfileBadge source={VERIFIED_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
               </View>
@@ -2278,18 +2296,22 @@ export default function Profile() {
                     <View style={styles.momentPostAuthor}>
                       <ProfileAvatarWithFrame
                         avatarSource={avatarSource}
-                        frameSource={vipAssets.profileFrame ?? newUserFrameSource}
+                        frameSource={decorations.frameUrl ?? vipAssets.profileFrame ?? newUserFrameSource}
                         size={s(36)}
                         avatarStyle={styles.momentPostAuthorAvatar}
                         wrapperStyle={styles.momentPostAuthorAvatarWrap}
-                        {...(vipAssets.profileFrame
+                        {...(decorations.frameUrl
+                          ? {
+                              frameResizeMode: "contain",
+                            }
+                          : vipAssets.profileFrame
                           ? {
                               frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                               frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                               frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
                               frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
                               frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
                               avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                             }
                           : {})}
@@ -2321,9 +2343,7 @@ export default function Profile() {
 
                   {post.imageUrl && !post.hasVideo ? (
                     <Image
-                      source={/ngrok-free\.dev|ngrok\.io/i.test(post.imageUrl)
-                        ? { uri: post.imageUrl, headers: { "ngrok-skip-browser-warning": "true" } }
-                        : { uri: post.imageUrl }}
+                      source={{ uri: post.imageUrl }}
                       style={styles.momentPostImage}
                     />
                   ) : null}
@@ -2783,9 +2803,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   profilePic: {
-    width: s(72),
-    height: s(72),
-    borderRadius: s(36),
+    width: s(56),
+    height: s(56),
+    borderRadius: s(28),
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.35)",
   },

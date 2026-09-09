@@ -21,7 +21,9 @@ import { resolveRemoteProfilePicUrl } from "./meProfileService";
 import { resolveBundledAvatarId } from "../data/avatarOptions";
 
 const firstText = (...values) =>
-  values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
+  values.find(
+    (value) => typeof value === "string" && value.trim().length > 0,
+  ) ?? null;
 
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
@@ -35,7 +37,14 @@ const normalizeAvatarField = (value) => {
 const listFrom = (value, key) => {
   const target = key && value?.[key] !== undefined ? value[key] : value;
   if (Array.isArray(target)) return target;
-  return target?.content ?? target?.data ?? target?.items ?? target?.rooms ?? target?.messages ?? [];
+  return (
+    target?.content ??
+    target?.data ??
+    target?.items ??
+    target?.rooms ??
+    target?.messages ??
+    []
+  );
 };
 
 const normalizeCategory = (room) => {
@@ -63,16 +72,18 @@ export const normalizeRoom = (room) => ({
   id: firstValue(room?.roomId, room?.id, room?._id),
   name: firstText(room?.name, room?.title, room?.roomName) ?? "Voice Room",
   title: firstText(room?.title, room?.name, room?.roomName) ?? "Voice Room",
-  roomTypeLabel: firstText(room?.roomTypeLabel, room?.roomType, room?.type) ?? "Voice Party",
+  roomTypeLabel:
+    firstText(room?.roomTypeLabel, room?.roomType, room?.type) ?? "Voice Party",
   body: firstText(room?.body, room?.description, room?.subtitle) ?? "",
   thumbnail: firstText(
     room?.profileImageUrl,
     room?.thumbnail,
     room?.coverImage,
     room?.imageUrl,
-    room?.avatarUrl
+    room?.avatarUrl,
   ),
-  participantCount: room?.userCount ?? room?.onlineCount ?? room?.participantCount ?? 0,
+  participantCount:
+    room?.userCount ?? room?.onlineCount ?? room?.participantCount ?? 0,
   hasChat: room?.hasChat !== false,
   verified: room?.status === "LIVE" || Boolean(room?.verified),
   category: normalizeCategory(room),
@@ -97,13 +108,26 @@ const normalizeSeatUser = (seatValue) => {
     user?.photoUrl,
     seatValue?.avatarUrl,
     seatValue?.profileImageUrl,
-    seatValue?.avatar
+    seatValue?.avatar,
   );
   return {
-    name: firstText(user?.name, user?.username, user?.displayName, seatValue?.name) ?? "Guest",
-    username: firstText(user?.username, user?.handle, user?.nickname, user?.name),
+    name:
+      firstText(
+        user?.name,
+        user?.username,
+        user?.displayName,
+        seatValue?.name,
+      ) ?? "Guest",
+    username: firstText(
+      user?.username,
+      user?.handle,
+      user?.nickname,
+      user?.name,
+    ),
     avatar: normalizeAvatarField(rawAvatar),
-    active: Boolean(user?.isSpeaking ?? user?.active ?? user?.onMic ?? seatValue?.onMic),
+    active: Boolean(
+      user?.isSpeaking ?? user?.active ?? user?.onMic ?? seatValue?.onMic,
+    ),
     muted: Boolean(user?.muted ?? user?.isMuted ?? seatValue?.muted),
     id: firstValue(user?.id, user?.userId, user?.uid, seatValue?.userId),
   };
@@ -135,22 +159,23 @@ export const parseOnlineUsers = (stateData, joinData) => {
     stateData?.users,
     joinData?.participants,
   ];
-  const list = candidates.find((item) => Array.isArray(item) && item.length > 0) ?? [];
+  const list =
+    candidates.find((item) => Array.isArray(item) && item.length > 0) ?? [];
   return list.map((user) => {
     const rawAvatar = firstText(
       user?.avatar,
       user?.avatarUrl,
       user?.profilePicUrl,
-      user?.profileImageUrl
+      user?.profileImageUrl,
     );
     return {
-    id: firstValue(user?.id, user?.userId, user?.uid),
-    name: firstText(user?.name, user?.username, user?.displayName) ?? "User",
-    username: firstText(user?.username, user?.handle, user?.nickname),
-    avatar: normalizeAvatarField(rawAvatar),
-    muted: Boolean(user?.muted ?? user?.isMuted),
-    isSpeaking: Boolean(user?.isSpeaking),
-  };
+      id: firstValue(user?.id, user?.userId, user?.uid),
+      name: firstText(user?.name, user?.username, user?.displayName) ?? "User",
+      username: firstText(user?.username, user?.handle, user?.nickname),
+      avatar: normalizeAvatarField(rawAvatar),
+      muted: Boolean(user?.muted ?? user?.isMuted),
+      isSpeaking: Boolean(user?.isSpeaking),
+    };
   });
 };
 
@@ -172,7 +197,7 @@ const resolveChatText = (msg) => {
       msg.data?.text,
       msg.data?.content,
       msg.payload?.message,
-      msg.payload?.text
+      msg.payload?.text,
     ) ?? ""
   );
 };
@@ -193,14 +218,14 @@ export const normalizeChatMessage = (msg, index = 0) => {
     msg?.message?.avatar,
     msg?.message?.senderAvatar,
     msg?.data?.avatar,
-    msg?.data?.senderAvatar
+    msg?.data?.senderAvatar,
   );
 
   // Temporary diagnostic — confirms whether the backend sends any sender-avatar
   // field on chat socket payloads at all (unlike seat/participant payloads, which
   // do). Remove once confirmed.
-  console.log("[partyService] chat msg RAW ->", JSON.stringify(msg));
-  console.log("[partyService] chat msg avatar resolved ->", rawAvatar);
+  // console.log("[partyService] chat msg RAW ->", JSON.stringify(msg));
+  // console.log("[partyService] chat msg avatar resolved ->", rawAvatar);
 
   // Backend embeds this directly on the message/sender only when that
   // sender's own XP clears the VIP threshold — absent/null otherwise.
@@ -213,7 +238,7 @@ export const normalizeChatMessage = (msg, index = 0) => {
     msg?.message?.profileFrameImageUrl,
     msg?.message?.profileFrameUrl,
     msg?.data?.profileFrameImageUrl,
-    msg?.data?.profileFrameUrl
+    msg?.data?.profileFrameUrl,
   );
 
   return {
@@ -223,17 +248,18 @@ export const normalizeChatMessage = (msg, index = 0) => {
       msg?._id,
       msg?.message?.id,
       msg?.data?.id,
-      `msg-${index}`
+      `msg-${index}`,
     ),
     system: Boolean(msg?.system ?? msg?.type === "SYSTEM"),
-    userId: firstValue(
-      msg?.senderId,
-      msg?.userId,
-      msg?.sender?.id,
-      msg?.sender?.userId,
-      msg?.message?.senderId,
-      msg?.data?.senderId
-    ) ?? null,
+    userId:
+      firstValue(
+        msg?.senderId,
+        msg?.userId,
+        msg?.sender?.id,
+        msg?.sender?.userId,
+        msg?.message?.senderId,
+        msg?.data?.senderId,
+      ) ?? null,
     user:
       firstText(
         msg?.senderName,
@@ -241,11 +267,11 @@ export const normalizeChatMessage = (msg, index = 0) => {
         msg?.username,
         msg?.sender?.name,
         msg?.message?.senderName,
-        msg?.data?.senderName
+        msg?.data?.senderName,
       ) ?? "User",
     avatar: normalizeAvatarField(rawAvatar),
     vipProfileFrameUrl: rawVipProfileFrame
-      ? resolveRemoteProfilePicUrl(rawVipProfileFrame) ?? rawVipProfileFrame
+      ? (resolveRemoteProfilePicUrl(rawVipProfileFrame) ?? rawVipProfileFrame)
       : null,
     text: resolveChatText(msg),
     level: msg?.level ?? msg?.senderLevel ?? 1,
@@ -283,7 +309,7 @@ export const upsertChatMessage = (prev, payload) => {
       m.text === normalized.text &&
       (m.user === normalized.user ||
         normalized.user === "User" ||
-        m.user === "You")
+        m.user === "You"),
   );
   if (pendingIdx >= 0) {
     const next = [...prev];
@@ -329,7 +355,7 @@ export const enterRandomPartySession = async (payload = {}) => {
     data?.room?.id,
     data?.room?.roomId,
     data?.data?.roomId,
-    data?.data?.id
+    data?.data?.id,
   );
   if (!roomId) throw new Error("Random party join did not return a room id.");
 
@@ -346,7 +372,7 @@ export const parseCreatedRoomId = (created, fallbackId) => {
     created?.data?.id,
     created?.result?.roomId,
     created?.result?.id,
-    fallbackId
+    fallbackId,
   );
   return String(resolved ?? fallbackId);
 };
@@ -390,7 +416,7 @@ export const createPartyRoom = async (payload = {}) => {
   // a user id — never derive creatorId from it there (only personalRoom mode,
   // where room id = user id, ever conflates the two).
   const creatorId = String(
-    rest.userId ?? rest.id ?? (personalRoom ? requestedRoomId : null) ?? ""
+    rest.userId ?? rest.id ?? (personalRoom ? requestedRoomId : null) ?? "",
   );
   if (!creatorId) {
     throw new Error("User id is required to create a room.");
@@ -459,7 +485,9 @@ export const createPartyRoom = async (payload = {}) => {
   // been confirmed — test and adjust.
   const desiredRoomId = requestedRoomId ? String(requestedRoomId).trim() : null;
   const created = await createRoomApi(
-    desiredRoomId ? { ...createBody, roomId: desiredRoomId, id: desiredRoomId } : createBody
+    desiredRoomId
+      ? { ...createBody, roomId: desiredRoomId, id: desiredRoomId }
+      : createBody,
   );
   const rawId = firstValue(
     created?.roomId,
@@ -469,11 +497,11 @@ export const createPartyRoom = async (payload = {}) => {
     created?.data?.roomId,
     created?.data?.id,
     created?.result?.roomId,
-    created?.result?.id
+    created?.result?.id,
   );
   if (!rawId) {
     throw new Error(
-      "Room creation did not return a room id. The backend must generate and return a unique room id (distinct from creatorId) for new-room creation."
+      "Room creation did not return a room id. The backend must generate and return a unique room id (distinct from creatorId) for new-room creation.",
     );
   }
 
@@ -498,13 +526,20 @@ export const createAndEnterPartyRoom = async (payload = {}) => {
  *  PATCH /api/v1/tuktuk/rooms/{roomId} (see updateRoom in partyApi.js).
  *  Returns the freshly-hosted image URL, or null if the response doesn't
  *  carry one back. */
-export const updateRoomCoverPhoto = async (roomId, { uri, mimeType, fileName } = {}) => {
-  const updated = await updateRoomApi(roomId, { imageUri: uri, mimeType, fileName });
+export const updateRoomCoverPhoto = async (
+  roomId,
+  { uri, mimeType, fileName } = {},
+) => {
+  const updated = await updateRoomApi(roomId, {
+    imageUri: uri,
+    mimeType,
+    fileName,
+  });
   return firstText(
     updated?.profileImageUrl,
     updated?.imageUrl,
     updated?.room?.profileImageUrl,
-    updated?.data?.profileImageUrl
+    updated?.data?.profileImageUrl,
   );
 };
 
@@ -535,13 +570,12 @@ export const enterRoomSession = async (roomId) => {
   const emptySeat = seats.find((seat) => !seat.user && !seat.locked);
   if (emptySeat) {
     try {
-      track(
-        `POST /api/v1/tuktuk/rooms/${roomId}/seat/${emptySeat.id}/claim`
-      );
+      track(`POST /api/v1/tuktuk/rooms/${roomId}/seat/${emptySeat.id}/claim`);
       await reserveSeat(roomId, emptySeat.id);
       reservedSeatNumber = emptySeat.id;
       track(`GET /api/v1/tuktuk/rooms/${roomId}/state (after seat claim)`);
-      stateData = (await getRoomState(roomId).catch(() => stateData)) ?? stateData;
+      stateData =
+        (await getRoomState(roomId).catch(() => stateData)) ?? stateData;
       seats = parseSeats(joinData?.seats, stateData);
     } catch {
       // Seat claim failed — keep existing seat state.
@@ -550,8 +584,6 @@ export const enterRoomSession = async (roomId) => {
 
   await wsService.connect();
   wsService.joinRoom(String(roomId));
-
-
 
   const room = joinData?.room ?? {};
   const onlineUsers = parseOnlineUsers(stateData, joinData);
@@ -581,20 +613,36 @@ export const enterRoomSession = async (roomId) => {
 const normalizeRankingEntry = (entry, index = 0) => {
   const profile = entry?.profile ?? entry?.user ?? {};
   return {
-    id: firstValue(entry?.id, entry?.userId, entry?.uid, profile?.id, `rank-${index}`),
+    id: firstValue(
+      entry?.id,
+      entry?.userId,
+      entry?.uid,
+      profile?.id,
+      `rank-${index}`,
+    ),
     rank: firstValue(entry?.rank, entry?.position, index + 1),
     name:
-      firstText(entry?.name, entry?.username, entry?.displayName, profile?.name) ??
-      "User",
+      firstText(
+        entry?.name,
+        entry?.username,
+        entry?.displayName,
+        profile?.name,
+      ) ?? "User",
     avatar: firstText(
       entry?.avatar,
       entry?.avatarUrl,
       entry?.profileImageUrl,
       entry?.profileImage,
       profile?.avatarUrl,
-      profile?.profileImageUrl
+      profile?.profileImageUrl,
     ),
-    score: firstValue(entry?.score, entry?.points, entry?.diamonds, entry?.value, 0),
+    score: firstValue(
+      entry?.score,
+      entry?.points,
+      entry?.diamonds,
+      entry?.value,
+      0,
+    ),
     level: firstValue(entry?.level, entry?.lv, profile?.level, null),
   };
 };
@@ -604,13 +652,18 @@ const normalizeFamily = (family, index = 0) => ({
   rank: firstValue(family?.rank, family?.position, index + 1),
   name: firstText(family?.name, family?.familyName, family?.title) ?? "Family",
   emoji: firstText(family?.emoji, family?.icon, family?.badge) ?? "👪",
-  avatar: firstText(family?.avatar, family?.avatarUrl, family?.logoUrl, family?.coverImage),
+  avatar: firstText(
+    family?.avatar,
+    family?.avatarUrl,
+    family?.logoUrl,
+    family?.coverImage,
+  ),
   memberCount: firstValue(
     family?.memberCount,
     family?.members,
     family?.totalMembers,
     family?.size,
-    0
+    0,
   ),
   level: firstValue(family?.level, family?.lv, 0),
   score: firstValue(family?.score, family?.points, family?.prosperity, 0),
@@ -622,12 +675,11 @@ const normalizeFamily = (family, index = 0) => ({
 // 401 "Authentication token is required" for routes that don't exist yet)
 // and just return an empty list, which the UI renders as an empty state.
 const PARTY_RANKING_API_READY = false; // GET /api/app/party/ranking
-const PARTY_FAMILY_API_READY = false;  // GET /api/app/party/families
+const PARTY_FAMILY_API_READY = false; // GET /api/app/party/families
 
 // Party ranking leaderboard. period: "daily" | "weekly" | "monthly".
 export const loadPartyRanking = async (period = "daily") => {
   if (!PARTY_RANKING_API_READY) {
-
     return [];
   }
   const data = await getPartyRankingApi(period);
@@ -640,7 +692,6 @@ export const loadPartyRanking = async (period = "daily") => {
 // List of families for the Family feature card.
 export const loadFamilies = async () => {
   if (!PARTY_FAMILY_API_READY) {
-
     return [];
   }
   const data = await getFamiliesApi();

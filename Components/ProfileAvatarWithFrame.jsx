@@ -1,6 +1,25 @@
 import { View, Text, Image, StyleSheet } from "react-native";
 import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
+import { useState, useCallback, useEffect, useRef } from "react";
+
+// Auto-fit: photo stays at full `size` (avatarBoost = 1.0).
+// frameScale is calculated so the frame's inner circle wraps exactly around the photo.
+// Formula: frameScale = 1 / openingFraction
+//   where openingFraction = what fraction of the rendered frame the inner circle occupies.
+function estimateFrameScale(naturalWidth, naturalHeight) {
+  if (!naturalWidth || !naturalHeight) return 1.55;
+  const aspect = naturalWidth / naturalHeight;
+  let openingFraction;
+  if (aspect > 1.15) {
+    openingFraction = 0.57; // wide frame — side decorations
+  } else if (aspect < 0.75) {
+    openingFraction = 0.52; // portrait frame — crown + banner
+  } else {
+    openingFraction = 0.65; // square-ish ring
+  }
+  return 1 / openingFraction;
+}
 
 export default function ProfileAvatarWithFrame({
   user,
@@ -23,20 +42,54 @@ export default function ProfileAvatarWithFrame({
   imageComponent: ImageComponent = Image,
 }) {
   const resolvedFrame = frameSource ?? resolveNewUserFrameSource(user);
-  // RN's <Image> only accepts a require() number or an { uri } object as
-  // `source` — a bare string silently resolves to nothing (resolveAssetSource
-  // treats any non-null non-object source as a numeric asset id lookup).
-  // VIP frame URLs come through as plain strings, so normalize here once
-  // rather than requiring every call site to remember to wrap them.
   const frameImageSource =
     typeof resolvedFrame === "string" ? { uri: resolvedFrame } : resolvedFrame;
   const layout = NEW_USER_FRAME_LAYOUT;
-  const resolvedFrameScale = frameScale ?? layout.frameScale;
+  // For decoration frames (avatarBoost not passed), frameScale is auto-measured
+  // from the image so the frame wraps around the photo. For VIP/new-user frames
+  // the caller passes explicit frameScale, which wins.
+  const [autoFrameScale, setAutoFrameScale] = useState(null);
+  const prefetchedRef = useRef(null);
+
+  // Pre-fetch dimensions via Image.getSize for remote URLs so the correct
+  // frameScale is known before the image renders — eliminates the flash of
+  // an oversized frame while waiting for onLoad.
+  useEffect(() => {
+    if (avatarBoost != null) return; // explicit avatarBoost = VIP/new-user, skip
+    const uri =
+      typeof resolvedFrame === "string"
+        ? resolvedFrame
+        : resolvedFrame?.uri ?? null;
+    if (!uri || prefetchedRef.current === uri) return;
+    prefetchedRef.current = uri;
+    Image.getSize(
+      uri,
+      (w, h) => setAutoFrameScale(estimateFrameScale(w, h)),
+      () => setAutoFrameScale(1.55)
+    );
+  }, [resolvedFrame, avatarBoost]);
+
+  const handleFrameLoad = useCallback(
+    (e) => {
+      // Only auto-fit when the caller hasn't pinned a specific avatarBoost
+      // (decoration frames). Photo stays at full size; frame grows around it.
+      if (avatarBoost != null) return;
+      const { width, height } = e.nativeEvent?.source ?? {};
+      if (width && height) {
+        setAutoFrameScale(estimateFrameScale(width, height));
+      }
+    },
+    [avatarBoost]
+  );
+
+  // Decoration frames: photo = full size (boost 1.0), frame auto-scales around it.
+  // VIP / new-user frames: use explicit props from the caller.
+  const resolvedAvatarBoost = avatarBoost ?? 1.0;
+  const resolvedFrameScale = frameScale ?? (avatarBoost == null ? (autoFrameScale ?? 1.55) : layout.frameScale);
   const resolvedFrameResizeMode = frameResizeMode ?? layout.frameResizeMode;
   const resolvedFrameOffsetX = frameOffsetX ?? layout.frameOffsetX;
   const resolvedFrameOffsetY = frameOffsetY ?? layout.frameOffsetY;
   const resolvedFrameBleed = frameBleed ?? layout.frameBleed;
-  const resolvedAvatarBoost = avatarBoost ?? layout.avatarBoost ?? 1;
   const resolvedAvatarOffsetY = avatarOffsetY ?? layout.avatarOffsetY ?? 0;
 
   const baseSize = size;
@@ -60,21 +113,18 @@ export default function ProfileAvatarWithFrame({
     <ImageComponent
       source={avatarSource}
       style={[
+        avatarImageStyle,
         {
           width: avatarSize,
           height: avatarSize,
           borderRadius: resolvedFrame ? 0 : avatarSize / 2,
         },
-        avatarImageStyle,
       ]}
     />
   ) : (
     <View
       style={[
         {
-          width: avatarSize,
-          height: avatarSize,
-          borderRadius: avatarSize / 2,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: "rgba(124,77,255,0.35)",
@@ -82,6 +132,11 @@ export default function ProfileAvatarWithFrame({
         resolvedFrame
           ? [placeholderStyle, { borderWidth: 0, borderColor: "transparent" }]
           : placeholderStyle,
+        {
+          width: avatarSize,
+          height: avatarSize,
+          borderRadius: avatarSize / 2,
+        },
       ]}
     >
       <Text
@@ -151,6 +206,7 @@ export default function ProfileAvatarWithFrame({
           frameStyle,
         ]}
         resizeMode={resolvedFrameResizeMode}
+        onLoad={handleFrameLoad}
         pointerEvents="none"
       />
     </View>

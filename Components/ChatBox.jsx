@@ -45,9 +45,7 @@ const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", 
 // image URL — resolve those to the local asset, otherwise treat as a URI.
 const resolveAvatarSource = (avatar) => {
   if (isBundledAvatarId(avatar)) return getAvatarSource(avatar);
-  return /ngrok-free\.dev|ngrok\.io/i.test(avatar)
-    ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
-    : { uri: avatar };
+  return { uri: avatar };
 };
 
 export default function ChatBox({ user = {}, onBack }) {

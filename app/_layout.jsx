@@ -1,16 +1,23 @@
-import { useEffect, useRef, useState } from "react";
-import { DeviceEventEmitter, Text, TextInput } from "react-native";
 import { Stack, router } from "expo-router";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import { initFirebase } from "../src/lib/firebase";
-import { setSessionExpiredHandler } from "../src/api/axios";
+import { useEffect, useRef, useState } from "react";
 import {
-  registerForPushNotifications,
+  Alert,
+  DeviceEventEmitter,
+  LogBox,
+  Text,
+  TextInput,
+} from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { setSessionExpiredHandler } from "../src/api/axios";
+import { initFirebase } from "../src/lib/firebase";
+import {
   initPushNotificationListeners,
+  registerForPushNotifications,
 } from "../src/services/pushNotificationService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import NotificationBanner from "../Components/NotificationBanner";
 
+LogBox.ignoreAllLogs();
 // ── Global font-scale guard ────────────────────────────────────────────────
 
 // This runs once at module load, before any component mounts.
@@ -70,7 +77,10 @@ export default function RootLayout() {
       },
       onNotificationTap: ({ data }) => {
         if (data?.chatUserId) {
-          openUserChat(router, { userId: data.chatUserId, name: data.senderName });
+          openUserChat(router, {
+            userId: data.chatUserId,
+            name: data.senderName,
+          });
         }
       },
     });
@@ -97,7 +107,6 @@ export default function RootLayout() {
         <Stack.Screen name="find-friends" />
         <Stack.Screen name="nearby" />
       </Stack>
-
       {/* In-app push notification banner */}
       <NotificationBanner
         visible={banner.visible}
