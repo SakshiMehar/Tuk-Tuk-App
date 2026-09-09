@@ -48,12 +48,12 @@ const TabLayout = () => {
       <View
         style={{
           flex: 1,
-          backgroundColor: "#0d0618",
+          backgroundColor: "#ffffff",
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <ActivityIndicator size="large" color="#a78bfa" />
+        <ActivityIndicator size="large" color="#7c4dff" />
       </View>
     );
   }
@@ -62,15 +62,20 @@ const TabLayout = () => {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: "#ffffff",
-        tabBarInactiveTintColor: "#aeb4c4",
+        tabBarActiveTintColor: "#B024E6",
+        tabBarInactiveTintColor: "#8a8a8a",
         tabBarStyle: {
-          backgroundColor: "rgba(21,22,58,0.95)",
+          backgroundColor: "#ffffff",
           borderTopWidth: 1,
-          borderTopColor: "rgba(166,152,255,0.28)",
+          borderTopColor: "rgba(0,0,0,0.05)",
           paddingTop: 6,
           paddingBottom: bottomInset,
           height: 56 + bottomInset,
+          elevation: 10,
+          shadowColor: "#000",
+          shadowOpacity: 0.05,
+          shadowOffset: { width: 0, height: -2 },
+          shadowRadius: 10,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600", marginBottom: 2 },
       }}
