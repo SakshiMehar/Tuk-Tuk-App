@@ -22,6 +22,7 @@ import {
   Sparkles,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -468,6 +469,7 @@ export default function VoiceParty() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
+  const [claimedRewardModal, setClaimedRewardModal] = useState(null);
   const exitedRef = useRef(false);
   const onMicRef = useRef(false);
   const mySeatNumberRef = useRef(null);
@@ -3125,7 +3127,7 @@ export default function VoiceParty() {
                         setRewardStates((prev) =>
                           prev.map((r, idx) => idx === i ? { ...r, claimed: true } : r)
                         );
-                        Alert.alert("🎁 Reward Claimed!", "You received a gift! Check your backpack.");
+                        setClaimedRewardModal(img);
                       } else if (!isClaimed) {
                         Alert.alert("Keep Listening", `Unlock in ${formatListenTime(remaining)}`);
                       }
@@ -4083,99 +4085,99 @@ export default function VoiceParty() {
                   : null;
 
 
-                    return (
-                      <View key={msg.id} style={styles.chatMsg}>
+                return (
+                  <View key={msg.id} style={styles.chatMsg}>
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() =>
+                        handleUserAvatarPress({ id: msg.userId, name: senderName, avatar: senderAvatar })
+                      }
+                    >
+                      {senderAvatar ? (
+                        senderProfileFrame ? (
+                          <ProfileAvatarWithFrame
+                            avatarSource={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
+                            frameSource={senderProfileFrame}
+                            size={32}
+                            avatarStyle={styles.chatAvatar}
+                            frameScale={VIP_PROFILE_FRAME_LAYOUT.frameScale}
+                            frameResizeMode={VIP_PROFILE_FRAME_LAYOUT.frameResizeMode}
+                            frameOffsetX={VIP_PROFILE_FRAME_LAYOUT.frameOffsetX}
+                            frameOffsetY={VIP_PROFILE_FRAME_LAYOUT.frameOffsetY}
+                            frameBleed={VIP_PROFILE_FRAME_LAYOUT.frameBleed}
+                            avatarBoost={VIP_PROFILE_FRAME_LAYOUT.avatarBoost}
+                            avatarOffsetY={VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY}
+                          />
+                        ) : (
+                          <Image
+                            source={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
+                            style={styles.chatAvatar}
+                          />
+                        )
+                      ) : (
+                        <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
+                          <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>
+                            {senderName?.[0]?.toUpperCase() ?? "?"}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                    <View style={[styles.chatBubble, vipChatFrameSource && styles.chatBubbleVipPadding]}>
+                      {vipChatFrameSource ? (
+                        <Image
+                          source={vipChatFrameSource}
+                          style={vipChatFrameStyle}
+                          resizeMode="stretch"
+                          pointerEvents="none"
+                        />
+                      ) : (
+                        isSenderVip && (myVipAssets.chatFrame || myVipAssets.logo) && (
+                          <Image
+                            source={{ uri: myVipAssets.chatFrame || myVipAssets.logo }}
+                            style={StyleSheet.absoluteFillObject}
+                            resizeMode="stretch"
+                            pointerEvents="none"
+                          />
+                        )
+                      )}
+                      <View style={styles.chatMeta}>
                         <TouchableOpacity
                           activeOpacity={0.75}
                           onPress={() =>
                             handleUserAvatarPress({ id: msg.userId, name: senderName, avatar: senderAvatar })
                           }
                         >
-                          {senderAvatar ? (
-                            senderProfileFrame ? (
-                              <ProfileAvatarWithFrame
-                                avatarSource={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
-                                frameSource={senderProfileFrame}
-                                size={32}
-                                avatarStyle={styles.chatAvatar}
-                                frameScale={VIP_PROFILE_FRAME_LAYOUT.frameScale}
-                                frameResizeMode={VIP_PROFILE_FRAME_LAYOUT.frameResizeMode}
-                                frameOffsetX={VIP_PROFILE_FRAME_LAYOUT.frameOffsetX}
-                                frameOffsetY={VIP_PROFILE_FRAME_LAYOUT.frameOffsetY}
-                                frameBleed={VIP_PROFILE_FRAME_LAYOUT.frameBleed}
-                                avatarBoost={VIP_PROFILE_FRAME_LAYOUT.avatarBoost}
-                                avatarOffsetY={VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY}
-                              />
-                            ) : (
-                              <Image
-                                source={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
-                                style={styles.chatAvatar}
-                              />
-                            )
-                          ) : (
-                            <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
-                              <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>
-                                {senderName?.[0]?.toUpperCase() ?? "?"}
-                              </Text>
-                            </View>
-                          )}
+                          <Text style={styles.chatUser}>{senderName}</Text>
                         </TouchableOpacity>
-                        <View style={[styles.chatBubble, vipChatFrameSource && styles.chatBubbleVipPadding]}>
-                          {vipChatFrameSource ? (
-                            <Image
-                              source={vipChatFrameSource}
-                              style={vipChatFrameStyle}
-                              resizeMode="stretch"
-                              pointerEvents="none"
-                            />
-                          ) : (
-                            isSenderVip && (myVipAssets.chatFrame || myVipAssets.logo) && (
-                              <Image
-                                source={{ uri: myVipAssets.chatFrame || myVipAssets.logo }}
-                                style={StyleSheet.absoluteFillObject}
-                                resizeMode="stretch"
-                                pointerEvents="none"
-                              />
-                            )
-                          )}
-                          <View style={styles.chatMeta}>
-                            <TouchableOpacity
-                              activeOpacity={0.75}
-                              onPress={() =>
-                                handleUserAvatarPress({ id: msg.userId, name: senderName, avatar: senderAvatar })
-                              }
-                            >
-                              <Text style={styles.chatUser}>{senderName}</Text>
-                            </TouchableOpacity>
-                            <View style={styles.lvBadge}>
-                              <Text style={styles.lvText}>Lv.{msg.level}</Text>
-                            </View>
-                            {msg.userId != null && (userFrameData[String(msg.userId)]?.hasNewUserFrame ?? false) && (
-                              <Image
-                                source={NEW_START_BADGE}
-                                style={styles.newStartBadge}
-                                resizeMode="contain"
-                              />
-                            )}
-                            {msg.coins > 0 && <Text style={styles.chatCoin}>🪙 {msg.coins}</Text>}
-                            {msg.diamonds > 0 && <Text style={styles.chatDiamond}>💎 {msg.diamonds}</Text>}
-                          </View>
-                          {isChatMediaUrl(msg.text) ? (
-                            <Image
-                              source={{ uri: msg.text.trim() }}
-                              style={styles.chatMediaImg}
-                              resizeMode="contain"
-                            />
-                          ) : (
-                            <Text style={[styles.chatText, msg.isGift && styles.chatGiftText]}>
-                              {msg.text}
-                            </Text>
-                          )}
+                        <View style={styles.lvBadge}>
+                          <Text style={styles.lvText}>Lv.{msg.level}</Text>
                         </View>
+                        {msg.userId != null && (userFrameData[String(msg.userId)]?.hasNewUserFrame ?? false) && (
+                          <Image
+                            source={NEW_START_BADGE}
+                            style={styles.newStartBadge}
+                            resizeMode="contain"
+                          />
+                        )}
+                        {msg.coins > 0 && <Text style={styles.chatCoin}>🪙 {msg.coins}</Text>}
+                        {msg.diamonds > 0 && <Text style={styles.chatDiamond}>💎 {msg.diamonds}</Text>}
                       </View>
-                    );
-                  })
-                }
+                      {isChatMediaUrl(msg.text) ? (
+                        <Image
+                          source={{ uri: msg.text.trim() }}
+                          style={styles.chatMediaImg}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <Text style={[styles.chatText, msg.isGift && styles.chatGiftText]}>
+                          {msg.text}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })
+              }
             </ScrollView>
           </View>
 
@@ -4401,6 +4403,69 @@ export default function VoiceParty() {
           </View>
         </View>
       </View>
+
+      {/* ── CUSTOM REWARD CLAIMED MODAL ── */}
+      <Modal
+        visible={Boolean(claimedRewardModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClaimedRewardModal(null)}
+      >
+        <View style={styles.rewardModalOverlay}>
+          <View style={styles.rewardModalOuter}>
+            {/* Bursting Gifts Overlay */}
+            <Image
+              source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/Rechargebonus/Popupheader/Popup.png" }}
+              style={styles.rewardModalHeaderImg}
+              resizeMode="contain"
+            />
+
+            <LinearGradient
+              colors={["#ffd17f", "#fffbf0", "#ffffff"]}
+              style={styles.rewardModalContainer}
+            >
+              <View style={styles.rewardModalBody}>
+                <View style={styles.rewardModalGiftBox}>
+                  <Image
+                    source={claimedRewardModal}
+                    style={styles.rewardModalGiftImg}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.rewardModalGiftBadge}>x1d</Text>
+                </View>
+                <Text style={styles.rewardModalGiftLabel}>Gift</Text>
+
+                <Text style={styles.rewardModalTips}>
+                  Tips: Stay in the room long enough to earn a gift.
+                </Text>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setClaimedRewardModal(null)}
+                >
+                  <LinearGradient
+                    colors={["#ff7a00", "#ff007a"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.rewardModalOkBtn}
+                  >
+                    <Text style={styles.rewardModalOkText}>OK</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+
+            {/* Close Button floating above everything */}
+            <TouchableOpacity
+              style={styles.rewardModalCloseIcon}
+              activeOpacity={0.8}
+              onPress={() => setClaimedRewardModal(null)}
+            >
+              <X color="white" size={26} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -6653,5 +6718,121 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 15,
     fontWeight: "700",
+  },
+
+  // Custom Reward Claimed Modal
+  rewardModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rewardModalOuter: {
+    width: "90%",
+    alignItems: "center",
+    marginTop: 50,
+  },
+  rewardModalHeaderImg: {
+    position: "absolute",
+    top: -90,
+    width: "100%",
+    height: 180,
+    zIndex: 10,
+  },
+  rewardModalContainer: {
+    width: "90%",
+    borderRadius: 24,
+    alignItems: "center",
+    paddingTop: 65, // Increased padding to account for the overlapping image
+    overflow: "hidden",
+    elevation: 5,
+  },
+  rewardModalCloseIcon: {
+    position: "absolute",
+    top: -80,
+    right: 10,
+    zIndex: 100,
+    padding: 6,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    borderRadius: 20,
+  },
+  rewardModalTitle: {
+    color: "white",
+    fontSize: 26,
+    fontWeight: "900",
+    textShadowColor: "#d6249f",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
+    zIndex: 20,
+    marginBottom: 20,
+  },
+  rewardModalBody: {
+    width: "100%",
+    padding: 24,
+    alignItems: "center",
+    marginTop: 20
+  },
+  rewardModalGiftBox: {
+    width: 120,
+    height: 120,
+    backgroundColor: "white",
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: "#ffc107",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  rewardModalGiftImg: {
+    width: "80%",
+    height: "80%",
+    position: "absolute",
+    top: "10%",
+    left: "15%", // 10% is correct for 80% width!
+  },
+  rewardModalGiftBadge: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    color: "#e64a19",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  rewardModalGiftLabel: {
+    color: "#e64a19",
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 20,
+  },
+  rewardModalTips: {
+    color: "#a0a0a0",
+    fontSize: 11,
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  rewardModalOkBtn: {
+    width: 300,
+    height: 50,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#ff007a",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  rewardModalOkText: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "bold",
+    letterSpacing: 1,
   },
 });

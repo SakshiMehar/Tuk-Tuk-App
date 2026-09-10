@@ -2584,7 +2584,7 @@ const HomeHeader = memo(
       <>
         {/* ── HEADER CARD ── */}
         <LinearGradient
-          colors={["#d6d4f7ff", "#f9f4f9ff", "#fadaecff"]}
+          colors={["rgba(255,255,255,0)", "rgba(255,255,255,0)", "rgba(255,255,255,0)"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={[styles.headerCard, { marginTop: Math.max(insets.top, 10) }]}
@@ -2660,7 +2660,7 @@ const HomeHeader = memo(
               <View style={styles.diamondPill}>
                 <Text style={styles.diamondEmoji}>💎</Text>
                 <Text
-                  style={[styles.diamondCount, { maxWidth: 60 }]}
+                  style={[styles.diamondCount, { maxWidth: 85 }]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                 >
@@ -2682,7 +2682,11 @@ const HomeHeader = memo(
                 activeOpacity={0.8}
                 onPress={onGiftsOpen}
               >
-                <Text style={styles.headerIconEmoji}>🎁</Text>
+                <RNImage
+                  source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box1.png" }}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
                 <View
                   style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}
                 >
@@ -2694,7 +2698,11 @@ const HomeHeader = memo(
                 activeOpacity={0.8}
                 onPress={onNotifOpen}
               >
-                <Text style={styles.headerIconEmoji}>🔔</Text>
+                <RNImage
+                  source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/notifications.png" }}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
                 <View
                   style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}
                 >
@@ -3780,7 +3788,9 @@ export default function Home() {
         backgroundColor="transparent"
       />
 
-
+      {/* Background Orbs */}
+      <View style={styles.orbPink} />
+      <View style={styles.orbPurple} />
 
       {/* Outer FlatList gives true virtualization to the feed —
           only posts near the viewport are kept in memory */}
@@ -4872,11 +4882,11 @@ const styles = StyleSheet.create({
     marginHorizontal: H_PAD,
     marginBottom: vs(14),
     borderRadius: s(22),
-    elevation: 2,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(203, 199, 199, 0.96)",
+    elevation: 0,
+    shadowColor: "transparent",
     paddingHorizontal: s(14),
     paddingVertical: vs(10),
     gap: vs(10),
@@ -4884,7 +4894,7 @@ const styles = StyleSheet.create({
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(6),
+    gap: s(5),
   },
   avatarWrapper: {
     position: "relative",
@@ -4899,17 +4909,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
-  onlineDot: {
-    position: "absolute",
-    bottom: 1,
-    right: 1,
-    width: s(12),
-    height: s(12),
-    borderRadius: s(6),
-    backgroundColor: "#00e676",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
+
   headerTitleCol: {
     flex: 1,
     minWidth: 0,
@@ -4921,10 +4921,10 @@ const styles = StyleSheet.create({
     lineHeight: ms(14),
   },
   appName: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#2C1A4D",
-    lineHeight: 20,
+    fontSize: 20,
+    fontWeight: "bold",
+    fontFamily: "serif",
+    color: "black",
     letterSpacing: -0.5,
   },
   appNameWrapper: {
