@@ -2,7 +2,7 @@ import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronRight } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -33,6 +33,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import AppBackground from "../../Components/AppBackground";
 import ComingSoonModal from "../../Components/ComingSoonModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import PostImageViewer from "../../Components/PostImageViewer";
@@ -53,6 +54,7 @@ import {
 } from "../../src/api/postApi";
 import { patchMyProfile } from "../../src/api/profileApi";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import { DIAMOND_ICON_URL } from "../../src/constants/theme";
 import {
   getAvatarSource,
   isBundledAvatarId,
@@ -95,7 +97,7 @@ const CARD_GAP = 10;
 // Module-level fallbacks using Dimensions — used in StyleSheet.create and
 // stable module-level arrays.
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-const CARD_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2;
+const CARD_SIZE = ((SCREEN_WIDTH - H_PAD * 2 - CARD_GAP) / 2) * 0.88;
 const BANNER_SLIDE_WIDTH = SCREEN_WIDTH - H_PAD * 2;
 
 // Instagram-style bounds: never taller than 4:5 portrait, never wider than
@@ -325,11 +327,11 @@ const PostMoreMenu = memo(
         const text = `Check this out on Tuk Tuk! "${(post?.text ?? "").slice(0, 100)}..."`;
 
         if (post?.userId) {
-          shareUser(post.userId).catch(() => { });
+          shareUser(post.userId).catch(() => {});
         }
 
         if (platform.id === "more") {
-          await Share.share({ message: text }).catch(() => { });
+          await Share.share({ message: text }).catch(() => {});
           onClose();
           return;
         }
@@ -345,7 +347,7 @@ const PostMoreMenu = memo(
         if (canOpen) {
           Linking.openURL(url);
         } else {
-          await Share.share({ message: text }).catch(() => { });
+          await Share.share({ message: text }).catch(() => {});
         }
         onClose();
       },
@@ -444,18 +446,18 @@ const PostMoreMenu = memo(
                         avatarStyle={moreMenuStyles.friendAvatar}
                         {...(item.vipProfileFrameUrl
                           ? {
-                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                            frameResizeMode:
-                              VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                            frameOffsetX:
-                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                            frameOffsetY:
-                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                            avatarOffsetY:
-                              VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                          }
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode:
+                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX:
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY:
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY:
+                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
                           : {})}
                       />
                     </LinearGradient>
@@ -1221,7 +1223,7 @@ const postCreateStyles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    // backgroundColor: "rgba(0,0,0,0.65)",
+    backgroundColor: "rgba(0,0,0,0.65)",
   },
   sheet: {
     width: "100%",
@@ -1522,7 +1524,8 @@ const PostFAB = memo(({ onPress }) => (
     activeOpacity={0.85}
   >
     <LinearGradient
-      colors={['#C026FF', '#FF2D9A']} start={{ x: 0, y: 0 }}
+      colors={["#7c4dff", "#ff4ea3"]}
+      start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={fabStyles.gradient}
     >
@@ -2124,8 +2127,8 @@ const PostCard = memo(
     const postFrameSource = isOwnPost
       ? (currentUserVipFrameSource ?? currentUserFrameSource)
       : resolveEntityNewUserFrameSource({
-        hasNewUserFrame: post.authorHasNewUserFrame,
-      });
+          hasNewUserFrame: post.authorHasNewUserFrame,
+        });
     // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
     const imageUri = post.imageUrl ?? post._localMediaUri ?? null;
     const galleryUrls = post.imageUrls?.length
@@ -2167,7 +2170,7 @@ const PostCard = memo(
         (w, h) => {
           if (!cancelled && w && h) setImgAspectRatio(w / h);
         },
-        () => { },
+        () => {},
       );
       return () => {
         cancelled = true;
@@ -2187,15 +2190,15 @@ const PostCard = memo(
                   imageComponent={Image}
                   {...(isOwnVipFrame
                     ? {
-                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                      frameResizeMode:
-                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                    }
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode:
+                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
                     : {})}
                 />
               ) : (
@@ -2286,9 +2289,9 @@ const PostCard = memo(
                   styles.postImage,
                   imgAspectRatio
                     ? {
-                      aspectRatio: clampAspectRatio(imgAspectRatio),
-                      height: undefined,
-                    }
+                        aspectRatio: clampAspectRatio(imgAspectRatio),
+                        height: undefined,
+                      }
                     : { height: 220 },
                 ]}
                 contentFit="cover"
@@ -2309,9 +2312,9 @@ const PostCard = memo(
                 styles.postImage,
                 imgAspectRatio
                   ? {
-                    aspectRatio: clampAspectRatio(imgAspectRatio),
-                    height: undefined,
-                  }
+                      aspectRatio: clampAspectRatio(imgAspectRatio),
+                      height: undefined,
+                    }
                   : { height: 220 },
               ]}
               onLayout={(e) => setGalleryWidth(e.nativeEvent.layout.width)}
@@ -2908,6 +2911,7 @@ HomeHeader.displayName = "HomeHeader";
 // ─────────────────────────────────────────────────────────────
 export default function Home() {
   const router = useRouter();
+  const { createPost: createPostParam } = useLocalSearchParams();
   const feedListRef = useRef(null);
   useScrollToTop(feedListRef);
   const [selectedTab, setSelectedTab] = useState("For You");
@@ -2966,6 +2970,15 @@ export default function Home() {
   const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState("");
 
+  useEffect(() => {
+    const shouldOpen = Array.isArray(createPostParam)
+      ? createPostParam.includes("1")
+      : createPostParam === "1";
+    if (!shouldOpen) return;
+    setPostSheetVisible(true);
+    router.setParams({ createPost: "" });
+  }, [createPostParam, router]);
+
   const syncSessionAvatar = useCallback(async () => {
     try {
       const user = await getUser();
@@ -3001,7 +3014,7 @@ export default function Home() {
       .then((user) => {
         if (!user?.gender) setGenderPickerVisible(true);
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   // Saves gender + country from the "Who are you?" picker straight to the
@@ -3016,18 +3029,18 @@ export default function Home() {
           : null;
         const countryFields = match
           ? {
-            country: match.name,
-            countryCode: match.code,
-            countryName: match.name,
-          }
+              country: match.name,
+              countryCode: match.code,
+              countryName: match.name,
+            }
           : {};
         await updateUser({ gender, ...countryFields });
-        await patchMyProfile({ gender, ...countryFields }).catch(() => { });
+        await patchMyProfile({ gender, ...countryFields }).catch(() => {});
         if (match) {
           await syncUserCountryToServer({
             country: match.name,
             countryCode: match.code,
-          }).catch(() => { });
+          }).catch(() => {});
         }
       } finally {
         setGenderSaving(false);
@@ -3051,7 +3064,7 @@ export default function Home() {
         .then((activeUsers) => {
           setStats((prev) => ({ ...(prev ?? {}), activeUsers }));
         })
-        .catch(() => { });
+        .catch(() => {});
     }, []),
   );
 
@@ -3531,7 +3544,7 @@ export default function Home() {
       try {
         newPost = await createPost({ caption, photos, video, mediaType });
       } catch (e) {
-        await refreshFeed().catch(() => { });
+        await refreshFeed().catch(() => {});
         throw e;
       }
 
@@ -3593,7 +3606,7 @@ export default function Home() {
       setFeedPosts((prev) => [normalized, ...prev]);
 
       // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
-      await refreshFeed().catch(() => { });
+      await refreshFeed().catch(() => {});
     },
     [currentUserId],
   );
@@ -3788,9 +3801,7 @@ export default function Home() {
         backgroundColor="transparent"
       />
 
-      {/* Background Orbs */}
-      <View style={styles.orbPink} />
-      <View style={styles.orbPurple} />
+      <AppBackground />
 
       {/* Outer FlatList gives true virtualization to the feed —
           only posts near the viewport are kept in memory */}
@@ -3905,19 +3916,19 @@ export default function Home() {
                           avatarStyle={styles.resultIconBox}
                           {...(result.vipProfileFrameUrl
                             ? {
-                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                              frameResizeMode:
-                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                              frameOffsetX:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                              frameOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                              avatarBoost:
-                                VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                              avatarOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                            }
+                                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                frameResizeMode:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                frameOffsetX:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                frameOffsetY:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                avatarBoost:
+                                  VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                avatarOffsetY:
+                                  VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                              }
                             : {})}
                         />
                       ) : (
@@ -4134,7 +4145,7 @@ export default function Home() {
                     style={[
                       styles.notifItem,
                       unreadNotifications.includes(notif.id) &&
-                      styles.notifItemUnread,
+                        styles.notifItemUnread,
                     ]}
                     activeOpacity={0.8}
                   >
@@ -4192,8 +4203,8 @@ export default function Home() {
         isFollowing={
           imageViewerData
             ? followingIds.some((id) =>
-              isSameUser(id, imageViewerData.post.userId),
-            )
+                isSameUser(id, imageViewerData.post.userId),
+              )
             : false
         }
         isLiked={
@@ -4328,7 +4339,7 @@ export default function Home() {
                       style={[
                         styles.countryRow,
                         selectedCountry === country.name &&
-                        styles.countryRowSelected,
+                          styles.countryRowSelected,
                       ]}
                       onPress={() => {
                         setSelectedCountry(country.name);
@@ -4340,7 +4351,7 @@ export default function Home() {
                         style={[
                           styles.countryRowText,
                           selectedCountry === country.name &&
-                          styles.countryRowTextSelected,
+                            styles.countryRowTextSelected,
                         ]}
                       >
                         {country.flag} {country.name}
@@ -4464,15 +4475,15 @@ export default function Home() {
                   avatarStyle={styles.searchProfileAvatar}
                   {...(searchProfile.vipProfileFrameUrl
                     ? {
-                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                      frameResizeMode:
-                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                    }
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode:
+                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
                     : {})}
                 />
               ) : (
@@ -4551,7 +4562,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: "transparent",
   },
 
   // ── Searched user profile modal ──
@@ -4950,7 +4961,7 @@ const styles = StyleSheet.create({
     borderColor: "#E9D5FF",
     gap: s(2),
   },
-  diamondEmoji: { fontSize: ms(10) },
+  diamondIcon: { width: s(22), height: s(22) },
   diamondCount: {
     color: "#6D28D9",
     fontSize: ms(11),

@@ -10,21 +10,26 @@ import {
   StatusBar,
   ActivityIndicator,
   Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useScrollToTop, useFocusEffect } from "@react-navigation/native";
 import {
-  Search,
-  Home,
   Plus,
   MessageCircle,
-  Signal,
   Mic,
+  X,
+  ArrowLeft,
+  Home,
 } from "lucide-react-native";
 import { getRecommendedUsers } from "../src/services/homeService";
 import { getRoomUserCount } from "../src/api/partyApi";
+import { getUser } from "../src/store/authStore";
+import { COUNTRY_OPTIONS } from "../src/data/countryOptions";
 import {
   loadRoomRecommendations,
   loadRecentlyRooms,
@@ -33,11 +38,14 @@ import {
   loadPartyRanking,
   loadFamilies,
   normalizeRoom,
+  searchPartyRooms,
 } from "../src/services/partyService";
 import { openUserChat } from "../src/utils/chatNavigation";
+import AppBackground from "./AppBackground";
 import ComingSoonModal from "./ComingSoonModal";
 import CreateRoomModal from "./CreateRoomModal";
 import LevelGateModal from "./LevelGateModal";
+import { APP_BG, APP_TEXT, APP_TEXT_MUTED, APP_TEXT_DIM } from "../src/constants/theme";
 import exploreData from "../src/data/partyExploreData.json";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
@@ -61,16 +69,16 @@ const PODIUM_STYLE = {
 };
 
 const THEME = {
-  bg: "#0f0720",
-  header: ["#160d30", "#0f0720"],
+  bg: APP_BG,
+  header: ["transparent", "transparent"],
   card: "rgba(124,77,255,0.08)",
   cardBorder: "rgba(167,139,250,0.15)",
   purple: "#7c4dff",
   purpleLight: "#a78bfa",
-  text: "#ffffff",
-  textMuted: "rgba(167,139,250,0.55)",
-  textDim: "rgba(255,255,255,0.45)",
-  recommendRing: ["#7c4dff", "#ff4ea3"],
+  text: APP_TEXT,
+  textMuted: APP_TEXT_MUTED,
+  textDim: APP_TEXT_DIM,
+  recommendRing: ["#333333", "#888888"],
 };
 
 const TOP_TABS = exploreData.topTabs;
@@ -125,14 +133,11 @@ function useRoomUserCount(roomId) {
 
     const fetchCount = () => {
       getRoomUserCount(roomId)
-        .then((response) => {
-          console.log(`[getRoomUserCount] room ${roomId} response:`, response);
+        .then((count) => {
           if (cancelled) return;
-          setCount(typeof response === "number" ? response : response?.onlineCount);
+          if (typeof count === "number") setCount(count);
         })
-        .catch((error) => {
-          console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
-        });
+        .catch(() => {});
     };
 
     fetchCount();
@@ -146,8 +151,24 @@ function useRoomUserCount(roomId) {
   return count;
 }
 
+function useUserCountryFlag() {
+  const [flag, setFlag] = useState(null);
+  useEffect(() => {
+    getUser().then((user) => {
+      const countryName = user?.countryName ?? user?.country ?? null;
+      if (!countryName) return;
+      const match = COUNTRY_OPTIONS.find(
+        (c) => c.name.toLowerCase() === countryName.toLowerCase()
+      );
+      if (match?.flag) setFlag(match.flag);
+    }).catch(() => {});
+  }, []);
+  return flag;
+}
+
 function ExploreRoomItem({ room, onPress }) {
   const userCount = useRoomUserCount(room.id);
+  const countryFlag = useUserCountryFlag();
 
   return (
     <TouchableOpacity style={styles.exploreRoomCard} activeOpacity={0.8} onPress={onPress}>
@@ -170,9 +191,13 @@ function ExploreRoomItem({ room, onPress }) {
         )}
       </View>
       <View style={styles.roomMeta}>
-        <MessageCircle size={16} color={THEME.textMuted} />
+        {countryFlag ? (
+          <Text style={styles.roomFlagEmoji}>{countryFlag}</Text>
+        ) : (
+          <MessageCircle size={16} color={THEME.textMuted} />
+        )}
         <View style={styles.roomCount}>
-          <Signal size={14} color={THEME.purple} />
+          <Image source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png" }} style={styles.roomCountIcon} resizeMode="contain" />
           <Text style={styles.roomCountText}>{userCount ?? ""}</Text>
         </View>
       </View>
@@ -226,7 +251,7 @@ function RelatedRoomItem({ room, onPress, showFollow }) {
           </TouchableOpacity>
         ) : (
           <View style={styles.roomCount}>
-            <Signal size={14} color={THEME.purple} />
+            <Image source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png" }} style={styles.roomCountIcon} resizeMode="contain" />
             <Text style={styles.roomCountText}>{userCount ?? ""}</Text>
           </View>
         )}
@@ -247,6 +272,14 @@ export default function PartyExplore() {
   const [relatedRooms, setRelatedRooms] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [recommendedUsers, setRecommendedUsers] = useState([]);
+
+  // ── Search ──
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const searchDebounceRef = useRef(null);
 
   // ── Ranking modal ──
   const [rankingVisible, setRankingVisible] = useState(false);
@@ -289,9 +322,11 @@ export default function PartyExplore() {
     setRoomsLoading(true);
     loadRoomRecommendations()
       .then((apiRooms) => {
+        console.log("[PartyExplore] loadRoomRecommendations resolved, count:", apiRooms?.length);
         if (!cancelled) setRooms(apiRooms);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[PartyExplore] loadRoomRecommendations failed:", err?.response?.status, err?.message ?? err);
         if (!cancelled) setRooms([]);
       })
       .finally(() => {
@@ -312,9 +347,11 @@ export default function PartyExplore() {
     setRelatedLoading(true);
     loader()
       .then((apiRooms) => {
+        console.log(`[PartyExplore] ${activeRelatedTab} rooms resolved, count:`, apiRooms?.length);
         if (!cancelled) setRelatedRooms(apiRooms);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error(`[PartyExplore] ${activeRelatedTab} rooms failed:`, err?.response?.status, err?.message ?? err);
         if (!cancelled) setRelatedRooms([]);
       })
       .finally(() => {
@@ -390,7 +427,11 @@ export default function PartyExplore() {
   const restRanking = useMemo(() => rankingList.slice(3), [rankingList]);
 
   const openRoom = (roomId) => {
-    router.push({ pathname: "/voice-party", params: { roomId } });
+    if (!roomId) {
+      console.warn("[PartyExplore] openRoom called with empty roomId — skipping navigation");
+      return;
+    }
+    router.push({ pathname: "/voice-party", params: { roomId: String(roomId) } });
   };
 
   const openCreateRoomModal = async () => {
@@ -452,7 +493,8 @@ export default function PartyExplore() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={THEME.bg} />
+      <AppBackground />
+      <StatusBar barStyle="dark-content" backgroundColor={THEME.bg} />
       <SafeAreaView style={styles.safe} edges={["top"]}>
         {/* ── TOP TABS + ACTIONS ── */}
         <LinearGradient colors={THEME.header} style={styles.topBar}>
@@ -473,15 +515,17 @@ export default function PartyExplore() {
           </View>
           <View style={styles.topActions}>
             <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8}>
-              <Search size={20} color={THEME.purpleLight} />
+              <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.iconBtnGrad}>
+                <Image source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/search.png" }} style={styles.searchIcon} resizeMode="contain" />
+              </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={openCreateRoomModal}>
-              <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.iconBtnGrad}>
-                <Home size={16} color={THEME.purpleLight} />
+              <View style={styles.homeIconWrap}>
+                <Image source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/home.png" }} style={styles.homeIcon} resizeMode="contain" />
                 <View style={styles.createRoomPlus}>
                   <Plus size={9} color="white" strokeWidth={3} />
                 </View>
-              </LinearGradient>
+              </View>
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -548,14 +592,43 @@ export default function PartyExplore() {
                 {FEATURE_CARDS.map((card) => (
                   <TouchableOpacity
                     key={card.id}
-                    style={styles.featureCard}
+                    style={[styles.featureCard, { shadowColor: card.shadowColor ?? "#7c4dff" }]}
                     activeOpacity={0.85}
                     onPress={() => handleFeatureCardPress(card)}
                   >
-                    <LinearGradient colors={card.colors} style={styles.featureGrad}>
-                      <Text style={styles.featureEmoji}>{card.emoji}</Text>
-                    </LinearGradient>
-                    <Text style={styles.featureLabel}>{card.label}</Text>
+                    {/* Outer glow ring */}
+                    <LinearGradient
+                      colors={card.glowColors ?? card.colors}
+                      style={styles.featureGlowRing}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    />
+                    {/* Glass container */}
+                    <View style={[styles.featureGrad, { borderColor: card.borderColor ?? "rgba(255,255,255,0.25)" }]}>
+                      {/* Subtle tinted bg */}
+                      <LinearGradient
+                        colors={card.bgColors ?? ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)"]}
+                        style={StyleSheet.absoluteFill}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                      />
+                      {/* Top-left shine */}
+                      <LinearGradient
+                        colors={["rgba(255,255,255,0.35)", "rgba(255,255,255,0)"]}
+                        style={styles.featureShine}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                      />
+                      {/* Centered icon area */}
+                      <View style={styles.featureIconWrap}>
+                        <Image
+                          source={{ uri: card.icon }}
+                          style={[styles.featureIcon, { transform: [{ scale: card.iconScale ?? 1.1 }], marginTop: card.iconOffsetY ?? 0, marginLeft: card.iconOffsetX ?? 0 }]}
+                          resizeMode="contain"
+                        />
+                      </View>
+                      <Text style={[styles.featureLabel, { color: card.labelColor ?? "#ffffff" }]}>{card.label}</Text>
+                    </View>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -869,7 +942,7 @@ export default function PartyExplore() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: THEME.bg,
+    backgroundColor: "transparent",
   },
   safe: {
     flex: 1,
@@ -879,9 +952,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingRight: 8,
     paddingLeft: 4,
-    paddingBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(167,139,250,0.1)",
+    paddingBottom: 8,
+    backgroundColor: "transparent",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   },
   topTabsRow: {
     flex: 1,
@@ -894,13 +971,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   topTabText: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: "600",
-    color: THEME.textMuted,
+    color: "#999",
   },
   topTabTextActive: {
-    color: THEME.text,
+    color: "#1a1a2e",
     fontWeight: "700",
+    fontSize: 17,
   },
   topTabUnderline: {
     position: "absolute",
@@ -916,6 +994,20 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   iconBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchIcon: {
+    width: 40,
+    height: 30,
+  },
+  homeIcon: {
+    width: 32,
+    height: 32,
+  },
+  homeIconWrap: {
     width: 40,
     height: 40,
     alignItems: "center",
@@ -1204,25 +1296,64 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     marginTop: 14,
-    gap: 8,
+    gap: 10,
   },
   featureCard: {
-    width: FEATURE_CARD_W,
+    flex: 1,
     alignItems: "center",
-    gap: 6,
+    borderRadius: 22,
+    overflow: "visible",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    elevation: 14,
+  },
+  featureGlowRing: {
+    position: "absolute",
+    top: -3,
+    left: -3,
+    right: -3,
+    bottom: -3,
+    borderRadius: 25,
+    opacity: 0.5,
   },
   featureGrad: {
-    width: FEATURE_CARD_W,
-    height: FEATURE_CARD_W * 0.72,
-    borderRadius: 14,
+    width: "100%",
+    aspectRatio: 0.85,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 14,
+    overflow: "hidden",
+    borderWidth: 1.5,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  featureShine: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "60%",
+    height: "45%",
+    borderTopLeftRadius: 22,
+  },
+  featureIconWrap: {
+    flex: 1,
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
   },
   featureEmoji: { fontSize: 28 },
+  featureIcon: {
+    width: "100%",
+    height: "100%",
+    maxHeight: "100%",
+    transform: [{ scale: 1.1 }],
+  },
   featureLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.75)",
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#ffffff",
+    letterSpacing: 0.3,
   },
   chipsScroll: { marginTop: 14 },
   chipsContent: {
@@ -1233,9 +1364,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: "rgba(124,77,255,0.12)",
+    backgroundColor: "rgba(124,77,255,0.08)",
     borderWidth: 1,
-    borderColor: THEME.cardBorder,
+    borderColor: "rgba(124,77,255,0.2)",
   },
   chipActive: {
     paddingHorizontal: 18,
@@ -1245,12 +1376,12 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 13,
     fontWeight: "600",
-    color: THEME.textMuted,
+    color: "#666",
   },
   chipTextActive: {
     fontSize: 13,
     fontWeight: "700",
-    color: THEME.text,
+    color: "#fff",
   },
   exploreRoomCard: {
     flexDirection: "row",
@@ -1317,12 +1448,21 @@ const styles = StyleSheet.create({
   roomCount: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: 0,
+  },
+  roomCountIcon: {
+    width: 35,
+    height: 35,
+    marginRight: -10,
+    marginTop: 1,
   },
   roomCountText: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: "700",
     color: THEME.purpleLight,
+  },
+  roomFlagEmoji: {
+    fontSize: 20,
   },
   emptyRooms: {
     paddingVertical: 32,

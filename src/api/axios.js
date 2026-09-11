@@ -159,6 +159,10 @@ API.interceptors.response.use(
       error?.message ||
       "Something went wrong";
 
+    if (/unable to connect to redis/i.test(String(message))) {
+      message = "Voice party is temporarily unavailable. Please try again in a moment.";
+    }
+
     const err = new Error(message);
     err.status = status;
     err.responseData = error?.response?.data;

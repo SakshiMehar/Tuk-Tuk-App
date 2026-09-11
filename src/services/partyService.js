@@ -13,6 +13,7 @@ import {
   updateRoom as updateRoomApi,
   getPartyRanking as getPartyRankingApi,
   getFamilies as getFamiliesApi,
+  searchRooms as searchRoomsApi,
 } from "../api/partyApi";
 import { wsService } from "./websocket";
 import { reserveSeat } from "./partyVoiceService";
@@ -73,7 +74,7 @@ export const normalizeRoom = (room) => ({
   name: firstText(room?.name, room?.title, room?.roomName) ?? "Voice Room",
   title: firstText(room?.title, room?.name, room?.roomName) ?? "Voice Room",
   roomTypeLabel:
-    firstText(room?.roomTypeLabel, room?.roomType, room?.type) ?? "Voice Party",
+    firstText(room?.roomTypeLabel, room?.roomType, room?.type) ?? null,
   body: firstText(room?.body, room?.description, room?.subtitle) ?? "",
   thumbnail: firstText(
     room?.profileImageUrl,
@@ -699,6 +700,12 @@ export const loadFamilies = async () => {
   const families = (Array.isArray(list) ? list : []).map(normalizeFamily);
 
   return families;
+};
+
+export const searchPartyRooms = async (query) => {
+  const data = await searchRoomsApi(query);
+  const rooms = parseRoomsResponse(data);
+  return rooms.map(normalizeRoom);
 };
 
 export const exitRoomSession = async (roomId) => {

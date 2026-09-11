@@ -33,6 +33,7 @@ import {
   Dimensions,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -53,7 +54,12 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { refreshTokenCache } from "../src/api/axios";
-import { getRoomChatMessages, getRoomState, getRoomUserCount, postRoomHeartbeat, postSeatHeartbeat } from "../src/api/partyApi";
+import {
+  getRoomChatMessages,
+  getRoomState,
+  getRoomUserCount,
+  postSeatHeartbeat,
+} from "../src/api/partyApi";
 import { reportUser } from "../src/api/postApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
@@ -73,7 +79,6 @@ import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
 import { useWalletBalance } from "../src/hooks/useWalletBalance";
 import * as agoraVoice from "../src/services/agoraVoiceService";
 import { loadConversations } from "../src/services/chatService";
-import { fetchUserDecorations } from "../src/services/decorationsService";
 import {
   adjustInventoryQty,
   buyGiftToBackpack,
@@ -111,11 +116,20 @@ import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
-import { applyWalletFromSources, refreshWalletBalance } from "../src/store/walletStore";
+import {
+  applyWalletFromSources,
+  refreshWalletBalance,
+} from "../src/store/walletStore";
 import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
-import { resolveProfileAvatarSource, resolveProfileAvatarUri } from "../src/utils/profileAvatar";
+import {
+  resolveProfileAvatarSource,
+  resolveProfileAvatarUri,
+} from "../src/utils/profileAvatar";
 import { getAppUserId } from "../src/utils/sessionUser";
-import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
+import {
+  resolveImageSource,
+  resolveVideoSource,
+} from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ReportReasonModal from "./ReportReasonModal";
@@ -173,14 +187,17 @@ const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
         ...existing,
         id: existing.id ?? userId,
         name:
-          existing.name && existing.name !== "Guest" ? existing.name : (name ?? existing.name ?? "User"),
+          existing.name && existing.name !== "Guest"
+            ? existing.name
+            : (name ?? existing.name ?? "User"),
         username: existing.username ?? username,
         // Always use local profile data for avatar fields on own seat.
         avatarId: user?.avatarId ?? existing.avatarId ?? null,
         avatar: resolvedAvatarUri ?? existing.avatar ?? null,
         avatarUrl: user?.avatarUrl ?? existing.avatarUrl ?? null,
         profilePicUrl: user?.profilePicUrl ?? existing.profilePicUrl ?? null,
-        profileImageUrl: user?.profileImageUrl ?? existing.profileImageUrl ?? null,
+        profileImageUrl:
+          user?.profileImageUrl ?? existing.profileImageUrl ?? null,
         profileImage: user?.profileImage ?? existing.profileImage ?? null,
         hasNewUserFrame: Boolean(user?.hasNewUserFrame),
         newUserFrameUrl: user?.newUserFrameUrl ?? null,
@@ -203,17 +220,25 @@ const STALE_SEAT_MISS_THRESHOLD = 2;
 
 const reconcileSeatAssignments = (
   parsedSeats,
-  { onlineUsers = null, myUserId = null, mySeatNumber = null, staleSeatTracker = null } = {}
+  {
+    onlineUsers = null,
+    myUserId = null,
+    mySeatNumber = null,
+    staleSeatTracker = null,
+  } = {},
 ) => {
-  const next = parsedSeats.map((seat) => ({ ...seat, user: seat.user ? { ...seat.user } : null }));
+  const next = parsedSeats.map((seat) => ({
+    ...seat,
+    user: seat.user ? { ...seat.user } : null,
+  }));
 
   const onlineIds =
     Array.isArray(onlineUsers) && onlineUsers.length > 0
       ? new Set(
-        onlineUsers
-          .map((u) => (u?.id != null ? String(u.id) : null))
-          .filter(Boolean),
-      )
+          onlineUsers
+            .map((u) => (u?.id != null ? String(u.id) : null))
+            .filter(Boolean),
+        )
       : null;
 
   // If room presence is known, clear seats for users who already left.
@@ -278,13 +303,16 @@ const reconcileSeatAssignments = (
   return next;
 };
 
-const micSeats = Array.from({ length: 15 }, (_, i) => ({ id: i + 1, user: null, locked: false }));
+const micSeats = Array.from({ length: 15 }, (_, i) => ({
+  id: i + 1,
+  user: null,
+  locked: false,
+}));
 
 const SEAT_SIZE = (W - 32 - 40) / 5;
 const GIFT_CARD_W = (W - 32) / 4 - 6;
 
-const formatGiftPrice = (price) =>
-  Number(price ?? 0).toLocaleString();
+const formatGiftPrice = (price) => Number(price ?? 0).toLocaleString();
 
 const SEAT_FRAME_CONFIG = NEW_USER_FRAME_LAYOUT;
 
@@ -311,40 +339,58 @@ const SpeakingRing = ({ active }) => {
     const CYCLE = 1500;
     if (active) {
       s1.value = withRepeat(
-        withSequence(withTiming(1, { duration: 0 }), withTiming(1.5, { duration: CYCLE })),
-        -1
+        withSequence(
+          withTiming(1, { duration: 0 }),
+          withTiming(1.5, { duration: CYCLE }),
+        ),
+        -1,
       );
       o1.value = withRepeat(
-        withSequence(withTiming(0.9, { duration: 0 }), withTiming(0, { duration: CYCLE })),
-        -1
+        withSequence(
+          withTiming(0.9, { duration: 0 }),
+          withTiming(0, { duration: CYCLE }),
+        ),
+        -1,
       );
       s2.value = withDelay(
         500,
         withRepeat(
-          withSequence(withTiming(1, { duration: 0 }), withTiming(1.5, { duration: CYCLE })),
-          -1
-        )
+          withSequence(
+            withTiming(1, { duration: 0 }),
+            withTiming(1.5, { duration: CYCLE }),
+          ),
+          -1,
+        ),
       );
       o2.value = withDelay(
         500,
         withRepeat(
-          withSequence(withTiming(0.9, { duration: 0 }), withTiming(0, { duration: CYCLE })),
-          -1
-        )
+          withSequence(
+            withTiming(0.9, { duration: 0 }),
+            withTiming(0, { duration: CYCLE }),
+          ),
+          -1,
+        ),
       );
       s3.value = withDelay(
         1000,
         withRepeat(
-          withSequence(withTiming(1, { duration: 0 }), withTiming(1.5, { duration: CYCLE })),
-          -1
-        )
+          withSequence(
+            withTiming(1, { duration: 0 }),
+            withTiming(1.5, { duration: CYCLE }),
+          ),
+          -1,
+        ),
       );
       o3.value = withDelay(
         1000,
         withRepeat(
-          withSequence(withTiming(0.9, { duration: 0 }), withTiming(0, { duration: CYCLE })),
-          -1
-        )
+          withSequence(
+            withTiming(0.9, { duration: 0 }),
+            withTiming(0, { duration: CYCLE }),
+          ),
+          -1,
+        ),
       );
     } else {
       s1.value = withTiming(1, { duration: 300 });
@@ -400,7 +446,7 @@ const UserEntryBanner = ({ user, onComplete }) => {
         <Image
           source={{ uri: frameUrl }}
           style={styles.entryBannerBg}
-        // resizeMode="stretch"
+          // resizeMode="stretch"
         />
       )}
       <View
@@ -439,6 +485,26 @@ export default function VoiceParty() {
   const [speakingUserIds, setSpeakingUserIds] = useState(new Set());
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
+  const [recentEntries, setRecentEntries] = useState([]);
+  const prevOnlineUsersRef = useRef([]);
+
+  useEffect(() => {
+    if (!onlineUsers || !prevOnlineUsersRef.current) {
+      prevOnlineUsersRef.current = onlineUsers || [];
+      return;
+    }
+    const prevIds = new Set(prevOnlineUsersRef.current.map((u) => u.id));
+    const newJoins = onlineUsers.filter((u) => !prevIds.has(u.id));
+
+    if (newJoins.length > 0) {
+      setRecentEntries((prev) => [...prev, ...newJoins]);
+    }
+    prevOnlineUsersRef.current = onlineUsers;
+  }, [onlineUsers]);
+
+  const handleEntryComplete = useCallback((userId) => {
+    setRecentEntries((prev) => prev.filter((u) => u.id !== userId));
+  }, []);
   const [messages, setMessages] = useState([]);
   // The logged-in user's own VIP cosmetics (profile/entry/chat frame + logo) —
   // unlocked once their gamification totalXp crosses VIP_XP_THRESHOLD. Only
@@ -529,11 +595,15 @@ export default function VoiceParty() {
   // Mic permission warning popup (stores pending seatId)
   const [micPermWarning, setMicPermWarning] = useState(null); // seatId | null
   // Pinned welcome message (editable by the host)
-  const [welcomeMessage, setWelcomeMessage] = useState("Welcome everyone! Let's chat and have fun together!");
+  const [welcomeMessage, setWelcomeMessage] = useState(
+    "Welcome everyone! Let's chat and have fun together!",
+  );
   const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
   const [welcomeDraft, setWelcomeDraft] = useState("");
 
-  const videoPlayer = useVideoPlayer(null, (p) => { p.loop = false; });
+  const videoPlayer = useVideoPlayer(null, (p) => {
+    p.loop = false;
+  });
 
   useEffect(() => {
     if (!showVideoModal || !currentVideo) {
@@ -542,7 +612,9 @@ export default function VoiceParty() {
     }
 
     let cancelled = false;
-    const source = resolveVideoSource(currentVideo.videoUrl ?? currentVideo.uri);
+    const source = resolveVideoSource(
+      currentVideo.videoUrl ?? currentVideo.uri,
+    );
     if (!source) return undefined;
 
     (async () => {
@@ -559,8 +631,15 @@ export default function VoiceParty() {
       }
     })();
 
-    return () => { cancelled = true; };
-  }, [showVideoModal, currentVideo?.id, currentVideo?.videoUrl, currentVideo?.uri]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showVideoModal,
+    currentVideo?.id,
+    currentVideo?.videoUrl,
+    currentVideo?.uri,
+  ]);
   const [mediaSection, setMediaSection] = useState("emoji");
   const [emojiTab, setEmojiTab] = useState("smileys");
   const [stickerTab, setStickerTab] = useState("reactions");
@@ -570,7 +649,8 @@ export default function VoiceParty() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [profilePopupUser, setProfilePopupUser] = useState(null);
-  const [profilePopupAvatarSource, setProfilePopupAvatarSource] = useState(null);
+  const [profilePopupAvatarSource, setProfilePopupAvatarSource] =
+    useState(null);
   const [profilePopupLoading, setProfilePopupLoading] = useState(false);
   const [profilePopupFollowing, setProfilePopupFollowing] = useState(false);
   const [profileFollowLoading, setProfileFollowLoading] = useState(false);
@@ -578,7 +658,9 @@ export default function VoiceParty() {
   const [localSessionUser, setLocalSessionUser] = useState(null);
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
-  const { treasureState, selectChest } = useTreasureBoxProgress(!roomLoading && Boolean(roomId));
+  const { treasureState, selectChest } = useTreasureBoxProgress(
+    !roomLoading && Boolean(roomId),
+  );
   const { diamonds: walletDiamonds } = useWalletBalance();
 
   useEffect(() => {
@@ -594,37 +676,41 @@ export default function VoiceParty() {
   // When the user updates their profile (avatar, name, etc.) anywhere in the app,
   // refresh localSessionUser and patch their avatar into the mic seat immediately.
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener("userProfileUpdated", (updatedUser) => {
-      setLocalSessionUser(updatedUser);
-      if (!mySeatNumber) return;
-      // Re-resolve the avatar URI from the freshly-saved user object.
-      const freshAvatarUri =
-        resolveProfileAvatarUri(updatedUser) ??
-        updatedUser?.profilePicUrl ??
-        updatedUser?.avatarUrl ??
-        updatedUser?.profileImageUrl ??
-        updatedUser?.profileImage ??
-        null;
-      setSeats((prev) =>
-        prev.map((seat) => {
-          if (seat.id !== mySeatNumber || !seat.user) return seat;
-          return {
-            ...seat,
-            user: {
-              ...seat.user,
-              // Use updated values unconditionally — null means "no longer set".
-              avatarId: updatedUser?.avatarId ?? null,
-              avatar: freshAvatarUri ?? null,
-              avatarUrl: updatedUser?.avatarUrl ?? null,
-              profilePicUrl: updatedUser?.profilePicUrl ?? null,
-              profileImageUrl: updatedUser?.profileImageUrl ?? null,
-              profileImage: updatedUser?.profileImage ?? null,
-              name: updatedUser?.name ?? updatedUser?.username ?? seat.user.name,
-            },
-          };
-        })
-      );
-    });
+    const sub = DeviceEventEmitter.addListener(
+      "userProfileUpdated",
+      (updatedUser) => {
+        setLocalSessionUser(updatedUser);
+        if (!mySeatNumber) return;
+        // Re-resolve the avatar URI from the freshly-saved user object.
+        const freshAvatarUri =
+          resolveProfileAvatarUri(updatedUser) ??
+          updatedUser?.profilePicUrl ??
+          updatedUser?.avatarUrl ??
+          updatedUser?.profileImageUrl ??
+          updatedUser?.profileImage ??
+          null;
+        setSeats((prev) =>
+          prev.map((seat) => {
+            if (seat.id !== mySeatNumber || !seat.user) return seat;
+            return {
+              ...seat,
+              user: {
+                ...seat.user,
+                // Use updated values unconditionally — null means "no longer set".
+                avatarId: updatedUser?.avatarId ?? null,
+                avatar: freshAvatarUri ?? null,
+                avatarUrl: updatedUser?.avatarUrl ?? null,
+                profilePicUrl: updatedUser?.profilePicUrl ?? null,
+                profileImageUrl: updatedUser?.profileImageUrl ?? null,
+                profileImage: updatedUser?.profileImage ?? null,
+                name:
+                  updatedUser?.name ?? updatedUser?.username ?? seat.user.name,
+              },
+            };
+          }),
+        );
+      },
+    );
     return () => sub.remove();
   }, [mySeatNumber]);
 
@@ -643,8 +729,12 @@ export default function VoiceParty() {
     const chatSenderIds = messages
       .filter((m) => m?.userId != null)
       .map((m) => String(m.userId));
-    const allIds = [...new Set([...seatUserIds, ...audienceUserIds, ...chatSenderIds])];
-    const pending = allIds.filter((userId) => !fetchedUiAssetIdsRef.current.has(userId));
+    const allIds = [
+      ...new Set([...seatUserIds, ...audienceUserIds, ...chatSenderIds]),
+    ];
+    const pending = allIds.filter(
+      (userId) => !fetchedUiAssetIdsRef.current.has(userId),
+    );
 
     if (pending.length === 0) return;
 
@@ -652,13 +742,16 @@ export default function VoiceParty() {
       fetchedUiAssetIdsRef.current.add(userId);
       getUserUiAssets(userId)
         .then((response) => {
-          console.log(`[VoiceParty] ui-assets userId=${userId}:`, JSON.stringify(response));
+          console.log(
+            `[VoiceParty] ui-assets userId=${userId}:`,
+            JSON.stringify(response),
+          );
           const showFrame = Boolean(
             response?.showNewUserFrame ??
             response?.hasNewUserFrame ??
             response?.data?.showNewUserFrame ??
             response?.data?.hasNewUserFrame ??
-            false
+            false,
           );
           const frameUrl =
             response?.newUserFrameUrl ??
@@ -667,7 +760,8 @@ export default function VoiceParty() {
             response?.data?.frameUrl ??
             null;
           const vipProfileFrameUrl =
-            extractVipProfileFrameUrl(response) ?? extractVipProfileFrameUrl(response?.data);
+            extractVipProfileFrameUrl(response) ??
+            extractVipProfileFrameUrl(response?.data);
           setUserFrameData((prev) => ({
             ...prev,
             [userId]: {
@@ -678,29 +772,25 @@ export default function VoiceParty() {
           }));
         })
         .catch((err) => {
-          if (__DEV__) console.warn(`[VoiceParty] ui-assets fetch failed userId=${userId}:`, err?.message ?? err);
+          if (__DEV__)
+            console.warn(
+              `[VoiceParty] ui-assets fetch failed userId=${userId}:`,
+              err?.message ?? err,
+            );
         });
 
-      // Backend-assigned decorations for this specific user (separate from
-      // the VIP/new-user frame system above) — badge + frame overlay.
-      fetchUserDecorations(userId).then(({ badgeUrl, frameUrl }) => {
-        if (!badgeUrl && !frameUrl) return;
-        setUserFrameData((prev) => ({
-          ...prev,
-          [userId]: { ...prev[userId], decorationBadgeUrl: badgeUrl, decorationFrameUrl: frameUrl },
-        }));
-      });
     });
   }, [seats, onlineUsers, messages]);
 
   const hostUserLike = useMemo(() => {
     const fromSeat = seats.find(
-      (seat) => seat.user && isSameUser(seat.user.id ?? seat.user.userId, hostId)
+      (seat) =>
+        seat.user && isSameUser(seat.user.id ?? seat.user.userId, hostId),
     )?.user;
     if (fromSeat) return fromSeat;
 
-    const fromOnline = onlineUsers.find(
-      (user) => isSameUser(user.id ?? user.userId, hostId)
+    const fromOnline = onlineUsers.find((user) =>
+      isSameUser(user.id ?? user.userId, hostId),
     );
     if (fromOnline) return fromOnline;
 
@@ -752,7 +842,9 @@ export default function VoiceParty() {
       if (!cancelled) setCatalogLoading(false);
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [showBackpack, catalogRefreshKey]);
 
   useEffect(() => {
@@ -771,13 +863,13 @@ export default function VoiceParty() {
       if (!name) return null;
 
       const fromOnline = onlineUsers.find(
-        (user) => user?.id && user.name?.trim()?.toLowerCase() === name
+        (user) => user?.id && user.name?.trim()?.toLowerCase() === name,
       );
       if (fromOnline?.id) return String(fromOnline.id);
 
       return null;
     },
-    [onlineUsers]
+    [onlineUsers],
   );
 
   // Chat messages store the sender's name/avatar as a snapshot from when they were
@@ -790,26 +882,34 @@ export default function VoiceParty() {
     (userId) => {
       if (userId == null) return null;
       const idStr = String(userId);
-      const fromOnline = onlineUsers.find((user) => user?.id != null && String(user.id) === idStr);
+      const fromOnline = onlineUsers.find(
+        (user) => user?.id != null && String(user.id) === idStr,
+      );
       if (fromOnline?.avatar) return fromOnline.avatar;
-      const fromSeat = seats.find((seat) => seat?.user?.id != null && String(seat.user.id) === idStr);
+      const fromSeat = seats.find(
+        (seat) => seat?.user?.id != null && String(seat.user.id) === idStr,
+      );
       if (fromSeat?.user?.avatar) return fromSeat.user.avatar;
       return userProfileCache[idStr]?.avatarUrl ?? null;
     },
-    [onlineUsers, seats, userProfileCache]
+    [onlineUsers, seats, userProfileCache],
   );
 
   const resolveChatSenderName = useCallback(
     (userId, fallbackName) => {
       if (userId == null) return fallbackName;
       const idStr = String(userId);
-      const fromOnline = onlineUsers.find((user) => user?.id != null && String(user.id) === idStr);
+      const fromOnline = onlineUsers.find(
+        (user) => user?.id != null && String(user.id) === idStr,
+      );
       if (fromOnline?.name) return fromOnline.name;
-      const fromSeat = seats.find((seat) => seat?.user?.id != null && String(seat.user.id) === idStr);
+      const fromSeat = seats.find(
+        (seat) => seat?.user?.id != null && String(seat.user.id) === idStr,
+      );
       if (fromSeat?.user?.name) return fromSeat.user.name;
       return userProfileCache[idStr]?.name ?? fallbackName;
     },
-    [onlineUsers, seats, userProfileCache]
+    [onlineUsers, seats, userProfileCache],
   );
 
   // For any chat sender not currently in the room's live participant/seat lists —
@@ -822,9 +922,13 @@ export default function VoiceParty() {
       const idStr = String(msg.userId);
       if (avatarLookupAttemptedRef.current.has(idStr)) return;
 
-      const fromOnline = onlineUsers.find((user) => user?.id != null && String(user.id) === idStr);
+      const fromOnline = onlineUsers.find(
+        (user) => user?.id != null && String(user.id) === idStr,
+      );
       if (fromOnline) return;
-      const fromSeat = seats.find((seat) => seat?.user?.id != null && String(seat.user.id) === idStr);
+      const fromSeat = seats.find(
+        (seat) => seat?.user?.id != null && String(seat.user.id) === idStr,
+      );
       if (fromSeat?.user) return;
 
       avatarLookupAttemptedRef.current.add(idStr);
@@ -832,7 +936,10 @@ export default function VoiceParty() {
         .then((detail) => {
           setUserProfileCache((prev) => ({
             ...prev,
-            [idStr]: { avatarUrl: detail?.avatarUrl ?? null, name: detail?.name ?? null },
+            [idStr]: {
+              avatarUrl: detail?.avatarUrl ?? null,
+              name: detail?.name ?? null,
+            },
           }));
         })
         .catch(() => {
@@ -914,7 +1021,8 @@ export default function VoiceParty() {
   }, [giftRecipientOptions, giftReceiverId, hostId, myUserId]);
 
   useEffect(() => {
-    if (!showBackpack || giftReceiverTouchedRef.current || giftReceiverId) return;
+    if (!showBackpack || giftReceiverTouchedRef.current || giftReceiverId)
+      return;
     const preferred = giftRecipientOptions[0]?.id ?? null;
     if (preferred) setGiftReceiverId(preferred);
   }, [showBackpack, giftRecipientOptions, giftReceiverId]);
@@ -935,7 +1043,7 @@ export default function VoiceParty() {
       .then((status) => {
         if (!cancelled) setIsFollowing(status.following);
       })
-      .catch(() => { });
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -954,7 +1062,7 @@ export default function VoiceParty() {
     } catch (err) {
       Alert.alert(
         isFollowing ? "Unfollow failed" : "Follow failed",
-        err.message || "Please try again."
+        err.message || "Please try again.",
       );
     } finally {
       setFollowLoading(false);
@@ -989,7 +1097,7 @@ export default function VoiceParty() {
         try {
           loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
           if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
-        } catch (e) { }
+        } catch (e) {}
         let session;
         if (isRandomParty) {
           session = await enterRandomPartySession();
@@ -1008,7 +1116,7 @@ export default function VoiceParty() {
           setMySeatNumber(initialSeatNumber);
           const enrichedSeats = await enrichSeatsWithMyProfile(
             session.seats,
-            initialSeatNumber
+            initialSeatNumber,
           );
           setSeats(
             reconcileSeatAssignments(enrichedSeats, {
@@ -1016,7 +1124,7 @@ export default function VoiceParty() {
               myUserId,
               mySeatNumber: initialSeatNumber,
               staleSeatTracker: staleSeatTrackerRef.current,
-            })
+            }),
           );
         } else {
           setSeats(
@@ -1025,7 +1133,7 @@ export default function VoiceParty() {
               myUserId,
               mySeatNumber: null,
               staleSeatTracker: staleSeatTrackerRef.current,
-            })
+            }),
           );
         }
         setOnlineUsers(session.onlineUsers);
@@ -1033,6 +1141,29 @@ export default function VoiceParty() {
           `[joinRoom onlineCount] room ${roomId}: onlineCount=${session.onlineCount}, onlineUsers.length=${session.onlineUsers?.length}`
         );
         setOnlineCount(session.onlineCount);
+
+        // Show our own entry banner
+        const localUser = await getUser();
+        if (localUser && !cancelled) {
+          const resolvedAvatar =
+            resolveProfileAvatarUri(localUser) ??
+            localUser?.profilePicUrl ??
+            localUser?.avatarUrl;
+          setRecentEntries((prev) => [
+            ...prev,
+            {
+              id: localUser.id || "my-id",
+              name: localUser.name || localUser.username || "Me",
+              avatar: resolvedAvatar,
+              entryFrameUrl:
+                loadedVip?.entryFrame || localUser?.newUserFrameUrl,
+              newUserFrameUrl: localUser?.newUserFrameUrl,
+              profileFrameUrl:
+                loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
+            },
+          ]);
+        }
+
         // Chat is session-local: start with a clean screen on every entry
         // instead of replaying the room's persisted message history.
         sessionMessageBaselineRef.current = session.messages.length;
@@ -1062,7 +1193,7 @@ export default function VoiceParty() {
                 myUserId,
                 mySeatNumber: mySeatNumberRef.current,
                 staleSeatTracker: staleSeatTrackerRef.current,
-              })
+              }),
             );
           } catch {
             // Non-critical — ignore failures
@@ -1100,7 +1231,9 @@ export default function VoiceParty() {
                   onPress: async () => {
                     setVoiceListenStatus("connecting");
                     try {
-                      await partyVoice.reconnectAsListener(String(session.roomId));
+                      await partyVoice.reconnectAsListener(
+                        String(session.roomId),
+                      );
                       setVoiceListenStatus("ready");
                       agoraVoice.toggleRemoteMute(false);
                       setIsSpeakerMuted(false);
@@ -1108,13 +1241,13 @@ export default function VoiceParty() {
                       setVoiceListenStatus("failed");
                       Alert.alert(
                         "Reconnect failed",
-                        retryErr?.message ?? "Could not reconnect room audio."
+                        retryErr?.message ?? "Could not reconnect room audio.",
                       );
                     }
                   },
                 },
                 { text: "OK", style: "cancel" },
-              ]
+              ],
             );
           }
         };
@@ -1123,10 +1256,8 @@ export default function VoiceParty() {
       } catch (err) {
         if (!cancelled) {
           Alert.alert(
-            isRandomParty
-              ? "Could not join party room"
-              : "Could not join room",
-            err?.message || "Please try again."
+            isRandomParty ? "Could not join party room" : "Could not join room",
+            err?.message || "Please try again.",
           );
           router.back();
         }
@@ -1145,7 +1276,7 @@ export default function VoiceParty() {
           if (seatToLeave) {
             await partyVoice
               .leaveMic(String(activeRoomId), seatToLeave)
-              .catch(() => { });
+              .catch(() => {});
           }
           await partyVoice.teardownVoice().catch(() => { });
           await exitRoomSession(String(activeRoomId)).catch(() => { });
@@ -1174,7 +1305,10 @@ export default function VoiceParty() {
   useEffect(() => {
     loadConversations()
       .then((conversations) => {
-        const unread = conversations.reduce((sum, chat) => sum + (chat.unread || 0), 0);
+        const unread = conversations.reduce(
+          (sum, chat) => sum + (chat.unread || 0),
+          0,
+        );
         setChatUnreadCount(unread);
       })
       .catch(() => { });
@@ -1205,20 +1339,30 @@ export default function VoiceParty() {
     };
 
     const unsubChat = wsService.onRoomChat(String(roomId), appendChatMessage);
-    const unsubChatSummary = wsService.onRoomChatSummary(String(roomId), async (summary) => {
-      const remoteCount = summary?.messageCount;
-      const baseline = sessionMessageBaselineRef.current;
-      if (remoteCount == null || baseline + messageCountRef.current >= remoteCount) return;
-      try {
-        const data = await getRoomChatMessages(String(roomId));
-        // Only keep messages sent since this session started — never replay
-        // pre-entry history back onto the cleaned screen.
-        setMessages(normalizeChatMessages(data).slice(baseline));
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-      } catch {
-        // logged in partyApi
-      }
-    });
+    const unsubChatSummary = wsService.onRoomChatSummary(
+      String(roomId),
+      async (summary) => {
+        const remoteCount = summary?.messageCount;
+        const baseline = sessionMessageBaselineRef.current;
+        if (
+          remoteCount == null ||
+          baseline + messageCountRef.current >= remoteCount
+        )
+          return;
+        try {
+          const data = await getRoomChatMessages(String(roomId));
+          // Only keep messages sent since this session started — never replay
+          // pre-entry history back onto the cleaned screen.
+          setMessages(normalizeChatMessages(data).slice(baseline));
+          setTimeout(
+            () => scrollRef.current?.scrollToEnd({ animated: true }),
+            100,
+          );
+        } catch {
+          // logged in partyApi
+        }
+      },
+    );
     const unsubUi = wsService.onRoomUiState(String(roomId), (payload) => {
       const hasPresenceSnapshot =
         Array.isArray(payload?.participants) ||
@@ -1246,8 +1390,8 @@ export default function VoiceParty() {
                 myUserId,
                 mySeatNumber,
                 staleSeatTracker: staleSeatTrackerRef.current,
-              })
-            )
+              }),
+            ),
           );
         } else {
           setSeats(
@@ -1256,59 +1400,70 @@ export default function VoiceParty() {
               myUserId,
               mySeatNumber,
               staleSeatTracker: staleSeatTrackerRef.current,
-            })
+            }),
           );
         }
       }
     });
-    const unsubSpeaking = wsService.onRoomSpeaking(String(roomId), (payload) => {
-      const speakerId = payload.userId;
-      if (!speakerId) return;
-      const isSpeaking = Boolean(payload.isSpeaking);
-      setOnlineUsers((prev) =>
-        prev.map((u) => ({
-          ...u,
-          isSpeaking: u.id === speakerId ? isSpeaking : u.isSpeaking,
-        }))
-      );
-      setSeats((prev) =>
-        prev.map((seat) => {
-          if (!seat.user || String(seat.user.id) !== String(speakerId)) return seat;
-          return { ...seat, user: { ...seat.user, active: isSpeaking } };
-        })
-      );
-      setSpeakingUserIds((prev) => {
-        const next = new Set(prev);
-        if (isSpeaking) {
-          next.add(String(speakerId));
-        } else {
-          next.delete(String(speakerId));
-        }
-        return next;
-      });
-    });
-    const unsubGiftAnimation = wsService.onRoomGiftAnimation(String(roomId), (payload) => {
-      revealGiftAnimation(payload);
-      const senderName =
-        payload?.senderName ?? payload?.sender ?? "Someone";
-      const giftName = payload?.giftName ?? payload?.name ?? "a gift";
-      const qty = Math.max(1, Number(payload?.quantity ?? 1));
-      const giftText = `sent ${payload?.emoji ?? "🎁"} ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
-      const normalized = normalizeChatMessage({
-        id: payload?.id ?? `gift-ws-${Date.now()}`,
-        message: `${senderName} ${giftText}`,
-        senderName,
-        text: `${senderName} ${giftText}`,
-        isGift: true,
-      });
-      if (!normalized.text) return;
-      setMessages((prev) => {
-        const exists = prev.some((m) => String(m.id) === String(normalized.id));
-        if (exists) return prev;
-        return [...prev, normalized];
-      });
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-    });
+    const unsubSpeaking = wsService.onRoomSpeaking(
+      String(roomId),
+      (payload) => {
+        const speakerId = payload.userId;
+        if (!speakerId) return;
+        const isSpeaking = Boolean(payload.isSpeaking);
+        setOnlineUsers((prev) =>
+          prev.map((u) => ({
+            ...u,
+            isSpeaking: u.id === speakerId ? isSpeaking : u.isSpeaking,
+          })),
+        );
+        setSeats((prev) =>
+          prev.map((seat) => {
+            if (!seat.user || String(seat.user.id) !== String(speakerId))
+              return seat;
+            return { ...seat, user: { ...seat.user, active: isSpeaking } };
+          }),
+        );
+        setSpeakingUserIds((prev) => {
+          const next = new Set(prev);
+          if (isSpeaking) {
+            next.add(String(speakerId));
+          } else {
+            next.delete(String(speakerId));
+          }
+          return next;
+        });
+      },
+    );
+    const unsubGiftAnimation = wsService.onRoomGiftAnimation(
+      String(roomId),
+      (payload) => {
+        revealGiftAnimation(payload);
+        const senderName = payload?.senderName ?? payload?.sender ?? "Someone";
+        const giftName = payload?.giftName ?? payload?.name ?? "a gift";
+        const qty = Math.max(1, Number(payload?.quantity ?? 1));
+        const giftText = `sent ${payload?.emoji ?? "🎁"} ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
+        const normalized = normalizeChatMessage({
+          id: payload?.id ?? `gift-ws-${Date.now()}`,
+          message: `${senderName} ${giftText}`,
+          senderName,
+          text: `${senderName} ${giftText}`,
+          isGift: true,
+        });
+        if (!normalized.text) return;
+        setMessages((prev) => {
+          const exists = prev.some(
+            (m) => String(m.id) === String(normalized.id),
+          );
+          if (exists) return prev;
+          return [...prev, normalized];
+        });
+        setTimeout(
+          () => scrollRef.current?.scrollToEnd({ animated: true }),
+          100,
+        );
+      },
+    );
     // STOMP delivers no backlog to a resubscribing client, so any seat/chat
     // updates broadcast during a brief drop (backgrounding, network blip)
     // are otherwise lost until the user leaves and re-enters the room.
@@ -1330,7 +1485,7 @@ export default function VoiceParty() {
               myUserId,
               mySeatNumber: mySeatNumberRef.current,
               staleSeatTracker: staleSeatTrackerRef.current,
-            })
+            }),
           );
         })
         .catch(() => {
@@ -1408,7 +1563,7 @@ export default function VoiceParty() {
             return { ...r, rewardImg: LISTEN_GIFT_POOL[idx] };
           }
           return r;
-        })
+        }),
       );
     }, 1000);
     return () => clearInterval(interval);
@@ -1469,10 +1624,8 @@ export default function VoiceParty() {
 
     const fetchUserCount = async () => {
       try {
-        const response = await getRoomUserCount(String(roomId));
-        console.log(`[getRoomUserCount] room ${roomId} response:`, response);
+        const count = await getRoomUserCount(String(roomId));
         if (cancelled) return;
-        const count = typeof response === "number" ? response : response?.onlineCount;
         if (typeof count === "number") setOnlineCount(count);
       } catch (error) {
         console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
@@ -1506,7 +1659,7 @@ export default function VoiceParty() {
             myUserId,
             mySeatNumber: null,
             staleSeatTracker: staleSeatTrackerRef.current,
-          })
+          }),
         );
       } catch (err) {
         Alert.alert("Leave mic failed", err?.message || "Please try again.");
@@ -1528,7 +1681,7 @@ export default function VoiceParty() {
           myUserId,
           mySeatNumber,
           staleSeatTracker: staleSeatTrackerRef.current,
-        })
+        }),
       );
 
       const emptySeats = freshSeats
@@ -1541,7 +1694,10 @@ export default function VoiceParty() {
         : emptySeats;
 
       if (candidates.length === 0) {
-        Alert.alert("No seats available", "All microphone seats are currently full.");
+        Alert.alert(
+          "No seats available",
+          "All microphone seats are currently full.",
+        );
         setVoiceConnecting(false);
         return;
       }
@@ -1569,14 +1725,14 @@ export default function VoiceParty() {
               prev.map((s) =>
                 s.id === seatId && !s.user
                   ? {
-                    ...s,
-                    user: {
-                      id: null,
-                      name: "…",
-                      active: false,
-                      muted: false,
-                    },
-                  }
+                      ...s,
+                      user: {
+                        id: null,
+                        name: "…",
+                        active: false,
+                        muted: false,
+                      },
+                    }
                   : s,
               ),
             );
@@ -1588,7 +1744,10 @@ export default function VoiceParty() {
       }
 
       if (targetSeat === null) {
-        Alert.alert("No seats available", "All microphone seats are currently full. Please try again.");
+        Alert.alert(
+          "No seats available",
+          "All microphone seats are currently full. Please try again.",
+        );
         setVoiceConnecting(false);
         return;
       }
@@ -1632,13 +1791,13 @@ export default function VoiceParty() {
               muted: false,
             },
           };
-        })
+        }),
       );
 
       const state = await getRoomState(String(roomId));
       const nextSeats = await enrichSeatsWithMyProfile(
         parseSeats(state?.seats, state),
-        targetSeat
+        targetSeat,
       );
       setSeats(
         reconcileSeatAssignments(nextSeats, {
@@ -1646,15 +1805,21 @@ export default function VoiceParty() {
           myUserId: localUserId ?? myUserId,
           mySeatNumber: targetSeat,
           staleSeatTracker: staleSeatTrackerRef.current,
-        })
+        }),
       );
       setOnlineCount(state?.onlineCount ?? onlineCount);
     } catch (err) {
       const msg = err?.message ?? "Could not start voice.";
-      if (msg.toLowerCase().includes("auth token") || msg.toLowerCase().includes("authentication token")) {
+      if (
+        msg.toLowerCase().includes("auth token") ||
+        msg.toLowerCase().includes("authentication token")
+      ) {
         Alert.alert("Login required", "Please log in again to use voice chat.");
       } else if (msg.includes("permission")) {
-        Alert.alert("Microphone required", "Please allow microphone access to speak in the room.");
+        Alert.alert(
+          "Microphone required",
+          "Please allow microphone access to speak in the room.",
+        );
       } else {
         Alert.alert("Take mic failed", msg);
       }
@@ -1707,7 +1872,9 @@ export default function VoiceParty() {
       setShowReportModal(false);
       Alert.alert("Reported", "This room has been reported. Thank you.");
     } catch (e) {
-      throw new Error(e?.message || "Could not submit report. Please try again.");
+      throw new Error(
+        e?.message || "Could not submit report. Please try again.",
+      );
     }
   };
 
@@ -1734,12 +1901,12 @@ export default function VoiceParty() {
     },
     ...(!isHostSelf
       ? [
-        {
-          icon: <Ban size={22} color="#a78bfa" />,
-          label: "Block",
-          onPress: handleBlockHost,
-        },
-      ]
+          {
+            icon: <Ban size={22} color="#a78bfa" />,
+            label: "Block",
+            onPress: handleBlockHost,
+          },
+        ]
       : []),
     {
       icon: <Crown size={22} color="#a78bfa" />,
@@ -1896,7 +2063,7 @@ export default function VoiceParty() {
     if (price > 0 && walletDiamonds < price) {
       Alert.alert(
         "Not enough diamonds",
-        `You need 💎 ${formatGiftPrice(price)} but only have 💎 ${formatGiftPrice(walletDiamonds)}. Recharge to continue.`
+        `You need 💎 ${formatGiftPrice(price)} but only have 💎 ${formatGiftPrice(walletDiamonds)}. Recharge to continue.`,
       );
       return;
     }
@@ -1920,7 +2087,7 @@ export default function VoiceParty() {
         inventory = adjustInventoryQty(
           inventory,
           boughtRow ?? purchaseGift,
-          boughtRow?.qty ?? 1
+          boughtRow?.qty ?? 1,
         );
       }
 
@@ -1934,10 +2101,13 @@ export default function VoiceParty() {
       setBackpackSubTab("Gift");
       Alert.alert(
         "Purchased",
-        `${bought.emoji} ${bought.name} was added to your backpack.`
+        `${bought.emoji} ${bought.name} was added to your backpack.`,
       );
     } catch (err) {
-      Alert.alert("Purchase failed", err?.message || "Could not buy this gift.");
+      Alert.alert(
+        "Purchase failed",
+        err?.message || "Could not buy this gift.",
+      );
     } finally {
       buyingGiftRef.current = false;
       setCatalogLoading(false);
@@ -1960,7 +2130,7 @@ export default function VoiceParty() {
     if (!hasBackpackStock && totalCost > 0 && walletDiamonds < totalCost) {
       Alert.alert(
         "Not enough diamonds",
-        `You need 💎 ${formatGiftPrice(totalCost)} but only have 💎 ${formatGiftPrice(walletDiamonds)}.`
+        `You need 💎 ${formatGiftPrice(totalCost)} but only have 💎 ${formatGiftPrice(walletDiamonds)}.`,
       );
       return;
     }
@@ -1969,7 +2139,7 @@ export default function VoiceParty() {
     if (!receiverId) {
       Alert.alert(
         "Select a person",
-        "Tap the name next to ❤️ to choose who receives this gift."
+        "Tap the name next to ❤️ to choose who receives this gift.",
       );
       openGiftReceiverPicker();
       return;
@@ -1977,8 +2147,10 @@ export default function VoiceParty() {
 
     try {
       const user = await getUser();
-      const senderName = user?.name ?? user?.username ?? user?.nickname ?? "You";
-      const senderAvatar = user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null;
+      const senderName =
+        user?.name ?? user?.username ?? user?.nickname ?? "You";
+      const senderAvatar =
+        user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null;
       const giftText = `sent ${selectedGift.emoji} ${selectedGift.name} ×${qty}`;
 
       const result = await sendPartyRoomGift({
@@ -2050,13 +2222,17 @@ export default function VoiceParty() {
   const selectedGiftRecipient = useMemo(() => {
     if (!giftReceiverId) return null;
     const found = giftRecipientOptions.find(
-      (person) => String(person.id) === String(giftReceiverId)
+      (person) => String(person.id) === String(giftReceiverId),
     );
     if (found) return found;
     return {
       id: String(giftReceiverId),
-      name: isSameUser(giftReceiverId, hostId) ? (roomInfo?.name ?? "Host") : "User",
-      avatar: isSameUser(giftReceiverId, hostId) ? (roomInfo?.profileImageUrl ?? null) : null,
+      name: isSameUser(giftReceiverId, hostId)
+        ? (roomInfo?.name ?? "Host")
+        : "User",
+      avatar: isSameUser(giftReceiverId, hostId)
+        ? (roomInfo?.profileImageUrl ?? null)
+        : null,
       subtitle: isSameUser(giftReceiverId, hostId) ? "Host" : null,
     };
   }, [giftReceiverId, giftRecipientOptions, hostId, roomInfo]);
@@ -2064,7 +2240,10 @@ export default function VoiceParty() {
   const giftReceiverName = selectedGiftRecipient?.name ?? "Select person";
   const giftSendBarBottom = Math.max(22, idleBottom + 6);
 
-  const renderGiftRecipientAvatar = (person, sizeStyle = styles.bpSendAvatar) => {
+  const renderGiftRecipientAvatar = (
+    person,
+    sizeStyle = styles.bpSendAvatar,
+  ) => {
     if (person?.avatar) {
       return <Image source={{ uri: person.avatar }} style={sizeStyle} />;
     }
@@ -2101,7 +2280,10 @@ export default function VoiceParty() {
   const openUserProfile = async (userLike) => {
     const userId = resolveRecipientUserId(userLike);
     if (!userId) {
-      Alert.alert("Profile unavailable", "User information is not available yet.");
+      Alert.alert(
+        "Profile unavailable",
+        "User information is not available yet.",
+      );
       return;
     }
 
@@ -2118,7 +2300,9 @@ export default function VoiceParty() {
 
     try {
       if (!isSameUser(userId, myUserId)) {
-        const status = await loadRelationshipStatus(userId).catch(() => ({ following: false }));
+        const status = await loadRelationshipStatus(userId).catch(() => ({
+          following: false,
+        }));
         setProfilePopupFollowing(Boolean(status?.following));
       }
 
@@ -2128,8 +2312,13 @@ export default function VoiceParty() {
           setProfilePopupUser((prev) => ({
             ...(prev ?? initial),
             id: userId,
-            name: detail?.name ?? detail?.displayName ?? prev?.name ?? initial.name,
-            username: detail?.username ?? detail?.handle ?? prev?.username ?? initial.username,
+            name:
+              detail?.name ?? detail?.displayName ?? prev?.name ?? initial.name,
+            username:
+              detail?.username ??
+              detail?.handle ??
+              prev?.username ??
+              initial.username,
           }));
           if (!lockedAvatarSource) {
             setProfilePopupAvatarSource(resolveRoomUserAvatarSource(detail));
@@ -2145,7 +2334,8 @@ export default function VoiceParty() {
 
   const handleProfileFollowToggle = async () => {
     const targetId = profilePopupUser?.id;
-    if (!targetId || isSameUser(targetId, myUserId) || profileFollowLoading) return;
+    if (!targetId || isSameUser(targetId, myUserId) || profileFollowLoading)
+      return;
 
     setProfileFollowLoading(true);
     try {
@@ -2159,7 +2349,7 @@ export default function VoiceParty() {
     } catch (err) {
       Alert.alert(
         profilePopupFollowing ? "Unfollow failed" : "Follow failed",
-        err?.message || "Please try again."
+        err?.message || "Please try again.",
       );
     } finally {
       setProfileFollowLoading(false);
@@ -2181,7 +2371,7 @@ export default function VoiceParty() {
       try {
         if (Platform.OS === "android") {
           micGranted = await PermissionsAndroid.check(
-            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
           );
         } else {
           const { status } = await Audio.getPermissionsAsync();
@@ -2221,7 +2411,9 @@ export default function VoiceParty() {
       setIsMicMuted(false);
       setVoiceListenStatus("ready");
       const freshState = await getRoomState(String(roomId));
-      const freshSeats = freshState?.seats ? parseSeats(freshState.seats, freshState) : seats;
+      const freshSeats = freshState?.seats
+        ? parseSeats(freshState.seats, freshState)
+        : seats;
       const enriched = await enrichSeatsWithMyProfile(freshSeats, targetSeatId);
       setSeats(
         reconcileSeatAssignments(enriched, {
@@ -2229,10 +2421,13 @@ export default function VoiceParty() {
           myUserId,
           mySeatNumber: targetSeatId,
           staleSeatTracker: staleSeatTrackerRef.current,
-        })
+        }),
       );
     } catch (err) {
-      Alert.alert("Take seat failed", err?.message || "Could not take that seat. Please try again.");
+      Alert.alert(
+        "Take seat failed",
+        err?.message || "Could not take that seat. Please try again.",
+      );
     } finally {
       setSeatActionLoading(false);
       setVoiceConnecting(false);
@@ -2248,19 +2443,21 @@ export default function VoiceParty() {
     imageStyle,
     placeholderStyle,
     initialStyle,
-    frameConfig = SEAT_FRAME_CONFIG
+    frameConfig = SEAT_FRAME_CONFIG,
   ) => {
-    const resolvedStyle = Array.isArray(imageStyle) ? imageStyle[0] : imageStyle;
+    const resolvedStyle = Array.isArray(imageStyle)
+      ? imageStyle[0]
+      : imageStyle;
     const size = resolvedStyle?.width ?? resolvedStyle?.height ?? 48;
     // Merge in fetched frame data so WebSocket seat resets don't lose it.
     const userId = user?.id != null ? String(user.id) : null;
     const fetched = userId ? (userFrameData[userId] ?? {}) : {};
     const userWithFrame = user
       ? {
-        ...user,
-        hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame,
-        newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl,
-      }
+          ...user,
+          hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame,
+          newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl,
+        }
       : user;
     const imageSource = resolveRoomUserAvatarSource(userWithFrame);
     // Mic seats show the same circular VIP profile-frame ring used everywhere
@@ -2269,8 +2466,10 @@ export default function VoiceParty() {
     // decoration. Self uses the already-fetched myVipAssets; other seats use
     // the seat's own ui-assets fetch (fetched.vipProfileFrameUrl) — the
     // backend embeds this only when that user's own XP clears the threshold.
-    const isSelf = userId != null && myUserId != null && userId === String(myUserId);
-    const selfVipProfileFrame = isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
+    const isSelf =
+      userId != null && myUserId != null && userId === String(myUserId);
+    const selfVipProfileFrame =
+      isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
     const otherUserVipProfileFrame =
       !isSelf && fetched.vipProfileFrameUrl
         ? { uri: fetched.vipProfileFrameUrl }
@@ -2351,8 +2550,8 @@ export default function VoiceParty() {
           {giftRecipientOptions.length === 0 ? (
             <View style={styles.giftRecipientEmpty}>
               <Text style={styles.giftRecipientEmptyText}>
-                No one else is in the room yet. Invite friends to join, then pick
-                them here.
+                No one else is in the room yet. Invite friends to join, then
+                pick them here.
               </Text>
             </View>
           ) : (
@@ -2373,13 +2572,19 @@ export default function VoiceParty() {
                     activeOpacity={0.85}
                     onPress={() => selectGiftRecipient(person.id)}
                   >
-                    {renderGiftRecipientAvatar(person, styles.giftRecipientAvatar)}
+                    {renderGiftRecipientAvatar(
+                      person,
+                      styles.giftRecipientAvatar,
+                    )}
                     <View style={styles.giftRecipientInfo}>
                       <Text style={styles.giftRecipientName} numberOfLines={1}>
                         {person.name}
                       </Text>
                       {person.subtitle ? (
-                        <Text style={styles.giftRecipientMeta} numberOfLines={1}>
+                        <Text
+                          style={styles.giftRecipientMeta}
+                          numberOfLines={1}
+                        >
                           {person.subtitle}
                         </Text>
                       ) : null}
@@ -2436,13 +2641,17 @@ export default function VoiceParty() {
     }
     const h = String(Math.floor(seconds / 3600)).padStart(2, "0");
     const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
-    const s = String(seconds % 3600 % 60).padStart(2, "0");
+    const s = String((seconds % 3600) % 60).padStart(2, "0");
     return `${h}:${m}:${s}`;
   };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <StatusBar
+        barStyle="light-content"
+        translucent
+        backgroundColor="transparent"
+      />
 
       {/* ── VIDEO PLAYER MODAL ── */}
       <Modal
@@ -2450,7 +2659,10 @@ export default function VoiceParty() {
         transparent={false}
         animationType="slide"
         statusBarTranslucent
-        onRequestClose={() => { setShowVideoModal(false); setCurrentVideo(null); }}
+        onRequestClose={() => {
+          setShowVideoModal(false);
+          setCurrentVideo(null);
+        }}
       >
         <View style={styles.videoPlayerContainer}>
           <StatusBar barStyle="light-content" backgroundColor="black" />
@@ -2459,7 +2671,10 @@ export default function VoiceParty() {
           <View style={styles.videoHeader}>
             <TouchableOpacity
               style={styles.videoCloseBtn}
-              onPress={() => { setShowVideoModal(false); setCurrentVideo(null); }}
+              onPress={() => {
+                setShowVideoModal(false);
+                setCurrentVideo(null);
+              }}
             >
               <Text style={styles.videoCloseBtnText}>✕</Text>
             </TouchableOpacity>
@@ -2495,62 +2710,73 @@ export default function VoiceParty() {
           onPress={() => setPurchaseGift(null)}
         >
           <TouchableOpacity activeOpacity={1} style={styles.giftPurchaseBox}>
-            {purchaseGift && (() => {
-              const purchasePrice = Math.max(0, Number(purchaseGift.price ?? 0));
-              const canAfford = purchasePrice <= 0 || walletDiamonds >= purchasePrice;
-              return (
-                <>
-                  <LinearGradient colors={["#2a0d50", "#4a1d80"]} style={styles.giftPurchaseEmojiWrap}>
-                    <Text style={styles.giftPurchaseEmoji}>{purchaseGift.emoji}</Text>
-                  </LinearGradient>
-                  <Text style={styles.giftPurchaseName}>{purchaseGift.name}</Text>
-                  <Text style={styles.giftPurchasePrice}>
-                    💎 {formatGiftPrice(purchasePrice)}
-                  </Text>
-                  <Text style={styles.giftPurchaseBalance}>
-                    Your balance: 💎 {formatGiftPrice(walletDiamonds)}
-                  </Text>
-                  {!canAfford ? (
-                    <Text style={styles.giftPurchaseWarning}>
-                      Not enough diamonds to buy this gift.
+            {purchaseGift &&
+              (() => {
+                const purchasePrice = Math.max(
+                  0,
+                  Number(purchaseGift.price ?? 0),
+                );
+                const canAfford =
+                  purchasePrice <= 0 || walletDiamonds >= purchasePrice;
+                return (
+                  <>
+                    <LinearGradient
+                      colors={["#2a0d50", "#4a1d80"]}
+                      style={styles.giftPurchaseEmojiWrap}
+                    >
+                      <Text style={styles.giftPurchaseEmoji}>
+                        {purchaseGift.emoji}
+                      </Text>
+                    </LinearGradient>
+                    <Text style={styles.giftPurchaseName}>
+                      {purchaseGift.name}
                     </Text>
-                  ) : null}
-                  <View style={styles.giftPurchaseActions}>
-                    <TouchableOpacity
-                      style={styles.giftPurchaseCloseBtn}
-                      activeOpacity={0.85}
-                      onPress={() => setPurchaseGift(null)}
-                    >
-                      <Text style={styles.giftPurchaseCloseText}>Close</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.giftPurchaseBuyBtn,
-                        (!canAfford || catalogLoading) &&
-                        styles.giftPurchaseBuyBtnDisabled,
-                      ]}
-                      activeOpacity={0.85}
-                      disabled={!canAfford || catalogLoading}
-                      onPress={handleBuyGift}
-                    >
-                      <LinearGradient
-                        colors={
-                          canAfford && !catalogLoading
-                            ? ["#7c4dff", "#4a6cf7"]
-                            : ["#4a4a5a", "#3a3a4a"]
-                        }
-                        style={styles.giftPurchaseBuyGrad}
+                    <Text style={styles.giftPurchasePrice}>
+                      💎 {formatGiftPrice(purchasePrice)}
+                    </Text>
+                    <Text style={styles.giftPurchaseBalance}>
+                      Your balance: 💎 {formatGiftPrice(walletDiamonds)}
+                    </Text>
+                    {!canAfford ? (
+                      <Text style={styles.giftPurchaseWarning}>
+                        Not enough diamonds to buy this gift.
+                      </Text>
+                    ) : null}
+                    <View style={styles.giftPurchaseActions}>
+                      <TouchableOpacity
+                        style={styles.giftPurchaseCloseBtn}
+                        activeOpacity={0.85}
+                        onPress={() => setPurchaseGift(null)}
                       >
-                        <Text style={styles.giftPurchaseBuyText}>
-                          {catalogLoading ? "Buying..." : "Buy"}
-                        </Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              );
-            })()}
+                        <Text style={styles.giftPurchaseCloseText}>Close</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.giftPurchaseBuyBtn,
+                          (!canAfford || catalogLoading) &&
+                            styles.giftPurchaseBuyBtnDisabled,
+                        ]}
+                        activeOpacity={0.85}
+                        disabled={!canAfford || catalogLoading}
+                        onPress={handleBuyGift}
+                      >
+                        <LinearGradient
+                          colors={
+                            canAfford && !catalogLoading
+                              ? ["#7c4dff", "#4a6cf7"]
+                              : ["#4a4a5a", "#3a3a4a"]
+                          }
+                          style={styles.giftPurchaseBuyGrad}
+                        >
+                          <Text style={styles.giftPurchaseBuyText}>
+                            {catalogLoading ? "Buying..." : "Buy"}
+                          </Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                );
+              })()}
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -2566,7 +2792,9 @@ export default function VoiceParty() {
                 contentFit="contain"
               />
             ) : (
-              <Text style={styles.giftPopupEmoji}>{giftPopup?.gift?.emoji}</Text>
+              <Text style={styles.giftPopupEmoji}>
+                {giftPopup?.gift?.emoji}
+              </Text>
             )}
             <Text style={styles.giftPopupTitle}>Gift Sent!</Text>
             <Text style={styles.giftPopupSub}>
@@ -2588,7 +2816,10 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowBackpack(false)}
         >
-          <View style={styles.backpackBox} onStartShouldSetResponder={() => true}>
+          <View
+            style={styles.backpackBox}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={{ height: H * 0.82 }}>
               {/* Handle */}
               <View style={styles.shareHandle} />
@@ -2601,8 +2832,13 @@ export default function VoiceParty() {
                 style={styles.bpBanner}
               >
                 <Text style={styles.bpBannerGift}>🎁</Text>
-                <Text style={styles.bpBannerText}>Get newbie bonus, recharge for free lottery.</Text>
-                <TouchableOpacity style={styles.bpBannerArrow} activeOpacity={0.8}>
+                <Text style={styles.bpBannerText}>
+                  Get newbie bonus, recharge for free lottery.
+                </Text>
+                <TouchableOpacity
+                  style={styles.bpBannerArrow}
+                  activeOpacity={0.8}
+                >
                   <Text style={styles.bpBannerArrowText}>›</Text>
                 </TouchableOpacity>
                 <View style={styles.bpPkBadge}>
@@ -2612,24 +2848,38 @@ export default function VoiceParty() {
 
               {/* Currency row */}
               <View style={styles.bpCurrencyRow}>
-                <TouchableOpacity style={styles.bpCurrencyItem} activeOpacity={0.8}>
+                <TouchableOpacity
+                  style={styles.bpCurrencyItem}
+                  activeOpacity={0.8}
+                >
                   <Text style={styles.bpDiamondIcon}>💎</Text>
-                  <Text style={styles.bpCurrencyVal}>{walletDiamonds.toLocaleString()}</Text>
+                  <Text style={styles.bpCurrencyVal}>
+                    {walletDiamonds.toLocaleString()}
+                  </Text>
                   <Text style={styles.bpCurrencyChev}> ›</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.bpCurrencyItem} activeOpacity={0.8}>
+                <TouchableOpacity
+                  style={styles.bpCurrencyItem}
+                  activeOpacity={0.8}
+                >
                   <Text style={styles.bpCoinIcon}>🪙</Text>
                   <Text style={styles.bpCurrencyVal}>0</Text>
                   <Text style={styles.bpCurrencyChev}> ›</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.bpGetListBtn} activeOpacity={0.8}>
+                <TouchableOpacity
+                  style={styles.bpGetListBtn}
+                  activeOpacity={0.8}
+                >
                   <Text style={styles.bpGetListText}>Get on the list</Text>
                 </TouchableOpacity>
               </View>
 
               {/* Main tabs */}
               {catalogLoading && (
-                <ActivityIndicator color="#a78bfa" style={{ marginVertical: 8 }} />
+                <ActivityIndicator
+                  color="#a78bfa"
+                  style={{ marginVertical: 8 }}
+                />
               )}
               <ScrollView
                 horizontal
@@ -2637,7 +2887,16 @@ export default function VoiceParty() {
                 style={styles.bpMainTabScroll}
                 contentContainerStyle={styles.bpMainTabContent}
               >
-                {["Backpack", "Gift", "Activity", "Relationship", "PK", "Special", "VIP", "Rank"].map((tab) => (
+                {[
+                  "Backpack",
+                  "Gift",
+                  "Activity",
+                  "Relationship",
+                  "PK",
+                  "Special",
+                  "VIP",
+                  "Rank",
+                ].map((tab) => (
                   <TouchableOpacity
                     key={tab}
                     style={styles.bpMainTabItem}
@@ -2650,10 +2909,17 @@ export default function VoiceParty() {
                       }
                     }}
                   >
-                    <Text style={[styles.bpMainTabText, backpackMainTab === tab && styles.bpMainTabTextActive]}>
+                    <Text
+                      style={[
+                        styles.bpMainTabText,
+                        backpackMainTab === tab && styles.bpMainTabTextActive,
+                      ]}
+                    >
                       {tab}
                     </Text>
-                    {backpackMainTab === tab && <View style={styles.bpMainTabUnderline} />}
+                    {backpackMainTab === tab && (
+                      <View style={styles.bpMainTabUnderline} />
+                    )}
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -2661,7 +2927,10 @@ export default function VoiceParty() {
               {/* ── GIFT TAB ── */}
               {backpackMainTab === "Gift" && (
                 <View style={{ flex: 1 }}>
-                  <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    style={{ flex: 1 }}
+                  >
                     {/* Random gifts row */}
                     <View style={styles.bpRandomRow}>
                       <LinearGradient
@@ -2669,9 +2938,15 @@ export default function VoiceParty() {
                         style={styles.bpRandomBox}
                       >
                         <Text style={styles.bpRandomBoxEmoji}>🎲</Text>
-                        <Text style={styles.bpRandomBoxLabel}>Random{"\n"}gifts</Text>
+                        <Text style={styles.bpRandomBoxLabel}>
+                          Random{"\n"}gifts
+                        </Text>
                       </LinearGradient>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={{ flex: 1 }}
+                      >
                         {displayRandomGifts.map((orb) => (
                           <TouchableOpacity
                             key={orb.id}
@@ -2679,10 +2954,15 @@ export default function VoiceParty() {
                             activeOpacity={0.8}
                             onPress={() => openGiftPurchase(orb)}
                           >
-                            <LinearGradient colors={["#2a1060", "#5c2daf"]} style={styles.bpOrbCircle}>
+                            <LinearGradient
+                              colors={["#2a1060", "#5c2daf"]}
+                              style={styles.bpOrbCircle}
+                            >
                               <Text style={styles.bpOrbEmoji}>{orb.emoji}</Text>
                             </LinearGradient>
-                            <Text style={styles.bpOrbPrice}>💎 {formatGiftPrice(orb.price)}</Text>
+                            <Text style={styles.bpOrbPrice}>
+                              💎 {formatGiftPrice(orb.price)}
+                            </Text>
                           </TouchableOpacity>
                         ))}
                       </ScrollView>
@@ -2691,11 +2971,14 @@ export default function VoiceParty() {
                     {/* Event banner */}
                     <LinearGradient
                       colors={["#1a0a2e", "#2d1060", "#1a0a2e"]}
-                      start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
                       style={styles.bpEventBanner}
                     >
                       <Text style={styles.bpEventIcon}>✨</Text>
-                      <Text style={styles.bpEventText}>2026 TukTuk Carnival</Text>
+                      <Text style={styles.bpEventText}>
+                        2026 TukTuk Carnival
+                      </Text>
                       <View style={styles.bpEventArrow}>
                         <Text style={styles.bpEventArrowText}>›</Text>
                       </View>
@@ -2718,12 +3001,19 @@ export default function VoiceParty() {
                           <View style={styles.bpGiftSendBtn}>
                             <Text style={{ fontSize: 9 }}>🎁</Text>
                           </View>
-                          <LinearGradient colors={["#2a0d50", "#4a1d80"]} style={styles.bpGiftEmojiWrap}>
+                          <LinearGradient
+                            colors={["#2a0d50", "#4a1d80"]}
+                            style={styles.bpGiftEmojiWrap}
+                          >
                             <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
                           </LinearGradient>
-                          <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
+                          <Text style={styles.bpGiftName} numberOfLines={1}>
+                            {gift.name}
+                          </Text>
                           <View style={styles.bpGiftPriceRow}>
-                            <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
+                            <Text style={styles.bpGiftPriceText}>
+                              💎 {formatGiftPrice(gift.price)}
+                            </Text>
                           </View>
                         </TouchableOpacity>
                       ))}
@@ -2739,18 +3029,29 @@ export default function VoiceParty() {
                     {["Gift", "Property", "Ring", "Resource"].map((sub) => (
                       <TouchableOpacity
                         key={sub}
-                        style={[styles.bpSubTabItem, backpackSubTab === sub && styles.bpSubTabItemActive]}
+                        style={[
+                          styles.bpSubTabItem,
+                          backpackSubTab === sub && styles.bpSubTabItemActive,
+                        ]}
                         activeOpacity={0.8}
                         onPress={() => setBackpackSubTab(sub)}
                       >
-                        <Text style={[styles.bpSubTabText, backpackSubTab === sub && styles.bpSubTabTextActive]}>
+                        <Text
+                          style={[
+                            styles.bpSubTabText,
+                            backpackSubTab === sub && styles.bpSubTabTextActive,
+                          ]}
+                        >
                           {sub}
                         </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
                   {backpackSubTab === "Gift" && backpackGifts.length > 0 ? (
-                    <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                    <ScrollView
+                      showsVerticalScrollIndicator={false}
+                      style={{ flex: 1 }}
+                    >
                       <View style={styles.bpGiftGrid}>
                         {backpackGifts.map((gift) => (
                           <TouchableOpacity
@@ -2758,20 +3059,31 @@ export default function VoiceParty() {
                             style={[
                               styles.bpGiftCard,
                               giftsMatch(selectedGift, gift) &&
-                              styles.bpGiftCardSelected,
+                                styles.bpGiftCardSelected,
                             ]}
                             activeOpacity={0.8}
                             onPress={() => setSelectedGift(gift)}
                           >
                             <View style={styles.bpGiftQtyBadge}>
-                              <Text style={styles.bpGiftQtyBadgeText}>×{gift.qty}</Text>
+                              <Text style={styles.bpGiftQtyBadgeText}>
+                                ×{gift.qty}
+                              </Text>
                             </View>
-                            <LinearGradient colors={["#2a0d50", "#4a1d80"]} style={styles.bpGiftEmojiWrap}>
-                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            <LinearGradient
+                              colors={["#2a0d50", "#4a1d80"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>
+                                {gift.emoji}
+                              </Text>
                             </LinearGradient>
-                            <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
+                            <Text style={styles.bpGiftName} numberOfLines={1}>
+                              {gift.name}
+                            </Text>
                             <View style={styles.bpGiftPriceRow}>
-                              <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
+                              <Text style={styles.bpGiftPriceText}>
+                                💎 {formatGiftPrice(gift.price)}
+                              </Text>
                             </View>
                           </TouchableOpacity>
                         ))}
@@ -2787,7 +3099,9 @@ export default function VoiceParty() {
                       </Text>
                     </View>
                   )}
-                  {backpackSubTab === "Gift" && backpackGifts.length > 0 && renderGiftSendBar()}
+                  {backpackSubTab === "Gift" &&
+                    backpackGifts.length > 0 &&
+                    renderGiftSendBar()}
                 </View>
               )}
 
@@ -2804,11 +3118,22 @@ export default function VoiceParty() {
                     {displayActivityEvents.map((ev) => (
                       <TouchableOpacity
                         key={ev}
-                        style={[styles.bpActEventTab, activityEvent === ev && styles.bpActEventTabActive]}
+                        style={[
+                          styles.bpActEventTab,
+                          activityEvent === ev && styles.bpActEventTabActive,
+                        ]}
                         activeOpacity={0.8}
-                        onPress={() => { setActivityEvent(ev); setSelectedGift(null); }}
+                        onPress={() => {
+                          setActivityEvent(ev);
+                          setSelectedGift(null);
+                        }}
                       >
-                        <Text style={[styles.bpActEventText, activityEvent === ev && styles.bpActEventTextActive]}>
+                        <Text
+                          style={[
+                            styles.bpActEventText,
+                            activityEvent === ev && styles.bpActEventTextActive,
+                          ]}
+                        >
                           {ev}
                         </Text>
                       </TouchableOpacity>
@@ -2816,9 +3141,12 @@ export default function VoiceParty() {
                   </ScrollView>
 
                   {/* Gift grid */}
-                  <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    style={{ flex: 1 }}
+                  >
                     <View style={styles.bpGiftGrid}>
-                      {(displayActivityGifts).map((gift) => (
+                      {displayActivityGifts.map((gift) => (
                         <TouchableOpacity
                           key={gift.id}
                           style={styles.bpGiftCard}
@@ -2828,12 +3156,19 @@ export default function VoiceParty() {
                           <View style={styles.bpGiftSendBtn}>
                             <Text style={{ fontSize: 9 }}>🎁</Text>
                           </View>
-                          <LinearGradient colors={["#2a0d50", "#4a1d80"]} style={styles.bpGiftEmojiWrap}>
+                          <LinearGradient
+                            colors={["#2a0d50", "#4a1d80"]}
+                            style={styles.bpGiftEmojiWrap}
+                          >
                             <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
                           </LinearGradient>
-                          <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
+                          <Text style={styles.bpGiftName} numberOfLines={1}>
+                            {gift.name}
+                          </Text>
                           <View style={styles.bpGiftPriceRow}>
-                            <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
+                            <Text style={styles.bpGiftPriceText}>
+                              💎 {formatGiftPrice(gift.price)}
+                            </Text>
                           </View>
                         </TouchableOpacity>
                       ))}
@@ -2845,10 +3180,13 @@ export default function VoiceParty() {
               {/* ── RELATIONSHIP TAB ── */}
               {backpackMainTab === "Relationship" && (
                 <View style={{ flex: 1 }}>
-                  <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    style={{ flex: 1 }}
+                  >
                     <View style={styles.bpGiftGrid}>
                       {displayRelationshipVideos.length === 0 &&
-                        !catalogLoading ? (
+                      !catalogLoading ? (
                         <Text style={styles.bpEmptyText}>
                           No relationship videos available.
                         </Text>
@@ -2859,7 +3197,7 @@ export default function VoiceParty() {
                           style={[
                             styles.bpGiftCard,
                             selectedGift?.id === video.id &&
-                            styles.bpGiftCardSelected,
+                              styles.bpGiftCardSelected,
                           ]}
                           activeOpacity={0.85}
                           onPress={() => {
@@ -2884,16 +3222,22 @@ export default function VoiceParty() {
                               />
                             )}
                             <View style={styles.bpVideoNumBadge}>
-                              <Text style={styles.bpVideoNumText}>{idx + 1}</Text>
+                              <Text style={styles.bpVideoNumText}>
+                                {idx + 1}
+                              </Text>
                             </View>
                             <View style={styles.bpVideoPlayCircle}>
                               <Play size={22} color="white" fill="white" />
                             </View>
                           </View>
 
-                          <Text style={styles.bpGiftName} numberOfLines={1}>{video.name}</Text>
+                          <Text style={styles.bpGiftName} numberOfLines={1}>
+                            {video.name}
+                          </Text>
                           <View style={styles.bpGiftPriceRow}>
-                            <Text style={styles.bpVideoTagText}>🎬 Free video</Text>
+                            <Text style={styles.bpVideoTagText}>
+                              🎬 Free video
+                            </Text>
                           </View>
                         </TouchableOpacity>
                       ))}
@@ -2901,7 +3245,12 @@ export default function VoiceParty() {
                   </ScrollView>
 
                   {/* Send bar */}
-                  <View style={[styles.bpSendBar, { paddingBottom: giftSendBarBottom }]}>
+                  <View
+                    style={[
+                      styles.bpSendBar,
+                      { paddingBottom: giftSendBarBottom },
+                    ]}
+                  >
                     {renderGiftRecipientAvatar(selectedGiftRecipient)}
                     <TouchableOpacity
                       style={styles.bpSendRecipient}
@@ -2928,7 +3277,10 @@ export default function VoiceParty() {
                         if (currentVideo) {
                           setShowVideoModal(true);
                         } else {
-                          Alert.alert("Select a video", "Tap any video to play it.");
+                          Alert.alert(
+                            "Select a video",
+                            "Tap any video to play it.",
+                          );
                         }
                       }}
                     >
@@ -2941,7 +3293,10 @@ export default function VoiceParty() {
               {/* ── PK TAB ── */}
               {backpackMainTab === "PK" && (
                 <View style={{ flex: 1 }}>
-                  <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    style={{ flex: 1 }}
+                  >
                     <View style={styles.bpGiftGrid}>
                       {displayPkGifts.map((gift) => (
                         <TouchableOpacity
@@ -2958,12 +3313,19 @@ export default function VoiceParty() {
                           <View style={styles.bpGiftSendBtn}>
                             <Text style={{ fontSize: 9 }}>🎁</Text>
                           </View>
-                          <LinearGradient colors={["#2a0d50", "#4a1d80"]} style={styles.bpGiftEmojiWrap}>
+                          <LinearGradient
+                            colors={["#2a0d50", "#4a1d80"]}
+                            style={styles.bpGiftEmojiWrap}
+                          >
                             <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
                           </LinearGradient>
-                          <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
+                          <Text style={styles.bpGiftName} numberOfLines={1}>
+                            {gift.name}
+                          </Text>
                           <View style={styles.bpGiftPriceRow}>
-                            <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
+                            <Text style={styles.bpGiftPriceText}>
+                              💎 {formatGiftPrice(gift.price)}
+                            </Text>
                           </View>
                         </TouchableOpacity>
                       ))}
@@ -2975,7 +3337,10 @@ export default function VoiceParty() {
               {/* ── SPECIAL TAB ── */}
               {backpackMainTab === "Special" && (
                 <View style={{ flex: 1 }}>
-                  <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    style={{ flex: 1 }}
+                  >
                     <View style={styles.bpGiftGrid}>
                       {displaySpecialGifts.map((gift) => (
                         <TouchableOpacity
@@ -2992,12 +3357,19 @@ export default function VoiceParty() {
                           <View style={styles.bpGiftSendBtn}>
                             <Text style={{ fontSize: 9 }}>🎁</Text>
                           </View>
-                          <LinearGradient colors={["#1a0a3e", "#6a1590"]} style={styles.bpGiftEmojiWrap}>
+                          <LinearGradient
+                            colors={["#1a0a3e", "#6a1590"]}
+                            style={styles.bpGiftEmojiWrap}
+                          >
                             <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
                           </LinearGradient>
-                          <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
+                          <Text style={styles.bpGiftName} numberOfLines={1}>
+                            {gift.name}
+                          </Text>
                           <View style={styles.bpGiftPriceRow}>
-                            <Text style={styles.bpGiftPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
+                            <Text style={styles.bpGiftPriceText}>
+                              💎 {formatGiftPrice(gift.price)}
+                            </Text>
                           </View>
                         </TouchableOpacity>
                       ))}
@@ -3012,28 +3384,46 @@ export default function VoiceParty() {
                   <View style={styles.bpVipBanner}>
                     <LinearGradient
                       colors={["#3d1a00", "#8b5e00", "#3d1a00"]}
-                      start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
                       style={styles.bpVipBannerGrad}
                     >
                       <Text style={styles.bpVipBannerIcon}>👑</Text>
-                      <Text style={styles.bpVipBannerText}>Exclusive VIP Gifts — Upgrade to unlock</Text>
+                      <Text style={styles.bpVipBannerText}>
+                        Exclusive VIP Gifts — Upgrade to unlock
+                      </Text>
                     </LinearGradient>
                   </View>
-                  <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    style={{ flex: 1 }}
+                  >
                     <View style={styles.bpGiftGrid}>
                       {displayVipGifts.map((gift) => (
                         <TouchableOpacity
                           key={gift.id}
                           style={styles.bpGiftCard}
                           activeOpacity={0.85}
-                          onPress={() => Alert.alert("VIP Exclusive 👑", "Upgrade to VIP to unlock and send this gift.")}
+                          onPress={() =>
+                            Alert.alert(
+                              "VIP Exclusive 👑",
+                              "Upgrade to VIP to unlock and send this gift.",
+                            )
+                          }
                         >
-                          <LinearGradient colors={["#2a1800", "#5c3a00"]} style={styles.bpGiftEmojiWrap}>
+                          <LinearGradient
+                            colors={["#2a1800", "#5c3a00"]}
+                            style={styles.bpGiftEmojiWrap}
+                          >
                             <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
                           </LinearGradient>
-                          <Text style={styles.bpGiftName} numberOfLines={1}>{gift.name}</Text>
+                          <Text style={styles.bpGiftName} numberOfLines={1}>
+                            {gift.name}
+                          </Text>
                           <View style={styles.bpGiftPriceRow}>
-                            <Text style={styles.bpVipPriceText}>💎 {formatGiftPrice(gift.price)}</Text>
+                            <Text style={styles.bpVipPriceText}>
+                              💎 {formatGiftPrice(gift.price)}
+                            </Text>
                           </View>
                           {/* Lock overlay */}
                           <View style={styles.bpVipLockOverlay}>
@@ -3051,11 +3441,17 @@ export default function VoiceParty() {
                   <View style={styles.bpVipUpgradeBar}>
                     <LinearGradient
                       colors={["#3d1a00", "#b8860b"]}
-                      start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
                       style={styles.bpVipUpgradeGrad}
                     >
-                      <Text style={styles.bpVipUpgradeText}>👑  Upgrade to VIP to unlock all gifts</Text>
-                      <TouchableOpacity style={styles.bpVipUpgradeBtn} activeOpacity={0.8}>
+                      <Text style={styles.bpVipUpgradeText}>
+                        👑 Upgrade to VIP to unlock all gifts
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.bpVipUpgradeBtn}
+                        activeOpacity={0.8}
+                      >
                         <Text style={styles.bpVipUpgradeBtnText}>Upgrade</Text>
                       </TouchableOpacity>
                     </LinearGradient>
@@ -3073,11 +3469,11 @@ export default function VoiceParty() {
                 "Special",
                 "VIP",
               ].includes(backpackMainTab) && (
-                  <View style={styles.bpEmptyState}>
-                    <Text style={styles.bpEmptyEmoji}>✨</Text>
-                    <Text style={styles.bpEmptyText}>Coming soon</Text>
-                  </View>
-                )}
+                <View style={styles.bpEmptyState}>
+                  <Text style={styles.bpEmptyEmoji}>✨</Text>
+                  <Text style={styles.bpEmptyText}>Coming soon</Text>
+                </View>
+              )}
             </View>
             {renderGiftRecipientPickerOverlay()}
           </View>
@@ -3112,7 +3508,10 @@ export default function VoiceParty() {
             {/* Reward cards */}
             <View style={styles.giftCardsRow}>
               {rewardStates.map((reward, i) => {
-                const remaining = Math.max(0, LISTEN_THRESHOLDS[i] - listenSeconds);
+                const remaining = Math.max(
+                  0,
+                  LISTEN_THRESHOLDS[i] - listenSeconds,
+                );
                 const isReady = reward.rewardImg != null && !reward.claimed;
                 const isClaimed = reward.claimed;
                 const img = reward.rewardImg ?? LISTEN_LOCKED_IMGS[i];
@@ -3125,16 +3524,25 @@ export default function VoiceParty() {
                     onPress={() => {
                       if (isReady) {
                         setRewardStates((prev) =>
-                          prev.map((r, idx) => idx === i ? { ...r, claimed: true } : r)
+                          prev.map((r, idx) =>
+                            idx === i ? { ...r, claimed: true } : r,
+                          ),
                         );
                         setClaimedRewardModal(img);
                       } else if (!isClaimed) {
-                        Alert.alert("Keep Listening", `Unlock in ${formatListenTime(remaining)}`);
+                        Alert.alert(
+                          "Keep Listening",
+                          `Unlock in ${formatListenTime(remaining)}`,
+                        );
                       }
                     }}
                   >
                     <View style={styles.giftCardImgWrap}>
-                      <Image source={img} style={styles.giftCardImg} resizeMode="contain" />
+                      <Image
+                        source={img}
+                        style={styles.giftCardImg}
+                        resizeMode="contain"
+                      />
                       {!isReady && !isClaimed && (
                         <View style={styles.giftCardLockOverlay}>
                           <Text style={styles.giftCardLockIcon}>🔒</Text>
@@ -3147,7 +3555,9 @@ export default function VoiceParty() {
                       )}
                     </View>
 
-                    <Text style={styles.giftCardLabel}>{LISTEN_THRESHOLD_LABELS[i]}</Text>
+                    <Text style={styles.giftCardLabel}>
+                      {LISTEN_THRESHOLD_LABELS[i]}
+                    </Text>
 
                     <View
                       style={[
@@ -3160,7 +3570,7 @@ export default function VoiceParty() {
                         style={[
                           styles.giftCardBtnText,
                           (isReady || isClaimed) &&
-                          styles.giftCardBtnTextActive,
+                            styles.giftCardBtnTextActive,
                         ]}
                       >
                         {isClaimed
@@ -3190,16 +3600,15 @@ export default function VoiceParty() {
         user={profilePopupUser}
         avatarSource={profilePopupAvatarSource}
         frameSource={
-          userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl ??
-          (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
+          isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
             : (userFrameData[String(profilePopupUser?.id)]
-              ?.vipProfileFrameUrl ?? null))
+                ?.vipProfileFrameUrl ?? null)
         }
         frameLayout={
           (isSameUser(profilePopupUser?.id, myUserId) &&
             myVipAssets.unlocked) ||
-            userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
+          userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
             ? VIP_PROFILE_FRAME_LAYOUT
             : null
         }
@@ -3208,7 +3617,6 @@ export default function VoiceParty() {
             ? myVipAssets.logo
             : null
         }
-        badgeSource={userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ?? null}
         loading={profilePopupLoading}
         isFollowing={profilePopupFollowing}
         followLoading={profileFollowLoading}
@@ -3240,7 +3648,7 @@ export default function VoiceParty() {
                     style={[
                       styles.mediaSectionTab,
                       mediaSection === section.id &&
-                      styles.mediaSectionTabActive,
+                        styles.mediaSectionTabActive,
                     ]}
                     onPress={() => setMediaSection(section.id)}
                     activeOpacity={0.8}
@@ -3249,7 +3657,7 @@ export default function VoiceParty() {
                       style={[
                         styles.mediaSectionTabText,
                         mediaSection === section.id &&
-                        styles.mediaSectionTabTextActive,
+                          styles.mediaSectionTabTextActive,
                       ]}
                     >
                       {section.label}
@@ -3312,7 +3720,7 @@ export default function VoiceParty() {
                         style={[
                           styles.mediaSubTabLabel,
                           stickerTab === pack.id &&
-                          styles.mediaSubTabLabelActive,
+                            styles.mediaSubTabLabelActive,
                         ]}
                         numberOfLines={1}
                       >
@@ -3397,7 +3805,9 @@ export default function VoiceParty() {
                               resizeMode="contain"
                             />
                           ) : (
-                            <Text style={styles.stickerCellEmoji}>{sticker.emoji}</Text>
+                            <Text style={styles.stickerCellEmoji}>
+                              {sticker.emoji}
+                            </Text>
                           )}
                         </TouchableOpacity>
                       ))}
@@ -3512,10 +3922,14 @@ export default function VoiceParty() {
                 activeOpacity={0.75}
                 onPress={handleExitRoom}
               >
-                <View style={[styles.playCenterIconWrap, styles.powerExitIconWrap]}>
+                <View
+                  style={[styles.playCenterIconWrap, styles.powerExitIconWrap]}
+                >
                   <Power size={28} color="#ff6b6b" />
                 </View>
-                <Text style={[styles.playCenterLabel, { color: "#ff6b6b" }]}>Exit</Text>
+                <Text style={[styles.playCenterLabel, { color: "#ff6b6b" }]}>
+                  Exit
+                </Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -3534,7 +3948,13 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowShareMenu(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={[styles.shareBox, { paddingBottom: Math.max(30, safeBottom + 16) }]}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[
+              styles.shareBox,
+              { paddingBottom: Math.max(30, safeBottom + 16) },
+            ]}
+          >
             {/* Handle bar */}
             <View style={styles.shareHandle} />
 
@@ -3543,11 +3963,22 @@ export default function VoiceParty() {
             {/* Platform icons */}
             <View style={styles.sharePlatformRow}>
               {sharePlatforms.map((p) => (
-                <TouchableOpacity key={p.label} style={styles.sharePlatformItem} activeOpacity={0.8}>
-                  <View style={[styles.sharePlatformIcon, { backgroundColor: p.bg }]}>
-                    {typeof p.icon === "string"
-                      ? <Text style={styles.sharePlatformEmoji}>{p.icon}</Text>
-                      : p.icon}
+                <TouchableOpacity
+                  key={p.label}
+                  style={styles.sharePlatformItem}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.sharePlatformIcon,
+                      { backgroundColor: p.bg },
+                    ]}
+                  >
+                    {typeof p.icon === "string" ? (
+                      <Text style={styles.sharePlatformEmoji}>{p.icon}</Text>
+                    ) : (
+                      p.icon
+                    )}
                   </View>
                   <Text style={styles.sharePlatformLabel}>{p.label}</Text>
                 </TouchableOpacity>
@@ -3563,10 +3994,17 @@ export default function VoiceParty() {
                   onPress={() => setShareTab(tab)}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.shareTabText, shareTab === tab && styles.shareTabTextActive]}>
+                  <Text
+                    style={[
+                      styles.shareTabText,
+                      shareTab === tab && styles.shareTabTextActive,
+                    ]}
+                  >
                     {tab}
                   </Text>
-                  {shareTab === tab && <View style={styles.shareTabUnderline} />}
+                  {shareTab === tab && (
+                    <View style={styles.shareTabUnderline} />
+                  )}
                 </TouchableOpacity>
               ))}
             </View>
@@ -3599,8 +4037,12 @@ export default function VoiceParty() {
             {/* Header */}
             <View style={styles.seatActionHeader}>
               <Text style={styles.seatActionHeaderEmoji}>🎙️</Text>
-              <Text style={styles.seatActionHeaderTitle}>Seat {seatActionSheet?.seatId}</Text>
-              <Text style={styles.seatActionHeaderSub}>What would you like to do?</Text>
+              <Text style={styles.seatActionHeaderTitle}>
+                Seat {seatActionSheet?.seatId}
+              </Text>
+              <Text style={styles.seatActionHeaderSub}>
+                What would you like to do?
+              </Text>
             </View>
 
             {/* Divider */}
@@ -3619,13 +4061,14 @@ export default function VoiceParty() {
                 end={{ x: 1, y: 0 }}
                 style={styles.seatActionBtnGradient}
               >
-                {seatActionLoading
-                  ? <ActivityIndicator color="white" />
-                  : <>
+                {seatActionLoading ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <>
                     <Text style={styles.seatActionBtnIcon}>🎤</Text>
                     <Text style={styles.seatActionBtnText}>Take a Seat</Text>
                   </>
-                }
+                )}
               </LinearGradient>
             </TouchableOpacity>
 
@@ -3686,7 +4129,8 @@ export default function VoiceParty() {
             {/* ── Body text ── */}
             <View style={styles.micPermBody}>
               <Text style={styles.micPermMsg}>
-                Please enable microphone access to use functions such as voice verification and calling.
+                Please enable microphone access to use functions such as voice
+                verification and calling.
               </Text>
             </View>
 
@@ -3739,7 +4183,9 @@ export default function VoiceParty() {
               maxLength={120}
               autoFocus
             />
-            <Text style={styles.welcomeEditCount}>{welcomeDraft.length}/120</Text>
+            <Text style={styles.welcomeEditCount}>
+              {welcomeDraft.length}/120
+            </Text>
             <View style={styles.welcomeEditActions}>
               <TouchableOpacity
                 style={styles.welcomeEditCancel}
@@ -3752,7 +4198,8 @@ export default function VoiceParty() {
                 style={styles.welcomeEditSave}
                 activeOpacity={0.8}
                 onPress={() => {
-                  if (welcomeDraft.trim()) setWelcomeMessage(welcomeDraft.trim());
+                  if (welcomeDraft.trim())
+                    setWelcomeMessage(welcomeDraft.trim());
                   setShowWelcomeEdit(false);
                 }}
               >
@@ -3822,7 +4269,10 @@ export default function VoiceParty() {
       />
       <View style={styles.bgOverlay} />
 
-      <View style={{ flex: 1, position: "relative" }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, position: "relative" }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         {/* ── HEADER ── */}
         <View style={styles.header}>
           {/* Room info + follow button */}
@@ -3837,19 +4287,29 @@ export default function VoiceParty() {
                 hostUserLike,
                 styles.ownerAvatar,
                 [styles.ownerAvatar, styles.ownerAvatarPlaceholder],
-                styles.ownerInitial
+                styles.ownerInitial,
               )
             ) : (
               <Image
-                source={{ uri: "https://randomuser.me/api/portraits/men/32.jpg" }}
+                source={{
+                  uri: "https://randomuser.me/api/portraits/men/32.jpg",
+                }}
                 style={styles.ownerAvatar}
               />
             )}
             <View style={styles.ownerTextCol}>
-              <Text style={styles.ownerName} numberOfLines={1} ellipsizeMode="tail">
+              <Text
+                style={styles.ownerName}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
                 {roomInfo?.name ?? "Voice Room"}
               </Text>
-              <Text style={styles.ownerId} numberOfLines={1} ellipsizeMode="middle">
+              <Text
+                style={styles.ownerId}
+                numberOfLines={1}
+                ellipsizeMode="middle"
+              >
                 ID:{roomId ?? "—"}
               </Text>
             </View>
@@ -3860,22 +4320,32 @@ export default function VoiceParty() {
                 disabled={followLoading}
                 activeOpacity={0.8}
               >
-                {followLoading
-                  ? <ActivityIndicator size="small" color="white" />
-                  : <Plus size={20} color="white" />
-                }
+                {followLoading ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Plus size={20} color="white" />
+                )}
               </TouchableOpacity>
             )}
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.headerBtn} onPress={() => setShowShareMenu(true)}>
+            <TouchableOpacity
+              style={styles.headerBtn}
+              onPress={() => setShowShareMenu(true)}
+            >
               <Share2 size={20} color="white" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerBtn} onPress={() => setShowMoreMenu(true)}>
+            <TouchableOpacity
+              style={styles.headerBtn}
+              onPress={() => setShowMoreMenu(true)}
+            >
               <MoreVertical size={20} color="white" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerBtn} onPress={() => setShowPowerMenu(true)}>
+            <TouchableOpacity
+              style={styles.headerBtn}
+              onPress={() => setShowPowerMenu(true)}
+            >
               <Power size={20} color="white" />
             </TouchableOpacity>
           </View>
@@ -3901,13 +4371,16 @@ export default function VoiceParty() {
               >
                 {renderRoomUserAvatar(
                   user,
-                  [styles.audienceAvatar, index > 0 && styles.audienceAvatarOverlap],
+                  [
+                    styles.audienceAvatar,
+                    index > 0 && styles.audienceAvatarOverlap,
+                  ],
                   [
                     styles.audienceAvatar,
                     styles.audienceAvatarPlaceholder,
                     index > 0 && styles.audienceAvatarOverlap,
                   ],
-                  styles.audienceInitial
+                  styles.audienceInitial,
                 )}
                 <View style={styles.micStatusDot}>
                   {user.muted ? (
@@ -3941,7 +4414,9 @@ export default function VoiceParty() {
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
                   {/* Speaking ring always shown — overlays avatar and frame */}
-                  <SpeakingRing active={speakingUserIds.has(String(seat.user.id))} />
+                  <SpeakingRing
+                    active={speakingUserIds.has(String(seat.user.id))}
+                  />
                   {renderRoomUserAvatar(
                     seat.user,
                     styles.seatAvatar,
@@ -3950,13 +4425,18 @@ export default function VoiceParty() {
                       styles.seatAvatarPlaceholder,
                       seat.user.active && styles.seatActiveBorder,
                     ],
-                    styles.seatInitial
+                    styles.seatInitial,
                   )}
                   <View style={styles.seatMicIcon}>
                     {seat.user.muted ? (
                       <MicOff size={12} color="#f87171" />
                     ) : (
-                      <Mic size={12} color={seat.user.active ? "#4ade80" : "rgba(255,255,255,0.8)"} />
+                      <Mic
+                        size={12}
+                        color={
+                          seat.user.active ? "#4ade80" : "rgba(255,255,255,0.8)"
+                        }
+                      />
                     )}
                   </View>
                 </View>
@@ -3980,266 +4460,363 @@ export default function VoiceParty() {
         </View>
 
         {/* ── CHAT + RIGHT PANEL ── */}
-        <View style={[styles.chatArea, { paddingBottom: 52 + safeBottom }]}>
-          <View style={styles.chatLeft}>
-            <ScrollView
-              ref={scrollRef}
-              style={styles.chatScroll}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.chatScrollContent}
-            >
-              {/* ── PINNED ROOM MESSAGES ── */}
-              {/* Card 1 — rules */}
-              <View style={styles.pinnedRulesCard}>
-                <Text style={styles.pinnedRulesText}>
-                  Welcome to TukTuk! Please respect each other and chat in a decent manner.
-                </Text>
-              </View>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+          }}
+        >
+          {/* Entry Banners */}
+          <View
+            style={{
+              width: Dimensions.get("screen").width,
+              overflow: "hidden",
+              flexDirection: "row",
+            }}
+          >
+            {recentEntries.map((user) => (
+              <UserEntryBanner
+                key={user.id}
+                user={user}
+                onComplete={handleEntryComplete}
+              />
+            ))}
+          </View>
+          <View style={styles.chatArea}>
+            <View style={styles.chatLeft}>
+              <ScrollView
+                ref={scrollRef}
+                style={styles.chatScroll}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.chatScrollContent}
+              >
+                {/* ── PINNED ROOM MESSAGES ── */}
 
-              {/* Card 2 — host welcome (editable by host) */}
-              <View style={styles.pinnedWelcomeCard}>
-                <Text style={styles.pinnedWelcomeText} numberOfLines={3}>
-                  {welcomeMessage}
-                </Text>
-                {isHostSelf && (
-                  <TouchableOpacity
-                    style={styles.pinnedEditBtn}
-                    activeOpacity={0.8}
-                    onPress={() => { setWelcomeDraft(welcomeMessage); setShowWelcomeEdit(true); }}
-                  >
-                    <Text style={styles.pinnedEditBtnText}>Edit</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+                {/* Card 1 — rules */}
+                <View style={styles.pinnedRulesCard}>
+                  <Text style={styles.pinnedRulesText}>
+                    Welcome to TukTuk! Please respect each other and chat in a
+                    decent manner.
+                  </Text>
+                </View>
 
-              {messages.map((msg) => {
-                if (msg.system) {
-                  return (
-                    <View key={msg.id} style={styles.systemMsg}>
-                      <Text style={styles.systemMsgText}>{msg.text}</Text>
-                    </View>
-                  );
-                }
-
-                // The message's own user/avatar fields are a snapshot from when it
-                // was sent — resolve the sender's CURRENT name/avatar instead, so a
-                // later username/avatar change is reflected on old messages too.
-                const senderName = resolveChatSenderName(
-                  msg.userId,
-                  msg.user,
-                );
-                const senderAvatar =
-                  resolveChatSenderAvatar(msg.userId) ?? msg.avatar;
-                // VIP chat cosmetics — the chat-bubble background frame and
-                // corner logo are only known for the logged-in user's own
-                // messages (myVipAssets), but the avatar ring itself is also
-                // shown for other senders when the backend embeds
-                // vipProfileFrameUrl on their message (their own XP >= threshold).
-                const isSenderSelf =
-                  msg.userId != null &&
-                  myUserId != null &&
-                  String(msg.userId) === String(myUserId);
-                const isSenderVip = isSenderSelf && myVipAssets.unlocked;
-                const otherSenderVipProfileFrame =
-                  !isSenderSelf && msg.vipProfileFrameUrl
-                    ? { uri: msg.vipProfileFrameUrl }
-                    : null;
-                const senderProfileFrame = isSenderVip
-                  ? myVipAssets.profileFrame
-                  : otherSenderVipProfileFrame;
-                // Trimmed whole-image chat frame for this sender's tier (keyed
-                // by tier number, not by URL — the URL can vary once the real
-                // API is wired up). Falls back to the raw remote asset (old
-                // behavior) for any tier without a trimmed image yet.
-                const vipChatFrameAsset = isSenderVip
-                  ? VIP_CHAT_FRAME_FITTED_BY_TIER[myVipAssets.tier]
-                  : null;
-                // Re-wrapped as a bare {uri} (dropping the asset's known
-                // width/height) so resizeMode="stretch" fills the bubble's
-                // actual box exactly — with the width/height metadata local
-                // require()'d images carry, Fabric's Android image view
-                // partially preserves aspect ratio even under "stretch",
-                // rendering oversized and clipped. A plain uri (like the
-                // remote chatFrame fallback below already used) has no
-                // intrinsic size to preserve, so it stretches correctly.
-                const vipChatFrameSource = vipChatFrameAsset
-                  ? {
-                    uri: Image.resolveAssetSource(vipChatFrameAsset.source)
-                      .uri,
-                  }
-                  : null;
-                // The image is taller than the bubble by topFrac+bottomFrac
-                // (as fractions of the bubble's own height) and shifted up
-                // by topFrac, so the border rail still lines up exactly
-                // with the bubble's edges while the crown/gem art bleeds
-                // above/below instead of being cropped off.
-                const vipChatFrameStyle = vipChatFrameAsset
-                  ? {
-                    position: "absolute",
-                    left: 0,
-                    right: 0,
-                    top: `${-vipChatFrameAsset.topFrac * 100}%`,
-                    bottom: `${-vipChatFrameAsset.bottomFrac * 100}%`,
-                  }
-                  : null;
-
-
-                return (
-                  <View key={msg.id} style={styles.chatMsg}>
+                {/* Card 2 — host welcome (editable by host) */}
+                <View style={styles.pinnedWelcomeCard}>
+                  <Text style={styles.pinnedWelcomeText} numberOfLines={3}>
+                    {welcomeMessage}
+                  </Text>
+                  {isHostSelf && (
                     <TouchableOpacity
-                      activeOpacity={0.75}
-                      onPress={() =>
-                        handleUserAvatarPress({ id: msg.userId, name: senderName, avatar: senderAvatar })
-                      }
+                      style={styles.pinnedEditBtn}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setWelcomeDraft(welcomeMessage);
+                        setShowWelcomeEdit(true);
+                      }}
                     >
-                      {senderAvatar ? (
-                        senderProfileFrame ? (
-                          <ProfileAvatarWithFrame
-                            avatarSource={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
-                            frameSource={senderProfileFrame}
-                            size={32}
-                            avatarStyle={styles.chatAvatar}
-                            frameScale={VIP_PROFILE_FRAME_LAYOUT.frameScale}
-                            frameResizeMode={VIP_PROFILE_FRAME_LAYOUT.frameResizeMode}
-                            frameOffsetX={VIP_PROFILE_FRAME_LAYOUT.frameOffsetX}
-                            frameOffsetY={VIP_PROFILE_FRAME_LAYOUT.frameOffsetY}
-                            frameBleed={VIP_PROFILE_FRAME_LAYOUT.frameBleed}
-                            avatarBoost={VIP_PROFILE_FRAME_LAYOUT.avatarBoost}
-                            avatarOffsetY={VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY}
-                          />
-                        ) : (
-                          <Image
-                            source={resolveRoomUserAvatarSource({ avatar: senderAvatar })}
-                            style={styles.chatAvatar}
-                          />
-                        )
-                      ) : (
-                        <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
-                          <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>
-                            {senderName?.[0]?.toUpperCase() ?? "?"}
-                          </Text>
-                        </View>
-                      )}
+                      <Text style={styles.pinnedEditBtnText}>Edit</Text>
                     </TouchableOpacity>
-                    <View style={[styles.chatBubble, vipChatFrameSource && styles.chatBubbleVipPadding]}>
-                      {vipChatFrameSource ? (
-                        <Image
-                          source={vipChatFrameSource}
-                          style={vipChatFrameStyle}
-                          resizeMode="stretch"
-                          pointerEvents="none"
-                        />
-                      ) : (
-                        isSenderVip && (myVipAssets.chatFrame || myVipAssets.logo) && (
+                  )}
+                </View>
+
+                {/* Card 3 — share prompt */}
+                <View style={styles.pinnedShareCard}>
+                  <Text style={styles.pinnedShareText}>
+                    Share your room to others!
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.pinnedShareBtn}
+                    activeOpacity={0.8}
+                    onPress={() => setShowShareMenu(true)}
+                  >
+                    <Text style={styles.pinnedShareBtnText}>Share</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {messages.map((msg) => {
+                  if (msg.system) {
+                    return (
+                      <View key={msg.id} style={styles.systemMsg}>
+                        <Text style={styles.systemMsgText}>{msg.text}</Text>
+                      </View>
+                    );
+                  }
+
+                  // The message's own user/avatar fields are a snapshot from when it
+                  // was sent — resolve the sender's CURRENT name/avatar instead, so a
+                  // later username/avatar change is reflected on old messages too.
+                  const senderName = resolveChatSenderName(
+                    msg.userId,
+                    msg.user,
+                  );
+                  const senderAvatar =
+                    resolveChatSenderAvatar(msg.userId) ?? msg.avatar;
+                  // VIP chat cosmetics — the chat-bubble background frame and
+                  // corner logo are only known for the logged-in user's own
+                  // messages (myVipAssets), but the avatar ring itself is also
+                  // shown for other senders when the backend embeds
+                  // vipProfileFrameUrl on their message (their own XP >= threshold).
+                  const isSenderSelf =
+                    msg.userId != null &&
+                    myUserId != null &&
+                    String(msg.userId) === String(myUserId);
+                  const isSenderVip = isSenderSelf && myVipAssets.unlocked;
+                  const otherSenderVipProfileFrame =
+                    !isSenderSelf && msg.vipProfileFrameUrl
+                      ? { uri: msg.vipProfileFrameUrl }
+                      : null;
+                  const senderProfileFrame = isSenderVip
+                    ? myVipAssets.profileFrame
+                    : otherSenderVipProfileFrame;
+                  // Trimmed whole-image chat frame for this sender's tier (keyed
+                  // by tier number, not by URL — the URL can vary once the real
+                  // API is wired up). Falls back to the raw remote asset (old
+                  // behavior) for any tier without a trimmed image yet.
+                  const vipChatFrameAsset = isSenderVip
+                    ? VIP_CHAT_FRAME_FITTED_BY_TIER[myVipAssets.tier]
+                    : null;
+                  // Re-wrapped as a bare {uri} (dropping the asset's known
+                  // width/height) so resizeMode="stretch" fills the bubble's
+                  // actual box exactly — with the width/height metadata local
+                  // require()'d images carry, Fabric's Android image view
+                  // partially preserves aspect ratio even under "stretch",
+                  // rendering oversized and clipped. A plain uri (like the
+                  // remote chatFrame fallback below already used) has no
+                  // intrinsic size to preserve, so it stretches correctly.
+                  const vipChatFrameSource = vipChatFrameAsset
+                    ? {
+                        uri: Image.resolveAssetSource(vipChatFrameAsset.source)
+                          .uri,
+                      }
+                    : null;
+                  // The image is taller than the bubble by topFrac+bottomFrac
+                  // (as fractions of the bubble's own height) and shifted up
+                  // by topFrac, so the border rail still lines up exactly
+                  // with the bubble's edges while the crown/gem art bleeds
+                  // above/below instead of being cropped off.
+                  const vipChatFrameStyle = vipChatFrameAsset
+                    ? {
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        top: `${-vipChatFrameAsset.topFrac * 100}%`,
+                        bottom: `${-vipChatFrameAsset.bottomFrac * 100}%`,
+                      }
+                    : null;
+
+                  return (
+                    <View key={msg.id} style={styles.chatMsg}>
+                      <TouchableOpacity
+                        activeOpacity={0.75}
+                        onPress={() =>
+                          handleUserAvatarPress({
+                            id: msg.userId,
+                            name: senderName,
+                            avatar: senderAvatar,
+                          })
+                        }
+                      >
+                        {senderAvatar ? (
+                          senderProfileFrame ? (
+                            <ProfileAvatarWithFrame
+                              avatarSource={resolveRoomUserAvatarSource({
+                                avatar: senderAvatar,
+                              })}
+                              frameSource={senderProfileFrame}
+                              size={32}
+                              avatarStyle={styles.chatAvatar}
+                              frameScale={VIP_PROFILE_FRAME_LAYOUT.frameScale}
+                              frameResizeMode={
+                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode
+                              }
+                              frameOffsetX={
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX
+                              }
+                              frameOffsetY={
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY
+                              }
+                              frameBleed={VIP_PROFILE_FRAME_LAYOUT.frameBleed}
+                              avatarBoost={VIP_PROFILE_FRAME_LAYOUT.avatarBoost}
+                              avatarOffsetY={
+                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY
+                              }
+                            />
+                          ) : (
+                            <Image
+                              source={resolveRoomUserAvatarSource({
+                                avatar: senderAvatar,
+                              })}
+                              style={styles.chatAvatar}
+                            />
+                          )
+                        ) : (
+                          <View
+                            style={[
+                              styles.chatAvatar,
+                              styles.chatAvatarPlaceholder,
+                            ]}
+                          >
+                            <Text
+                              style={{
+                                color: "white",
+                                fontSize: 12,
+                                fontWeight: "700",
+                              }}
+                            >
+                              {senderName?.[0]?.toUpperCase() ?? "?"}
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                      <View
+                        style={[
+                          styles.chatBubble,
+                          vipChatFrameSource && styles.chatBubbleVipPadding,
+                        ]}
+                      >
+                        {vipChatFrameSource ? (
                           <Image
-                            source={{ uri: myVipAssets.chatFrame || myVipAssets.logo }}
-                            style={StyleSheet.absoluteFillObject}
+                            source={vipChatFrameSource}
+                            style={vipChatFrameStyle}
                             resizeMode="stretch"
                             pointerEvents="none"
                           />
-                        )
-                      )}
-                      <View style={styles.chatMeta}>
-                        <TouchableOpacity
-                          activeOpacity={0.75}
-                          onPress={() =>
-                            handleUserAvatarPress({ id: msg.userId, name: senderName, avatar: senderAvatar })
-                          }
-                        >
-                          <Text style={styles.chatUser}>{senderName}</Text>
-                        </TouchableOpacity>
-                        <View style={styles.lvBadge}>
-                          <Text style={styles.lvText}>Lv.{msg.level}</Text>
+                        ) : (
+                          isSenderVip &&
+                          (myVipAssets.chatFrame || myVipAssets.logo) && (
+                            <Image
+                              source={{
+                                uri: myVipAssets.chatFrame || myVipAssets.logo,
+                              }}
+                              style={StyleSheet.absoluteFillObject}
+                              resizeMode="stretch"
+                              pointerEvents="none"
+                            />
+                          )
+                        )}
+                        <View style={styles.chatMeta}>
+                          <TouchableOpacity
+                            activeOpacity={0.75}
+                            onPress={() =>
+                              handleUserAvatarPress({
+                                id: msg.userId,
+                                name: senderName,
+                                avatar: senderAvatar,
+                              })
+                            }
+                          >
+                            <Text style={styles.chatUser}>{senderName}</Text>
+                          </TouchableOpacity>
+                          <View style={styles.lvBadge}>
+                            <Text style={styles.lvText}>Lv.{msg.level}</Text>
+                          </View>
+                          {msg.userId != null &&
+                            (userFrameData[String(msg.userId)]
+                              ?.hasNewUserFrame ??
+                              false) && (
+                              <Image
+                                source={NEW_START_BADGE}
+                                style={styles.newStartBadge}
+                                resizeMode="contain"
+                              />
+                            )}
+                          {msg.coins > 0 && (
+                            <Text style={styles.chatCoin}>🪙 {msg.coins}</Text>
+                          )}
+                          {msg.diamonds > 0 && (
+                            <Text style={styles.chatDiamond}>
+                              💎 {msg.diamonds}
+                            </Text>
+                          )}
                         </View>
-                        {msg.userId != null && (userFrameData[String(msg.userId)]?.hasNewUserFrame ?? false) && (
+                        {isChatMediaUrl(msg.text) ? (
                           <Image
-                            source={NEW_START_BADGE}
-                            style={styles.newStartBadge}
+                            source={{ uri: msg.text.trim() }}
+                            style={styles.chatMediaImg}
                             resizeMode="contain"
                           />
+                        ) : (
+                          <Text
+                            style={[
+                              styles.chatText,
+                              msg.isGift && styles.chatGiftText,
+                            ]}
+                          >
+                            {msg.text}
+                          </Text>
                         )}
-                        {msg.coins > 0 && <Text style={styles.chatCoin}>🪙 {msg.coins}</Text>}
-                        {msg.diamonds > 0 && <Text style={styles.chatDiamond}>💎 {msg.diamonds}</Text>}
                       </View>
-                      {isChatMediaUrl(msg.text) ? (
-                        <Image
-                          source={{ uri: msg.text.trim() }}
-                          style={styles.chatMediaImg}
-                          resizeMode="contain"
-                        />
-                      ) : (
-                        <Text style={[styles.chatText, msg.isGift && styles.chatGiftText]}>
-                          {msg.text}
-                        </Text>
-                      )}
                     </View>
-                  </View>
-                );
-              })
-              }
-            </ScrollView>
-          </View>
+                  );
+                })}
+              </ScrollView>
+            </View>
 
-          {/* Right panel */}
-          <View style={styles.chatRight}>
-            <TouchableOpacity
-              style={styles.treasureBoxBtn}
-              activeOpacity={0.85}
-              onPress={() => setShowTreasureBox(true)}
-            >
-              <ExpoImage
-                source={TREASURE_BOX_GIF}
-                style={styles.treasureBoxGif}
-                contentFit="contain"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.rightIconBtn} onPress={() => setShowGiftPanel(true)}>
-              <Text style={styles.rightIconEmoji}>🎁</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.rightIconBtn}
-              onPress={handleOpenChatTab}
-            >
-              <MessageSquare size={22} color="white" />
-              {chatUnreadCount > 0 && (
-                <View style={styles.chatBadge}>
-                  <Text style={styles.chatBadgeText}>
-                    {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.takeMicBtn}
-              onPress={handleTakeMic}
-              disabled={voiceConnecting}
-            >
-              {voiceConnecting ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <>
-                  <Text style={styles.takeMicEmoji}>🎤</Text>
-                  <Text style={styles.takeMicText}>{onMic ? "Leave Mic" : "Take Mic"}</Text>
-                </>
-              )}
-            </TouchableOpacity>
-            {onMic ? (
+            {/* Right panel */}
+            <View style={styles.chatRight}>
               <TouchableOpacity
-                style={styles.micMuteBtn}
-                onPress={handleToggleMic}
-                disabled={voiceConnecting}
+                style={styles.treasureBoxBtn}
+                activeOpacity={0.85}
+                onPress={() => setShowTreasureBox(true)}
               >
-                {isMicMuted ? (
-                  <MicOff size={20} color="#ff6b6b" />
-                ) : (
-                  <Mic size={20} color="white" />
+                <ExpoImage
+                  source={TREASURE_BOX_GIF}
+                  style={styles.treasureBoxGif}
+                  contentFit="contain"
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.rightIconBtn}
+                onPress={() => setShowGiftPanel(true)}
+              >
+                <Text style={styles.rightIconEmoji}>🎁</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.rightIconBtn}
+                onPress={handleOpenChatTab}
+              >
+                <MessageSquare size={22} color="white" />
+                {chatUnreadCount > 0 && (
+                  <View style={styles.chatBadge}>
+                    <Text style={styles.chatBadgeText}>
+                      {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                    </Text>
+                  </View>
                 )}
               </TouchableOpacity>
-            ) : null}
+              <TouchableOpacity
+                style={styles.takeMicBtn}
+                onPress={handleTakeMic}
+                disabled={voiceConnecting}
+              >
+                {voiceConnecting ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Text style={styles.takeMicEmoji}>🎤</Text>
+                    <Text style={styles.takeMicText}>
+                      {onMic ? "Leave Mic" : "Take Mic"}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              {onMic ? (
+                <TouchableOpacity
+                  style={styles.micMuteBtn}
+                  onPress={handleToggleMic}
+                  disabled={voiceConnecting}
+                >
+                  {isMicMuted ? (
+                    <MicOff size={20} color="#ff6b6b" />
+                  ) : (
+                    <Mic size={20} color="white" />
+                  )}
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
-        </View>
-
+        </ScrollView>
         {(voiceListenStatus !== "idle" || voiceDiagnostics?.joined) && (
           <Text style={styles.voiceDebugText} numberOfLines={2}>
             Audio: {voiceListenStatus}
@@ -4258,8 +4835,7 @@ export default function VoiceParty() {
           style={[
             styles.bottomDock,
             {
-              bottom: keyboardHeight > 0 ? keyboardHeight : safeBottom,
-              paddingBottom: keyboardHeight > 0 ? 4 : 0,
+              paddingBottom: safeBottom > 0 ? safeBottom : 4,
             },
           ]}
         >
@@ -4318,12 +4894,17 @@ export default function VoiceParty() {
             <View style={styles.tagPickerContainer}>
               <View style={styles.tagPickerHeader}>
                 <Text style={styles.tagPickerTitle}>Tag someone</Text>
-                <TouchableOpacity onPress={() => setShowTagPicker(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity
+                  onPress={() => setShowTagPicker(false)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <Text style={styles.tagPickerClose}>✕</Text>
                 </TouchableOpacity>
               </View>
               {roomMembersList.length === 0 ? (
-                <Text style={styles.tagPickerEmpty}>No one else is in the room</Text>
+                <Text style={styles.tagPickerEmpty}>
+                  No one else is in the room
+                </Text>
               ) : (
                 <ScrollView
                   style={styles.tagPickerList}
@@ -4344,7 +4925,12 @@ export default function VoiceParty() {
                           contentFit="cover"
                         />
                       ) : (
-                        <View style={[styles.tagPickerAvatar, styles.tagPickerAvatarFallback]}>
+                        <View
+                          style={[
+                            styles.tagPickerAvatar,
+                            styles.tagPickerAvatarFallback,
+                          ]}
+                        >
                           <Text style={styles.tagPickerAvatarInitial}>
                             {(member.name ?? "?")[0].toUpperCase()}
                           </Text>
@@ -4355,7 +4941,10 @@ export default function VoiceParty() {
                           {member.name}
                         </Text>
                         {member.username && member.username !== member.name && (
-                          <Text style={styles.tagPickerUsername} numberOfLines={1}>
+                          <Text
+                            style={styles.tagPickerUsername}
+                            numberOfLines={1}
+                          >
                             @{member.username}
                           </Text>
                         )}
@@ -4372,7 +4961,7 @@ export default function VoiceParty() {
             </View>
           )}
 
-          {/* Bottom icon bar — always visible */}
+          {/* Bottom icon bar — always visible except on Android when typing to avoid adjustPan overlay issues */}
           <View style={styles.bottomBar}>
             <TouchableOpacity
               style={styles.bottomIconBtn}
@@ -4384,11 +4973,20 @@ export default function VoiceParty() {
                 <Volume2 size={20} color="white" />
               )}
             </TouchableOpacity>
-            <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenMediaPicker}>
+            <TouchableOpacity
+              style={styles.bottomIconBtn}
+              onPress={handleOpenMediaPicker}
+            >
               <Smile size={20} color="white" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.bottomIconBtn} onPress={handleOpenPartyChat}>
-              <MessageSquare size={20} color={showChatInput ? "#4dc8ff" : "white"} />
+            <TouchableOpacity
+              style={styles.bottomIconBtn}
+              onPress={handleOpenPartyChat}
+            >
+              <MessageSquare
+                size={20}
+                color={showChatInput ? "#4dc8ff" : "white"}
+              />
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.bottomIconBtn, styles.giftShortcutHighlight]}
@@ -4397,12 +4995,15 @@ export default function VoiceParty() {
               <Text style={styles.giftShortcutEmoji}>💰</Text>
               <Text style={styles.giftShortcutLabel}>Recharge{"\n"}Bonus</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setShowPlayCenter(true)}>
+            <TouchableOpacity
+              style={styles.bottomIconBtn}
+              onPress={() => setShowPlayCenter(true)}
+            >
               <LayoutGrid size={20} color="white" />
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
 
       {/* ── CUSTOM REWARD CLAIMED MODAL ── */}
       <Modal
@@ -4558,7 +5159,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(124,77,255,0.3)",
     borderColor: "rgba(167,139,250,0.6)",
     shadowOpacity: 0.2,
-  }, loadingOverlay: {
+  },
+  loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 20,
     backgroundColor: "rgba(15,7,32,0.85)",
@@ -4650,7 +5252,12 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
-  seatItem: { width: SEAT_SIZE, alignItems: "center", gap: 4, overflow: "visible" },
+  seatItem: {
+    width: SEAT_SIZE,
+    alignItems: "center",
+    gap: 4,
+    overflow: "visible",
+  },
   seatUserWrap: {
     position: "relative",
     width: SEAT_SIZE - 4,
@@ -4804,7 +5411,12 @@ const styles = StyleSheet.create({
   chatDiamond: { fontSize: 11, color: "#4dc8ff" },
   chatText: { color: "white", fontSize: 13 },
   chatGiftText: { color: "#f9a8d4", fontWeight: "700" },
-  chatRight: { width: 60, alignItems: "center", gap: 10, justifyContent: "flex-end" },
+  chatRight: {
+    // width: 60,
+    alignItems: "center",
+    gap: 8,
+    justifyContent: "flex-end",
+  },
   luckyStarBox: {
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.4)",
@@ -4911,9 +5523,6 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   bottomDock: {
-    position: "absolute",
-    left: 0,
-    right: 0,
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
     backgroundColor: "#110720",
@@ -4962,19 +5571,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 10,
-    paddingBottom: 4,
+    paddingBottom: Platform.OS === "android" ? 0 : 5,
     paddingTop: 6,
     gap: 8,
-    borderBottomWidth: 1,
+    borderBottomWidth: Platform.OS === "android" ? 0 : 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
   input: {
     flex: 1,
-    height: 34,
+    height: Platform.OS === "android" ? 46 : 34,
     backgroundColor: "transparent",
     borderRadius: 0,
     paddingHorizontal: 6,
     paddingVertical: 0,
+    paddingBottom: Platform.OS === "android" ? 12 : 0,
     color: "white",
     fontSize: 14,
     borderWidth: 0,
@@ -5014,7 +5624,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
-    height: 36,
+    height: Platform.OS === "android" ? 46 : 36,
     paddingHorizontal: 8,
     overflow: "hidden",
   },
@@ -5229,8 +5839,16 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(167,139,250,0.15)",
     marginBottom: 8,
   },
-  shareTabItem: { paddingVertical: 8, paddingHorizontal: 10, alignItems: "center" },
-  shareTabText: { color: "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: "600" },
+  shareTabItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: "center",
+  },
+  shareTabText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
+    fontWeight: "600",
+  },
   shareTabTextActive: { color: "white" },
   shareTabUnderline: {
     height: 2,
@@ -5255,7 +5873,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.15)",
   },
-  shareCancelText: { color: "rgba(255,255,255,0.7)", fontSize: 15, fontWeight: "600" },
+  shareCancelText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
 
   // ── Power modal ──
   powerBox: {
@@ -5424,7 +6046,10 @@ const styles = StyleSheet.create({
   },
   giftCardLockOverlay: {
     position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: "rgba(0,0,0,0.45)",
     borderRadius: 8,
     alignItems: "center",
@@ -5621,6 +6246,51 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
+  // ── Entry Banner ──
+  entryBannerContainer: {
+    // position: "relative",
+    alignSelf: "flex-start",
+    // minHeight: 56,
+    justifyContent: "center",
+  },
+  entryBannerBg: {
+    height: 85,
+    alignSelf: "center",
+    width: 300,
+  },
+  entryBannerBgDefault: {
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    borderRadius: 18,
+  },
+  entryBannerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    position: "absolute",
+    top: 0,
+    left: 15,
+    right: 0,
+    bottom: 10,
+    gap: 5,
+  },
+  entryBannerAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 30,
+    marginTop: 2,
+  },
+  entryBannerTextContainer: {
+    marginLeft: 9,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  entryBannerName: {
+    textAlign: "center",
+    color: "#FFD700",
+    fontWeight: "bold",
+    fontSize: 13,
+  },
+
   // ── Backpack modal ──
   backpackBox: {
     position: "relative",
@@ -5656,7 +6326,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  bpBannerArrowText: { color: "white", fontSize: 18, fontWeight: "700", lineHeight: 22 },
+  bpBannerArrowText: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
+    lineHeight: 22,
+  },
   bpPkBadge: {
     position: "absolute",
     top: 6,
@@ -5677,7 +6352,12 @@ const styles = StyleSheet.create({
   bpCurrencyItem: { flexDirection: "row", alignItems: "center" },
   bpDiamondIcon: { fontSize: 20 },
   bpCoinIcon: { fontSize: 20 },
-  bpCurrencyVal: { color: "white", fontSize: 15, fontWeight: "700", marginLeft: 5 },
+  bpCurrencyVal: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "700",
+    marginLeft: 5,
+  },
   bpCurrencyChev: { color: "#a78bfa", fontSize: 15, fontWeight: "700" },
   bpGetListBtn: {
     marginLeft: "auto",
@@ -5689,10 +6369,23 @@ const styles = StyleSheet.create({
     borderColor: "rgba(167,139,250,0.35)",
   },
   bpGetListText: { color: "#c4b5fd", fontSize: 12, fontWeight: "600" },
-  bpMainTabScroll: { borderBottomWidth: 1, borderBottomColor: "rgba(167,139,250,0.15)", flexGrow: 0, flexShrink: 0 },
+  bpMainTabScroll: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(167,139,250,0.15)",
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   bpMainTabContent: { paddingHorizontal: 12, gap: 2 },
-  bpMainTabItem: { paddingHorizontal: 12, paddingVertical: 10, alignItems: "center" },
-  bpMainTabText: { color: "rgba(255,255,255,0.4)", fontSize: 15, fontWeight: "600" },
+  bpMainTabItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  bpMainTabText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
   bpMainTabTextActive: { color: "white" },
   bpMainTabUnderline: {
     height: 2,
@@ -5723,7 +6416,13 @@ const styles = StyleSheet.create({
     borderColor: "rgba(167,139,250,0.4)",
   },
   bpRandomBoxEmoji: { fontSize: 26 },
-  bpRandomBoxLabel: { color: "white", fontSize: 10, fontWeight: "700", textAlign: "center", marginTop: 3 },
+  bpRandomBoxLabel: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 3,
+  },
   bpOrbWrap: { alignItems: "center", marginRight: 10, gap: 5 },
   bpOrbCircle: {
     width: 58,
@@ -5751,7 +6450,13 @@ const styles = StyleSheet.create({
     borderColor: "rgba(167,139,250,0.3)",
   },
   bpEventIcon: { fontSize: 22 },
-  bpEventText: { flex: 1, color: "white", fontSize: 14, fontWeight: "700", letterSpacing: 0.3 },
+  bpEventText: {
+    flex: 1,
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
   bpEventArrow: {
     width: 28,
     height: 28,
@@ -5761,7 +6466,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  bpEventArrowText: { color: "#a78bfa", fontSize: 18, fontWeight: "700", lineHeight: 22 },
+  bpEventArrowText: {
+    color: "#a78bfa",
+    fontSize: 18,
+    fontWeight: "700",
+    lineHeight: 22,
+  },
 
   // Gift grid
   bpGiftGrid: {
@@ -6010,7 +6720,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.4)",
   },
-  bpSubTabText: { color: "rgba(255,255,255,0.4)", fontSize: 13, fontWeight: "600" },
+  bpSubTabText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 13,
+    fontWeight: "600",
+  },
   bpSubTabTextActive: { color: "white" },
   bpEmptyState: {
     flex: 1,
@@ -6045,7 +6759,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(124,77,255,0.35)",
     borderColor: "#a78bfa",
   },
-  bpActEventText: { color: "rgba(255,255,255,0.45)", fontSize: 13, fontWeight: "600" },
+  bpActEventText: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 13,
+    fontWeight: "600",
+  },
   bpActEventTextActive: { color: "white" },
 
   // ── Intimacy video thumbnail cards ──
@@ -6176,7 +6894,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   bpVipBannerIcon: { fontSize: 18 },
-  bpVipBannerText: { flex: 1, color: "#ffd700", fontSize: 12, fontWeight: "700" },
+  bpVipBannerText: {
+    flex: 1,
+    color: "#ffd700",
+    fontSize: 12,
+    fontWeight: "700",
+  },
 
   bpVipLockOverlay: {
     position: "absolute",
@@ -6207,7 +6930,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  bpVipTagText: { color: "#fff8e1", fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  bpVipTagText: {
+    color: "#fff8e1",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
   bpVipPriceText: { color: "#ffd700", fontSize: 10, fontWeight: "700" },
 
   bpVipUpgradeBar: {
@@ -6223,7 +6951,12 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     gap: 10,
   },
-  bpVipUpgradeText: { flex: 1, color: "#fff8e1", fontSize: 13, fontWeight: "700" },
+  bpVipUpgradeText: {
+    flex: 1,
+    color: "#fff8e1",
+    fontSize: 13,
+    fontWeight: "700",
+  },
   bpVipUpgradeBtn: {
     backgroundColor: "#fff8e1",
     borderRadius: 20,

@@ -1,9 +1,10 @@
+import { Tabs, useRouter } from "expo-router";
+import { Home, MessageCircle, Mic, User } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { Tabs, useRouter } from "expo-router";
-import { Home, Mic, MessageCircle, User } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getToken, hasAcceptedTerms } from "../../src/store/authStore";
+import { APP_BG, APP_PURPLE_LIGHT } from "../../src/constants/theme";
 
 const TabLayout = () => {
   const router = useRouter();
@@ -48,12 +49,12 @@ const TabLayout = () => {
       <View
         style={{
           flex: 1,
-          backgroundColor: "#ffffff",
+          backgroundColor: APP_BG,
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <ActivityIndicator size="large" color="#7c4dff" />
+        <ActivityIndicator size="large" color={APP_PURPLE_LIGHT} />
       </View>
     );
   }
@@ -70,14 +71,10 @@ const TabLayout = () => {
           borderTopColor: "rgba(0,0,0,0.05)",
           paddingTop: 6,
           paddingBottom: bottomInset,
-          height: 56 + bottomInset,
-          elevation: 10,
-          shadowColor: "#000",
-          shadowOpacity: 0.05,
-          shadowOffset: { width: 0, height: -2 },
-          shadowRadius: 10,
+          height: 65 + bottomInset,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600", marginBottom: 2 },
+        sceneStyle: { backgroundColor: APP_BG },
       }}
     >
       <Tabs.Screen
@@ -110,10 +107,7 @@ const TabLayout = () => {
           tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="blind-pick"
-        options={{ href: null }}
-      />
+      <Tabs.Screen name="blind-pick" options={{ href: null }} />
     </Tabs>
   );
 };

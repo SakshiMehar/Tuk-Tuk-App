@@ -1,76 +1,78 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import {
-  View,
-  Text,
-  Image,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  StatusBar,
-  Dimensions,
-  Modal,
-  TextInput,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import * as ImagePicker from "expo-image-picker";
 import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getUser, updateUser } from "../../src/store/authStore";
-import { refreshTokenCache } from "../../src/api/axios";
-import { loadMyProfile, saveMyProfile } from "../../src/services/meProfileService";
-import { loadProfileStats } from "../../src/services/profileStatsService";
+import * as ImagePicker from "expo-image-picker";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  loadDailyTasks,
-  tasksTotalReward,
-  claimedTasksDiamondTotal,
-  claimRewardTask,
-} from "../../src/services/rewardTaskService";
-import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AppBackground from "../../Components/AppBackground";
+import BackpackPanel from "../../Components/BackpackPanel";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
-import WalletRechargeSection from "../../Components/WalletRechargeSection";
+import FamilyChatModal from "../../Components/FamilyChatModal";
 import GetRewardsPanel from "../../Components/GetRewardsPanel";
 import MonthlyCardPanel from "../../Components/MonthlyCardPanel";
-import TukTukPassPanel from "../../Components/TukTukPassPanel";
-import VipCenterPanel from "../../Components/VipCenterPanel";
-import UserLevelPanel from "../../Components/UserLevelPanel";
-import RoomPremiumPanel from "../../Components/RoomPremiumPanel";
-import BackpackPanel from "../../Components/BackpackPanel";
 import PremiumPanel from "../../Components/PremiumPanel";
+import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
+import RoomPremiumPanel from "../../Components/RoomPremiumPanel";
+import TukTukPassPanel from "../../Components/TukTukPassPanel";
+import UserLevelPanel from "../../Components/UserLevelPanel";
+import VipCenterPanel from "../../Components/VipCenterPanel";
+import WalletRechargeSection from "../../Components/WalletRechargeSection";
+import { refreshTokenCache } from "../../src/api/axios";
+import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
+import { APP_BG, APP_CARD, APP_CARD_BORDER, APP_PURPLE, APP_TEXT, APP_TEXT_DIM, APP_TEXT_MUTED, DIAMOND_ICON_URL } from "../../src/constants/theme";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
 import {
   avatarMap,
+  DEFAULT_AVATAR_ID,
   getAvatarOptionsForGender,
   getAvatarSource,
-  DEFAULT_AVATAR_ID,
 } from "../../src/data/avatarOptions";
-import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
-import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
-import { syncUserLevelForSession } from "../../src/services/userLevelService";
-import { loadMyVipAssets } from "../../src/services/vipService";
-import { fetchUserDecorations } from "../../src/services/decorationsService";
-import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
-import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
-import { DECORATION_FRAME_LAYOUT } from "../../src/constants/decorations";
-import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
-import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
-import { openUserChat } from "../../src/utils/chatNavigation";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
-import { refreshWalletBalance } from "../../src/store/walletStore";
-import { submitFeedback } from "../../src/services/userSettingsService";
-import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
-import { resolveImageSource } from "../../src/utils/videoSource";
+import { fetchUserDecorations } from "../../src/services/decorationsService";
 import {
-  loadFamilyLists,
   createFamilyGroup,
   joinFamilyGroup,
   loadFamilyDetail,
+  loadFamilyLists,
 } from "../../src/services/familyService";
-import FamilyChatModal from "../../Components/FamilyChatModal";
-import { s, ms } from "../../src/utils/responsive";
+import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
+import { loadMyProfile, saveMyProfile } from "../../src/services/meProfileService";
+import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
+import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
+import { loadProfileStats } from "../../src/services/profileStatsService";
+import {
+  claimedTasksDiamondTotal,
+  claimRewardTask,
+  loadDailyTasks,
+  tasksTotalReward,
+} from "../../src/services/rewardTaskService";
+import { syncUserLevelForSession } from "../../src/services/userLevelService";
+import { submitFeedback } from "../../src/services/userSettingsService";
+import { loadMyVipAssets } from "../../src/services/vipService";
+import { getUser, updateUser } from "../../src/store/authStore";
+import { refreshWalletBalance } from "../../src/store/walletStore";
+import { openUserChat } from "../../src/utils/chatNavigation";
+import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
+import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
+import { ms, s } from "../../src/utils/responsive";
+import { resolveImageSource } from "../../src/utils/videoSource";
 
 const screen = Dimensions.get("window");
 
@@ -108,38 +110,64 @@ function ProfileBadge({ source, aspectRatio, style }) {
 }
 const menuPages = [
   [
-    { icon: "gift",         label: "Get Rewards",  badge: true  },
-    { icon: "tasks",        label: "Task",         badge: true  },
-    { icon: "id-card",      label: "Monthly Card", badge: true,  comingSoon: true },
-    { icon: "store",        label: "Store",        badge: true  },
-    { icon: "users",        label: "Relationship", badge: true  },
-    { icon: "wallet",       label: "Wallet",       badge: false },
-    { icon: "medal",        label: "Premium",      badge: true  },
-    { icon: "bookmark",     label: "Saved",        badge: false },
+    { icon: "gift", label: "Get Rewards", badge: true },
+    { icon: "tasks", label: "Task", badge: true },
+    { icon: "id-card", label: "Monthly Card", badge: true, comingSoon: true },
+    { icon: "store", label: "Store", badge: true },
+    { icon: "users", label: "Relationship", badge: true },
+    { icon: "wallet", label: "Wallet", badge: false },
+    { icon: "medal", label: "Premium", badge: true },
+    { icon: "bookmark", label: "Saved", badge: false },
   ],
   [
-    { icon: "gem",          label: "VIP",          badge: false },
-    { icon: "ticket-alt",   label: "Coupon",       badge: false },
-    { icon: "star",         label: "Honor Level",  badge: false },
-    { icon: "home",         label: "Family",       badge: false },
-    { icon: "heart",        label: "Matchmaker",   badge: true  },
-    { icon: "briefcase",    label: "Backpack",     badge: false },
-    { icon: "crown",        label: "Room Premium", badge: true  },
-    { icon: "id-badge",     label: "TukTuk Pass",   badge: true  },
+    { icon: "gem", label: "VIP", badge: false },
+    { icon: "ticket-alt", label: "Coupon", badge: false },
+    { icon: "star", label: "Honor Level", badge: false },
+    { icon: "home", label: "Family", badge: false },
+    { icon: "heart", label: "Matchmaker", badge: true },
+    { icon: "briefcase", label: "Backpack", badge: false },
+    { icon: "crown", label: "Room Premium", badge: true },
+    { icon: "id-badge", label: "TukTuk Pass", badge: true },
   ],
   [
-    { icon: "level-up-alt", label: "Level",        badge: true,  comingSoon: true },
-    { icon: "instagram",    label: "Instagram",    badge: false },
-    { icon: "share-alt",    label: "Share",        badge: false },
-    { icon: "headset",      label: "Help",         badge: true  },
-    { icon: "shield",       label: "Room Badge",   badge: true  },
-    { icon: "certificate",  label: "Badge",        badge: true  },
-    { icon: "house-user",   label: "Room Title",   badge: false },
-    { icon: "comment-dots", label: "Feedback",     badge: false },
+    { icon: "level-up-alt", label: "Level", badge: true, comingSoon: true },
+    { icon: "instagram", label: "Instagram", badge: false },
+    { icon: "share-alt", label: "Share", badge: false },
+    { icon: "headset", label: "Help", badge: true },
+    { icon: "shield", label: "Room Badge", badge: true },
+    { icon: "certificate", label: "Badge", badge: true },
+    { icon: "house-user", label: "Room Title", badge: false },
+    { icon: "comment-dots", label: "Feedback", badge: false },
   ],
 ];
 
 const BOTTOM_TABS = ["Moment", "Profile", "Honor", "Gift"];
+
+function MenuGridButton({ item, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.menuGridItem, pressed && styles.menuGridItemPressed]}
+    >
+      {({ pressed }) => (
+        <>
+          <View style={[styles.menuIconBox, pressed && styles.menuIconBoxPressed]}>
+            <View style={styles.menuIconInnerShine} pointerEvents="none" />
+            <FontAwesome5
+              name={item.icon}
+              size={22}
+              color={pressed ? "#5b21b6" : "#7c4dff"}
+              solid
+            />
+          </View>
+          <Text style={[styles.menuGridLabel, pressed && styles.menuGridLabelPressed]}>
+            {item.label}
+          </Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
 
 // ── FamilyContent ─────────────────────────────────────────────────────────────
 // Extracted as a proper component so hooks (useState) can be used legally.
@@ -1330,6 +1358,7 @@ export default function Profile() {
   }, [activeMenu]);
 
   const [claimingTask, setClaimingTask] = useState(null);
+  const [claimedTaskRewardModal, setClaimedTaskRewardModal] = useState(null);
 
   const handleClaimTask = async (task) => {
     if (task.claimed || !task.completed || claimingTask) return;
@@ -1341,10 +1370,7 @@ export default function Profile() {
       setDailyTasks(tasks);
       await refreshWalletBalance();
 
-      Alert.alert(
-        "Reward claimed!",
-        `You earned ${task.reward}💎 for "${task.label}".`
-      );
+      setClaimedTaskRewardModal(task);
     } catch (err) {
 
       Alert.alert(
@@ -1455,14 +1481,14 @@ export default function Profile() {
                     avatarStyle={styles.savedAvatar}
                     {...(u.vipProfileFrameUrl
                       ? {
-                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                          innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
-                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                        }
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
                       : {})}
                   />
                 ) : (
@@ -1521,27 +1547,27 @@ export default function Profile() {
             style={styles.mmHeroBox}
           >
             <Text style={{ fontSize: 40 }}>💎</Text>
-            <Text style={styles.mmHeroTitle}>{claimedDiamonds}💎 earned</Text>
-            <Text style={styles.mmHeroSub}>
+            <Text style={[styles.mmHeroTitle, { color: "#1e293b" }]}>{claimedDiamonds}💎 earned</Text>
+            <Text style={[styles.mmHeroSub, { color: "#475569" }]}>
               Finish tasks to earn up to {totalReward}💎
             </Text>
           </LinearGradient>
 
-          <View style={styles.mmProgressCard}>
+          <View style={[styles.mmProgressCard, { backgroundColor: "#f8fafc" }]}>
             <View style={styles.mmProgressLabelRow}>
-              <Text style={styles.mmProgressTitle}>Tasks Completed</Text>
+              <Text style={[styles.mmProgressTitle, { color: "#334155" }]}>Tasks Completed</Text>
               <Text style={styles.mmProgressVal}>{claimedCount} / {totalCount}</Text>
             </View>
-            <View style={styles.mmProgressBar}>
+            <View style={[styles.mmProgressBar, { backgroundColor: "#e2e8f0" }]}>
               <View style={[styles.mmProgressFill, { width: `${progressPct}%` }]} />
             </View>
           </View>
 
-          <Text style={styles.mmSectionLabel}>Reward Tasks</Text>
+          <Text style={[styles.mmSectionLabel, { color: "#1e293b" }]}>Reward Tasks</Text>
           {tasksLoading && dailyTasks.length === 0 ? (
             <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
           ) : dailyTasks.length === 0 ? (
-            <Text style={styles.mmInfoText}>No tasks available right now.</Text>
+            <Text style={[styles.mmInfoText, { color: "#64748b" }]}>No tasks available right now.</Text>
           ) : (
             dailyTasks.map((t) => {
               const claimed = t.claimed;
@@ -1549,15 +1575,15 @@ export default function Profile() {
               const canClaim = t.completed && !claimed;
               const showProgress = t.targetCount > 1;
               return (
-                <View key={t.taskType} style={styles.mmTaskRow}>
+                <View key={t.taskType} style={[styles.mmTaskRow]}>
                   <Text style={{ fontSize: 18, marginRight: 10 }}>{t.emoji}</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone]}>
+                    <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone, { color: "#1e293b" }]}>
                       {t.label}
                     </Text>
                     <Text style={styles.mmTaskReward}>+{t.reward}💎</Text>
                     {showProgress ? (
-                      <Text style={styles.mmTaskProgress}>
+                      <Text style={[styles.mmTaskProgress, { color: "#64748b" }]}>
                         {t.progressCount}/{t.targetCount}
                       </Text>
                     ) : null}
@@ -1993,20 +2019,8 @@ export default function Profile() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0d0618" />
-
-      {/* Dark purple gradient background — same as login/home */}
-      <LinearGradient
-        colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
-        locations={[0, 0.25, 0.5, 0.75, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      {/* Pink orb — top left */}
-      <View style={styles.orbPink} />
-      {/* Purple orb — bottom right */}
-      <View style={styles.orbPurple} />
+      <StatusBar barStyle="dark-content" backgroundColor={APP_BG} />
+      <AppBackground />
 
       <ScrollView
         ref={scrollRef}
@@ -2018,9 +2032,7 @@ export default function Profile() {
         <View style={styles.topBar}>
           {/* Diamond counter */}
           <View style={styles.counterPill}>
-            <View style={styles.counterIconWrap}>
-              <Text style={styles.counterEmoji}>💎</Text>
-            </View>
+            <Image source={{ uri: DIAMOND_ICON_URL }} style={styles.counterDiamondIcon} resizeMode="contain" />
             <Text style={styles.counterValue}>{walletDiamonds.toLocaleString("en-IN")}</Text>
             <TouchableOpacity
               style={styles.plusBtn}
@@ -2051,7 +2063,7 @@ export default function Profile() {
             activeOpacity={0.8}
             onPress={() => router.push("/settings")}
           >
-            <Ionicons name="settings-outline" size={22} color="white" />
+            <Ionicons name="settings-outline" size={22} color={APP_TEXT} />
           </TouchableOpacity>
         </View>
 
@@ -2065,7 +2077,7 @@ export default function Profile() {
 
           {/* Strong bottom fade to hide legs */}
           <LinearGradient
-            colors={["transparent", "rgba(13,6,24,0.85)", "#0d0618", "#0d0618"]}
+            colors={["transparent", "rgba(255,255,255,0.85)", APP_BG, APP_BG]}
             locations={[0, 0.5, 0.8, 1]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
@@ -2090,6 +2102,17 @@ export default function Profile() {
 
         {/* ── PROFILE INFO CARD ── */}
         <View style={styles.infoCard}>
+          <View style={styles.infoCardBackdrop} pointerEvents="none">
+            <LinearGradient
+              colors={["rgba(255,255,255,0.94)", "rgba(255,236,248,0.82)", "rgba(237,228,255,0.88)"]}
+              locations={[0, 0.55, 1]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.infoCardFill}
+            />
+            <View style={styles.infoCardOrbPink} />
+            <View style={styles.infoCardOrbPurple} />
+          </View>
 
           {/* Top section: avatar left + name/id/badges right */}
           <View style={styles.profileTopSection}>
@@ -2104,10 +2127,10 @@ export default function Profile() {
                 wrapperStyle={styles.profilePicFrameWrap}
                 {...(decorations.frameUrl
                   ? {
-                      frameResizeMode: "contain",
-                    }
+                    frameResizeMode: "contain",
+                  }
                   : vipAssets.profileFrame
-                  ? {
+                    ? {
                       frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                       frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                       frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX - 2,
@@ -2116,7 +2139,7 @@ export default function Profile() {
                       innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
                       avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                     }
-                  : {})}
+                    : {})}
               />
             </View>
 
@@ -2134,19 +2157,31 @@ export default function Profile() {
                   {name}
                 </Text>
                 <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={handleOpenEditProfile}>
-                  <FontAwesome name="pencil" size={13} color="#7c3aed" />
-                  <Text style={styles.editText}>Edit</Text>
+                  <LinearGradient
+                    colors={["#a78bfa", "#7c4dff"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.editBtnGrad}
+                  >
+                    <FontAwesome name="pencil" size={12} color="white" />
+                  </LinearGradient>
                 </TouchableOpacity>
               </View>
 
               {/* Row 2: ID + gender symbol right next to it */}
               <View style={styles.idRow}>
-                <Text allowFontScaling={false} style={styles.userId}>ID: {userId ?? "—"}</Text>
+                <View style={styles.idPill}>
+                  <Text allowFontScaling={false} style={styles.userId}>ID {userId ?? "—"}</Text>
+                </View>
                 {userGender === "Male" && (
-                  <Text style={styles.genderSymbolMale}>♂</Text>
+                  <View style={styles.genderPillMale}>
+                    <Text style={styles.genderSymbolMale}>♂</Text>
+                  </View>
                 )}
                 {userGender === "Female" && (
-                  <Text style={styles.genderSymbolFemale}>♀</Text>
+                  <View style={styles.genderPillFemale}>
+                    <Text style={styles.genderSymbolFemale}>♀</Text>
+                  </View>
                 )}
               </View>
 
@@ -2172,41 +2207,36 @@ export default function Profile() {
             </View>
           </View>
 
-          {/* Divider */}
-          <View style={styles.cardDivider} />
-
           {/* Stats row */}
           <View style={styles.statsRow}>
             {statsLoading ? (
               <ActivityIndicator color="#a78bfa" style={{ paddingVertical: 8 }} />
             ) : (
               <>
-            <TouchableOpacity
-              style={styles.statItem}
-              activeOpacity={0.75}
-              onPress={() => setConnectionsListType("following")}
-            >
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{following.toLocaleString()}</Text>
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Following</Text>
-            </TouchableOpacity>
-            <View style={styles.statDivider} />
-            <TouchableOpacity
-              style={styles.statItem}
-              activeOpacity={0.75}
-              onPress={() => setConnectionsListType("followers")}
-            >
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{followers.toLocaleString()}</Text>
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Followers</Text>
-            </TouchableOpacity>
-            <View style={styles.statDivider} />
-            <TouchableOpacity
-              style={styles.statItem}
-              activeOpacity={0.75}
-              onPress={() => setConnectionsListType("visitors")}
-            >
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{visitorCount.toLocaleString()}</Text>
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Visitor</Text>
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.statItem}
+                  activeOpacity={0.75}
+                  onPress={() => setConnectionsListType("following")}
+                >
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{following.toLocaleString()}</Text>
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Following</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.statItem}
+                  activeOpacity={0.75}
+                  onPress={() => setConnectionsListType("followers")}
+                >
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{followers.toLocaleString()}</Text>
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Followers</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.statItem, styles.statItemLast]}
+                  activeOpacity={0.75}
+                  onPress={() => setConnectionsListType("visitors")}
+                >
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{visitorCount.toLocaleString()}</Text>
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Visitor</Text>
+                </TouchableOpacity>
               </>
             )}
           </View>
@@ -2214,6 +2244,25 @@ export default function Profile() {
 
         {/* ── MENU GRID (sliding pages) ── */}
         <View style={styles.menuSection}>
+          <LinearGradient
+            colors={["rgba(255,255,255,0.96)", "rgba(247,240,255,0.9)", "rgba(255,236,248,0.88)"]}
+            locations={[0, 0.55, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.menuSectionFill}
+          />
+          <LinearGradient
+            colors={["rgba(61,26,110,0.14)", "transparent"]}
+            style={styles.menuInnerShadowTop}
+            pointerEvents="none"
+          />
+          <LinearGradient
+            colors={["transparent", "rgba(61,26,110,0.12)"]}
+            style={styles.menuInnerShadowBottom}
+            pointerEvents="none"
+          />
+          <View style={styles.menuInnerHighlight} pointerEvents="none" />
+
           <Text style={styles.menuTitle}>Menu</Text>
           <ScrollView
             horizontal
@@ -2226,32 +2275,19 @@ export default function Profile() {
           >
             {menuPages.map((page, pageIndex) => (
               <View key={pageIndex} style={styles.menuPage}>
-                {/* Row 1 — items 0-3 */}
                 <View style={styles.menuRow}>
                   {page.slice(0, 4).map((item) => (
-                    <TouchableOpacity key={item.label} style={styles.menuGridItem} activeOpacity={0.7} onPress={() => setActiveMenu(item)}>
-                      <View style={styles.menuIconBox}>
-                        <FontAwesome5 name={item.icon} size={22} color="#a78bfa" solid />
-                      </View>
-                      <Text style={styles.menuGridLabel}>{item.label}</Text>
-                    </TouchableOpacity>
+                    <MenuGridButton key={item.label} item={item} onPress={() => setActiveMenu(item)} />
                   ))}
                 </View>
-                {/* Row 2 — items 4-7 */}
                 <View style={styles.menuRow}>
                   {page.slice(4, 8).map((item) => (
-                    <TouchableOpacity key={item.label} style={styles.menuGridItem} activeOpacity={0.7} onPress={() => setActiveMenu(item)}>
-                      <View style={styles.menuIconBox}>
-                        <FontAwesome5 name={item.icon} size={22} color="#a78bfa" solid />
-                      </View>
-                      <Text style={styles.menuGridLabel}>{item.label}</Text>
-                    </TouchableOpacity>
+                    <MenuGridButton key={item.label} item={item} onPress={() => setActiveMenu(item)} />
                   ))}
                 </View>
               </View>
             ))}
           </ScrollView>
-          {/* Page dots */}
           <View style={styles.menuDots}>
             {menuPages.map((_, i) => (
               <View key={i} style={[styles.menuDot, menuPage === i && styles.menuDotActive]} />
@@ -2261,26 +2297,57 @@ export default function Profile() {
 
         {/* ── BOTTOM TABS ── */}
         <View style={styles.bottomTabsBar}>
-          {BOTTOM_TABS.map((tab) => (
-            <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)} style={styles.bottomTabItem}>
-              <Text style={[styles.bottomTabText, activeTab === tab && styles.bottomTabActive]}>{tab}</Text>
-              {activeTab === tab && <View style={styles.bottomTabUnderline} />}
-            </TouchableOpacity>
-          ))}
+          {BOTTOM_TABS.map((tab) => {
+            const isActive = activeTab === tab;
+            return (
+              <Pressable
+                key={tab}
+                onPress={() => setActiveTab(tab)}
+                style={styles.bottomTabItem}
+              >
+                {({ pressed }) => (
+                  <View style={[styles.bottomTabInner, pressed && styles.bottomTabInnerPressed]}>
+                    <Text
+                      style={[
+                        styles.bottomTabText,
+                        isActive && styles.bottomTabActive,
+                        pressed && styles.bottomTabTextPressed,
+                      ]}
+                    >
+                      {tab}
+                    </Text>
+                    {(isActive || pressed) && (
+                      <View
+                        style={[
+                          styles.bottomTabUnderline,
+                          !isActive && pressed && styles.bottomTabUnderlinePressed,
+                        ]}
+                      />
+                    )}
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* ── MOMENT CONTENT ── */}
         {activeTab === "Moment" && (
           <View style={styles.momentSection}>
-            <TouchableOpacity style={styles.shareCard} activeOpacity={0.85}>
+            <View style={styles.shareCard}>
               <View style={styles.shareCardText}>
                 <Text style={styles.shareCardTitle}>Share your moment today</Text>
                 <Text style={styles.shareCardSub}>Your stories would gain more likes and friends.</Text>
               </View>
-              <View style={styles.shareCardBtn}>
+              <Pressable
+                onPress={() =>
+                  router.navigate({ pathname: "/home", params: { createPost: "1" } })
+                }
+                style={styles.shareCardBtn}
+              >
                 <FontAwesome name="send" size={20} color="white" />
-              </View>
-            </TouchableOpacity>
+              </Pressable>
+            </View>
 
             {myPostsLoading ? (
               <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
@@ -2302,10 +2369,10 @@ export default function Profile() {
                         wrapperStyle={styles.momentPostAuthorAvatarWrap}
                         {...(decorations.frameUrl
                           ? {
-                              frameResizeMode: "contain",
-                            }
+                            frameResizeMode: "contain",
+                          }
                           : vipAssets.profileFrame
-                          ? {
+                            ? {
                               frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                               frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                               frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
@@ -2314,7 +2381,7 @@ export default function Profile() {
                               innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
                               avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                             }
-                          : {})}
+                            : {})}
                       />
                       <View style={styles.momentPostAuthorInfo}>
                         <Text style={styles.momentPostTitle}>{name}</Text>
@@ -2330,7 +2397,7 @@ export default function Profile() {
                       onPress={() => handleOpenEditPost(post)}
                       activeOpacity={0.8}
                     >
-                      <FontAwesome name="pencil" size={12} color="#c4b5fd" />
+                      <FontAwesome name="pencil" size={12} color={APP_PURPLE} />
                       <Text style={styles.momentPostEditText}>Edit</Text>
                     </TouchableOpacity>
                   </View>
@@ -2436,24 +2503,24 @@ export default function Profile() {
                 const giftName = item?.gift?.name ?? item?.giftName ?? item?.name ?? "Gift";
                 const quantity = Number(item?.quantity) || 1;
                 return (
-                <View key={String(item?.transactionId ?? item?.id ?? idx)} style={styles.giftItemRow}>
-                  {giftImageUrl ? (
-                    <Image source={resolveImageSource(giftImageUrl)} style={styles.giftItemImage} />
-                  ) : (
-                    <View style={[styles.giftItemImage, styles.giftItemImageFallback]}>
-                      <Text style={{ fontSize: 20 }}>{item?.gift?.emoji ?? "🎁"}</Text>
-                    </View>
-                  )}
-                  <Text style={styles.giftItemName}>
-                    {giftName}
-                    {quantity > 1 ? ` ×${quantity}` : ""}
-                  </Text>
-                  <Text style={styles.giftItemMeta}>
-                    {giftTab === "Receive"
-                      ? (item?.senderName ?? (item?.fromUserId ? `User ${item.fromUserId}` : "Someone"))
-                      : (item?.receiverName ?? (item?.toUserId ? `User ${item.toUserId}` : "Someone"))}
-                  </Text>
-                </View>
+                  <View key={String(item?.transactionId ?? item?.id ?? idx)} style={styles.giftItemRow}>
+                    {giftImageUrl ? (
+                      <Image source={resolveImageSource(giftImageUrl)} style={styles.giftItemImage} />
+                    ) : (
+                      <View style={[styles.giftItemImage, styles.giftItemImageFallback]}>
+                        <Text style={{ fontSize: 20 }}>{item?.gift?.emoji ?? "🎁"}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.giftItemName}>
+                      {giftName}
+                      {quantity > 1 ? ` ×${quantity}` : ""}
+                    </Text>
+                    <Text style={styles.giftItemMeta}>
+                      {giftTab === "Receive"
+                        ? (item?.senderName ?? (item?.fromUserId ? `User ${item.fromUserId}` : "Someone"))
+                        : (item?.receiverName ?? (item?.toUserId ? `User ${item.toUserId}` : "Someone"))}
+                    </Text>
+                  </View>
                 );
               })
             )}
@@ -2463,8 +2530,8 @@ export default function Profile() {
       </ScrollView>
       {/* ── MENU DETAIL MODAL (full screen) ── */}
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
-        <View style={[styles.mmPanel, { paddingBottom: insets.bottom }]}>
-          <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+        <View style={[styles.mmPanel, { paddingBottom: insets.bottom, backgroundColor: activeMenu?.label === "Task" ? "#ffffff" : undefined }]}>
+          {activeMenu?.label !== "Task" && <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />}
           {/* Header — Premium renders its own custom header instead */}
           {activeMenu?.label !== "Premium" && (
             <>
@@ -2472,12 +2539,12 @@ export default function Profile() {
                 <View style={styles.mmHeaderIcon}>
                   <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
                 </View>
-                <Text style={styles.mmHeaderTitle}>{activeMenu?.label}</Text>
+                <Text style={[styles.mmHeaderTitle, activeMenu?.label === "Task" && { color: "#1e293b" }]}>{activeMenu?.label}</Text>
                 <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
-                  <Ionicons name="close" size={20} color="white" />
+                  <Ionicons name="close" size={20} color={activeMenu?.label === "Task" ? "#1e293b" : "white"} />
                 </TouchableOpacity>
               </View>
-              <View style={styles.mmDivider} />
+              <View style={[styles.mmDivider, activeMenu?.label === "Task" && { backgroundColor: "#f1f5f9" }]} />
             </>
           )}
           {/* Dynamic content */}
@@ -2493,6 +2560,44 @@ export default function Profile() {
           loadConnectionStats();
         }}
       />
+
+      {/* ── TASK REWARD CLAIMED MODAL ── */}
+      <Modal
+        visible={Boolean(claimedTaskRewardModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClaimedTaskRewardModal(null)}
+      >
+        <View style={styles.taskRewardModalOverlay}>
+          <View style={styles.taskRewardModalContainer}>
+            <Image
+              source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/Rechargebonus/Popupheader/Diamondpop.png" }}
+              style={styles.taskRewardModalImg}
+              resizeMode="contain"
+            />
+            <Text style={styles.taskRewardModalTitle}>Reward claimed!</Text>
+            <Text style={styles.taskRewardModalSub}>
+              You earned <Text style={{ fontWeight: 'bold', color: '#fff' }}>{claimedTaskRewardModal?.reward} 💎</Text> for "{claimedTaskRewardModal?.label}".
+            </Text>
+
+            <View style={styles.taskRewardModalCard}>
+              <LinearGradient colors={["#4a1cff", "#8e2de2"]} style={styles.taskRewardModalCardIconBg}>
+                <Image source={{ uri: DIAMOND_ICON_URL }} style={styles.taskRewardModalCardIcon} resizeMode="contain" />
+              </LinearGradient>
+              <View style={styles.taskRewardModalCardText}>
+                <Text style={styles.taskRewardModalCardVal}>+{claimedTaskRewardModal?.reward}</Text>
+                <Text style={styles.taskRewardModalCardLabel}>Diamonds</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity activeOpacity={0.8} onPress={() => setClaimedTaskRewardModal(null)} style={{ width: '100%' }}>
+              <LinearGradient colors={["#e052ff", "#4a1cff"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.taskRewardModalBtn}>
+                <Text style={styles.taskRewardModalBtnText}>OK</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <DiamondRechargeModal
         visible={diamondRechargeVisible}
@@ -2622,42 +2727,10 @@ export default function Profile() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0d0618",
-  },
-  lavenderBg: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#0d0618",
+    backgroundColor: "transparent",
   },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 24 },
-
-  // Background orbs
-  orbPink: {
-    position: "absolute",
-    width: 300,
-    height: 300,
-    top: -80,
-    left: -80,
-    borderRadius: 150,
-    backgroundColor: "rgba(255,0,128,0.15)",
-    shadowColor: "#ff0080",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 80,
-  },
-  orbPurple: {
-    position: "absolute",
-    width: 350,
-    height: 350,
-    bottom: -120,
-    right: -120,
-    borderRadius: 175,
-    backgroundColor: "rgba(138,43,226,0.18)",
-    shadowColor: "#8a2be2",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 80,
-  },
 
   // Top bar
   topBar: {
@@ -2671,14 +2744,14 @@ const styles = StyleSheet.create({
   counterPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: APP_CARD,
     borderRadius: 20,
     paddingVertical: 6,
-    paddingLeft: 6,
+    paddingLeft: 8,
     paddingRight: 4,
     gap: 6,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderColor: APP_CARD_BORDER,
   },
   counterIconWrap: {
     width: 28,
@@ -2692,10 +2765,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(251,191,36,0.2)",
   },
   counterEmoji: { fontSize: 15 },
+  counterDiamondIcon: { width: 30, height: 30 },
   counterValue: {
     fontSize: 15,
     fontWeight: "700",
-    color: "white",
+    color: APP_TEXT,
     minWidth: 14,
     textAlign: "center",
   },
@@ -2711,9 +2785,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: APP_CARD,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderColor: APP_CARD_BORDER,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2779,19 +2853,48 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 14,
     marginTop: -160,
-    backgroundColor: "rgba(56, 40, 66, 0.08)",
-    borderRadius: 20,
+    borderRadius: 26,
     padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    elevation: 1,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.85)",
+    shadowColor: "#8a2be2",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    elevation: 10,
     zIndex: 10,
+  },
+  infoCardBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 26,
+    overflow: "hidden",
+  },
+  infoCardFill: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  infoCardOrbPink: {
+    position: "absolute",
+    width: 140,
+    height: 140,
+    top: -50,
+    right: -30,
+    borderRadius: 70,
+    backgroundColor: "rgba(255,0,128,0.1)",
+  },
+  infoCardOrbPurple: {
+    position: "absolute",
+    width: 160,
+    height: 160,
+    bottom: -70,
+    left: -40,
+    borderRadius: 80,
+    backgroundColor: "rgba(124,77,255,0.1)",
   },
   profileTopSection: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 14,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   profilePicWrapper: {
     alignItems: "center",
@@ -2807,11 +2910,11 @@ const styles = StyleSheet.create({
     height: s(56),
     borderRadius: s(28),
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.35)",
+    borderColor: "rgba(255,255,255,0.9)",
   },
   profileInfoCol: {
     flex: 1,
-    gap: 2,
+    gap: 6,
   },
   profilePicRow: {}, // legacy — unused
   nameRow: {
@@ -2822,43 +2925,73 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: ms(18),
     fontWeight: "800",
-    color: "white",
+    color: APP_TEXT,
     flex: 1,
     marginRight: 8,
   },
   editBtn: {
-    flexDirection: "row",
+    borderRadius: 16,
+    overflow: "hidden",
+    shadowColor: APP_PURPLE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  editBtnGrad: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(124,77,255,0.3)",
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: 1,
-    borderColor: "rgba(124,77,255,0.4)",
+    justifyContent: "center",
   },
   editText: {
-    color: "#c4b5fd",
+    color: APP_PURPLE,
     fontSize: 12,
     fontWeight: "600",
   },
   idRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 6,
+  },
+  idPill: {
+    backgroundColor: "rgba(255,255,255,0.7)",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.12)",
   },
   userId: {
-    color: "rgba(255,255,255,0.75)",
+    color: APP_TEXT_MUTED,
     fontSize: ms(12),
+    fontWeight: "600",
+  },
+  genderPillMale: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(74,127,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  genderPillFemale: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(255,74,170,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   genderSymbolMale: {
     color: "#4a7fff",
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: "900",
   },
   genderSymbolFemale: {
     color: "#ff4aaa",
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: "900",
   },
   profileLevelWrap: {
@@ -2872,40 +3005,45 @@ const styles = StyleSheet.create({
     // instead of overflowing past the info card's edge.
     maxWidth: "100%",
   },
-  cardDivider: {
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    marginBottom: 14,
-  },
   statsRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
+    alignItems: "stretch",
+    gap: 8,
   },
   statItem: {
     alignItems: "center",
+    justifyContent: "center",
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    backgroundColor: "rgba(255,255,255,0.62)",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.8)",
+  },
+  statItemLast: {
+    backgroundColor: "rgba(255,236,248,0.7)",
   },
   statValue: {
     fontSize: 18,
     fontWeight: "800",
-    color: "white",
+    color: APP_TEXT,
     width: "100%",
     textAlign: "center",
   },
   statLabel: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.5)",
+    fontSize: 11,
+    color: APP_TEXT_MUTED,
     marginTop: 2,
     width: "100%",
     textAlign: "center",
+    fontWeight: "600",
   },
   statDivider: {
     width: 1,
     height: 32,
-    backgroundColor: "rgba(255,255,255,0.15)",
+    backgroundColor: "rgba(124,77,255,0.15)",
   },
 
   // Menu card (legacy)
@@ -2944,15 +3082,45 @@ const styles = StyleSheet.create({
   menuSection: {
     marginHorizontal: 16,
     marginBottom: 14,
-    backgroundColor: "rgba(255,255,255,0.07)",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.85)",
     paddingTop: 16,
     paddingBottom: 10,
+    overflow: "hidden",
+    shadowColor: "#3d1a6e",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  menuSectionFill: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  menuInnerShadowTop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 18,
+  },
+  menuInnerShadowBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 22,
+  },
+  menuInnerHighlight: {
+    position: "absolute",
+    top: 1,
+    left: 10,
+    right: 10,
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.85)",
   },
   menuTitle: {
-    color: "white",
+    color: APP_TEXT,
     fontSize: 17,
     fontWeight: "800",
     paddingHorizontal: 16,
@@ -2994,16 +3162,41 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 8,
   },
+  menuGridItemPressed: {
+    transform: [{ scale: 0.92 }],
+  },
   menuIconBox: {
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: "rgba(167,139,250,0.15)",
+    backgroundColor: "rgba(255,255,255,0.72)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 6,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderWidth: 1.5,
+    borderColor: "#3d1a6e",
+    overflow: "hidden",
+    shadowColor: "#3d1a6e",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  menuIconInnerShine: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 18,
+    backgroundColor: "rgba(255,255,255,0.55)",
+  },
+  menuIconBoxPressed: {
+    backgroundColor: "rgba(124,77,255,0.22)",
+    borderColor: "#5b21b6",
+    shadowColor: "#7c4dff",
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
   },
   comingSoonPanel: {
     flex: 1,
@@ -3023,13 +3216,17 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#ff3f72",
     borderWidth: 1.5,
-    borderColor: "#0d0618",
+    borderColor: APP_BG,
   },
   menuGridLabel: {
-    color: "rgba(255,255,255,0.8)",
+    color: APP_TEXT,
     fontSize: 11,
     textAlign: "center",
-    fontWeight: "500",
+    fontWeight: "600",
+  },
+  menuGridLabelPressed: {
+    color: "#5b21b6",
+    fontWeight: "800",
   },
   menuDots: {
     flexDirection: "row",
@@ -3041,7 +3238,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(26,26,46,0.2)",
   },
   menuDotActive: {
     width: 20,
@@ -3051,31 +3248,45 @@ const styles = StyleSheet.create({
   // Bottom tabs
   bottomTabsBar: {
     flexDirection: "row",
+    alignItems: "flex-end",
     marginHorizontal: 16,
     marginBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.1)",
+    borderBottomColor: "rgba(124,77,255,0.12)",
   },
   bottomTabItem: {
     paddingVertical: 10,
     paddingHorizontal: 14,
     alignItems: "center",
   },
+  bottomTabInner: {
+    alignItems: "center",
+  },
+  bottomTabInnerPressed: {
+    transform: [{ scale: 0.96 }],
+  },
   bottomTabText: {
-    color: "rgba(255,255,255,0.4)",
+    color: APP_TEXT_DIM,
     fontSize: 15,
     fontWeight: "600",
   },
   bottomTabActive: {
-    color: "white",
+    color: APP_TEXT,
+    fontWeight: "800",
+  },
+  bottomTabTextPressed: {
+    color: "#5b21b6",
     fontWeight: "800",
   },
   bottomTabUnderline: {
     height: 3,
-    width: "100%",
+    alignSelf: "stretch",
     backgroundColor: "#7c4dff",
     borderRadius: 2,
     marginTop: 6,
+  },
+  bottomTabUnderlinePressed: {
+    backgroundColor: "rgba(124,77,255,0.45)",
   },
 
   // Moment section
@@ -3095,13 +3306,13 @@ const styles = StyleSheet.create({
   },
   shareCardText: { flex: 1 },
   shareCardTitle: {
-    color: "#c4b5fd",
+    color: APP_TEXT,
     fontSize: 15,
     fontWeight: "700",
     marginBottom: 4,
   },
   shareCardSub: {
-    color: "rgba(255,255,255,0.5)",
+    color: APP_TEXT_MUTED,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -3120,15 +3331,15 @@ const styles = StyleSheet.create({
   },
   emptyEmoji: { fontSize: 48 },
   emptyText: {
-    color: "rgba(255,255,255,0.35)",
+    color: APP_TEXT_DIM,
     fontSize: 14,
   },
   momentPostCard: {
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: "rgba(255,255,255,0.72)",
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
+    borderColor: APP_CARD_BORDER,
     gap: 10,
   },
   momentPostHeader: {
@@ -3150,7 +3361,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   momentPostTitle: {
-    color: "#c4b5fd",
+    color: APP_TEXT,
     fontSize: 13,
     fontWeight: "700",
   },
@@ -3168,17 +3379,17 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(124,77,255,0.18)",
   },
   momentPostEditText: {
-    color: "#c4b5fd",
+    color: APP_PURPLE,
     fontSize: 12,
     fontWeight: "700",
   },
   momentPostText: {
-    color: "rgba(255,255,255,0.9)",
+    color: APP_TEXT,
     fontSize: 14,
     lineHeight: 20,
   },
   momentPostTextMuted: {
-    color: "rgba(255,255,255,0.35)",
+    color: APP_TEXT_DIM,
     fontSize: 13,
     fontStyle: "italic",
   },
@@ -3201,7 +3412,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   momentPostMeta: {
-    color: "rgba(255,255,255,0.55)",
+    color: APP_TEXT_MUTED,
     fontSize: 12,
   },
   postEditInput: {
@@ -3484,7 +3695,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
+    borderBottomColor: "#e2e8f0",
     gap: 12,
   },
   mmTaskCheck: {
@@ -3973,7 +4184,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   giftHeaderTitle: {
-    color: "white",
+    color: APP_TEXT,
     fontSize: 17,
     fontWeight: "800",
   },
@@ -3989,7 +4200,7 @@ const styles = StyleSheet.create({
   },
   giftSlider: {
     flexDirection: "row",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: APP_CARD,
     borderRadius: 14,
     padding: 4,
     marginBottom: 16,
@@ -4004,7 +4215,7 @@ const styles = StyleSheet.create({
   },
   giftSliderBtnActive: {},
   giftSliderBtnText: {
-    color: "rgba(255,255,255,0.45)",
+    color: APP_TEXT_MUTED,
     fontSize: 14,
     fontWeight: "600",
   },
@@ -4019,7 +4230,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
+    borderBottomColor: "rgba(124,77,255,0.08)",
   },
   giftItemImage: {
     width: 40,
@@ -4033,13 +4244,94 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   giftItemName: {
-    color: "white",
+    color: APP_TEXT,
     fontSize: 14,
     fontWeight: "700",
     flex: 1,
   },
   giftItemMeta: {
-    color: "rgba(255,255,255,0.45)",
+    color: APP_TEXT_MUTED,
     fontSize: 12,
+  },
+  taskRewardModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  taskRewardModalContainer: {
+    width: "85%",
+    backgroundColor: "#1e1b38",
+    borderRadius: 24,
+    paddingStart: 24,
+    paddingEnd: 24,
+    paddingBottom: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  taskRewardModalImg: {
+    width: "100%",
+    height: 100,
+    alignSelf: "center",
+  },
+  taskRewardModalTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "bold",
+    marginBottom: 8,
+    marginTop: 20,
+  },
+  taskRewardModalSub: {
+    color: "#a3a3c2",
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  taskRewardModalCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16,
+    padding: 12,
+    width: "100%",
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  taskRewardModalCardIconBg: {
+    width: 45,
+    height: 45,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  taskRewardModalCardIcon: {
+    width: 28,
+    height: 28,
+  },
+  taskRewardModalCardText: {
+    flex: 1,
+  },
+  taskRewardModalCardVal: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  taskRewardModalCardLabel: {
+    color: "#a3a3c2",
+    fontSize: 12,
+  },
+  taskRewardModalBtn: {
+    width: "100%",
+    borderRadius: 100,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  taskRewardModalBtnText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });

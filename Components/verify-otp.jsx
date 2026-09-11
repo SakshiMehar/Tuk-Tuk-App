@@ -1,27 +1,27 @@
-import { useState, useRef } from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { ArrowLeft } from "lucide-react-native";
+import { useRef, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  StatusBar,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  StatusBar,
-  Alert,
-  ActivityIndicator,
+  View,
 } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
-import { ArrowLeft } from "lucide-react-native";
 import { verifyPhoneOtpAndLogin } from "../src/services/firebasePhoneService";
-import { s, vs, ms } from "../src/utils/responsive";
+import { ms, s, vs } from "../src/utils/responsive";
 
 export default function VerifyOtp() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const phone = Array.isArray(params.phone) ? params.phone[0] : params.phone;
 
-  const [otp, setOtp]             = useState(["", "", "", "", "", ""]);
-  const [loading, setLoading]     = useState(false);
+  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [loading, setLoading] = useState(false);
   const inputs = useRef([]);
 
   const handleChange = (val, idx) => {
@@ -49,20 +49,29 @@ export default function VerifyOtp() {
       await verifyPhoneOtpAndLogin(code);
       router.replace("/(tabs)/home");
     } catch (err) {
-      Alert.alert("Verification Failed", err?.message || "Invalid OTP. Please try again.");
+      Alert.alert(
+        "Verification Failed",
+        err?.message || "Invalid OTP. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handleResend = async () => {
-    Alert.alert("Resend OTP", "Please go back and enter your number again to resend the code.");
+    Alert.alert(
+      "Resend OTP",
+      "Please go back and enter your number again to resend the code.",
+    );
   };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#070616" />
-      <LinearGradient colors={["#070616", "#110d2f", "#150f3d"]} style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        colors={["#070616", "#110d2f", "#150f3d"]}
+        style={StyleSheet.absoluteFill}
+      />
       <View style={styles.orbPink} />
       <View style={styles.orbPurple} />
 
@@ -109,9 +118,11 @@ export default function VerifyOtp() {
             end={{ x: 1, y: 0 }}
             style={styles.verifyBtnGradient}
           >
-            {loading
-              ? <ActivityIndicator color="white" />
-              : <Text style={styles.verifyBtnText}>Verify & Continue</Text>}
+            {loading ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.verifyBtnText}>Verify & Continue</Text>
+            )}
           </LinearGradient>
         </TouchableOpacity>
 
@@ -129,33 +140,78 @@ export default function VerifyOtp() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#070616" },
   orbPink: {
-    position: "absolute", width: s(280), height: s(280), top: vs(-60), left: s(-60),
-    borderRadius: s(140), backgroundColor: "rgba(255,77,166,0.18)",
+    position: "absolute",
+    width: s(280),
+    height: s(280),
+    top: vs(-60),
+    left: s(-60),
+    borderRadius: s(140),
+    backgroundColor: "rgba(255,77,166,0.18)",
   },
   orbPurple: {
-    position: "absolute", width: s(300), height: s(300), bottom: vs(80), right: s(-80),
-    borderRadius: s(150), backgroundColor: "rgba(132,66,255,0.16)",
+    position: "absolute",
+    width: s(300),
+    height: s(300),
+    bottom: vs(80),
+    right: s(-80),
+    borderRadius: s(150),
+    backgroundColor: "rgba(132,66,255,0.16)",
   },
-  header: { paddingTop: vs(52), paddingHorizontal: s(16), paddingBottom: vs(8) },
+  header: {
+    paddingTop: vs(52),
+    paddingHorizontal: s(16),
+    paddingBottom: vs(8),
+  },
   backBtn: {
-    width: s(36), height: s(36), borderRadius: s(18),
+    width: s(36),
+    height: s(36),
+    borderRadius: s(18),
     backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   body: { flex: 1, paddingHorizontal: s(24), paddingTop: vs(32) },
-  title: { color: "white", fontSize: ms(28), fontWeight: "800", marginBottom: vs(10) },
-  subtitle: { color: "rgba(255,255,255,0.6)", fontSize: ms(14), lineHeight: ms(22), marginBottom: vs(36) },
-  phoneHighlight: { color: "#ff69b4", fontWeight: "700" },
-  otpRow: { flexDirection: "row", gap: s(10), marginBottom: vs(32), justifyContent: "center" },
-  otpBox: {
-    width: s(48), height: vs(56), borderRadius: s(14),
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
-    color: "white", fontSize: ms(22), fontWeight: "700",
+  title: {
+    color: "white",
+    fontSize: ms(28),
+    fontWeight: "800",
+    marginBottom: vs(10),
   },
-  otpBoxFilled: { borderColor: "#ff4ea3", backgroundColor: "rgba(255,78,163,0.12)" },
+  subtitle: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: ms(14),
+    lineHeight: ms(22),
+    marginBottom: vs(36),
+  },
+  phoneHighlight: { color: "#ff69b4", fontWeight: "700" },
+  otpRow: {
+    flexDirection: "row",
+    gap: s(10),
+    marginBottom: vs(32),
+    justifyContent: "center",
+  },
+  otpBox: {
+    width: s(48),
+    height: vs(56),
+    borderRadius: s(14),
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+    color: "white",
+    fontSize: ms(22),
+    fontWeight: "700",
+  },
+  otpBoxFilled: {
+    borderColor: "#ff4ea3",
+    backgroundColor: "rgba(255,78,163,0.12)",
+  },
   verifyBtn: { borderRadius: s(14), overflow: "hidden", marginBottom: vs(20) },
-  verifyBtnGradient: { height: vs(54), alignItems: "center", justifyContent: "center", borderRadius: s(14) },
+  verifyBtnGradient: {
+    height: vs(54),
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: s(14),
+  },
   verifyBtnText: { color: "white", fontSize: ms(16), fontWeight: "700" },
   resendBtn: { alignItems: "center" },
   resendText: { color: "rgba(255,255,255,0.55)", fontSize: ms(13) },
