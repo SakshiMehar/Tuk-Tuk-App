@@ -31,8 +31,10 @@ import {
 } from "../src/services/relationshipService";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
+import AppBackground from "./AppBackground";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import { APP_BG } from "../src/constants/theme";
 
 const RECOMMEND_RING_COLORS = ["#333333", "#888888"];
 
@@ -106,37 +108,11 @@ const featureCards = [
 const CONTACT_MENU_ICON_SIZE = 28;
 
 const CONTACT_MENU_ITEMS = [
-  { id: "friends",   label: "Friends",   icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png",     iconBg: ["#1a2a6c", "#4a6cf7"], iconSize: 70 },
-  { id: "followers", label: "Followers", icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/follower.png", iconBg: ["#3a1080", "#7c4dff"], iconSize: 38 },
-  { id: "following", label: "Following", icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/people.png",   iconBg: ["#7c2d00", "#ff8c00"], iconSize: 90 },
-  { id: "family",    label: "Family",    icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/home.png",     iconBg: ["#064e3b", "#00c853"], iconSize: 40 },
+  { id: "friends",   label: "Friends",   icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png",     iconBg: ["#C5DCFF", "#FFD0E4"], iconSize: 80 },
+  { id: "followers", label: "Followers", icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/follower.png", iconBg: ["#E6F2FF", "#C5DCFF"], iconSize: 38 },
+  { id: "following", label: "Following", icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/people.png",   iconBg: ["#FFF3E8", "#FFE0C7"], iconSize: 100 },
+  { id: "family",    label: "Family",    icon: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/home.png",     iconBg: ["#FFEAF3", "#FFD0E4"], iconSize: 40 },
 ];
-
-const contactsData = {
-  friends: [
-    { id: "f1", name: "Amit yadav ji",    handle: "@amit_yadav",    avatar: "https://randomuser.me/api/portraits/men/11.jpg",    online: true,  verified: true  },
-    { id: "f2", name: "Priya Sharma",     handle: "@priya_s",       avatar: "https://randomuser.me/api/portraits/women/33.jpg",  online: true,  verified: false },
-    { id: "f3", name: "Raj Kumar",        handle: "@rajkumar99",    avatar: "https://randomuser.me/api/portraits/men/77.jpg",    online: false, verified: true  },
-    { id: "f4", name: "Sneha Patel",      handle: "@sneha_p",       avatar: "https://randomuser.me/api/portraits/women/88.jpg",  online: true,  verified: false },
-    { id: "f5", name: "DJ Badshah",       handle: "@djbadshah",     avatar: "https://randomuser.me/api/portraits/men/42.jpg",    online: false, verified: true  },
-    { id: "f6", name: "goopu thakor",     handle: "@goopu_t",       avatar: "https://randomuser.me/api/portraits/men/66.jpg",    online: true,  verified: true  },
-  ],
-  followers: [
-    { id: "fl1", name: "Sachin Verma",   handle: "@sachinv",       avatar: "https://randomuser.me/api/portraits/men/34.jpg",    online: true,  verified: false, followBack: false },
-    { id: "fl2", name: "Riya 🌸",        handle: "@riya_bloom",    avatar: "https://randomuser.me/api/portraits/women/22.jpg",  online: true,  verified: false, followBack: true  },
-    { id: "fl3", name: "Deep Singh",     handle: "@deepsingh",     avatar: "https://randomuser.me/api/portraits/men/67.jpg",    online: false, verified: true,  followBack: false },
-    { id: "fl4", name: "Kavya Nair",     handle: "@kavyanair",     avatar: "https://randomuser.me/api/portraits/women/44.jpg",  online: true,  verified: false, followBack: false },
-    { id: "fl5", name: "Arjun Mehta",    handle: "@arjunm",        avatar: "https://randomuser.me/api/portraits/men/21.jpg",    online: false, verified: false, followBack: true  },
-    { id: "fl6", name: "Simran Kaur",    handle: "@simran_k",      avatar: "https://randomuser.me/api/portraits/women/55.jpg",  online: true,  verified: true,  followBack: false },
-    { id: "fl7", name: "Rohit Sharma",   handle: "@rohit_s",       avatar: "https://randomuser.me/api/portraits/men/55.jpg",    online: false, verified: false, followBack: false },
-  ],
-  following: [
-    { id: "fw1", name: "Raj Kumar",      handle: "@rajkumar99",    avatar: "https://randomuser.me/api/portraits/men/77.jpg",    online: false, verified: true  },
-    { id: "fw2", name: "DJ Badshah",     handle: "@djbadshah",     avatar: "https://randomuser.me/api/portraits/men/42.jpg",    online: false, verified: true  },
-    { id: "fw3", name: "Amit yadav ji",  handle: "@amit_yadav",    avatar: "https://randomuser.me/api/portraits/men/11.jpg",    online: true,  verified: true  },
-    { id: "fw4", name: "Deep Singh",     handle: "@deepsingh",     avatar: "https://randomuser.me/api/portraits/men/67.jpg",    online: false, verified: true  },
-  ],
-};
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -229,7 +205,7 @@ export default function ChatTab() {
   useEffect(() => {
     if (
       activeTopTab === "Contacts" &&
-      (contactsPage === "followers" || contactsPage === "following" || !contactsPage)
+      (contactsPage === "friends" || contactsPage === "followers" || contactsPage === "following" || !contactsPage)
     ) {
       loadRelationshipLists();
     }
@@ -269,6 +245,12 @@ export default function ChatTab() {
     [followingList]
   );
 
+  // Mutual follows = friends. There is no dedicated friends endpoint.
+  const friendsList = useMemo(() => {
+    const followingIds = new Set(followingList.map((u) => String(u.userId ?? u.id)));
+    return followersList.filter((u) => followingIds.has(String(u.userId ?? u.id)));
+  }, [followersList, followingList]);
+
   const handleFeatureCardPress = (card) => {
     if (card.label === "Followers") setConnectionsModalType("followers");
     else if (card.label === "Visitors") setConnectionsModalType("visitors");
@@ -283,22 +265,25 @@ export default function ChatTab() {
       CONTACT_MENU_ITEMS.map((item) => ({
         ...item,
         count:
-          item.id === "followers"
-            ? followersList.length
-            : item.id === "following"
-              ? followingList.length
-              : null,
+          item.id === "friends"
+            ? friendsList.length
+            : item.id === "followers"
+              ? followersList.length
+              : item.id === "following"
+                ? followingList.length
+                : null,
       })),
-    [followersList.length, followingList.length]
+    [friendsList.length, followersList.length, followingList.length]
   );
 
   const getContactsForPage = useCallback(
     (page) => {
+      if (page === "friends") return friendsList;
       if (page === "followers") return followersList;
       if (page === "following") return followingList;
-      return (contactsData[page] || []).filter((u) => !isSameUser(u.id, myUserId));
+      return [];
     },
-    [followersList, followingList, myUserId]
+    [friendsList, followersList, followingList]
   );
 
   const handleFollowBack = async (user) => {
@@ -428,10 +413,8 @@ export default function ChatTab() {
 
   return (
     <View style={styles.root}>
-      {/* Background decorative orbs */}
-      <View style={styles.orbPink} />
-      <View style={styles.orbPurple} />
-      <StatusBar barStyle="dark-content" backgroundColor="white" />
+      <AppBackground />
+      <StatusBar barStyle="dark-content" backgroundColor={APP_BG} />
 
       {/* ── TOP HEADER ── */}
       <LinearGradient colors={["transparent", "transparent"]} style={styles.header}>
@@ -630,7 +613,7 @@ export default function ChatTab() {
             {/* Contact list */}
             {contactsPage !== "family" && (
             <View style={styles.contactList}>
-              {contactsLoading && (contactsPage === "followers" || contactsPage === "following") ? (
+              {contactsLoading && (contactsPage === "friends" || contactsPage === "followers" || contactsPage === "following") ? (
                 <View style={styles.chatsLoading}>
                   <ActivityIndicator size="small" color="#a78bfa" />
                   <Text style={styles.chatsLoadingText}>Loading...</Text>
@@ -922,27 +905,7 @@ export default function ChatTab() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "white",
-  },
-
-  // Decorative orbs (matching party screen)
-  orbPink: {
-    position: "absolute",
-    width: 300,
-    height: 300,
-    top: -80,
-    left: -80,
-    borderRadius: 150,
-    backgroundColor: "rgba(255,0,128,0.18)",
-  },
-  orbPurple: {
-    position: "absolute",
-    width: 350,
-    height: 350,
-    bottom: -120,
-    right: -120,
-    borderRadius: 175,
-    backgroundColor: "rgba(138,43,226,0.22)",
+    backgroundColor: "transparent",
   },
 
   // Header

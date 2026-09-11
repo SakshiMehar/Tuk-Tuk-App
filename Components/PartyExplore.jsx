@@ -41,9 +41,11 @@ import {
   searchPartyRooms,
 } from "../src/services/partyService";
 import { openUserChat } from "../src/utils/chatNavigation";
+import AppBackground from "./AppBackground";
 import ComingSoonModal from "./ComingSoonModal";
 import CreateRoomModal from "./CreateRoomModal";
 import LevelGateModal from "./LevelGateModal";
+import { APP_BG, APP_TEXT, APP_TEXT_MUTED, APP_TEXT_DIM } from "../src/constants/theme";
 import exploreData from "../src/data/partyExploreData.json";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
@@ -67,15 +69,15 @@ const PODIUM_STYLE = {
 };
 
 const THEME = {
-  bg: "white",
+  bg: APP_BG,
   header: ["transparent", "transparent"],
   card: "rgba(124,77,255,0.08)",
   cardBorder: "rgba(167,139,250,0.15)",
   purple: "#7c4dff",
   purpleLight: "#a78bfa",
-  text: "#1a1a2e",
-  textMuted: "#888",
-  textDim: "#aaa",
+  text: APP_TEXT,
+  textMuted: APP_TEXT_MUTED,
+  textDim: APP_TEXT_DIM,
   recommendRing: ["#333333", "#888888"],
 };
 
@@ -491,9 +493,7 @@ export default function PartyExplore() {
 
   return (
     <View style={styles.root}>
-      {/* Background decorative orbs */}
-      <View style={styles.orbPink} />
-      <View style={styles.orbPurple} />
+      <AppBackground />
       <StatusBar barStyle="dark-content" backgroundColor={THEME.bg} />
       <SafeAreaView style={styles.safe} edges={["top"]}>
         {/* ── TOP TABS + ACTIONS ── */}
@@ -942,7 +942,7 @@ export default function PartyExplore() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: THEME.bg,
+    backgroundColor: "transparent",
   },
   safe: {
     flex: 1,
@@ -1763,23 +1763,5 @@ const styles = StyleSheet.create({
     color: THEME.textDim,
     fontSize: 9,
     fontWeight: "600",
-  },
-  orbPink: {
-    position: "absolute",
-    width: 300,
-    height: 300,
-    top: -80,
-    left: -80,
-    borderRadius: 150,
-    backgroundColor: "rgba(255,0,128,0.18)",
-  },
-  orbPurple: {
-    position: "absolute",
-    width: 350,
-    height: 350,
-    bottom: -120,
-    right: -120,
-    borderRadius: 175,
-    backgroundColor: "rgba(138,43,226,0.22)",
   },
 });
