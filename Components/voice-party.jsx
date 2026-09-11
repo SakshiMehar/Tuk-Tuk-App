@@ -4440,6 +4440,7 @@ export default function VoiceParty() {
                 </Text>
 
                 <TouchableOpacity
+                  style={{ width: '100%', alignItems: 'center' }}
                   activeOpacity={0.8}
                   onPress={() => setClaimedRewardModal(null)}
                 >
@@ -6728,33 +6729,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   rewardModalOuter: {
-    width: "90%",
+    width: "75%",
     alignItems: "center",
-    marginTop: 50,
+    justifyContent: "center",
   },
   rewardModalHeaderImg: {
     position: "absolute",
-    top: -90,
-    width: "100%",
-    height: 180,
+    top: -70,
+    width: "110%",
+    height: 145,
     zIndex: 10,
+    elevation: 10,
+    alignSelf: "center",
   },
   rewardModalContainer: {
-    width: "90%",
-    borderRadius: 24,
+    width: "100%",
+    borderRadius: 20,
     alignItems: "center",
-    paddingTop: 65, // Increased padding to account for the overlapping image
-    overflow: "hidden",
+    paddingTop: 55,
+    paddingBottom: 20,
     elevation: 5,
   },
   rewardModalCloseIcon: {
     position: "absolute",
-    top: -80,
-    right: 10,
+    top: -60,
+    right: 0,
     zIndex: 100,
-    padding: 6,
+    padding: 5,
     backgroundColor: "rgba(0,0,0,0.3)",
-    borderRadius: 20,
+    borderRadius: 16,
   },
   rewardModalTitle: {
     color: "white",
@@ -6768,15 +6771,15 @@ const styles = StyleSheet.create({
   },
   rewardModalBody: {
     width: "100%",
-    padding: 24,
+    paddingHorizontal: 20,
     alignItems: "center",
-    marginTop: 20
+    marginTop: 10,
   },
   rewardModalGiftBox: {
-    width: 120,
-    height: 120,
+    width: 100,
+    height: 100,
     backgroundColor: "white",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1.5,
     borderColor: "#ffc107",
     alignItems: "center",
@@ -6787,13 +6790,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
+    marginTop: 20
   },
   rewardModalGiftImg: {
     width: "80%",
     height: "80%",
     position: "absolute",
     top: "10%",
-    left: "15%", // 10% is correct for 80% width!
+    left: "10%",
   },
   rewardModalGiftBadge: {
     position: "absolute",
@@ -6805,33 +6809,33 @@ const styles = StyleSheet.create({
   },
   rewardModalGiftLabel: {
     color: "#e64a19",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "bold",
-    marginBottom: 20,
+    marginBottom: 12,
   },
   rewardModalTips: {
     color: "#a0a0a0",
-    fontSize: 11,
+    fontSize: 10,
     textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 16,
   },
   rewardModalOkBtn: {
-    width: 300,
-    height: 50,
-    borderRadius: 28,
+    width: "100%",
+    height: 42,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#ff007a",
-    shadowOffset: { width: 0, height: 6 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
-    shadowRadius: 10,
+    shadowRadius: 8,
     elevation: 6,
     borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.4)",
   },
   rewardModalOkText: {
     color: "white",
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "bold",
     letterSpacing: 1,
   },
