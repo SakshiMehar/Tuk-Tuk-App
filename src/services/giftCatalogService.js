@@ -1,10 +1,11 @@
 import {
   buyGift as apiBuyGift,
+  getGiftCatalog,
   getPartyGiftCatalog,
   getGiftInventory,
   sendGiftInRoom,
 } from "../api/giftApi";
-import { sendRoomGift } from "../api/partyApi";
+import { sendDiamondRoomGift } from "../api/partyApi";
 
 const giftKeys = (gift) =>
   [gift?.giftCode, gift?.id, gift?.code, gift?.giftId, gift?.databaseId]
@@ -70,15 +71,21 @@ export const parseBuyResultInventory = (result, gift, boughtQty = 1) => {
   const row = result?.inventory ?? result?.item ?? result?.gift ?? null;
   if (row) return normalizeInventoryGift(row);
 
-  const qty = Number(result?.quantity ?? result?.qty ?? result?.inventoryQty);
+  const qty = Number(
+    result?.ownedQuantity ??
+      result?.quantity ??
+      result?.qty ??
+      result?.inventoryQty
+  );
   if (Number.isFinite(qty) && qty > 0) {
     return normalizeInventoryGift({ ...gift, quantity: qty });
   }
 
-  if (result?.success || result?.giftCode || result?.giftId) {
+  if (result?.success || result?.giftCode || result?.giftId || result?.giftName) {
+    const purchased = Math.max(1, Number(result?.quantityPurchased ?? boughtQty) || 1);
     return normalizeInventoryGift({
       ...gift,
-      quantity: Math.max(1, Number(boughtQty) || 1),
+      quantity: purchased,
     });
   }
 
@@ -100,25 +107,30 @@ const asList = (data) => {
   if (Array.isArray(data?.items)) return data.items;
   if (Array.isArray(data?.content)) return data.content;
   if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.gifts)) return data.gifts;
+  if (Array.isArray(data?.catalog)) return data.catalog;
   return [];
 };
+
+const isActiveGift = (item) => item?.active !== false;
 
 /** Map API catalog row → UI gift card shape */
 export const normalizeCatalogGift = (item) => {
   const giftCode = String(item?.id ?? item?.giftCode ?? item?.code ?? "");
-  const databaseId = Number(item?.databaseId);
+  const databaseId = Number(item?.databaseId ?? item?.giftId);
   return {
     id: giftCode,
     giftCode,
     databaseId: Number.isFinite(databaseId) && databaseId > 0 ? databaseId : null,
     name: item?.name ?? "Gift",
-    price: Number(item?.price ?? 0),
+    price: Number(item?.price ?? item?.unitPrice ?? 0),
     emoji: item?.emoji ?? "🎁",
     imageUrl: item?.imageUrl ?? null,
     videoUrl: item?.videoUrl ?? null,
     hot: Boolean(item?.hot),
     isNew: Boolean(item?.isNew ?? item?.new),
     vipLocked: Boolean(item?.vipLocked),
+    active: item?.active !== false,
     category: item?.category ?? null,
     subCategory: item?.subCategory ?? null,
   };
@@ -176,7 +188,7 @@ export const parsePartyGiftCatalog = (data) => {
   if (!data || typeof data !== "object") return catalog;
 
   PARTY_CATALOG_KEYS.forEach((key) => {
-    const items = asList(data[key]).map(normalizeCatalogGift);
+    const items = asList(data[key]).filter(isActiveGift).map(normalizeCatalogGift);
     if (key === "activity") {
       catalog.activity = items;
       catalog.activityByEvent = groupActivityGifts(items);
@@ -186,6 +198,15 @@ export const parsePartyGiftCatalog = (data) => {
   });
 
   return catalog;
+};
+
+/** GET /api/app/gifts/catalog — Gift tab (and other category lists) */
+export const loadGiftCatalog = async (category = "gift") => {
+  const data = await getGiftCatalog(category);
+  return asList(data)
+    .filter(isActiveGift)
+    .map(normalizeCatalogGift)
+    .filter((gift) => !category || !gift.category || gift.category === category);
 };
 
 /** GET /api/app/gifts/party/catalog — recommended party room catalog */
@@ -206,8 +227,8 @@ export const loadGiftInventory = async () => {
   return rows.map(normalizeInventoryGift).filter((item) => item.qty > 0);
 };
 
-export const buyGiftToBackpack = async ({ giftCode, quantity = 1 }) => {
-  const data = await apiBuyGift({ giftCode, quantity });
+export const buyGiftToBackpack = async ({ giftCode, giftId, quantity = 1 }) => {
+  const data = await apiBuyGift({ giftCode, giftId, quantity });
   return data;
 };
 
@@ -221,7 +242,7 @@ export const normalizeGiftAnimation = (payload, fallbackGift) => ({
   quantity: Math.max(1, Number(payload?.quantity ?? 1)),
 });
 
-/** Party room gift send — backpack uses /api/app/gifts/room/send, diamonds use sendRoomGift */
+/** Party room gift send — inventory uses /give|/room/send, diamonds use /rooms/{id}/gift */
 export const sendPartyRoomGift = async ({
   roomId,
   gift,
@@ -233,6 +254,7 @@ export const sendPartyRoomGift = async ({
   forceDiamondPay = false,
 }) => {
   const giftCode = String(gift?.giftCode ?? gift?.id ?? gift?.code ?? "");
+  const giftId = gift?.databaseId ?? gift?.giftId ?? null;
   const qty = Math.max(1, Number(quantity) || 1);
   const receiver = Number(receiverId);
   const unitPrice = Math.max(0, Number(gift?.price ?? 0));
@@ -240,7 +262,7 @@ export const sendPartyRoomGift = async ({
   const hasBackpackStock = ownedQty >= qty;
 
   if (!roomId) throw new Error("Room is not ready.");
-  if (!giftCode) throw new Error("Gift is missing.");
+  if (!giftCode && !giftId) throw new Error("Gift is missing.");
   if (!receiver) throw new Error("Choose who receives this gift.");
 
   if (hasBackpackStock && !forceDiamondPay) {
@@ -248,23 +270,18 @@ export const sendPartyRoomGift = async ({
       roomId: String(roomId),
       receiverId: receiver,
       giftCode,
+      giftId,
       quantity: qty,
     });
   }
 
-  const body = {
+  return sendDiamondRoomGift(String(roomId), {
     receiverId: receiver,
     giftCode,
     quantity: qty,
     senderName: String(senderName),
     diamondValue: unitPrice * qty,
-  };
-
-  if (animation) {
-    body.animation = String(animation);
-  }
-
-  return sendRoomGift(String(roomId), body);
+  });
 };
 
 /** Group activity catalog by subCategory for event tabs */

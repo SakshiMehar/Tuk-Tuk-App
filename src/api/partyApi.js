@@ -2,7 +2,13 @@
 // PARTY ROOM API — Voice & seat endpoints
 // ============================================================
 //
-// Toggle mute (user on a seat):
+// Join as spectator:
+//   POST /api/v1/tuktuk/rooms/{roomId}/join
+// Claim a mic seat (after join):
+//   POST /api/v1/tuktuk/rooms/{roomId}/seat/{seatNumber}/claim
+// Exit (also releases any claimed seat):
+//   POST /api/v1/tuktuk/rooms/{roomId}/exit
+//
 //   POST /api/v1/tuktuk/rooms/{roomId}/seat/{seatNumber}/toggle-mute?isMuted=true
 //   POST /api/v1/tuktuk/rooms/{roomId}/seat/{seatNumber}/toggle-mute?isMuted=false
 //
@@ -13,8 +19,8 @@
 // Auth: Authorization: Bearer <JWT>  |  Content-Type: application/json
 // ============================================================
 
-import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
 import { API_BASE_URL } from "../config/env";
+import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
 
 const LOG_TAG = "[PartyAPI]";
 
@@ -361,14 +367,34 @@ export const getPartyFamilies = async () => {
   return response.data;
 };
 
-/** POST /api/v1/tuktuk/rooms/{roomId}/sendRoomGift — party room gift (diamond pay / room broadcast) */
+/** POST /api/v1/tuktuk/rooms/{roomId}/gift — pay with diamonds, broadcast animation */
+export const sendDiamondRoomGift = async (roomId, body) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/gift`;
+  const payload = {
+    receiverId: Number(body?.receiverId),
+    giftCode: String(body?.giftCode ?? ""),
+    quantity: Math.max(1, Number(body?.quantity) || 1),
+    diamondValue: Number(body?.diamondValue ?? 0),
+    ...(body?.senderName ? { senderName: String(body.senderName) } : {}),
+  };
+  logRequest("POST", path, payload);
+  try {
+    const response = await API.post(path, payload, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/v1/tuktuk/rooms/{roomId}/sendRoomGift — send owned inventory gift in room */
 export const sendRoomGift = async (roomId, body) => {
   const path = `/api/v1/tuktuk/rooms/${roomId}/sendRoomGift`;
   const payload = {
     receiverId: Number(body?.receiverId),
     giftCode: String(body?.giftCode ?? body?.giftId ?? ""),
     quantity: Math.max(1, Number(body?.quantity) || 1),
-    ...(body?.diamondValue != null ? { diamondValue: Number(body.diamondValue) } : {}),
     ...(body?.senderName ? { senderName: String(body.senderName) } : {}),
     ...(body?.animation ? { animation: String(body.animation) } : {}),
   };
