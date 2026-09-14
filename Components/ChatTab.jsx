@@ -1,7 +1,7 @@
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { AlignJustify, Check, ChevronDown, Search, UserPlus, X } from "lucide-react-native";
+import { AlignJustify, Check, ChevronDown, Plus, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,15 +14,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { Search, Plus, X, Check, ChevronDown, AlignJustify } from "lucide-react-native";
-import { useRouter } from "expo-router";
-import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { getRecommendedUsers } from "../src/services/homeService";
 import { loadConversations } from "../src/services/chatService";
 import { loadFamilyDetail, loadFamilyLists } from "../src/services/familyService";
-import { getRecommendedUsers } from "../src/services/homeService";
-import { loadProfileStats } from "../src/services/profileStatsService";
 import {
   followUser,
   isSameUser,
@@ -31,8 +25,14 @@ import {
 } from "../src/services/relationshipService";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
+import { wsService } from "../src/services/websocket";
+import { openUserChat } from "../src/utils/chatNavigation";
+import { openUserProfile } from "../src/utils/profileNavigation";
 import AppBackground from "./AppBackground";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import ComingSoonModal from "./ComingSoonModal";
+import ProfileConnectionsModal from "./ProfileConnectionsModal";
+import FamilyChatModal from "./FamilyChatModal";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 import { APP_BG } from "../src/constants/theme";
 

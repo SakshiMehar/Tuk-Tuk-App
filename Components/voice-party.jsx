@@ -81,7 +81,6 @@ import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
 import { useWalletBalance } from "../src/hooks/useWalletBalance";
 import * as agoraVoice from "../src/services/agoraVoiceService";
 import { loadConversations } from "../src/services/chatService";
-import { fetchUserDecorations } from "../src/services/decorationsService";
 import {
   adjustInventoryQty,
   buyGiftToBackpack,
@@ -4380,7 +4379,7 @@ export default function VoiceParty() {
         frameSource={
           isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
-            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null)
+            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null
         }
         frameLayout={
           userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl
