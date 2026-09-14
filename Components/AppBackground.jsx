@@ -1,4 +1,4 @@
-import { View, StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { APP_BG, APP_ORB_PINK, APP_ORB_PURPLE } from "../src/constants/theme";
 
 export default function AppBackground() {

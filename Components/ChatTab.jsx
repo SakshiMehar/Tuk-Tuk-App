@@ -1,40 +1,40 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import {
-  View,
-  Text,
-  Image,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  StatusBar,
-  ActivityIndicator,
-} from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { Search, Plus, X, Check, ChevronDown, AlignJustify } from "lucide-react-native";
-import { useRouter } from "expo-router";
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
-import { getRecommendedUsers } from "../src/services/homeService";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { AlignJustify, Check, ChevronDown, Plus, Search, X } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { APP_BG } from "../src/constants/theme";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import { getAvatarSource, isBundledAvatarId } from "../src/data/avatarOptions";
 import { loadConversations } from "../src/services/chatService";
+import { loadFamilyDetail, loadFamilyLists } from "../src/services/familyService";
+import { getRecommendedUsers } from "../src/services/homeService";
+import {
+  followUser,
+  isSameUser,
+  loadFollowers,
+  loadFollowing,
+} from "../src/services/relationshipService";
 import { wsService } from "../src/services/websocket";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { openUserProfile } from "../src/utils/profileNavigation";
-import { loadFamilyLists, loadFamilyDetail } from "../src/services/familyService";
-import ComingSoonModal from "./ComingSoonModal";
-import ProfileConnectionsModal from "./ProfileConnectionsModal";
-import FamilyChatModal from "./FamilyChatModal";
-import {
-  loadFollowing,
-  loadFollowers,
-  followUser,
-  isSameUser,
-} from "../src/services/relationshipService";
 import { getAppUserId } from "../src/utils/sessionUser";
-import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
 import AppBackground from "./AppBackground";
+import ComingSoonModal from "./ComingSoonModal";
+import FamilyChatModal from "./FamilyChatModal";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
-import { APP_BG } from "../src/constants/theme";
+import ProfileConnectionsModal from "./ProfileConnectionsModal";
 
 const RECOMMEND_RING_COLORS = ["#333333", "#888888"];
 

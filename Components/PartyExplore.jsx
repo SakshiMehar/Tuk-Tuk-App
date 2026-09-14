@@ -1,60 +1,82 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import {
-  View,
-  Text,
-  Image,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Dimensions,
-  StatusBar,
-  ActivityIndicator,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useScrollToTop, useFocusEffect } from "@react-navigation/native";
 import {
-  Plus,
+  Home,
   MessageCircle,
   Mic,
-  X,
-  ArrowLeft,
-  Home,
+  Plus
 } from "lucide-react-native";
-import { getRecommendedUsers } from "../src/services/homeService";
-import { getRoomUserCount } from "../src/api/partyApi";
-import { getUser } from "../src/store/authStore";
-import { COUNTRY_OPTIONS } from "../src/data/countryOptions";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  loadRoomRecommendations,
-  loadRecentlyRooms,
+  ActivityIndicator,
+  Dimensions,
+  Image,
+  Modal,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { getRoomUserCount } from "../src/api/partyApi";
+import { APP_BG, APP_TEXT, APP_TEXT_DIM, APP_TEXT_MUTED } from "../src/constants/theme";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import { COUNTRY_OPTIONS } from "../src/data/countryOptions";
+import exploreData from "../src/data/partyExploreData.json";
+import { getRecommendedUsers } from "../src/services/homeService";
+import {
+  loadFamilies,
   loadFollowingRooms,
   loadManagedRooms,
   loadPartyRanking,
-  loadFamilies,
-  normalizeRoom,
-  searchPartyRooms,
+  loadRecentlyRooms,
+  loadRoomRecommendations,
+  normalizeRoom
 } from "../src/services/partyService";
+import { syncUserLevelForSession } from "../src/services/userLevelService";
+import { getUser } from "../src/store/authStore";
 import { openUserChat } from "../src/utils/chatNavigation";
 import AppBackground from "./AppBackground";
 import ComingSoonModal from "./ComingSoonModal";
 import CreateRoomModal from "./CreateRoomModal";
 import LevelGateModal from "./LevelGateModal";
-import { APP_BG, APP_TEXT, APP_TEXT_MUTED, APP_TEXT_DIM } from "../src/constants/theme";
-import exploreData from "../src/data/partyExploreData.json";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
-import { syncUserLevelForSession } from "../src/services/userLevelService";
 
 const MIN_CREATE_ROOM_LEVEL = 5;
 
 const { width: W } = Dimensions.get("window");
-const FEATURE_CARD_W = (W - 32 - 16) / 3;
+
+// Feature cards (Ranking / Game / Family): a rounded platform with the icon
+// standing on its top edge. The icon artwork is 16:9 with a lot of transparent
+// padding around the glyph, so each card declares where its glyph sits in the
+// image (glyphTop/glyphBottom as fractions of the image height) and the image
+// box is derived from that — this keeps every glyph the same visual height and
+// stops the empty padding from pushing the row down.
+const FEATURE_CARD_GAP = 10;
+const FEATURE_CARD_W = (W - 32 - FEATURE_CARD_GAP * 2) / 3;
+const FEATURE_CARD_H = 78;
+const FEATURE_ICON_H = 58; // visible glyph height
+const FEATURE_ICON_INSET = 22; // how deep the glyph sits inside the platform
+const FEATURE_ICON_ASPECT = 16 / 9;
+
+const getFeatureIconLayout = (card) => {
+  const glyphTop = card.glyphTop ?? 0;
+  const glyphRatio = (card.glyphBottom ?? 1) - glyphTop;
+  const glyphHeight = FEATURE_ICON_H * (card.iconScale ?? 1);
+  const imageWidth = (glyphHeight * FEATURE_ICON_ASPECT) / glyphRatio;
+  const imageHeight = imageWidth / FEATURE_ICON_ASPECT;
+  return {
+    // 2px of bleed so the clip never shaves the artwork's soft edges
+    glyphHeight: glyphHeight + 2,
+    imageWidth,
+    imageHeight,
+    offsetTop: 1 - glyphTop * imageHeight,
+    offsetLeft: (FEATURE_CARD_W - imageWidth) / 2,
+  };
+};
 
 const RANKING_PERIODS = [
   { id: "daily", label: "Daily" },
@@ -589,48 +611,89 @@ export default function PartyExplore() {
           {activeTopTab === "Explore" && (
             <>
               <View style={styles.featureRow}>
-                {FEATURE_CARDS.map((card) => (
-                  <TouchableOpacity
-                    key={card.id}
-                    style={[styles.featureCard, { shadowColor: card.shadowColor ?? "#7c4dff" }]}
-                    activeOpacity={0.85}
-                    onPress={() => handleFeatureCardPress(card)}
-                  >
-                    {/* Outer glow ring */}
-                    <LinearGradient
-                      colors={card.glowColors ?? card.colors}
-                      style={styles.featureGlowRing}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    />
-                    {/* Glass container */}
-                    <View style={[styles.featureGrad, { borderColor: card.borderColor ?? "rgba(255,255,255,0.25)" }]}>
-                      {/* Subtle tinted bg */}
-                      <LinearGradient
-                        colors={card.bgColors ?? ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)"]}
-                        style={StyleSheet.absoluteFill}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                      />
-                      {/* Top-left shine */}
-                      <LinearGradient
-                        colors={["rgba(255,255,255,0.35)", "rgba(255,255,255,0)"]}
-                        style={styles.featureShine}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                      />
-                      {/* Centered icon area */}
-                      <View style={styles.featureIconWrap}>
+                {FEATURE_CARDS.map((card) => {
+                  const icon = getFeatureIconLayout(card);
+                  return (
+                    <TouchableOpacity
+                      key={card.id}
+                      style={[styles.featureCardWrap, { shadowColor: card.shadowColor ?? "#aaa" }]}
+                      activeOpacity={0.85}
+                      onPress={() => handleFeatureCardPress(card)}
+                    >
+                      {/* Icon stands on the platform — its lower part overlaps the card */}
+                      <View style={[styles.featureIconClip, { height: icon.glyphHeight }]}>
                         <Image
                           source={{ uri: card.icon }}
-                          style={[styles.featureIcon, { transform: [{ scale: card.iconScale ?? 1.1 }], marginTop: card.iconOffsetY ?? 0, marginLeft: card.iconOffsetX ?? 0 }]}
+                          style={{
+                            width: icon.imageWidth,
+                            height: icon.imageHeight,
+                            marginLeft: icon.offsetLeft,
+                            marginTop: icon.offsetTop,
+                          }}
                           resizeMode="contain"
                         />
                       </View>
-                      <Text style={[styles.featureLabel, { color: card.labelColor ?? "#ffffff" }]}>{card.label}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+
+                      {/* Platform */}
+                      <LinearGradient
+                        colors={[
+                          card.tintStart ?? "rgba(255,220,170,0.7)",
+                          card.tintEnd ?? "rgba(240,160,80,0.22)",
+                        ]}
+                        start={{ x: 0.5, y: 0 }}
+                        end={{ x: 0.5, y: 1 }}
+                        style={styles.featurePlatform}
+                      >
+                        {/* Ascending podium steps the icon "stands" on */}
+                        <View style={styles.featureSteps} pointerEvents="none">
+                          <View
+                            style={[
+                              styles.featureStepTop,
+                              { backgroundColor: card.stepColor ?? "rgba(255,255,255,0.5)" },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.featureStepShine,
+                                { backgroundColor: card.stepHighlight ?? "rgba(255,255,255,0.6)" },
+                              ]}
+                            />
+                          </View>
+                          <View
+                            style={[
+                              styles.featureStepMid,
+                              { backgroundColor: card.stepColor ?? "rgba(255,255,255,0.4)" },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.featureStepShine,
+                                { backgroundColor: card.stepHighlight ?? "rgba(255,255,255,0.5)" },
+                              ]}
+                            />
+                          </View>
+                          <View
+                            style={[
+                              styles.featureStepBase,
+                              { backgroundColor: card.stepColor ?? "rgba(255,255,255,0.3)" },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.featureStepShine,
+                                { backgroundColor: card.stepHighlight ?? "rgba(255,255,255,0.45)" },
+                              ]}
+                            />
+                          </View>
+                        </View>
+
+                        <Text style={[styles.featureLabel, { color: card.labelColor ?? "#7a3f00" }]}>
+                          {card.label}
+                        </Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
 
               <ScrollView
@@ -1293,67 +1356,121 @@ const styles = StyleSheet.create({
   },
   featureRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
-    marginTop: 14,
-    gap: 10,
+    marginTop: 4,
+    gap: FEATURE_CARD_GAP,
+    alignItems: "flex-end",
   },
-  featureCard: {
+  featureCardWrap: {
     flex: 1,
     alignItems: "center",
-    borderRadius: 22,
-    overflow: "visible",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
-    elevation: 14,
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  featureGlowRing: {
-    position: "absolute",
-    top: -3,
-    left: -3,
-    right: -3,
-    bottom: -3,
-    borderRadius: 25,
-    opacity: 0.5,
-  },
-  featureGrad: {
+  featureIconClip: {
     width: "100%",
-    aspectRatio: 0.85,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingBottom: 14,
     overflow: "hidden",
-    borderWidth: 1.5,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    zIndex: 2,
+    marginBottom: -FEATURE_ICON_INSET,
   },
-  featureShine: {
+  featurePlatform: {
+    width: "100%",
+    height: FEATURE_CARD_H,
+    borderRadius: 18,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingBottom: 5,
+  },
+  // Ascending 3-tier podium the icon stands on — narrowest step on top,
+  // widest at the bottom, stacked directly above the label.
+  featureSteps: {
+    position: "absolute",
+    bottom: 24,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  featureStepTop: {
+    width: "34%",
+    height: 10,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  featureStepMid: {
+    width: "56%",
+    height: 10,
+    borderRadius: 4,
+    marginTop: 2,
+    overflow: "hidden",
+  },
+  featureStepBase: {
+    width: "80%",
+    height: 11,
+    borderRadius: 4,
+    marginTop: 2,
+    overflow: "hidden",
+  },
+  featureStepShine: {
     position: "absolute",
     top: 0,
     left: 0,
+    right: 0,
+    height: "45%",
+    opacity: 0.8,
+  },
+  featureWash: {
+    position: "absolute",
+    width: "75%",
+    height: "55%",
+    borderRadius: 999,
+    bottom: "18%",
+    alignSelf: "center",
+    opacity: 0.28,
+  },
+  featureBlob1: {
+    position: "absolute",
+    width: "100%",
+    height: "65%",
+    borderRadius: 999,
+    top: -20,
+    alignSelf: "center",
+    opacity: 0.55,
+  },
+  featureBlob2: {
+    position: "absolute",
+    width: "80%",
+    height: "50%",
+    borderRadius: 999,
+    bottom: 10,
+    right: -15,
+    opacity: 0.35,
+  },
+  featureGlowRing: {
+    position: "absolute",
+    top: -3, left: -3, right: -3, bottom: -3,
+    borderRadius: 27,
+    opacity: 0.5,
+  },
+  featureShine: {
+    position: "absolute",
+    top: 0, left: 0,
     width: "60%",
     height: "45%",
-    borderTopLeftRadius: 22,
+    borderTopLeftRadius: 24,
   },
   featureIconWrap: {
     flex: 1,
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
+    paddingTop: 8,
   },
   featureEmoji: { fontSize: 28 },
-  featureIcon: {
-    width: "100%",
-    height: "100%",
-    maxHeight: "100%",
-    transform: [{ scale: 1.1 }],
-  },
   featureLabel: {
     fontSize: 13,
     fontWeight: "800",
-    color: "#ffffff",
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   chipsScroll: { marginTop: 14 },
   chipsContent: {

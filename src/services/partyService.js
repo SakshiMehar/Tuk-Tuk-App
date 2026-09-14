@@ -1,25 +1,24 @@
 import {
-  getRoomRecommendations,
-  getRecentlyRooms,
-  getFollowingRooms,
-  getManagedRooms,
-  joinRandomParty as joinRandomPartyApi,
-  joinRoom as joinRoomApi,
-  exitRoom as exitRoomApi,
-  getRoomState,
-  getRoomChatMessages,
-  createRoom as createRoomApi,
-  createRoomForUser as createRoomForUserApi,
-  updateRoom as updateRoomApi,
-  getPartyRanking as getPartyRankingApi,
-  getFamilies as getFamiliesApi,
-  searchRooms as searchRoomsApi,
+    createRoom as createRoomApi,
+    createRoomForUser as createRoomForUserApi,
+    exitRoom as exitRoomApi,
+    getFamilies as getFamiliesApi,
+    getFollowingRooms,
+    getManagedRooms,
+    getPartyRanking as getPartyRankingApi,
+    getRecentlyRooms,
+    getRoomChatMessages,
+    getRoomRecommendations,
+    getRoomState,
+    joinRandomParty as joinRandomPartyApi,
+    joinRoom as joinRoomApi,
+    searchRooms as searchRoomsApi,
+    updateRoom as updateRoomApi,
 } from "../api/partyApi";
-import { wsService } from "./websocket";
-import { reserveSeat } from "./partyVoiceService";
+import { resolveBundledAvatarId } from "../data/avatarOptions";
 import { syncUserFromToken } from "../utils/sessionUser";
 import { resolveRemoteProfilePicUrl } from "./meProfileService";
-import { resolveBundledAvatarId } from "../data/avatarOptions";
+import { wsService } from "./websocket";
 
 const firstText = (...values) =>
   values.find(
@@ -132,6 +131,26 @@ const normalizeSeatUser = (seatValue) => {
     muted: Boolean(user?.muted ?? user?.isMuted ?? seatValue?.muted),
     id: firstValue(user?.id, user?.userId, user?.uid, seatValue?.userId),
   };
+};
+
+/** Pull room `state` (with `seats`) out of a claim/join API payload. */
+export const roomStateFromPayload = (data) => {
+  if (!data || typeof data !== "object") return null;
+  if (data.state && typeof data.state === "object") return data.state;
+  if (data.result?.state && typeof data.result.state === "object") {
+    return data.result.state;
+  }
+  if (data.data?.state && typeof data.data.state === "object") {
+    return data.data.state;
+  }
+  if (data.seats && typeof data.seats === "object") return data;
+  if (data.result?.seats && typeof data.result.seats === "object") {
+    return data.result;
+  }
+  if (data.data?.seats && typeof data.data.seats === "object") {
+    return data.data;
+  }
+  return null;
 };
 
 export const parseSeats = (seatsSource, stateData) => {
@@ -566,22 +585,9 @@ export const enterRoomSession = async (roomId) => {
     getRoomChatMessages(roomId).catch(() => []),
   ]);
 
-  let reservedSeatNumber = null;
-  let seats = parseSeats(joinData?.seats, stateData);
-  const emptySeat = seats.find((seat) => !seat.user && !seat.locked);
-  if (emptySeat) {
-    try {
-      track(`POST /api/v1/tuktuk/rooms/${roomId}/seat/${emptySeat.id}/claim`);
-      await reserveSeat(roomId, emptySeat.id);
-      reservedSeatNumber = emptySeat.id;
-      track(`GET /api/v1/tuktuk/rooms/${roomId}/state (after seat claim)`);
-      stateData =
-        (await getRoomState(roomId).catch(() => stateData)) ?? stateData;
-      seats = parseSeats(joinData?.seats, stateData);
-    } catch {
-      // Seat claim failed — keep existing seat state.
-    }
-  }
+  // Join as spectator only — never claim a seat here. Seat claim happens
+  // when the user taps an empty seat or the Claim seat button.
+  const seats = parseSeats(joinData?.seats, stateData);
 
   await wsService.connect();
   wsService.joinRoom(String(roomId));
@@ -605,7 +611,7 @@ export const enterRoomSession = async (roomId) => {
     onlineUsers,
     onlineCount: joinData?.onlineCount ?? onlineUsers.length,
     messages,
-    reservedSeatNumber,
+    reservedSeatNumber: null,
     joinData,
     stateData,
   };
