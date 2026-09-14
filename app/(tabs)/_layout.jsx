@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getToken, hasAcceptedTerms } from "../../src/store/authStore";
+import { APP_BG, APP_PURPLE_LIGHT } from "../../src/constants/theme";
 
 const TabLayout = () => {
   const router = useRouter();
@@ -48,12 +49,12 @@ const TabLayout = () => {
       <View
         style={{
           flex: 1,
-          backgroundColor: "#0d0618",
+          backgroundColor: APP_BG,
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <ActivityIndicator size="large" color="#a78bfa" />
+        <ActivityIndicator size="large" color={APP_PURPLE_LIGHT} />
       </View>
     );
   }
@@ -73,6 +74,7 @@ const TabLayout = () => {
           height: 65 + bottomInset,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600", marginBottom: 2 },
+        sceneStyle: { backgroundColor: APP_BG },
       }}
     >
       <Tabs.Screen

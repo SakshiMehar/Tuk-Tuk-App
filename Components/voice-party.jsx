@@ -1354,15 +1354,6 @@ export default function VoiceParty() {
             );
         });
 
-      // Backend-assigned decorations for this specific user (separate from
-      // the VIP/new-user frame system above) — badge + frame overlay.
-      fetchUserDecorations(userId).then(({ badgeUrl, frameUrl }) => {
-        if (!badgeUrl && !frameUrl) return;
-        setUserFrameData((prev) => ({
-          ...prev,
-          [userId]: { ...prev[userId], decorationBadgeUrl: badgeUrl, decorationFrameUrl: frameUrl },
-        }));
-      });
     });
   }, [seats, onlineUsers, messages]);
 
@@ -2325,10 +2316,8 @@ export default function VoiceParty() {
 
     const fetchUserCount = async () => {
       try {
-        const response = await getRoomUserCount(String(roomId));
-        console.log(`[getRoomUserCount] room ${roomId} response:`, response);
+        const count = await getRoomUserCount(String(roomId));
         if (cancelled) return;
-        const count = typeof response === "number" ? response : response?.onlineCount;
         if (typeof count === "number") setOnlineCount(count);
       } catch (error) {
         console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
@@ -4389,8 +4378,7 @@ export default function VoiceParty() {
         user={profilePopupUser}
         avatarSource={profilePopupAvatarSource}
         frameSource={
-          userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl ??
-          (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
+          isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
             : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null)
         }
@@ -4407,7 +4395,6 @@ export default function VoiceParty() {
             ? myVipAssets.logo
             : null
         }
-        badgeSource={userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ?? null}
         loading={profilePopupLoading}
         isFollowing={profilePopupFollowing}
         followLoading={profileFollowLoading}

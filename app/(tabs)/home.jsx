@@ -2,7 +2,7 @@ import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronRight } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -32,6 +32,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import AppBackground from "../../Components/AppBackground";
 import ComingSoonModal from "../../Components/ComingSoonModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import PostImageViewer from "../../Components/PostImageViewer";
@@ -52,6 +53,7 @@ import {
 } from "../../src/api/postApi";
 import { patchMyProfile } from "../../src/api/profileApi";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import { DIAMOND_ICON_URL } from "../../src/constants/theme";
 import {
   getAvatarSource,
   isBundledAvatarId,
@@ -2667,7 +2669,7 @@ const HomeHeader = memo(
           </View>
           <View style={styles.headerIcons}>
             <View style={styles.diamondPill}>
-              <Text style={styles.diamondEmoji}>💎</Text>
+              <Image source={{ uri: DIAMOND_ICON_URL }} style={styles.diamondIcon} contentFit="contain" />
               <Text style={styles.diamondCount}>
                 {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString(
                   "en-IN",
@@ -2905,6 +2907,7 @@ HomeHeader.displayName = "HomeHeader";
 // ─────────────────────────────────────────────────────────────
 export default function Home() {
   const router = useRouter();
+  const { createPost: createPostParam } = useLocalSearchParams();
   const feedListRef = useRef(null);
   useScrollToTop(feedListRef);
   const [selectedTab, setSelectedTab] = useState("For You");
@@ -2965,6 +2968,15 @@ export default function Home() {
   const [selectedCountry, setSelectedCountry] = useState("");
   const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState("");
+
+  useEffect(() => {
+    const shouldOpen = Array.isArray(createPostParam)
+      ? createPostParam.includes("1")
+      : createPostParam === "1";
+    if (!shouldOpen) return;
+    setPostSheetVisible(true);
+    router.setParams({ createPost: "" });
+  }, [createPostParam, router]);
 
   const syncSessionAvatar = useCallback(async () => {
     try {
@@ -3845,15 +3857,7 @@ export default function Home() {
         backgroundColor="transparent"
       />
 
-      <LinearGradient
-        colors={["white", "white", "white", "white", "white"]}
-        locations={[0, 0.25, 0.5, 0.75, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.orbPink} />
-      <View style={styles.orbPurple} />
+      <AppBackground />
 
       {/* Outer FlatList gives true virtualization to the feed —
           only posts near the viewport are kept in memory */}
@@ -4645,7 +4649,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: "transparent",
   },
 
   // ── Searched user profile modal ──
@@ -4939,37 +4943,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  // Background orbs (same as login)
-  // Background orbs (same as login)
-  orbPink: {
-    position: "absolute",
-    width: 300,
-    height: 300,
-    top: -80,
-    left: -80,
-    borderRadius: 150,
-    backgroundColor: "rgba(255,0,128,0.18)",
-    // backgroundColor: "rgba(253, 131, 74, 0.88)",
-    // shadowColor: "#ff0080",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 80,
-  },
-  orbPurple: {
-    position: "absolute",
-    width: 350,
-    height: 350,
-    bottom: -120,
-    right: -120,
-    borderRadius: 175,
-    backgroundColor: "rgba(138,43,226,0.22)",
-    // backgroundColor: "rgba(43, 226, 141, 0.22)",
-    shadowColor: "#8a2be2",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 80,
-  },
-
   // Header glass card
   headerCard: {
     marginTop: vs(20),
@@ -5058,7 +5031,7 @@ const styles = StyleSheet.create({
     borderColor: "#E9D5FF",
     gap: s(2),
   },
-  diamondEmoji: { fontSize: ms(10) },
+  diamondIcon: { width: s(22), height: s(22) },
   diamondCount: {
     color: "#6D28D9",
     fontSize: ms(11),

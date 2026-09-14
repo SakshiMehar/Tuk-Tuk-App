@@ -216,9 +216,37 @@ export const getRoomState = async (roomId) => {
   return response.data;
 };
 
+const parseRoomUserCount = (data) => {
+  if (typeof data === "number" && Number.isFinite(data)) return data;
+  const nested =
+    data?.onlineCount ??
+    data?.count ??
+    data?.userCount ??
+    data?.data?.onlineCount ??
+    data?.data?.count ??
+    data?.data;
+  if (typeof nested === "number" && Number.isFinite(nested)) return nested;
+  return null;
+};
+
 export const getRoomUserCount = async (roomId) => {
-  const response = await API.get(`/api/public/rooms/${roomId}/count`);
-  return response.data;
+  try {
+    const response = await API.get(`/api/public/rooms/${roomId}/count`);
+    const count = parseRoomUserCount(response.data);
+    if (count != null) return count;
+  } catch {
+    // Public count can fail if Redis is down — fall back to room state.
+  }
+
+  try {
+    const state = await getRoomState(roomId);
+    return (
+      parseRoomUserCount(state) ??
+      (Array.isArray(state?.onlineUsers) ? state.onlineUsers.length : 0)
+    );
+  } catch {
+    return 0;
+  }
 };
 
 export const getRoomChatMessages = async (roomId) => {
@@ -315,8 +343,17 @@ export const getPartyRanking = async (period = "daily") => {
   return response.data;
 };
 
-/** GET /api/app/party/families — list of families. */
-export const getFamilies = async () => {
+/** GET /api/v1/tuktuk/rooms/search?q={query} — search rooms by name */
+export const searchRooms = async (query) => {
+  const response = await API.get(
+    `/api/v1/tuktuk/rooms/search?q=${encodeURIComponent(query)}`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
+/** GET /api/app/party/families — fetch party families list */
+export const getPartyFamilies = async () => {
   const url = "/api/app/party/families";
   
   const response = await API.get(url, await authRequestConfig());

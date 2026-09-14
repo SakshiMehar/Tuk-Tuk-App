@@ -105,15 +105,8 @@ const loadFollowersStats = async () => {
 };
 
 const loadVisitorStats = async () => {
-  const data = await getProfileVisits(50);
-  const list = listFromVisits(data);
-  return countFromResponse(data, list, [
-    "visitorCount",
-    "visitorsCount",
-    "visitCount",
-    "totalVisits",
-    "profileVisitCount",
-  ]);
+  const list = await loadProfileVisitsList();
+  return list.length;
 };
 
 export const loadProfileStats = async () => {
