@@ -1576,7 +1576,11 @@ export default function Profile() {
               const showProgress = t.targetCount > 1;
               return (
                 <View key={t.taskType} style={[styles.mmTaskRow]}>
-                  <Text style={{ fontSize: 18, marginRight: 10 }}>{t.emoji}</Text>
+                  <Image 
+                    source={{ uri: t.iconUrl }} 
+                    style={{ width: 36, height: 36, marginRight: 10 }} 
+                    resizeMode="contain" 
+                  />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone, { color: "#1e293b" }]}>
                       {t.label}
@@ -1605,7 +1609,7 @@ export default function Profile() {
                         !canClaim && !claimed && styles.mmClaimBtnTextDisabled,
                       ]}
                     >
-                      {claimed ? "Claimed" : claiming ? "..." : canClaim ? "Claim" : "In progress"}
+                      {claimed ? "✓ Claimed" : claiming ? "..." : canClaim ? "Claim" : "In progress"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -3739,10 +3743,10 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   mmClaimBtnDone: {
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#f1f5f9",
   },
   mmClaimBtnDisabled: {
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(124, 77, 255, 0.15)",
   },
   mmClaimBtnText: {
     color: "white",
@@ -3750,10 +3754,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   mmClaimBtnTextDone: {
-    color: "rgba(255,255,255,0.4)",
+    color: "#64748b",
   },
   mmClaimBtnTextDisabled: {
-    color: "rgba(255,255,255,0.35)",
+    color: "#7c4dff",
   },
   mmEmptyCenter: {
     flex: 1,
