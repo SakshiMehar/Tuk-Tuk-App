@@ -86,6 +86,7 @@ import {
   buyGiftToBackpack,
   findInventoryGift,
   giftsMatch,
+  loadGiftCatalog,
   loadGiftInventory,
   loadPartyGiftCatalog,
   normalizeGiftAnimation,
@@ -104,6 +105,7 @@ import {
   normalizeChatMessages,
   parseOnlineUsers,
   parseSeats,
+  roomStateFromPayload,
   upsertChatMessage,
 } from "../src/services/partyService";
 import * as partyVoice from "../src/services/partyVoiceService";
@@ -1399,11 +1401,26 @@ export default function VoiceParty() {
     let cancelled = false;
     setCatalogLoading(true);
     Promise.all([
-      loadPartyGiftCatalog()
-        .then((catalog) => {
-          if (!cancelled) setGiftCatalog(catalog);
-        })
-        .catch(() => { }),
+      Promise.all([
+        loadPartyGiftCatalog().catch(() => null),
+        loadGiftCatalog("gift").catch(() => []),
+      ]).then(([catalog, giftItems]) => {
+        if (cancelled) return;
+        const nextCatalog = catalog ?? {
+          random: [],
+          gift: [],
+          activity: [],
+          activityByEvent: {},
+          relationship: [],
+          pk: [],
+          special: [],
+          vip: [],
+        };
+        setGiftCatalog({
+          ...nextCatalog,
+          gift: giftItems.length ? giftItems : nextCatalog.gift,
+        });
+      }),
       loadGiftInventory()
         .then((items) => {
           if (!cancelled) setBackpackGifts(items);
@@ -1684,37 +1701,18 @@ export default function VoiceParty() {
         setRoomId(session.roomId);
         roomIdRef.current = session.roomId;
         setRoomInfo(session.room);
-        const initialSeatNumber = session.reservedSeatNumber ?? null;
-        let initialSeats = session.seats;
-        if (!initialSeats || !Array.isArray(initialSeats)) {
-          initialSeats = parseSeats(null, null);
-        }
-
-        if (initialSeatNumber) {
-          mySeatNumberRef.current = initialSeatNumber;
-          setMySeatNumber(initialSeatNumber);
-          const enrichedSeats = await enrichSeatsWithMyProfile(
-            initialSeats,
-            initialSeatNumber,
-          );
-          setSeats(
-            reconcileSeatAssignments(enrichedSeats, {
-              onlineUsers: session.onlineUsers,
-              myUserId,
-              mySeatNumber: initialSeatNumber,
-              staleSeatTracker: staleSeatTrackerRef.current,
-            }),
-          );
-        } else {
-          setSeats(
-            reconcileSeatAssignments(initialSeats, {
-              onlineUsers: session.onlineUsers,
-              myUserId,
-              mySeatNumber: null,
-              staleSeatTracker: staleSeatTrackerRef.current,
-            }),
-          );
-        }
+        onMicRef.current = false;
+        mySeatNumberRef.current = null;
+        setOnMic(false);
+        setMySeatNumber(null);
+        setSeats(
+          reconcileSeatAssignments(session.seats, {
+            onlineUsers: session.onlineUsers,
+            myUserId,
+            mySeatNumber: null,
+            staleSeatTracker: staleSeatTrackerRef.current,
+          }),
+        );
         setOnlineUsers(session.onlineUsers);
         console.log(
           `[joinRoom onlineCount] room ${roomId}: onlineCount=${session.onlineCount}, onlineUsers.length=${session.onlineUsers?.length}`
@@ -1807,7 +1805,7 @@ export default function VoiceParty() {
             }
             Alert.alert(
               "Voice audio unavailable",
-              `${msg}\n\nYou can still chat in the room. Tap Reconnect to try audio again, or Take Mic to speak.`,
+              `${msg}\n\nYou can still chat in the room. Tap Reconnect to try audio again, or Claim seat to speak.`,
               [
                 {
                   text: "Reconnect",
@@ -1854,15 +1852,9 @@ export default function VoiceParty() {
       const activeRoomId = roomIdRef.current;
       if (activeRoomId && !exitedRef.current) {
         exitedRef.current = true;
-        const seatToLeave = onMicRef.current ? mySeatNumberRef.current : null;
         const cleanup = async () => {
-          if (seatToLeave) {
-            await partyVoice
-              .leaveMic(String(activeRoomId), seatToLeave)
-              .catch(() => { });
-          }
-          await partyVoice.teardownVoice().catch(() => { });
-          await exitRoomSession(String(activeRoomId)).catch(() => { });
+          await partyVoice.teardownVoice().catch(() => {});
+          await exitRoomSession(String(activeRoomId)).catch(() => {});
         };
         cleanup();
       } else {
@@ -2201,9 +2193,6 @@ export default function VoiceParty() {
     }
     exitedRef.current = true;
     try {
-      if (onMic && mySeatNumber) {
-        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => { });
-      }
       await partyVoice.teardownVoice();
       await exitRoomSession(String(roomId));
     } catch {
@@ -2214,7 +2203,7 @@ export default function VoiceParty() {
     setOnMic(false);
     setMySeatNumber(null);
     router.back();
-  }, [roomId, onMic, mySeatNumber, router]);
+  }, [roomId, router]);
 
   // Intercept Android hardware back button — close any open chat input /
   // pickers first; only exit the room when none of those are open.
@@ -2331,6 +2320,29 @@ export default function VoiceParty() {
     };
   }, [roomId]);
 
+  const applySeatsAfterClaim = async (claimData, seatNumber) => {
+    const claimedState = roomStateFromPayload(claimData);
+    let nextState = claimedState;
+    if (!claimedState?.seats) {
+      nextState = await getRoomState(String(roomId));
+    }
+    const nextSeats = await enrichSeatsWithMyProfile(
+      parseSeats(nextState?.seats, nextState),
+      seatNumber,
+    );
+    setSeats(
+      reconcileSeatAssignments(nextSeats, {
+        onlineUsers,
+        myUserId,
+        mySeatNumber: seatNumber,
+        staleSeatTracker: staleSeatTrackerRef.current,
+      }),
+    );
+    if (typeof nextState?.onlineCount === "number") {
+      setOnlineCount(nextState.onlineCount);
+    }
+  };
+
   const handleTakeMic = async () => {
     if (!roomId || voiceConnecting) return;
 
@@ -2394,12 +2406,14 @@ export default function VoiceParty() {
       }
 
       let targetSeat = null;
+      let claimData = null;
 
       // Try each candidate seat until one succeeds
       for (const seatId of candidates) {
         try {
-          await partyVoice.takeMic(String(roomId), seatId);
+          const taken = await partyVoice.takeMic(String(roomId), seatId);
           targetSeat = seatId;
+          claimData = taken?.claimData ?? taken;
           break; // success — stop trying
         } catch (err) {
           const status = err?.status ?? err?.response?.status;
@@ -2452,53 +2466,7 @@ export default function VoiceParty() {
       if (isSpeakerMuted) {
         agoraVoice.toggleRemoteMute(true);
       }
-
-      const localUser = await getUser();
-      const localUserId = await getAppUserId().catch(() => null);
-      const localAvatar =
-        resolveProfileAvatarUri(localUser) ??
-        localUser?.avatarUrl ??
-        localUser?.avatar ??
-        null;
-      const localName = localUser?.name ?? localUser?.username ?? "User";
-      setSeats((prev) =>
-        prev.map((seat) => {
-          if (seat.id !== targetSeat) return seat;
-          const existing = seat.user ?? {};
-          return {
-            ...seat,
-            user: {
-              ...existing,
-              id: existing.id ?? localUserId,
-              name:
-                existing.name && existing.name !== "Guest"
-                  ? existing.name
-                  : (localName ?? existing.name ?? "User"),
-              username: existing.username ?? localUser?.username ?? localName,
-              avatar: existing.avatar ?? localAvatar,
-              hasNewUserFrame: Boolean(localUser?.hasNewUserFrame),
-              newUserFrameUrl: localUser?.newUserFrameUrl ?? null,
-              active: true,
-              muted: false,
-            },
-          };
-        }),
-      );
-
-      const state = await getRoomState(String(roomId));
-      const nextSeats = await enrichSeatsWithMyProfile(
-        parseSeats(state?.seats, state),
-        targetSeat,
-      );
-      setSeats(
-        reconcileSeatAssignments(nextSeats, {
-          onlineUsers,
-          myUserId: localUserId ?? myUserId,
-          mySeatNumber: targetSeat,
-          staleSeatTracker: staleSeatTrackerRef.current,
-        }),
-      );
-      setOnlineCount(state?.onlineCount ?? onlineCount);
+      await applySeatsAfterClaim(claimData, targetSeat);
     } catch (err) {
       const msg = err?.message ?? "Could not start voice.";
       if (
@@ -2512,7 +2480,7 @@ export default function VoiceParty() {
           "Please allow microphone access to speak in the room.",
         );
       } else {
-        Alert.alert("Take mic failed", msg);
+        Alert.alert("Claim seat failed", msg);
       }
     } finally {
       setVoiceConnecting(false);
@@ -2827,6 +2795,7 @@ export default function VoiceParty() {
     try {
       const result = await buyGiftToBackpack({
         giftCode,
+        giftId: purchaseGift.databaseId,
         quantity: 1,
       });
       if (result?.wallet) {
@@ -2893,7 +2862,7 @@ export default function VoiceParty() {
     if (!receiverId) {
       Alert.alert(
         "Select a person",
-        "Tap the name next to ❤️ to choose who receives this gift.",
+        "Tap the name to choose who receives this gift.",
       );
       openGiftReceiverPicker();
       return;
@@ -2975,7 +2944,6 @@ export default function VoiceParty() {
     }
   };
 
-  const displayRandomGifts = giftCatalog.random;
   const displayGiftItems = giftCatalog.gift;
   const displayPkGifts = giftCatalog.pk;
   const displaySpecialGifts = giftCatalog.special;
@@ -3150,7 +3118,7 @@ export default function VoiceParty() {
       }
 
       if (micGranted) {
-        setSeatActionSheet({ seatId: seat.id });
+        handleTakeSeat(seat.id);
       } else {
         setMicPermWarning(seat.id);
       }
@@ -3171,62 +3139,23 @@ export default function VoiceParty() {
         setMySeatNumber(null);
       }
       setVoiceConnecting(true);
-      await partyVoice.takeMic(String(roomId), targetSeatId);
+      const taken = await partyVoice.takeMic(String(roomId), targetSeatId);
       onMicRef.current = true;
       mySeatNumberRef.current = targetSeatId;
       setOnMic(true);
       setMySeatNumber(targetSeatId);
       setIsMicMuted(false);
       setVoiceListenStatus("ready");
-      const freshState = await getRoomState(String(roomId));
-      const freshSeats = freshState?.seats
-        ? parseSeats(freshState.seats, freshState)
-        : seats;
-      const enriched = await enrichSeatsWithMyProfile(freshSeats, targetSeatId);
-      setSeats(
-        reconcileSeatAssignments(enriched, {
-          onlineUsers,
-          myUserId,
-          mySeatNumber: targetSeatId,
-          staleSeatTracker: staleSeatTrackerRef.current,
-        }),
+      await applySeatsAfterClaim(taken?.claimData ?? taken, targetSeatId);
+    } catch (err) {
+      onMicRef.current = false;
+      mySeatNumberRef.current = null;
+      setOnMic(false);
+      setMySeatNumber(null);
+      Alert.alert(
+        "Claim seat failed",
+        err?.message || "Could not take that seat. Please try again.",
       );
-    } catch (_err) {
-      // In mock UI simulation, locally assign the selected seat
-      const localUser = await getUser().catch(() => null);
-      const resolvedAvatar =
-        resolveProfileAvatarUri(localUser) ??
-        localUser?.profilePicUrl ??
-        localUser?.avatarUrl;
-      setSeats((prev) =>
-        (prev || []).map((s) => {
-          if (s.id === targetSeatId) {
-            return {
-              ...s,
-              user: {
-                id: myUserId || "local-user",
-                userId: myUserId || "local-user",
-                name: localUser?.name || localUser?.username || "You",
-                avatar: resolvedAvatar,
-                active: true,
-                muted: false,
-              },
-            };
-          }
-          if (
-            s.user &&
-            (String(s.user.id) === String(myUserId) ||
-              s.user.id === "local-user")
-          ) {
-            return { ...s, user: null };
-          }
-          return s;
-        }),
-      );
-      setOnMic(true);
-      setMySeatNumber(targetSeatId);
-      onMicRef.current = true;
-      mySeatNumberRef.current = targetSeatId;
     } finally {
       setSeatActionLoading(false);
       setVoiceConnecting(false);
@@ -3336,7 +3265,12 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowGiftReceiverPicker(false)}
         />
-        <View style={styles.giftReceiverSheet}>
+        <View
+          style={[
+            styles.giftReceiverSheet,
+            { paddingBottom: Math.max(32, idleBottom + 16) },
+          ]}
+        >
           <View style={styles.shareHandle} />
           <Text style={styles.giftReceiverTitle}>Send gift to</Text>
           <Text style={styles.giftReceiverSubtitle}>
@@ -3352,6 +3286,7 @@ export default function VoiceParty() {
           ) : (
             <ScrollView
               style={styles.giftRecipientList}
+              contentContainerStyle={styles.giftRecipientListContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
@@ -3405,7 +3340,6 @@ export default function VoiceParty() {
         activeOpacity={0.8}
         onPress={openGiftReceiverPicker}
       >
-        <Text style={styles.bpSendHeart}>❤️ </Text>
         <Text style={styles.bpSendName} numberOfLines={1}>
           {giftReceiverName}
         </Text>
@@ -3598,28 +3532,6 @@ export default function VoiceParty() {
               {/* Handle */}
               <View style={styles.shareHandle} />
 
-              {/* Promo banner */}
-              <LinearGradient
-                colors={["#3b0f6e", "#7c4dff", "#5c1fa8"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.bpBanner}
-              >
-                <Text style={styles.bpBannerGift}>🎁</Text>
-                <Text style={styles.bpBannerText}>
-                  Get newbie bonus, recharge for free lottery.
-                </Text>
-                <TouchableOpacity
-                  style={styles.bpBannerArrow}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.bpBannerArrowText}>›</Text>
-                </TouchableOpacity>
-                <View style={styles.bpPkBadge}>
-                  <Text style={styles.bpPkBadgeText}>🏆 Room PK Challenge</Text>
-                </View>
-              </LinearGradient>
-
               {/* Currency row */}
               <View style={styles.bpCurrencyRow}>
                 <TouchableOpacity
@@ -3705,59 +3617,6 @@ export default function VoiceParty() {
                     showsVerticalScrollIndicator={false}
                     style={{ flex: 1 }}
                   >
-                    {/* Random gifts row */}
-                    <View style={styles.bpRandomRow}>
-                      <LinearGradient
-                        colors={["#4a1080", "#7c4dff"]}
-                        style={styles.bpRandomBox}
-                      >
-                        <Text style={styles.bpRandomBoxEmoji}>🎲</Text>
-                        <Text style={styles.bpRandomBoxLabel}>
-                          Random{"\n"}gifts
-                        </Text>
-                      </LinearGradient>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        style={{ flex: 1 }}
-                      >
-                        {displayRandomGifts.map((orb) => (
-                          <TouchableOpacity
-                            key={orb.id}
-                            style={styles.bpOrbWrap}
-                            activeOpacity={0.8}
-                            onPress={() => openGiftPurchase(orb)}
-                          >
-                            <LinearGradient
-                              colors={["#2a1060", "#5c2daf"]}
-                              style={styles.bpOrbCircle}
-                            >
-                              <Text style={styles.bpOrbEmoji}>{orb.emoji}</Text>
-                            </LinearGradient>
-                            <Text style={styles.bpOrbPrice}>
-                              💎 {formatGiftPrice(orb.price)}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-
-                    {/* Event banner */}
-                    <LinearGradient
-                      colors={["#1a0a2e", "#2d1060", "#1a0a2e"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.bpEventBanner}
-                    >
-                      <Text style={styles.bpEventIcon}>✨</Text>
-                      <Text style={styles.bpEventText}>
-                        2026 TukTuk Carnival
-                      </Text>
-                      <View style={styles.bpEventArrow}>
-                        <Text style={styles.bpEventArrowText}>›</Text>
-                      </View>
-                    </LinearGradient>
-
                     {/* Gift grid */}
                     <View style={styles.bpGiftGrid}>
                       {displayGiftItems.map((gift) => (
@@ -3772,15 +3631,22 @@ export default function VoiceParty() {
                               <Text style={styles.bpHotText}>HOT</Text>
                             </View>
                           )}
-                          <View style={styles.bpGiftSendBtn}>
-                            <Text style={{ fontSize: 9 }}>🎁</Text>
-                          </View>
-                          <LinearGradient
-                            colors={["#2a0d50", "#4a1d80"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#2a0d50", "#4a1d80"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>
@@ -3927,9 +3793,6 @@ export default function VoiceParty() {
                           activeOpacity={0.8}
                           onPress={() => openGiftPurchase(gift)}
                         >
-                          <View style={styles.bpGiftSendBtn}>
-                            <Text style={{ fontSize: 9 }}>🎁</Text>
-                          </View>
                           <LinearGradient
                             colors={["#2a0d50", "#4a1d80"]}
                             style={styles.bpGiftEmojiWrap}
@@ -4031,7 +3894,6 @@ export default function VoiceParty() {
                       activeOpacity={0.8}
                       onPress={openGiftReceiverPicker}
                     >
-                      <Text style={styles.bpSendHeart}>❤️ </Text>
                       <Text style={styles.bpSendName} numberOfLines={1}>
                         {giftReceiverName}
                       </Text>
@@ -4084,9 +3946,6 @@ export default function VoiceParty() {
                               <Text style={styles.bpHotText}>HOT</Text>
                             </View>
                           )}
-                          <View style={styles.bpGiftSendBtn}>
-                            <Text style={{ fontSize: 9 }}>🎁</Text>
-                          </View>
                           <LinearGradient
                             colors={["#2a0d50", "#4a1d80"]}
                             style={styles.bpGiftEmojiWrap}
@@ -4128,9 +3987,6 @@ export default function VoiceParty() {
                               <Text style={styles.bpNewBadgeText}>NEW</Text>
                             </View>
                           )}
-                          <View style={styles.bpGiftSendBtn}>
-                            <Text style={{ fontSize: 9 }}>🎁</Text>
-                          </View>
                           <LinearGradient
                             colors={["#1a0a3e", "#6a1590"]}
                             style={styles.bpGiftEmojiWrap}
@@ -5094,7 +4950,7 @@ export default function VoiceParty() {
                 ) : (
                   <>
                     <Text style={styles.seatActionBtnIcon}>🎤</Text>
-                    <Text style={styles.seatActionBtnText}>Take a Seat</Text>
+                    <Text style={styles.seatActionBtnText}>Claim seat</Text>
                   </>
                 )}
               </LinearGradient>
@@ -5177,7 +5033,14 @@ export default function VoiceParty() {
               <TouchableOpacity
                 style={styles.micPermOkBtn}
                 activeOpacity={0.7}
-                onPress={() => setMicPermWarning(null)}
+                onPress={async () => {
+                  const pendingSeatId = micPermWarning;
+                  setMicPermWarning(null);
+                  const granted = await agoraVoice.requestMicPermission();
+                  if (granted && pendingSeatId != null) {
+                    handleTakeSeat(pendingSeatId);
+                  }
+                }}
               >
                 <Text style={styles.micPermOkText}>Ok</Text>
               </TouchableOpacity>
@@ -5919,7 +5782,7 @@ export default function VoiceParty() {
                   <>
                     <Text style={styles.takeMicEmoji}>🎤</Text>
                     <Text style={styles.takeMicText}>
-                      {onMic ? "Leave Mic" : "Take Mic"}
+                      {onMic ? "Leave Mic" : "Claim seat"}
                     </Text>
                   </>
                 )}
@@ -7476,7 +7339,7 @@ const styles = StyleSheet.create({
   // ── Backpack modal ──
   backpackBox: {
     position: "relative",
-    backgroundColor: "#0f0720",
+    backgroundColor: "#FFF0F5",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: "hidden",
@@ -7486,44 +7349,6 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 14,
   },
-  bpBanner: {
-    marginHorizontal: 16,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 12,
-    overflow: "hidden",
-  },
-  bpBannerGift: { fontSize: 30 },
-  bpBannerText: { flex: 1, color: "white", fontSize: 13, fontWeight: "700" },
-  bpBannerArrow: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bpBannerArrowText: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-    lineHeight: 22,
-  },
-  bpPkBadge: {
-    position: "absolute",
-    top: 6,
-    right: 50,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  bpPkBadgeText: { color: "#c4b5fd", fontSize: 10, fontWeight: "700" },
   bpCurrencyRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -7535,7 +7360,7 @@ const styles = StyleSheet.create({
   bpDiamondIcon: { fontSize: 20 },
   bpCoinIcon: { fontSize: 20 },
   bpCurrencyVal: {
-    color: "white",
+    color: "#1a1a2e",
     fontSize: 15,
     fontWeight: "700",
     marginLeft: 5,
@@ -7564,11 +7389,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   bpMainTabText: {
-    color: "rgba(255,255,255,0.4)",
+    color: "rgba(26,26,46,0.4)",
     fontSize: 15,
     fontWeight: "600",
   },
-  bpMainTabTextActive: { color: "white" },
+  bpMainTabTextActive: { color: "#1a1a2e" },
   bpMainTabUnderline: {
     height: 2,
     width: "80%",
@@ -7578,88 +7403,12 @@ const styles = StyleSheet.create({
   },
   bpScrollArea: { flex: 1 },
 
-  // Random gifts
-  bpRandomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginTop: 0,
-    marginBottom: 12,
-    gap: 10,
-  },
-  bpRandomBox: {
-    width: 72,
-    height: 72,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 6,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.4)",
-  },
-  bpRandomBoxEmoji: { fontSize: 26 },
-  bpRandomBoxLabel: {
-    color: "white",
-    fontSize: 10,
-    fontWeight: "700",
-    textAlign: "center",
-    marginTop: 3,
-  },
-  bpOrbWrap: { alignItems: "center", marginRight: 10, gap: 5 },
-  bpOrbCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.35)",
-  },
-  bpOrbEmoji: { fontSize: 28 },
-  bpOrbPrice: { color: "#c4b5fd", fontSize: 10, fontWeight: "700" },
-
-  // Event banner
-  bpEventBanner: {
-    marginHorizontal: 16,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.3)",
-  },
-  bpEventIcon: { fontSize: 22 },
-  bpEventText: {
-    flex: 1,
-    color: "white",
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  bpEventArrow: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "rgba(167,139,250,0.5)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bpEventArrowText: {
-    color: "#a78bfa",
-    fontSize: 18,
-    fontWeight: "700",
-    lineHeight: 22,
-  },
-
   // Gift grid
   bpGiftGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     paddingHorizontal: 16,
+    paddingTop: 12,
     gap: 8,
     paddingBottom: 16,
   },
@@ -7710,17 +7459,6 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   bpHotText: { color: "white", fontSize: 8, fontWeight: "800" },
-  bpGiftSendBtn: {
-    position: "absolute",
-    top: 5,
-    right: 5,
-    backgroundColor: "rgba(124,77,255,0.5)",
-    borderRadius: 8,
-    width: 18,
-    height: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   bpGiftEmojiWrap: {
     width: GIFT_CARD_W - 20,
     height: GIFT_CARD_W - 20,
@@ -7728,9 +7466,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  bpGiftImageWrap: {
+    width: GIFT_CARD_W - 16,
+    height: GIFT_CARD_W - 16,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.55)",
+  },
+  bpGiftImage: {
+    width: "88%",
+    height: "88%",
+  },
   bpGiftEmoji: { fontSize: 32 },
   bpGiftName: {
-    color: "rgba(255,255,255,0.9)",
+    color: "#1a1a2e",
     fontSize: 11,
     fontWeight: "600",
     textAlign: "center",
@@ -7738,7 +7489,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   bpGiftPriceRow: { flexDirection: "row", alignItems: "center" },
-  bpGiftPriceText: { color: "#c4b5fd", fontSize: 10, fontWeight: "700" },
+  bpGiftPriceText: { color: "#3D1A80", fontSize: 10, fontWeight: "700" },
 
   // Send bar
   bpSendBar: {
@@ -7749,7 +7500,7 @@ const styles = StyleSheet.create({
     paddingBottom: 22,
     borderTopWidth: 1,
     borderTopColor: "rgba(167,139,250,0.15)",
-    backgroundColor: "#0f0720",
+    backgroundColor: "#FFF0F5",
     gap: 10,
   },
   bpSendAvatar: {
@@ -7770,9 +7521,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
   },
-  bpSendHeart: { fontSize: 13 },
-  bpSendName: { color: "white", fontSize: 13, fontWeight: "600", flex: 1 },
-  bpSendChev: { color: "#a78bfa", fontSize: 12 },
+  bpSendName: { color: "#3D1A80", fontSize: 13, fontWeight: "600", flex: 1 },
+  bpSendChev: { color: "#3D1A80", fontSize: 12 },
   bpSendQtyBtn: {
     backgroundColor: "rgba(124,77,255,0.15)",
     borderRadius: 16,
@@ -7781,7 +7531,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
   },
-  bpSendQtyText: { color: "white", fontSize: 13, fontWeight: "700" },
+  bpSendQtyText: { color: "#3D1A80", fontSize: 13, fontWeight: "700" },
   bpSendBtn: {
     backgroundColor: "#7c4dff",
     borderRadius: 20,
@@ -7811,15 +7561,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.55)",
   },
   giftReceiverSheet: {
-    backgroundColor: "#1a0a2e",
+    backgroundColor: "#FFF0F5",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 8,
     paddingBottom: 28,
     paddingHorizontal: 16,
     borderTopWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
-    maxHeight: H * 0.55,
+    borderColor: "rgba(124,77,255,0.15)",
+    maxHeight: H * 0.5,
     zIndex: 41,
     elevation: 41,
   },
@@ -7828,25 +7578,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   giftRecipientEmptyText: {
-    color: "rgba(255,255,255,0.65)",
+    color: "rgba(26,26,46,0.65)",
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
   },
   giftReceiverTitle: {
-    color: "white",
+    color: "#3D1A80",
     fontSize: 18,
     fontWeight: "700",
     marginTop: 8,
   },
   giftReceiverSubtitle: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(26,26,46,0.5)",
     fontSize: 13,
     marginTop: 4,
     marginBottom: 12,
   },
   giftRecipientList: {
-    maxHeight: H * 0.38,
+    maxHeight: H * 0.32,
+  },
+  giftRecipientListContent: {
+    paddingBottom: 8,
   },
   giftRecipientRow: {
     flexDirection: "row",
@@ -7856,13 +7609,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 14,
     marginBottom: 6,
-    backgroundColor: "rgba(124,77,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.85)",
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: "rgba(124,77,255,0.12)",
   },
   giftRecipientRowActive: {
-    backgroundColor: "rgba(124,77,255,0.22)",
-    borderColor: "rgba(167,139,250,0.45)",
+    backgroundColor: "rgba(124,77,255,0.12)",
+    borderColor: "rgba(124,77,255,0.35)",
   },
   giftRecipientAvatar: {
     width: 44,
@@ -7872,14 +7625,14 @@ const styles = StyleSheet.create({
     borderColor: "#7c4dff",
   },
   giftRecipientInfo: { flex: 1, minWidth: 0 },
-  giftRecipientName: { color: "white", fontSize: 15, fontWeight: "600" },
+  giftRecipientName: { color: "#3D1A80", fontSize: 15, fontWeight: "600" },
   giftRecipientMeta: {
-    color: "rgba(255,255,255,0.5)",
+    color: "rgba(26,26,46,0.5)",
     fontSize: 12,
     marginTop: 2,
   },
   giftRecipientCheck: {
-    color: "#a78bfa",
+    color: "#3D1A80",
     fontSize: 18,
     fontWeight: "700",
   },
@@ -7903,11 +7656,11 @@ const styles = StyleSheet.create({
     borderColor: "rgba(167,139,250,0.4)",
   },
   bpSubTabText: {
-    color: "rgba(255,255,255,0.4)",
+    color: "rgba(26,26,46,0.4)",
     fontSize: 13,
     fontWeight: "600",
   },
-  bpSubTabTextActive: { color: "white" },
+  bpSubTabTextActive: { color: "#1a1a2e" },
   bpEmptyState: {
     flex: 1,
     alignItems: "center",
@@ -7942,11 +7695,11 @@ const styles = StyleSheet.create({
     borderColor: "#a78bfa",
   },
   bpActEventText: {
-    color: "rgba(255,255,255,0.45)",
+    color: "rgba(26,26,46,0.45)",
     fontSize: 13,
     fontWeight: "600",
   },
-  bpActEventTextActive: { color: "white" },
+  bpActEventTextActive: { color: "#1a1a2e" },
 
   // ── Intimacy video thumbnail cards ──
   bpVideoThumb: {
@@ -7965,7 +7718,7 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   bpEmptyText: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(26,26,46,0.55)",
     fontSize: 13,
     textAlign: "center",
     paddingVertical: 24,

@@ -14,27 +14,27 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getRecommendedUsers } from "../src/services/homeService";
+import { APP_BG } from "../src/constants/theme";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import { getAvatarSource, isBundledAvatarId } from "../src/data/avatarOptions";
 import { loadConversations } from "../src/services/chatService";
 import { loadFamilyDetail, loadFamilyLists } from "../src/services/familyService";
+import { getRecommendedUsers } from "../src/services/homeService";
 import {
   followUser,
   isSameUser,
   loadFollowers,
   loadFollowing,
 } from "../src/services/relationshipService";
-import { getAppUserId } from "../src/utils/sessionUser";
-import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
 import { wsService } from "../src/services/websocket";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { openUserProfile } from "../src/utils/profileNavigation";
+import { getAppUserId } from "../src/utils/sessionUser";
 import AppBackground from "./AppBackground";
-import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ComingSoonModal from "./ComingSoonModal";
-import ProfileConnectionsModal from "./ProfileConnectionsModal";
 import FamilyChatModal from "./FamilyChatModal";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
-import { APP_BG } from "../src/constants/theme";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import ProfileConnectionsModal from "./ProfileConnectionsModal";
 
 const RECOMMEND_RING_COLORS = ["#333333", "#888888"];
 
