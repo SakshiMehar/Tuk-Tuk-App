@@ -1761,7 +1761,7 @@ export default function Profile() {
 
     // ── TUKTUK PASS ───────────────────────────────────────────────────────────
     if (label === "TukTuk Pass") {
-      return <TukTukPassPanel />;
+      return <TukTukPassPanel onClose={() => setActiveMenu(null)} />;
     }
 
     // ── LEVEL ─────────────────────────────────────────────────────────────────
@@ -2465,8 +2465,8 @@ export default function Profile() {
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
         <View style={[styles.mmPanel, { paddingBottom: insets.bottom }]}>
           <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
-          {/* Header — Premium renders its own custom header instead */}
-          {activeMenu?.label !== "Premium" && (
+          {/* Header — Premium and TukTuk Pass render their own custom headers */}
+          {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && (
             <>
               <View style={[styles.mmHeader, { paddingTop: insets.top + 10 }]}>
                 <View style={styles.mmHeaderIcon}>

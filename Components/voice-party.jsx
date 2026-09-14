@@ -1,78 +1,9 @@
 import { Audio } from "expo-av";
+import * as Clipboard from "expo-clipboard";
 import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
-import {
-  followUser,
-  unfollowUser,
-  blockUser,
-  loadRelationshipStatus,
-  isSameUser,
-} from "../src/services/relationshipService";
-import { getAppUserId } from "../src/utils/sessionUser";
-import {
-  enterRoomSession,
-  exitRoomSession,
-  enterRandomPartySession,
-  parseSeats,
-  parseOnlineUsers,
-  normalizeChatMessage,
-  normalizeChatMessages,
-  createLocalChatMessage,
-  upsertChatMessage,
-} from "../src/services/partyService";
-import { wsService } from "../src/services/websocket";
-import { getRoomState, getRoomChatMessages, postSeatHeartbeat, postRoomHeartbeat, getRoomUserCount } from "../src/api/partyApi";
-import { refreshTokenCache } from "../src/api/axios";
-import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
-import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
-import { useWalletBalance } from "../src/hooks/useWalletBalance";
-import { refreshWalletBalance, applyWalletFromSources } from "../src/store/walletStore";
-import {
-  buyGiftToBackpack,
-  loadPartyGiftCatalog,
-  loadGiftInventory,
-  normalizeGiftAnimation,
-  sendPartyRoomGift,
-  findInventoryGift,
-  adjustInventoryQty,
-  reconcileInventory,
-  parseBuyResultInventory,
-  giftsMatch,
-} from "../src/services/giftCatalogService";
-import TreasureBoxModal from "./TreasureBoxModal";
-import RoomUserProfilePopup from "./RoomUserProfilePopup";
-import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
-import {
-  MEDIA_SECTIONS,
-  emojiCategories,
-  stickerPacks,
-  gifCategories,
-  isChatMediaUrl,
-} from "../src/data/voicePartyMediaPicker";
-import { loadConversations } from "../src/services/chatService";
-import { getUser } from "../src/store/authStore";
-import { resolveProfileAvatarUri, resolveProfileAvatarSource } from "../src/utils/profileAvatar";
-import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
-import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
-import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
-import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
-import { getUserUiAssets } from "../src/api/uiAssetsApi";
-import { fetchUserDecorations } from "../src/services/decorationsService";
-import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
-import { reportUser } from "../src/api/postApi";
-import ReportReasonModal from "./ReportReasonModal";
-import { syncUserLevelForSession } from "../src/services/userLevelService";
-import { loadUserDetail } from "../src/services/nearbyService";
-import { resolveVideoSource, resolveImageSource } from "../src/utils/videoSource";
-import * as partyVoice from "../src/services/partyVoiceService";
-import * as agoraVoice from "../src/services/agoraVoiceService";
-import { loadMyVipAssets } from "../src/services/vipService";
-import {
-  VIP_PROFILE_FRAME_LAYOUT,
-  VIP_CHAT_FRAME_FITTED_BY_TIER,
-} from "../src/constants/vip";
 import {
   AlertCircle,
   Ban,
@@ -90,8 +21,10 @@ import {
   Share2,
   Smile,
   Sparkles,
+  Users,
   Volume2,
   VolumeX,
+  X
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -107,6 +40,7 @@ import {
   PermissionsAndroid,
   Platform,
   ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
@@ -115,13 +49,88 @@ import {
   View,
 } from "react-native";
 import Animated, {
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
   withRepeat,
   withSequence,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
+import { refreshTokenCache } from "../src/api/axios";
+import { getRoomChatMessages, getRoomState, getRoomUserCount, postRoomHeartbeat, postSeatHeartbeat } from "../src/api/partyApi";
+import { reportUser } from "../src/api/postApi";
+import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { getRoomShareUrl } from "../src/config/env";
+import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
+import {
+  VIP_CHAT_FRAME_FITTED_BY_TIER,
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER1_FALLBACK_ASSETS,
+} from "../src/constants/vip";
+import {
+  MEDIA_SECTIONS,
+  emojiCategories,
+  gifCategories,
+  isChatMediaUrl,
+  stickerPacks,
+} from "../src/data/voicePartyMediaPicker";
+import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
+import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
+import { useWalletBalance } from "../src/hooks/useWalletBalance";
+import * as agoraVoice from "../src/services/agoraVoiceService";
+import { loadConversations } from "../src/services/chatService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import {
+  adjustInventoryQty,
+  buyGiftToBackpack,
+  findInventoryGift,
+  giftsMatch,
+  loadGiftInventory,
+  loadPartyGiftCatalog,
+  normalizeGiftAnimation,
+  parseBuyResultInventory,
+  reconcileInventory,
+  sendPartyRoomGift,
+} from "../src/services/giftCatalogService";
+import { loadUserDetail } from "../src/services/nearbyService";
+import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
+import {
+  createLocalChatMessage,
+  enterRandomPartySession,
+  enterRoomSession,
+  exitRoomSession,
+  normalizeChatMessage,
+  normalizeChatMessages,
+  parseOnlineUsers,
+  parseSeats,
+  upsertChatMessage,
+} from "../src/services/partyService";
+import * as partyVoice from "../src/services/partyVoiceService";
+import {
+  blockUser,
+  followUser,
+  isSameUser,
+  loadRelationshipStatus,
+  unfollowUser,
+} from "../src/services/relationshipService";
+import { syncUserLevelForSession } from "../src/services/userLevelService";
+import { loadMyVipAssets } from "../src/services/vipService";
+import { wsService } from "../src/services/websocket";
+import { getUser } from "../src/store/authStore";
+import { applyWalletFromSources, refreshWalletBalance } from "../src/store/walletStore";
+import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
+import { resolveProfileAvatarSource, resolveProfileAvatarUri } from "../src/utils/profileAvatar";
+import { ms, s, useResponsive, vs } from "../src/utils/responsive";
+import { getAppUserId } from "../src/utils/sessionUser";
+import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import ReportReasonModal from "./ReportReasonModal";
+import RoomUserProfilePopup from "./RoomUserProfilePopup";
+import TopGiftingRanking from "./TopGiftingRanking";
+import TreasureBoxModal from "./TreasureBoxModal";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
@@ -133,6 +142,7 @@ Dimensions.addEventListener("change", ({ window }) => {
 
 const TREASURE_BOX_GIF = require("../assets/Gift/tresurebox.gif");
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
+const ROOM_HEADER_BG = require("../assets/images/roomHeaderBg.png");
 
 // Listen Rewards — countdown thresholds in seconds
 const LISTEN_THRESHOLDS = [60, 3600, 18000]; // 1 min, 1 hr, 5 hr
@@ -222,10 +232,10 @@ const reconcileSeatAssignments = (
   const onlineIds =
     Array.isArray(onlineUsers) && onlineUsers.length > 0
       ? new Set(
-          onlineUsers
-            .map((u) => (u?.id != null ? String(u.id) : null))
-            .filter(Boolean),
-        )
+        onlineUsers
+          .map((u) => (u?.id != null ? String(u.id) : null))
+          .filter(Boolean),
+      )
       : null;
 
   // If room presence is known, clear seats for users who already left.
@@ -412,39 +422,64 @@ const SpeakingRing = ({ active }) => {
 };
 
 const UserEntryBanner = ({ user, onComplete }) => {
-  const animValue = useSharedValue(-350);
+  const { W: SW } = useResponsive();
+  const BANNER_W = s(310);
+  const BANNER_H = vs(185);
+  const translateX = useSharedValue(-BANNER_W - s(30));
 
   useEffect(() => {
-    // Continuously scroll from left to right (marquee effect)
-    // Starting at -350 ensures there's no long delay before it appears.
-    animValue.value = withRepeat(withTiming(W, { duration: 6000 }), -1, false);
-  }, []);
+    // Slower, smooth slide across the screen (8.5s) once per entry, then auto-dismiss
+    translateX.value = withTiming(
+      SW + BANNER_W + s(30),
+      { duration: 8500 },
+      (finished) => {
+        if (finished && onComplete) {
+          runOnJS(onComplete)();
+        }
+      },
+    );
+  }, [BANNER_W, SW, onComplete, translateX]);
 
   const animStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: animValue.value }],
+    transform: [{ translateX: translateX.value }],
   }));
 
-  const frameUrl = user.entryFrameUrl || user.newUserFrameUrl;
+  const frameUrl =
+    user.entryFrameUrl ||
+    user.newUserFrameUrl ||
+    VIP_TIER1_FALLBACK_ASSETS.entryFrame;
   const hasFrame = Boolean(frameUrl);
 
   return (
-    <Animated.View style={[styles.entryBannerContainer, animStyle]}>
+    <Animated.View
+      style={[
+        styles.entryBannerContainer,
+        { width: BANNER_W, height: BANNER_H },
+        animStyle,
+      ]}
+      pointerEvents="none"
+    >
       {hasFrame && (
         <Image
           source={{ uri: frameUrl }}
-          style={styles.entryBannerBg}
-          // resizeMode="stretch"
+          style={[styles.entryBannerBg, { width: BANNER_W, height: BANNER_H }]}
+          resizeMode="stretch"
         />
       )}
       <View
         style={[
           styles.entryBannerContent,
           !hasFrame && styles.entryBannerBgDefault,
+          { width: BANNER_W, height: BANNER_H },
         ]}
       >
         <Image
           source={{
-            uri: user.avatar || "https://ui-avatars.com/api/?name=" + user.name,
+            uri:
+              user.avatar ||
+              user.profileImageUrl ||
+              user.avatarUrl ||
+              "https://ui-avatars.com/api/?name=" + (user.name || "U") + "&background=7c4dff&color=fff",
           }}
           style={styles.entryBannerAvatar}
           resizeMode="cover"
@@ -453,7 +488,500 @@ const UserEntryBanner = ({ user, onComplete }) => {
           <Text style={styles.entryBannerName} numberOfLines={1}>
             {user.name}
           </Text>
+          {!hasFrame && (
+            <Text style={styles.entryBannerJoined}>joined the room</Text>
+          )}
         </View>
+      </View>
+    </Animated.View>
+  );
+};
+
+export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
+  if (!giftOrPayload) return { image: null, emoji: "🎁", name: "Gift" };
+
+  const name = String(giftOrPayload?.name || giftOrPayload?.giftName || "Gift");
+  let emoji = giftOrPayload?.emoji || giftOrPayload?.gift?.emoji || null;
+  const explicitUrl =
+    giftOrPayload?.imageUrl || giftOrPayload?.image || giftOrPayload?.videoUrl;
+
+  const code = String(
+    giftOrPayload?.giftCode ||
+      giftOrPayload?.giftId ||
+      giftOrPayload?.id ||
+      giftOrPayload?.code ||
+      "",
+  )
+    .toLowerCase()
+    .trim();
+  const lowerName = String(name).toLowerCase().trim();
+
+  // If emoji is not provided directly, match in catalog
+  if (!emoji && catalog) {
+    const allCatalogItems = [
+      ...(catalog.gift || []),
+      ...(catalog.random || []),
+      ...(catalog.activity || []),
+      ...(catalog.special || []),
+      ...(catalog.vip || []),
+      ...(catalog.pk || []),
+      ...(catalog.relationship || []),
+    ];
+
+    const match = allCatalogItems.find((item) => {
+      const itemCode = String(
+        item?.giftCode || item?.id || item?.code || "",
+      )
+        .toLowerCase()
+        .trim();
+      const itemName = String(item?.name || "")
+        .toLowerCase()
+        .trim();
+      return (
+        (code &&
+          (itemCode === code ||
+            itemCode === `gift-${code}` ||
+            code === `gift-${itemCode}`)) ||
+        (lowerName &&
+          (itemName === lowerName ||
+            lowerName.includes(itemName) ||
+            itemName.includes(lowerName)))
+      );
+    });
+
+    if (match?.emoji) {
+      emoji = match.emoji;
+    }
+  }
+
+  // Derive contextual emoji based on gift name if still missing
+  if (!emoji || emoji === "🎁") {
+    if (
+      lowerName.includes("fire") ||
+      lowerName.includes("flame") ||
+      lowerName.includes("stadium")
+    )
+      emoji = "🔥";
+    else if (
+      lowerName.includes("flower") ||
+      lowerName.includes("rose") ||
+      lowerName.includes("blossom") ||
+      lowerName.includes("tulip") ||
+      lowerName.includes("bouquet")
+    )
+      emoji = "🌸";
+    else if (
+      lowerName.includes("heart") ||
+      lowerName.includes("love") ||
+      lowerName.includes("romance")
+    )
+      emoji = "💖";
+    else if (
+      lowerName.includes("kiss") ||
+      lowerName.includes("lip")
+    )
+      emoji = "💋";
+    else if (
+      lowerName.includes("diamond") ||
+      lowerName.includes("gem") ||
+      lowerName.includes("crystal") ||
+      lowerName.includes("ring") ||
+      lowerName.includes("gold")
+    )
+      emoji = "💎";
+    else if (
+      lowerName.includes("rocket") ||
+      lowerName.includes("space") ||
+      lowerName.includes("galaxy")
+    )
+      emoji = "🚀";
+    else if (
+      lowerName.includes("car") ||
+      lowerName.includes("ferrari") ||
+      lowerName.includes("lambo") ||
+      lowerName.includes("racing") ||
+      lowerName.includes("sports")
+    )
+      emoji = "🏎️";
+    else if (
+      lowerName.includes("crown") ||
+      lowerName.includes("king") ||
+      lowerName.includes("queen") ||
+      lowerName.includes("tiara")
+    )
+      emoji = "👑";
+    else if (
+      lowerName.includes("random") ||
+      lowerName.includes("orb") ||
+      lowerName.includes("magic") ||
+      lowerName.includes("lucky")
+    )
+      emoji = "🔮";
+    else if (
+      lowerName.includes("lion") ||
+      lowerName.includes("tiger") ||
+      lowerName.includes("dragon")
+    )
+      emoji = "🦁";
+    else if (
+      lowerName.includes("castle") ||
+      lowerName.includes("palace") ||
+      lowerName.includes("mansion")
+    )
+      emoji = "🏰";
+    else if (
+      lowerName.includes("star") ||
+      lowerName.includes("sparkle")
+    )
+      emoji = "⭐";
+    else if (
+      lowerName.includes("trophy") ||
+      lowerName.includes("cup") ||
+      lowerName.includes("champion")
+    )
+      emoji = "🏆";
+    else if (
+      lowerName.includes("party") ||
+      lowerName.includes("confetti") ||
+      lowerName.includes("celebrate")
+    )
+      emoji = "🎉";
+    else if (
+      lowerName.includes("yacht") ||
+      lowerName.includes("boat") ||
+      lowerName.includes("ship")
+    )
+      emoji = "🛥️";
+    else if (
+      lowerName.includes("plane") ||
+      lowerName.includes("jet") ||
+      lowerName.includes("flight")
+    )
+      emoji = "✈️";
+    else if (!emoji) emoji = "🎁";
+  }
+
+  const isRemoteImage =
+    typeof explicitUrl === "string" && explicitUrl.startsWith("http");
+
+  return {
+    image: isRemoteImage ? resolveImageSource(explicitUrl) : null,
+    emoji,
+    name,
+  };
+};
+
+const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
+  const { W: SW } = useResponsive();
+
+  const translateX = useSharedValue(-SW);
+  const opacity = useSharedValue(0);
+  const scaleAnim = useSharedValue(0.2);
+  const pulseScale = useSharedValue(1);
+  const badgeScale = useSharedValue(0);
+  const floatAnim = useSharedValue(0);
+  const rotateAnim = useSharedValue(0);
+  const glowPulse = useSharedValue(1);
+
+  const visual = useMemo(
+    () => resolveGiftVisual(gift, catalog),
+    [gift, catalog],
+  );
+
+  const displayEmoji = useMemo(() => {
+    const fromGift =
+      typeof gift?.emoji === "string" ? gift.emoji.trim() : "";
+    if (fromGift && fromGift !== "🎁") return fromGift;
+    const fromVisual =
+      typeof visual?.emoji === "string" ? visual.emoji.trim() : "";
+    if (fromVisual && fromVisual !== "🎁") return fromVisual;
+    return fromGift || fromVisual || "🎁";
+  }, [gift?.emoji, visual?.emoji]);
+
+  useEffect(() => {
+    // 1. Entrance slide & pop
+    opacity.value = withTiming(1, { duration: 250 });
+    translateX.value = withSpring(0, { damping: 14, stiffness: 120 });
+    scaleAnim.value = withSequence(
+      withDelay(80, withSpring(1.45, { damping: 6, stiffness: 180 })),
+      withSpring(1.0, { damping: 11, stiffness: 120 }),
+    );
+
+    // 2. Dynamic Big & Small pulsing scale animation
+    pulseScale.value = withDelay(
+      300,
+      withRepeat(
+        withSequence(
+          withTiming(1.35, { duration: 380 }),
+          withTiming(0.88, { duration: 380 }),
+          withTiming(1.22, { duration: 320 }),
+          withTiming(1.0, { duration: 320 }),
+        ),
+        -1,
+        true,
+      ),
+    );
+
+    // 3. Floating bobbing & sway
+    floatAnim.value = withDelay(
+      250,
+      withRepeat(
+        withSequence(
+          withTiming(-5, { duration: 500 }),
+          withTiming(5, { duration: 500 }),
+        ),
+        -1,
+        true,
+      ),
+    );
+
+    rotateAnim.value = withDelay(
+      250,
+      withRepeat(
+        withSequence(
+          withTiming(-12, { duration: 480 }),
+          withTiming(12, { duration: 480 }),
+        ),
+        -1,
+        true,
+      ),
+    );
+
+    // 4. Glow aura pulse
+    glowPulse.value = withDelay(
+      200,
+      withRepeat(
+        withSequence(
+          withTiming(1.2, { duration: 400 }),
+          withTiming(0.95, { duration: 400 }),
+        ),
+        -1,
+        true,
+      ),
+    );
+
+    // 5. Multiplier badge pop
+    badgeScale.value = withDelay(
+      220,
+      withSequence(
+        withSpring(1.4, { damping: 6, stiffness: 190 }),
+        withSpring(1.0, { damping: 12, stiffness: 120 }),
+      ),
+    );
+
+    const timer = setTimeout(() => {
+      opacity.value = withTiming(0, { duration: 380 });
+      translateX.value = withTiming(SW * 0.45, { duration: 380 }, (finished) => {
+        if (finished && onComplete) {
+          runOnJS(onComplete)();
+        }
+      });
+    }, 3600);
+
+    return () => clearTimeout(timer);
+  }, [SW, badgeScale, floatAnim, glowPulse, onComplete, opacity, pulseScale, rotateAnim, scaleAnim, translateX]);
+
+  const bannerAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    opacity: opacity.value,
+  }));
+
+  const giftEmojiAnimStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: scaleAnim.value * pulseScale.value },
+      { translateY: floatAnim.value },
+      { rotate: `${rotateAnim.value}deg` },
+    ],
+  }));
+
+  const glowAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: glowPulse.value }],
+    opacity: 0.75,
+  }));
+
+  const badgeAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: badgeScale.value }],
+  }));
+
+  const senderName = gift.senderName || "User";
+  const qty = Math.max(1, Number(gift.quantity || gift.qty || 1));
+  const receiverText = gift.receiverName ? `to ${gift.receiverName}` : "in room";
+
+  return (
+    <Animated.View
+      style={[styles.giftBannerCard, bannerAnimStyle]}
+      pointerEvents="none"
+    >
+      <LinearGradient
+        colors={[
+          "rgba(48, 14, 98, 0.97)",
+          "rgba(82, 24, 148, 0.95)",
+          "rgba(124, 58, 237, 0.92)",
+        ]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.giftBannerGradient}
+      >
+        {/* Left: Sender Avatar */}
+        <View style={styles.giftBannerAvatarWrap}>
+          {gift.senderAvatar ? (
+            <Image
+              source={{ uri: gift.senderAvatar }}
+              style={styles.giftBannerAvatar}
+              resizeMode="cover"
+            />
+          ) : (
+            <View
+              style={[
+                styles.giftBannerAvatar,
+                styles.giftBannerAvatarFallback,
+              ]}
+            >
+              <Text style={styles.giftBannerAvatarInitial}>
+                {senderName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <View style={styles.giftBannerSparkleBadge}>
+            <Text style={{ fontSize: ms(11) }}>⭐</Text>
+          </View>
+        </View>
+
+        {/* Center: Sender Name & Gift Text */}
+        <View style={styles.giftBannerTextCol}>
+          <Text style={styles.giftBannerSenderName} numberOfLines={1}>
+            {senderName}
+          </Text>
+          <Text style={styles.giftBannerActionText} numberOfLines={1}>
+            sent {visual.name} {receiverText}
+          </Text>
+        </View>
+
+        {/* Right: Pop Animated Gift Emoji with Big/Small Pulse inside circle */}
+        <View style={styles.giftBannerVisualWrap}>
+          <Animated.View
+            style={[styles.giftBannerGlowBackdrop, glowAnimStyle]}
+          />
+          <Animated.View
+            style={[styles.giftBannerImageContainer, giftEmojiAnimStyle]}
+          >
+            <Text style={styles.giftBannerEmojiMain}>
+              {displayEmoji}
+            </Text>
+          </Animated.View>
+
+          {/* Multiplier Badge */}
+          <Animated.View
+            style={[styles.giftBannerMultiplierBadge, badgeAnimStyle]}
+          >
+            <LinearGradient
+              colors={["#FFE066", "#FFA500", "#FF4500"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.giftBannerMultiplierGrad}
+            >
+              <Text style={styles.giftBannerMultiplierText}>×{qty}</Text>
+            </LinearGradient>
+          </Animated.View>
+        </View>
+      </LinearGradient>
+    </Animated.View>
+  );
+};
+
+const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
+  const { W: SW, H: SH } = useResponsive();
+
+  const translateY = useSharedValue(SH * 0.82);
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.4);
+  const swayX = useSharedValue(0);
+  const rotate = useSharedValue(0);
+
+  const initialX = useMemo(() => {
+    return SW * 0.5 - s(30) + (Math.random() - 0.5) * s(120);
+  }, [SW]);
+
+  const visual = useMemo(
+    () => resolveGiftVisual(gift, catalog),
+    [gift, catalog],
+  );
+
+  const displayEmoji = useMemo(() => {
+    const fromGift =
+      typeof gift?.emoji === "string" ? gift.emoji.trim() : "";
+    if (fromGift && fromGift !== "🎁") return fromGift;
+    const fromVisual =
+      typeof visual?.emoji === "string" ? visual.emoji.trim() : "";
+    if (fromVisual && fromVisual !== "🎁") return fromVisual;
+    return fromGift || fromVisual || "🎁";
+  }, [gift?.emoji, visual?.emoji]);
+
+  useEffect(() => {
+    opacity.value = withTiming(1, { duration: 180 });
+
+    scale.value = withSequence(
+      withTiming(1.4, { duration: 300 }),
+      withTiming(1.1, { duration: 350 }),
+      withDelay(1100, withTiming(0.85, { duration: 650 })),
+    );
+
+    swayX.value = withRepeat(
+      withSequence(
+        withTiming(-s(16), { duration: 600 }),
+        withTiming(s(16), { duration: 600 }),
+      ),
+      -1,
+      true,
+    );
+
+    rotate.value = withRepeat(
+      withSequence(
+        withTiming(-14, { duration: 500 }),
+        withTiming(14, { duration: 500 }),
+      ),
+      -1,
+      true,
+    );
+
+    translateY.value = withTiming(
+      -vs(140),
+      { duration: 2700 },
+      (finished) => {
+        if (finished && onComplete) {
+          runOnJS(onComplete)();
+        }
+      },
+    );
+
+    const timer = setTimeout(() => {
+      opacity.value = withTiming(0, { duration: 400 });
+    }, 2250);
+
+    return () => clearTimeout(timer);
+  }, [SH, onComplete, opacity, rotate, scale, swayX, translateY]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: translateY.value },
+      { translateX: swayX.value },
+      { scale: scale.value },
+      { rotate: `${rotate.value}deg` },
+    ],
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        styles.floatingGiftRiseWrap,
+        { left: initialX },
+        animStyle,
+      ]}
+      pointerEvents="none"
+    >
+      <View style={styles.floatingGiftRiseGlow}>
+        <Text style={styles.floatingGiftRiseEmoji}>{displayEmoji}</Text>
       </View>
     </Animated.View>
   );
@@ -473,24 +1001,61 @@ export default function VoiceParty() {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
   const [recentEntries, setRecentEntries] = useState([]);
+  const [canShowEntryBanner, setCanShowEntryBanner] = useState(false);
   const prevOnlineUsersRef = useRef([]);
+
+  useEffect(() => {
+    setCanShowEntryBanner(false);
+    if (!roomLoading && roomId) {
+      const timer = setTimeout(() => {
+        setCanShowEntryBanner(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [roomLoading, roomId]);
 
   useEffect(() => {
     if (!onlineUsers || !prevOnlineUsersRef.current) {
       prevOnlineUsersRef.current = onlineUsers || [];
       return;
     }
-    const prevIds = new Set(prevOnlineUsersRef.current.map((u) => u.id));
-    const newJoins = onlineUsers.filter((u) => !prevIds.has(u.id));
+    const prevIds = new Set(
+      (prevOnlineUsersRef.current || []).map((u) => u?.id ?? u?.userId).filter(Boolean),
+    );
+    const newJoins = (onlineUsers || [])
+      .filter((u) => {
+        const uId = u?.id ?? u?.userId;
+        return uId != null && !prevIds.has(uId);
+      })
+      .map((u) => ({
+        ...u,
+        _entryKey: `${u?.id ?? u?.userId ?? "entry"}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      }));
 
     if (newJoins.length > 0) {
-      setRecentEntries((prev) => [...prev, ...newJoins]);
+      setRecentEntries((prev) => {
+        const existingIds = new Set(
+          prev.map((item) => item?.id ?? item?.userId).filter(Boolean),
+        );
+        const filteredNew = newJoins.filter((item) => {
+          const id = item?.id ?? item?.userId;
+          return id == null || !existingIds.has(id);
+        });
+        return [...prev, ...filteredNew];
+      });
     }
     prevOnlineUsersRef.current = onlineUsers;
   }, [onlineUsers]);
 
-  const handleEntryComplete = useCallback((userId) => {
-    setRecentEntries((prev) => prev.filter((u) => u.id !== userId));
+  const handleEntryComplete = useCallback((entryKeyOrId) => {
+    setRecentEntries((prev) =>
+      prev.filter(
+        (u) =>
+          u._entryKey !== entryKeyOrId &&
+          u.id !== entryKeyOrId &&
+          u.userId !== entryKeyOrId,
+      ),
+    );
   }, []);
   const [messages, setMessages] = useState([]);
   // The logged-in user's own VIP cosmetics (profile/entry/chat frame + logo) —
@@ -522,6 +1087,29 @@ export default function VoiceParty() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
+  const [showActiveUsersModal, setShowActiveUsersModal] = useState(false);
+  const [showFollowModal, setShowFollowModal] = useState(false);
+
+  const displayActiveUsers =
+    Array.isArray(onlineUsers) ? onlineUsers : [];
+
+  const isUserSeated = useCallback(
+    (userId) => {
+      if (!userId) return false;
+      return (seats || []).some((s) => {
+        const u = s?.user;
+        if (!u) return false;
+        return (
+          String(u.id || u.userId) === String(userId) ||
+          String(u.id) === String(userId) ||
+          String(u.userId) === String(userId)
+        );
+      });
+    },
+    [seats],
+  );
+
+  const seatedUsersCount = (seats || []).filter((s) => s?.user).length;
   const exitedRef = useRef(false);
   const onMicRef = useRef(false);
   const mySeatNumberRef = useRef(null);
@@ -568,7 +1156,8 @@ export default function VoiceParty() {
   const [giftReceiverId, setGiftReceiverId] = useState(null);
   const [showGiftReceiverPicker, setShowGiftReceiverPicker] = useState(false);
   const giftReceiverTouchedRef = useRef(false);
-  const [giftPopup, setGiftPopup] = useState(null);
+  const [activeGiftDisplays, setActiveGiftDisplays] = useState([]);
+  const [activeRisingGifts, setActiveRisingGifts] = useState([]);
   const [activityEvent, setActivityEvent] = useState("Flamenco Fantasy");
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [currentVideo, setCurrentVideo] = useState(null);
@@ -824,7 +1413,7 @@ export default function VoiceParty() {
         .then((catalog) => {
           if (!cancelled) setGiftCatalog(catalog);
         })
-        .catch(() => {}),
+        .catch(() => { }),
       loadGiftInventory()
         .then((items) => {
           if (!cancelled) setBackpackGifts(items);
@@ -1038,7 +1627,7 @@ export default function VoiceParty() {
       .then((status) => {
         if (!cancelled) setIsFollowing(status.following);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       cancelled = true;
     };
@@ -1092,7 +1681,7 @@ export default function VoiceParty() {
         try {
           loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
           if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
-        } catch (e) {}
+        } catch (e) { }
         let session;
         if (isRandomParty) {
           session = await enterRandomPartySession();
@@ -1106,11 +1695,16 @@ export default function VoiceParty() {
         roomIdRef.current = session.roomId;
         setRoomInfo(session.room);
         const initialSeatNumber = session.reservedSeatNumber ?? null;
+        let initialSeats = session.seats;
+        if (!initialSeats || !Array.isArray(initialSeats)) {
+          initialSeats = parseSeats(null, null);
+        }
+
         if (initialSeatNumber) {
           mySeatNumberRef.current = initialSeatNumber;
           setMySeatNumber(initialSeatNumber);
           const enrichedSeats = await enrichSeatsWithMyProfile(
-            session.seats,
+            initialSeats,
             initialSeatNumber,
           );
           setSeats(
@@ -1123,7 +1717,7 @@ export default function VoiceParty() {
           );
         } else {
           setSeats(
-            reconcileSeatAssignments(session.seats, {
+            reconcileSeatAssignments(initialSeats, {
               onlineUsers: session.onlineUsers,
               myUserId,
               mySeatNumber: null,
@@ -1137,26 +1731,30 @@ export default function VoiceParty() {
         );
         setOnlineCount(session.onlineCount);
 
-        // Show our own entry banner
+        // Show our own entry banner after 10s of completed loading and screen display
         const localUser = await getUser();
         if (localUser && !cancelled) {
           const resolvedAvatar =
             resolveProfileAvatarUri(localUser) ??
             localUser?.profilePicUrl ??
             localUser?.avatarUrl;
-          setRecentEntries((prev) => [
-            ...prev,
-            {
-              id: localUser.id || "my-id",
-              name: localUser.name || localUser.username || "Me",
-              avatar: resolvedAvatar,
-              entryFrameUrl:
-                loadedVip?.entryFrame || localUser?.newUserFrameUrl,
-              newUserFrameUrl: localUser?.newUserFrameUrl,
-              profileFrameUrl:
-                loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
-            },
-          ]);
+          setTimeout(() => {
+            if (!cancelled) {
+              setRecentEntries((prev) => [
+                ...prev,
+                {
+                  id: localUser.id || "my-id",
+                  name: localUser.name || localUser.username || "Me",
+                  avatar: resolvedAvatar,
+                  entryFrameUrl:
+                    loadedVip?.entryFrame || localUser?.newUserFrameUrl,
+                  newUserFrameUrl: localUser?.newUserFrameUrl,
+                  profileFrameUrl:
+                    loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
+                },
+              ]);
+            }
+          }, 10000);
         }
 
         // Chat is session-local: start with a clean screen on every entry
@@ -1271,14 +1869,14 @@ export default function VoiceParty() {
           if (seatToLeave) {
             await partyVoice
               .leaveMic(String(activeRoomId), seatToLeave)
-              .catch(() => {});
+              .catch(() => { });
           }
-          await partyVoice.teardownVoice().catch(() => {});
-          await exitRoomSession(String(activeRoomId)).catch(() => {});
+          await partyVoice.teardownVoice().catch(() => { });
+          await exitRoomSession(String(activeRoomId)).catch(() => { });
         };
         cleanup();
       } else {
-        partyVoice.teardownVoice().catch(() => {});
+        partyVoice.teardownVoice().catch(() => { });
       }
     };
   }, [roomIdParam, isRandomParty, router]);
@@ -1293,6 +1891,22 @@ export default function VoiceParty() {
     });
   }, [roomId]);
 
+  const autoOpenedFollowModalRef = useRef(false);
+
+  useEffect(() => {
+    autoOpenedFollowModalRef.current = false;
+  }, [roomId]);
+
+  useEffect(() => {
+    if (!roomLoading && roomId && !autoOpenedFollowModalRef.current && !isHostSelf) {
+      autoOpenedFollowModalRef.current = true;
+      const timer = setTimeout(() => {
+        setShowFollowModal(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [roomLoading, roomId, isHostSelf]);
+
   useEffect(() => {
     messageCountRef.current = messages.length;
   }, [messages]);
@@ -1306,7 +1920,7 @@ export default function VoiceParty() {
         );
         setChatUnreadCount(unread);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   useEffect(() => {
@@ -1317,13 +1931,30 @@ export default function VoiceParty() {
     return () => clearTimeout(timer);
   }, [roomId, messages.length]);
 
+  const handleGiftAnimationComplete = useCallback((displayKey) => {
+    setActiveGiftDisplays((prev) =>
+      prev.filter((g) => (g._displayKey || g.id) !== displayKey),
+    );
+  }, []);
+
+  const handleRisingGiftComplete = useCallback((riseKey) => {
+    setActiveRisingGifts((prev) =>
+      prev.filter((g) => (g._riseKey || g.id) !== riseKey),
+    );
+  }, []);
+
   const revealGiftAnimation = useCallback((payload, fallbackGift) => {
     const animated = normalizeGiftAnimation(payload, fallbackGift);
-    setGiftPopup({
-      gift: animated,
-      qty: animated.quantity,
+    const key = `gift-disp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const riseKey = `gift-rise-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setActiveGiftDisplays((prev) => {
+      const next = [...prev, { ...animated, _displayKey: key }];
+      return next.length > 3 ? next.slice(next.length - 3) : next;
     });
-    setTimeout(() => setGiftPopup(null), 2800);
+    setActiveRisingGifts((prev) => {
+      const next = [...prev, { ...animated, _riseKey: riseKey }];
+      return next.length > 5 ? next.slice(next.length - 5) : next;
+    });
   }, []);
 
   useEffect(() => {
@@ -1433,15 +2064,90 @@ export default function VoiceParty() {
     const unsubGiftAnimation = wsService.onRoomGiftAnimation(
       String(roomId),
       (payload) => {
-        revealGiftAnimation(payload);
-        const senderName = payload?.senderName ?? payload?.sender ?? "Someone";
-        const giftName = payload?.giftName ?? payload?.name ?? "a gift";
-        const qty = Math.max(1, Number(payload?.quantity ?? 1));
+        const senderId =
+          payload?.senderId ??
+          payload?.userId ??
+          payload?.fromUserId ??
+          payload?.from;
+        let matchedUser = null;
+        if (senderId) {
+          matchedUser =
+            onlineUsers.find(
+              (u) => String(u.id || u.userId) === String(senderId),
+            ) ||
+            seats.find(
+              (s) =>
+                s.user &&
+                String(s.user.id || s.user.userId) === String(senderId),
+            )?.user;
+        }
+
+        const senderName =
+          payload?.senderName ??
+          payload?.sender ??
+          payload?.userName ??
+          payload?.username ??
+          payload?.user?.name ??
+          payload?.fromUser?.name ??
+          payload?.nickname ??
+          matchedUser?.name ??
+          matchedUser?.username ??
+          "User";
+
+        const senderAvatar =
+          payload?.senderAvatar ??
+          payload?.avatar ??
+          payload?.user?.avatar ??
+          payload?.profileImageUrl ??
+          payload?.profilePicUrl ??
+          matchedUser?.profileImageUrl ??
+          matchedUser?.avatar ??
+          null;
+
+        const receiverId = payload?.receiverId ?? payload?.toUserId;
+        let matchedReceiver = null;
+        if (receiverId) {
+          matchedReceiver =
+            onlineUsers.find(
+              (u) => String(u.id || u.userId) === String(receiverId),
+            ) ||
+            seats.find(
+              (s) =>
+                s.user &&
+                String(s.user.id || s.user.userId) === String(receiverId),
+            )?.user ||
+            (isSameUser(receiverId, hostId)
+              ? { name: roomInfo?.name ?? "Host" }
+              : null);
+        }
+
+        const receiverName =
+          payload?.receiverName ??
+          payload?.receiver ??
+          payload?.toUser?.name ??
+          matchedReceiver?.name ??
+          (isSameUser(receiverId, hostId) ? "Host" : null);
+
+        const enrichedPayload = {
+          ...payload,
+          senderName,
+          senderAvatar,
+          receiverName,
+        };
+
+        revealGiftAnimation(enrichedPayload);
+        const giftName =
+          payload?.giftName ??
+          payload?.name ??
+          payload?.gift?.name ??
+          "a gift";
+        const qty = Math.max(1, Number(payload?.quantity ?? payload?.qty ?? 1));
         const giftText = `sent ${payload?.emoji ?? "🎁"} ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
         const normalized = normalizeChatMessage({
           id: payload?.id ?? `gift-ws-${Date.now()}`,
           message: `${senderName} ${giftText}`,
           senderName,
+          avatar: senderAvatar,
           text: `${senderName} ${giftText}`,
           isGift: true,
         });
@@ -1506,7 +2212,7 @@ export default function VoiceParty() {
     exitedRef.current = true;
     try {
       if (onMic && mySeatNumber) {
-        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => {});
+        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => { });
       }
       await partyVoice.teardownVoice();
       await exitRoomSession(String(roomId));
@@ -1722,14 +2428,14 @@ export default function VoiceParty() {
               prev.map((s) =>
                 s.id === seatId && !s.user
                   ? {
-                      ...s,
-                      user: {
-                        id: null,
-                        name: "…",
-                        active: false,
-                        muted: false,
-                      },
-                    }
+                    ...s,
+                    user: {
+                      id: null,
+                      name: "…",
+                      active: false,
+                      muted: false,
+                    },
+                  }
                   : s,
               ),
             );
@@ -1846,6 +2552,68 @@ export default function VoiceParty() {
     }
   };
 
+  const handleShareRoom = useCallback(async () => {
+    const activeRoomId = roomIdRef.current || roomId;
+    if (!activeRoomId) {
+      Alert.alert(
+        "Share Room",
+        "Cannot share room because room ID is unavailable.",
+      );
+      return;
+    }
+
+    const deepLink = getRoomShareUrl(activeRoomId); // tuktuk://room/:id
+    const roomTitle = roomInfo?.name?.trim()
+      ? `"${roomInfo.name.trim()}"`
+      : "voice party room";
+
+    // The message contains the tuktuk:// deep link that opens the app directly,
+    // plus a Play Store fallback for users who don't have the app installed.
+    const shareMessage =
+      `Join me in ${roomTitle} on Tuk-Tuk! 🎉\n` +
+      `Open in app: ${deepLink}\n` +
+      `Don't have Tuk-Tuk? Download: https://play.google.com/store/apps/details?id=tuk.tuk.app`;
+
+    try {
+      await Share.share(
+        Platform.select({
+          ios: {
+            message: shareMessage,
+            url: deepLink,
+          },
+          default: {
+            title: `Join ${roomInfo?.name ?? "Voice Room"} on Tuk-Tuk`,
+            message: shareMessage,
+          },
+        }),
+      );
+    } catch (err) {
+      if (err?.name !== "AbortError" && !err?.message?.includes("dismiss")) {
+        console.warn("[VoiceParty] Native share failed:", err);
+        Alert.alert("Share", "Could not open share options. Please try again.");
+      }
+    }
+  }, [roomId, roomInfo?.name]);
+
+  const handleCopyRoomLink = useCallback(async () => {
+    const activeRoomId = roomIdRef.current || roomId;
+    if (!activeRoomId) {
+      Alert.alert(
+        "Copy Link",
+        "Cannot copy link because room ID is unavailable.",
+      );
+      return;
+    }
+    try {
+      const deepLink = getRoomShareUrl(activeRoomId); // tuktuk://room/:id
+      await Clipboard.setStringAsync(deepLink);
+      Alert.alert("Copied", "Room link copied to clipboard!");
+    } catch (err) {
+      console.warn("[VoiceParty] Copy link failed:", err);
+      Alert.alert("Copy Link", "Failed to copy room link.");
+    }
+  }, [roomId]);
+
   const [shareTab, setShareTab] = useState("Recently");
   const scrollRef = useRef(null);
   const messageCountRef = useRef(0);
@@ -1857,10 +2625,11 @@ export default function VoiceParty() {
   const shareTabs = ["Recently", "Friends", "Followers", "Room Followers"];
 
   const sharePlatforms = [
-    { label: "Moment", bg: "#7c4dff", icon: "🪐" },
-    { label: "Facebook", bg: "#1877f2", icon: "f" },
-    { label: "Instagram", bg: "#e1306c", icon: "📸" },
-    { label: "WhatsApp", bg: "#25d366", icon: "💬" },
+    { label: "Share", bg: "#7c4dff", icon: "🪐", onPress: handleShareRoom },
+    { label: "Copy Link", bg: "#4f46e5", icon: "🔗", onPress: handleCopyRoomLink },
+    { label: "WhatsApp", bg: "#25d366", icon: "💬", onPress: handleShareRoom },
+    { label: "Facebook", bg: "#1877f2", icon: "f", onPress: handleShareRoom },
+    { label: "Instagram", bg: "#e1306c", icon: "📸", onPress: handleShareRoom },
   ];
 
   const handleReportRoomSubmit = async (reason) => {
@@ -1898,12 +2667,12 @@ export default function VoiceParty() {
     },
     ...(!isHostSelf
       ? [
-          {
-            icon: <Ban size={22} color="#a78bfa" />,
-            label: "Block",
-            onPress: handleBlockHost,
-          },
-        ]
+        {
+          icon: <Ban size={22} color="#a78bfa" />,
+          label: "Block",
+          onPress: handleBlockHost,
+        },
+      ]
       : []),
     {
       icon: <Crown size={22} color="#a78bfa" />,
@@ -2173,7 +2942,21 @@ export default function VoiceParty() {
       setSelectedGift(remaining?.qty > 0 ? remaining : null);
       await refreshWalletBalance();
 
-      revealGiftAnimation(result, selectedGift);
+      revealGiftAnimation(
+        {
+          ...result,
+          senderName,
+          senderAvatar,
+          receiverName: giftReceiverName,
+        },
+        {
+          ...selectedGift,
+          senderName,
+          senderAvatar,
+          receiverName: giftReceiverName,
+          quantity: qty,
+        },
+      );
 
       const localMsg = createLocalChatMessage({
         text: giftText,
@@ -2393,7 +3176,7 @@ export default function VoiceParty() {
     try {
       // Leave current seat first if already on mic
       if (onMic && mySeatNumber) {
-        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => {});
+        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => { });
         onMicRef.current = false;
         mySeatNumberRef.current = null;
         setOnMic(false);
@@ -2420,11 +3203,42 @@ export default function VoiceParty() {
           staleSeatTracker: staleSeatTrackerRef.current,
         }),
       );
-    } catch (err) {
-      Alert.alert(
-        "Take seat failed",
-        err?.message || "Could not take that seat. Please try again.",
+    } catch (_err) {
+      // In mock UI simulation, locally assign the selected seat
+      const localUser = await getUser().catch(() => null);
+      const resolvedAvatar =
+        resolveProfileAvatarUri(localUser) ??
+        localUser?.profilePicUrl ??
+        localUser?.avatarUrl;
+      setSeats((prev) =>
+        (prev || []).map((s) => {
+          if (s.id === targetSeatId) {
+            return {
+              ...s,
+              user: {
+                id: myUserId || "local-user",
+                userId: myUserId || "local-user",
+                name: localUser?.name || localUser?.username || "You",
+                avatar: resolvedAvatar,
+                active: true,
+                muted: false,
+              },
+            };
+          }
+          if (
+            s.user &&
+            (String(s.user.id) === String(myUserId) ||
+              s.user.id === "local-user")
+          ) {
+            return { ...s, user: null };
+          }
+          return s;
+        }),
       );
+      setOnMic(true);
+      setMySeatNumber(targetSeatId);
+      onMicRef.current = true;
+      mySeatNumberRef.current = targetSeatId;
     } finally {
       setSeatActionLoading(false);
       setVoiceConnecting(false);
@@ -2451,10 +3265,10 @@ export default function VoiceParty() {
     const fetched = userId ? (userFrameData[userId] ?? {}) : {};
     const userWithFrame = user
       ? {
-          ...user,
-          hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame,
-          newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl,
-        }
+        ...user,
+        hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame,
+        newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl,
+      }
       : user;
     const imageSource = resolveRoomUserAvatarSource(userWithFrame);
     // Mic seats show the same circular VIP profile-frame ring used everywhere
@@ -2474,9 +3288,11 @@ export default function VoiceParty() {
     const isVipProfileFrame = Boolean(
       selfVipProfileFrame || otherUserVipProfileFrame,
     );
+    const decorationFrame = fetched?.decorationFrameUrl ?? null;
     const frameSource =
       selfVipProfileFrame ??
       otherUserVipProfileFrame ??
+      (decorationFrame ? { uri: decorationFrame } : null) ??
       resolveNewUserFrameSource(userWithFrame);
     const hasFrame = Boolean(frameSource);
     const activeFrameConfig = isVipProfileFrame
@@ -2491,19 +3307,19 @@ export default function VoiceParty() {
         size={typeof size === "number" ? size : 48}
         {...(decorationFrame
           ? {
-              // Decoration frames: no explicit props — ProfileAvatarWithFrame
-              // auto-measures the frame image and scales it around the photo.
-              frameResizeMode: "contain",
-            }
+            // Decoration frames: no explicit props — ProfileAvatarWithFrame
+            // auto-measures the frame image and scales it around the photo.
+            frameResizeMode: "contain",
+          }
           : {
-              frameScale: hasFrame ? activeFrameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale,
-              frameResizeMode: hasFrame ? activeFrameConfig.frameResizeMode : "contain",
-              frameOffsetX: hasFrame ? activeFrameConfig.frameOffsetX : 0,
-              frameOffsetY: hasFrame ? activeFrameConfig.frameOffsetY : 0,
-              frameBleed: hasFrame ? activeFrameConfig.frameBleed : 0,
-              avatarBoost: hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost,
-              avatarOffsetY: hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
-            })}
+            frameScale: hasFrame ? activeFrameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale,
+            frameResizeMode: hasFrame ? activeFrameConfig.frameResizeMode : "contain",
+            frameOffsetX: hasFrame ? activeFrameConfig.frameOffsetX : 0,
+            frameOffsetY: hasFrame ? activeFrameConfig.frameOffsetY : 0,
+            frameBleed: hasFrame ? activeFrameConfig.frameBleed : 0,
+            avatarBoost: hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost,
+            avatarOffsetY: hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
+          })}
         avatarStyle={imageStyle}
         placeholderStyle={placeholderStyle}
         initialStyle={initialStyle}
@@ -2745,7 +3561,7 @@ export default function VoiceParty() {
                         style={[
                           styles.giftPurchaseBuyBtn,
                           (!canAfford || catalogLoading) &&
-                            styles.giftPurchaseBuyBtnDisabled,
+                          styles.giftPurchaseBuyBtnDisabled,
                         ]}
                         activeOpacity={0.85}
                         disabled={!canAfford || catalogLoading}
@@ -2772,28 +3588,7 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── GIFT SEND POPUP ── */}
-      <Modal visible={Boolean(giftPopup)} transparent animationType="fade">
-        <View style={styles.giftPopupOverlay} pointerEvents="none">
-          <View style={styles.giftPopupCard}>
-            {giftPopup?.gift?.imageUrl ? (
-              <ExpoImage
-                source={resolveImageSource(giftPopup.gift.imageUrl)}
-                style={styles.giftPopupImage}
-                contentFit="contain"
-              />
-            ) : (
-              <Text style={styles.giftPopupEmoji}>
-                {giftPopup?.gift?.emoji}
-              </Text>
-            )}
-            <Text style={styles.giftPopupTitle}>Gift Sent!</Text>
-            <Text style={styles.giftPopupSub}>
-              {giftPopup?.gift?.name} ×{giftPopup?.qty}
-            </Text>
-          </View>
-        </View>
-      </Modal>
+
 
       {/* ── BACKPACK MODAL ── */}
       <Modal
@@ -3050,7 +3845,7 @@ export default function VoiceParty() {
                             style={[
                               styles.bpGiftCard,
                               giftsMatch(selectedGift, gift) &&
-                                styles.bpGiftCardSelected,
+                              styles.bpGiftCardSelected,
                             ]}
                             activeOpacity={0.8}
                             onPress={() => setSelectedGift(gift)}
@@ -3177,7 +3972,7 @@ export default function VoiceParty() {
                   >
                     <View style={styles.bpGiftGrid}>
                       {displayRelationshipVideos.length === 0 &&
-                      !catalogLoading ? (
+                        !catalogLoading ? (
                         <Text style={styles.bpEmptyText}>
                           No relationship videos available.
                         </Text>
@@ -3188,7 +3983,7 @@ export default function VoiceParty() {
                           style={[
                             styles.bpGiftCard,
                             selectedGift?.id === video.id &&
-                              styles.bpGiftCardSelected,
+                            styles.bpGiftCardSelected,
                           ]}
                           activeOpacity={0.85}
                           onPress={() => {
@@ -3460,11 +4255,11 @@ export default function VoiceParty() {
                 "Special",
                 "VIP",
               ].includes(backpackMainTab) && (
-                <View style={styles.bpEmptyState}>
-                  <Text style={styles.bpEmptyEmoji}>✨</Text>
-                  <Text style={styles.bpEmptyText}>Coming soon</Text>
-                </View>
-              )}
+                  <View style={styles.bpEmptyState}>
+                    <Text style={styles.bpEmptyEmoji}>✨</Text>
+                    <Text style={styles.bpEmptyText}>Coming soon</Text>
+                  </View>
+                )}
             </View>
             {renderGiftRecipientPickerOverlay()}
           </View>
@@ -3564,7 +4359,7 @@ export default function VoiceParty() {
                         style={[
                           styles.giftCardBtnText,
                           (isReady || isClaimed) &&
-                            styles.giftCardBtnTextActive,
+                          styles.giftCardBtnTextActive,
                         ]}
                       >
                         {isClaimed
@@ -3604,8 +4399,8 @@ export default function VoiceParty() {
             ? null  // decoration frames: auto-fit in ProfileAvatarWithFrame
             : (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked) ||
               userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
-            ? VIP_PROFILE_FRAME_LAYOUT
-            : null
+              ? VIP_PROFILE_FRAME_LAYOUT
+              : null
         }
         logoSource={
           isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
@@ -3644,7 +4439,7 @@ export default function VoiceParty() {
                     style={[
                       styles.mediaSectionTab,
                       mediaSection === section.id &&
-                        styles.mediaSectionTabActive,
+                      styles.mediaSectionTabActive,
                     ]}
                     onPress={() => setMediaSection(section.id)}
                     activeOpacity={0.8}
@@ -3653,7 +4448,7 @@ export default function VoiceParty() {
                       style={[
                         styles.mediaSectionTabText,
                         mediaSection === section.id &&
-                          styles.mediaSectionTabTextActive,
+                        styles.mediaSectionTabTextActive,
                       ]}
                     >
                       {section.label}
@@ -3716,7 +4511,7 @@ export default function VoiceParty() {
                         style={[
                           styles.mediaSubTabLabel,
                           stickerTab === pack.id &&
-                            styles.mediaSubTabLabelActive,
+                          styles.mediaSubTabLabelActive,
                         ]}
                         numberOfLines={1}
                       >
@@ -3932,6 +4727,253 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
+      {/* ── FOLLOW / ROOM INFO MODAL ── */}
+      <Modal
+        visible={showFollowModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowFollowModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.followModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowFollowModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.followModalBox}>
+            {/* Close button */}
+            <TouchableOpacity
+              style={styles.followModalCloseBtn}
+              onPress={() => setShowFollowModal(false)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <X size={16} color="#1a1a2e" />
+            </TouchableOpacity>
+
+            {/* Room / Host Avatar (Dynamic - Half Inside / Half Outside) */}
+            <View style={styles.followModalAvatarWrap}>
+              {hostUserLike ? (
+                renderRoomUserAvatar(
+                  hostUserLike,
+                  styles.followModalAvatar,
+                  [styles.followModalAvatar, styles.ownerAvatarPlaceholder],
+                  styles.ownerInitial,
+                )
+              ) : roomInfo?.profileImageUrl ? (
+                <Image
+                  source={{ uri: roomInfo.profileImageUrl }}
+                  style={styles.followModalAvatar}
+                />
+              ) : (
+                <Image
+                  source={{
+                    uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                      roomInfo?.name || "Host",
+                    )}&background=7c4dff&color=fff`,
+                  }}
+                  style={styles.followModalAvatar}
+                />
+              )}
+            </View>
+
+            {/* Room Name & ID */}
+            <Text style={styles.followModalRoomName} numberOfLines={1}>
+              {roomInfo?.name ?? "Voice Room"}
+            </Text>
+            <Text style={styles.followModalRoomId} numberOfLines={1}>
+              ID: {roomId ?? "—"}
+            </Text>
+
+            {/* Follow / Following Button */}
+            <TouchableOpacity
+              style={[
+                styles.followModalActionBtn,
+                isFollowing && styles.followModalActionBtnFollowing,
+              ]}
+              onPress={handleFollowToggle}
+              disabled={followLoading}
+              activeOpacity={0.85}
+            >
+              {followLoading ? (
+                <ActivityIndicator
+                  size="small"
+                  color={isFollowing ? "#7c4dff" : "#ffffff"}
+                />
+              ) : (
+                <View style={styles.followModalActionBtnContent}>
+                  <Plus
+                    size={16}
+                    color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    strokeWidth={2.5}
+                  />
+                  <Text
+                    style={[
+                      styles.followModalActionBtnText,
+                      isFollowing && styles.followModalActionBtnTextFollowing,
+                    ]}
+                  >
+                    {isFollowing ? "Following" : "Follow"}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── ACTIVE USERS MODAL ── */}
+      <Modal
+        visible={showActiveUsersModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowActiveUsersModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.activeUsersOverlay}
+          activeOpacity={1}
+          onPress={() => setShowActiveUsersModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.activeUsersBox}>
+            <View style={styles.activeUsersHeader}>
+              <View style={styles.activeUsersTitleRow}>
+                <Users size={16} color="#a78bfa" />
+                <Text style={styles.activeUsersTitle}>Active Users</Text>
+                <View style={styles.activeUsersBadge}>
+                  <Text style={styles.activeUsersBadgeText}>
+                    {onlineCount || displayActiveUsers.length}
+                  </Text>
+                </View>
+                <View style={styles.activeUsersSeatedBadge}>
+                  <Text style={styles.activeUsersSeatedBadgeText}>
+                    🎙️ {seatedUsersCount} Seated
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowActiveUsersModal(false)}
+                style={styles.activeUsersCloseBtn}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={styles.activeUsersCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.activeUsersList}
+              contentContainerStyle={styles.activeUsersListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {displayActiveUsers.length === 0 ? (
+                <View style={styles.activeUsersEmpty}>
+                  <Text style={styles.activeUsersEmptyText}>
+                    No active users in room
+                  </Text>
+                </View>
+              ) : (
+                displayActiveUsers.map((user, idx) => {
+                  const uId = user.userId || user.id;
+                  const seated = isUserSeated(uId);
+                  const isMeOnSeat =
+                    seated &&
+                    ((myUserId != null && String(uId) === String(myUserId)) ||
+                      user.name === "You" ||
+                      user.id === "local-user");
+                  return (
+                    <TouchableOpacity
+                      key={uId ?? `active-user-${idx}`}
+                      style={styles.activeUserCard}
+                      activeOpacity={0.75}
+                      onPress={() => {
+                        setShowActiveUsersModal(false);
+                        handleOnlineUserPress(user);
+                      }}
+                    >
+                      <View style={styles.activeUserAvatarWrap}>
+                        {renderRoomUserAvatar(
+                          user,
+                          styles.activeUserAvatar,
+                          [
+                            styles.activeUserAvatar,
+                            styles.activeUserAvatarPlaceholder,
+                          ],
+                          styles.activeUserInitial,
+                        )}
+                        {user.muted ? (
+                          <View
+                            style={[
+                              styles.activeUserMicDot,
+                              { backgroundColor: "#ef4444" },
+                            ]}
+                          >
+                            <MicOff size={7} color="white" />
+                          </View>
+                        ) : user.isSpeaking ? (
+                          <View
+                            style={[
+                              styles.activeUserMicDot,
+                              { backgroundColor: "#22c55e" },
+                            ]}
+                          >
+                            <Mic size={7} color="white" />
+                          </View>
+                        ) : null}
+                      </View>
+                      <View style={styles.activeUserInfo}>
+                        <View style={styles.activeUserNameRow}>
+                          <Text style={styles.activeUserName} numberOfLines={1}>
+                            {user.name || user.username || `User ${uId || ""}`}
+                          </Text>
+                          {user.level ? (
+                            <View style={styles.activeUserLevelBadge}>
+                              <Text style={styles.activeUserLevelText}>
+                                Lv.{user.level}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={styles.activeUserStatus}>
+                          {uId != null && String(uId) === String(hostId)
+                            ? "👑 Host"
+                            : seated
+                              ? "🎙️ Seated"
+                              : "🎧 Listening"}
+                        </Text>
+                      </View>
+                      <View style={styles.activeUserActionsRow}>
+                        {seated ? (
+                          <View style={styles.seatStatusBadge}>
+                            <Text style={styles.seatStatusText}>Seated</Text>
+                          </View>
+                        ) : (
+                          <View
+                            style={[
+                              styles.seatStatusBadge,
+                              styles.audienceStatusBadge,
+                            ]}
+                          >
+                            <Text style={styles.audienceStatusText}>Audience</Text>
+                          </View>
+                        )}
+                        {isMeOnSeat && (
+                          <TouchableOpacity
+                            style={styles.leaveSeatBtn}
+                            onPress={() => {
+                              setShowActiveUsersModal(false);
+                              handleTakeMic();
+                            }}
+                          >
+                            <Text style={styles.leaveSeatBtnText}>Leave</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ── SHARE MODAL ── */}
       <Modal
         visible={showShareMenu}
@@ -3963,6 +5005,10 @@ export default function VoiceParty() {
                   key={p.label}
                   style={styles.sharePlatformItem}
                   activeOpacity={0.8}
+                  onPress={() => {
+                    setShowShareMenu(false);
+                    p.onPress?.();
+                  }}
                 >
                   <View
                     style={[
@@ -4271,64 +5317,87 @@ export default function VoiceParty() {
       >
         {/* ── HEADER ── */}
         <View style={styles.header}>
-          {/* Room info + follow button */}
-          <View style={styles.ownerSection}>
-            {roomInfo?.profileImageUrl ? (
+          {/* Room info capsule with integrated + follow button and diamond accent */}
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => setShowFollowModal(true)}
+            style={styles.ownerSectionWrapper}
+          >
+            <View style={styles.ownerSection}>
+              {/* Capsule Frame Background Image */}
               <Image
-                source={{ uri: roomInfo.profileImageUrl }}
-                style={styles.ownerAvatar}
+                source={ROOM_HEADER_BG}
+                style={styles.ownerSectionBg}
+                resizeMode="stretch"
               />
-            ) : hostUserLike ? (
-              renderRoomUserAvatar(
-                hostUserLike,
-                styles.ownerAvatar,
-                [styles.ownerAvatar, styles.ownerAvatarPlaceholder],
-                styles.ownerInitial,
-              )
-            ) : (
-              <Image
-                source={{
-                  uri: "https://randomuser.me/api/portraits/men/32.jpg",
-                }}
-                style={styles.ownerAvatar}
-              />
-            )}
-            <View style={styles.ownerTextCol}>
-              <Text
-                style={styles.ownerName}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {roomInfo?.name ?? "Voice Room"}
-              </Text>
-              <Text
-                style={styles.ownerId}
-                numberOfLines={1}
-                ellipsizeMode="middle"
-              >
-                ID:{roomId ?? "—"}
-              </Text>
-            </View>
-            {!isHostSelf && (
-              <TouchableOpacity
-                style={[styles.plusBtn, isFollowing && styles.plusBtnFollowing]}
-                onPress={handleFollowToggle}
-                disabled={followLoading}
-                activeOpacity={0.8}
-              >
-                {followLoading ? (
-                  <ActivityIndicator size="small" color="white" />
+
+              {/* Dynamic Host / Room Avatar inside left crest spot */}
+              <View style={styles.ownerAvatarSpot}>
+                {roomInfo?.profileImageUrl ? (
+                  <Image
+                    source={{ uri: roomInfo.profileImageUrl }}
+                    style={styles.ownerAvatarCircle}
+                    resizeMode="cover"
+                  />
+                ) : hostUserLike ? (
+                  renderRoomUserAvatar(
+                    hostUserLike,
+                    styles.ownerAvatarCircle,
+                    [styles.ownerAvatarCircle, styles.ownerAvatarPlaceholder],
+                    styles.ownerInitial,
+                  )
                 ) : (
-                  <Plus size={20} color="white" />
+                  <Image
+                    source={{
+                      uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                        roomInfo?.name || "Host",
+                      )}&background=7c4dff&color=fff`,
+                    }}
+                    style={styles.ownerAvatarCircle}
+                    resizeMode="cover"
+                  />
                 )}
-              </TouchableOpacity>
-            )}
-          </View>
+              </View>
+
+              {/* Dynamic Room Name & Room ID */}
+              <View style={styles.ownerTextCol}>
+                <Text
+                  style={styles.ownerName}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {roomInfo?.name ?? "Voice Room"}
+                </Text>
+                <Text
+                  style={styles.ownerId}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  ID:{roomId ?? "—"}
+                </Text>
+              </View>
+
+              {/* + Follow Button inside capsule */}
+              {!isHostSelf && (
+                <TouchableOpacity
+                  style={[
+                    styles.capsulePlusBtn,
+                    isFollowing && styles.capsulePlusBtnFollowing,
+                  ]}
+                  onPress={() => setShowFollowModal(true)}
+                  activeOpacity={0.8}
+                >
+                  <Plus size={13} color="white" strokeWidth={3} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </TouchableOpacity>
 
           <View style={styles.headerRight}>
             <TouchableOpacity
               style={styles.headerBtn}
-              onPress={() => setShowShareMenu(true)}
+              activeOpacity={0.8}
+              onPress={handleShareRoom}
             >
               <Share2 size={20} color="white" />
             </TouchableOpacity>
@@ -4350,51 +5419,72 @@ export default function VoiceParty() {
         {/* ── ONLINE USERS ROW ── */}
         <View style={styles.badgesRow}>
           <View style={styles.trophyBadge}>
-            <Text style={styles.trophyText}>👥 {onlineCount}</Text>
+            <Image
+              source={{
+                uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png",
+              }}
+              style={styles.trophyIcon}
+              resizeMode="cover"
+            />
+            <Text style={styles.trophyText}>
+              {onlineCount || displayActiveUsers.length}
+            </Text>
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.audienceScroll}
-            contentContainerStyle={styles.audienceScrollContent}
-          >
-            {onlineUsers.slice(0, 6).map((user, index) => (
-              <TouchableOpacity
-                key={user.id ?? `user-${index}`}
-                style={styles.audienceItem}
-                activeOpacity={0.85}
-                onPress={() => handleOnlineUserPress(user)}
-              >
-                {renderRoomUserAvatar(
-                  user,
-                  [
-                    styles.audienceAvatar,
-                    index > 0 && styles.audienceAvatarOverlap,
-                  ],
-                  [
-                    styles.audienceAvatar,
-                    styles.audienceAvatarPlaceholder,
-                    index > 0 && styles.audienceAvatarOverlap,
-                  ],
-                  styles.audienceInitial,
-                )}
-                <View style={styles.micStatusDot}>
-                  {user.muted ? (
-                    <MicOff size={9} color="#f87171" />
-                  ) : user.isSpeaking ? (
-                    <Mic size={9} color="#4ade80" />
-                  ) : (
-                    <Mic size={9} color="rgba(255,255,255,0.5)" />
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          {onlineCount > 6 && (
-            <View style={styles.audienceCount}>
-              <Text style={styles.audienceCountText}>+{onlineCount - 6}</Text>
-            </View>
-          )}
+          <View style={styles.badgesRowRight}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.audienceScroll}
+              contentContainerStyle={styles.audienceScrollContent}
+            >
+              {(onlineUsers.length > 0 ? onlineUsers : displayActiveUsers)
+                .slice(0, 6)
+                .map((user, index) => (
+                  <TouchableOpacity
+                    key={user.userId || user.id || `user-${index}`}
+                    style={styles.audienceItem}
+                    activeOpacity={0.85}
+                    onPress={() => handleOnlineUserPress(user)}
+                  >
+                    {renderRoomUserAvatar(
+                      user,
+                      [
+                        styles.audienceAvatar,
+                        index > 0 && styles.audienceAvatarOverlap,
+                      ],
+                      [
+                        styles.audienceAvatar,
+                        styles.audienceAvatarPlaceholder,
+                        index > 0 && styles.audienceAvatarOverlap,
+                      ],
+                      styles.audienceInitial,
+                    )}
+                    <View style={styles.micStatusDot}>
+                      {user.muted ? (
+                        <MicOff size={9} color="#f87171" />
+                      ) : user.isSpeaking ? (
+                        <Mic size={9} color="#4ade80" />
+                      ) : (
+                        <Mic size={9} color="rgba(255,255,255,0.5)" />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+            </ScrollView>
+            {(onlineCount || displayActiveUsers.length) > 6 && (
+              <View style={styles.audienceCount}>
+                <Text style={styles.audienceCountText}>
+                  +{(onlineCount || displayActiveUsers.length) - 6}
+                </Text>
+              </View>
+            )}
+            <TouchableOpacity
+              style={styles.headerBtn}
+              onPress={() => setShowActiveUsersModal(true)}
+            >
+              <Users size={20} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ── MIC SEATS GRID ── */}
@@ -4423,6 +5513,11 @@ export default function VoiceParty() {
                     ],
                     styles.seatInitial,
                   )}
+                  {/* Seated green badge in top-right corner */}
+                  {/* <View style={styles.seatSeatedBadge}>
+                    <Text style={styles.seatSeatedBadgeText}>Seated</Text>
+                  </View> */}
+                  {/* Mic status badge in bottom-right corner */}
                   <View style={styles.seatMicIcon}>
                     {seat.user.muted ? (
                       <MicOff size={12} color="#f87171" />
@@ -4462,22 +5557,68 @@ export default function VoiceParty() {
             flexGrow: 1,
           }}
         >
-          {/* Entry Banners */}
-          <View
-            style={{
-              width: Dimensions.get("screen").width,
-              overflow: "hidden",
-              flexDirection: "row",
-            }}
-          >
-            {recentEntries.map((user) => (
-              <UserEntryBanner
-                key={user.id}
-                user={user}
-                onComplete={handleEntryComplete}
-              />
-            ))}
-          </View>
+          {/* Bottom-to-Top Floating Gift Emoji Animation */}
+          {activeRisingGifts.map((item) => (
+            <FloatingGiftRiseItem
+              key={item._riseKey || item.id}
+              gift={item}
+              catalog={giftCatalog}
+              onComplete={() =>
+                handleRisingGiftComplete(item._riseKey || item.id)
+              }
+            />
+          ))}
+
+          {/* Floating Gift Display Overlay — non-blocking real-time animations for all users */}
+          {activeGiftDisplays.length > 0 && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                bottom: vs(185),
+                left: s(16),
+                right: s(16),
+                zIndex: 10000,
+                elevation: 100,
+              }}
+            >
+              {activeGiftDisplays.map((item) => (
+                <GiftAnimationItem
+                  key={item._displayKey || item.id}
+                  gift={item}
+                  catalog={giftCatalog}
+                  onComplete={() =>
+                    handleGiftAnimationComplete(item._displayKey || item.id)
+                  }
+                />
+              ))}
+            </View>
+          )}
+
+          {/* Entry Banners (VIP badge) — overlay, displays after 10s of completed loading */}
+          {!roomLoading && canShowEntryBanner && recentEntries.length > 0 && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                bottom: vs(120),
+                left: 0,
+                right: 0,
+                zIndex: 9999,
+                elevation: 99,
+              }}
+            >
+              {recentEntries.slice(0, 3).map((user, idx) => (
+                <UserEntryBanner
+                  key={user._entryKey || `${user.id || user.userId || "entry"}-${idx}`}
+                  user={user}
+                  onComplete={() =>
+                    handleEntryComplete(user._entryKey || user.id || user.userId)
+                  }
+                />
+              ))}
+            </View>
+          )}
           <View style={styles.chatArea}>
             <View style={styles.chatLeft}>
               <ScrollView
@@ -4524,7 +5665,7 @@ export default function VoiceParty() {
                   <TouchableOpacity
                     style={styles.pinnedShareBtn}
                     activeOpacity={0.8}
-                    onPress={() => setShowShareMenu(true)}
+                    onPress={handleShareRoom}
                   >
                     <Text style={styles.pinnedShareBtnText}>Share</Text>
                   </TouchableOpacity>
@@ -4582,9 +5723,9 @@ export default function VoiceParty() {
                   // intrinsic size to preserve, so it stretches correctly.
                   const vipChatFrameSource = vipChatFrameAsset
                     ? {
-                        uri: Image.resolveAssetSource(vipChatFrameAsset.source)
-                          .uri,
-                      }
+                      uri: Image.resolveAssetSource(vipChatFrameAsset.source)
+                        .uri,
+                    }
                     : null;
                   // The image is taller than the bubble by topFrac+bottomFrac
                   // (as fractions of the bubble's own height) and shifted up
@@ -4593,12 +5734,12 @@ export default function VoiceParty() {
                   // above/below instead of being cropped off.
                   const vipChatFrameStyle = vipChatFrameAsset
                     ? {
-                        position: "absolute",
-                        left: 0,
-                        right: 0,
-                        top: `${-vipChatFrameAsset.topFrac * 100}%`,
-                        bottom: `${-vipChatFrameAsset.bottomFrac * 100}%`,
-                      }
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: `${-vipChatFrameAsset.topFrac * 100}%`,
+                      bottom: `${-vipChatFrameAsset.bottomFrac * 100}%`,
+                    }
                     : null;
 
                   return (
@@ -4999,6 +6140,11 @@ export default function VoiceParty() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* ── TOP 3 GIFTING RANKING FLOATING WIDGET ── */}
+        {!roomLoading && (
+          <TopGiftingRanking onUserPress={handleOnlineUserPress} />
+        )}
       </KeyboardAvoidingView>
     </View>
   );
@@ -5030,47 +6176,97 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   ownerRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
-  ownerSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  ownerSectionWrapper: {
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
-    marginRight: 8,
+    marginLeft: -6,
+    marginRight: 6,
   },
-  ownerAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 2,
-    borderColor: "#a78bfa",
+  ownerSection: {
+    position: "relative",
+    height: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 4,
+    paddingRight: 6,
+    overflow: "visible",
+  },
+  ownerSectionBg: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
+    borderRadius: 14,
+  },
+  ownerAvatarSpot: {
+    width: 54,
+    height: 54,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    marginLeft: 2,
+  },
+  ownerAvatarCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
   },
   ownerAvatarPlaceholder: {
-    backgroundColor: "rgba(124,77,255,0.45)",
+    backgroundColor: "rgba(124, 77, 255, 0.45)",
     alignItems: "center",
     justifyContent: "center",
   },
   ownerInitial: {
     color: "white",
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: "800",
   },
   ownerTextCol: {
-    gap: 2,
+    gap: 1.5,
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
+    marginLeft: 2,
+    justifyContent: "center",
   },
   ownerName: {
-    color: "white",
-    fontSize: 13,
-    fontWeight: "700",
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.1,
   },
   ownerId: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: 11,
-    flexShrink: 1,
+    color: "#c4b5fd",
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.1,
+  },
+  capsulePlusBtn: {
+    width: 23,
+    height: 23,
+    borderRadius: 11.5,
+    borderColor: '#ffffff',
+    borderWidth: 1,
+    backgroundColor: "#7c4dff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 3,
+    flexShrink: 0,
+    marginLeft: 2,
+    marginRight: 28,
+  },
+  capsulePlusBtnFollowing: {
+    backgroundColor: "rgba(124, 77, 255, 0.45)",
+    borderWidth: 0.8,
+    borderColor: "rgba(167, 139, 250, 0.6)",
   },
   plusBtn: {
     width: 34,
@@ -5105,11 +6301,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  audienceScroll: { flex: 1, minWidth: 0 },
+  audienceScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
   audienceScrollContent: {
     flexDirection: "row",
     alignItems: "center",
-    paddingRight: 4,
+    justifyContent: "flex-end",
+    paddingRight: 2,
+    paddingLeft: 2,
   },
   audienceItem: { position: "relative" },
   audienceAvatarOverlap: { marginLeft: -8 },
@@ -5153,7 +6354,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 8,
-    marginLeft: 4,
+    marginLeft: 2,
     flexShrink: 0,
   },
   audienceCountText: { color: "white", fontSize: 11, fontWeight: "700" },
@@ -5161,18 +6362,34 @@ const styles = StyleSheet.create({
   badgesRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    gap: 8,
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
     marginBottom: 10,
     overflow: "visible",
   },
+  badgesRowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+    justifyContent: "flex-end",
+    marginLeft: "auto",
+  },
   trophyBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
     backgroundColor: "rgba(255,215,0,0.2)",
-    borderRadius: 10,
-    paddingHorizontal: 8,
+    borderRadius: 8,
+    paddingHorizontal: 6,
     paddingVertical: 3,
     borderWidth: 1,
     borderColor: "rgba(255,215,0,0.4)",
+    flexShrink: 0,
+  },
+  trophyIcon: {
+    width: 16,
+    height: 16,
   },
   trophyText: { color: "#ffd700", fontSize: 12, fontWeight: "700" },
   badgeDot: { color: "rgba(255,255,255,0.3)", fontSize: 16 },
@@ -5264,7 +6481,36 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   lockIcon: { fontSize: 16 },
-  seatNum: { color: "rgba(255,255,255,0.5)", fontSize: 10 },
+  seatSeatedBadge: {
+    position: "absolute",
+    top: -4,
+    right: -6,
+    backgroundColor: "#10b981",
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 7,
+    zIndex: 20,
+    elevation: 20,
+    borderWidth: 1.5,
+    borderColor: "#1a0a2e",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.35,
+    shadowRadius: 2,
+  },
+  seatSeatedBadgeText: {
+    color: "#ffffff",
+    fontSize: 8.5,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  seatNum: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+    textAlign: "center",
+  },
   seatName: {
     color: "rgba(255,255,255,0.85)",
     fontSize: 10,
@@ -6178,49 +7424,67 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ── Entry Banner ──
+  // ── Entry Banner (overlay — floats over screen, takes no layout space) ──
   entryBannerContainer: {
-    // position: "relative",
-    alignSelf: "flex-start",
-    // minHeight: 56,
-    justifyContent: "center",
+    position: "relative",
+    overflow: "visible",
+    marginBottom: vs(6),
   },
   entryBannerBg: {
-    height: 85,
-    alignSelf: "center",
-    width: 300,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
   },
   entryBannerBgDefault: {
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    borderRadius: 18,
+    backgroundColor: "rgba(10, 4, 30, 0.85)",
+    borderRadius: s(16),
+    borderWidth: 1,
+    borderColor: "rgba(124, 77, 255, 0.45)",
   },
   entryBannerContent: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+    paddingLeft: s(22),
+    paddingRight: s(32),
     position: "absolute",
     top: 0,
-    left: 15,
+    left: 0,
     right: 0,
-    bottom: 10,
-    gap: 5,
+    bottom: 0,
+    height: "100%",
   },
   entryBannerAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 30,
-    marginTop: 2,
+    width: s(48),
+    height: s(44),
+    borderRadius: s(22),
+    marginLeft: s(6),
+    marginBottom: s(4),
+    alignSelf: "center",
   },
+
   entryBannerTextContainer: {
-    marginLeft: 9,
+    marginLeft: s(4),
+    flex: 1,
+    height: "100%",
     justifyContent: "center",
     alignItems: "center",
+    paddingRight: s(28),
   },
   entryBannerName: {
-    textAlign: "center",
     color: "#FFD700",
-    fontWeight: "bold",
-    fontSize: 13,
+    fontWeight: "800",
+    fontSize: ms(14),
+    letterSpacing: 0.3,
+    textAlign: "center",
+    marginBottom: ms(6)
+  },
+  entryBannerJoined: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: ms(9.5),
+    marginTop: vs(1.5),
+    textAlign: "center",
   },
 
   // ── Backpack modal ──
@@ -6984,38 +8248,179 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-  giftPopupOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
+  // ── Floating Gift Banner Display ──
+  giftBannerCard: {
+    width: "100%",
+    maxWidth: s(340),
+    alignSelf: "center",
+    borderRadius: s(28),
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 215, 0, 0.85)",
+    shadowColor: "#a855f7",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.75,
+    shadowRadius: 14,
+    elevation: 14,
+    overflow: "visible",
+    marginBottom: vs(8),
+  },
+  giftBannerGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: vs(7),
+    paddingLeft: s(10),
+    paddingRight: s(12),
+    borderRadius: s(26),
+  },
+  giftBannerAvatarWrap: {
+    position: "relative",
+    marginRight: s(10),
+  },
+  giftBannerAvatar: {
+    width: s(44),
+    height: s(44),
+    borderRadius: s(22),
+    borderWidth: 2,
+    borderColor: "#FFD700",
+  },
+  giftBannerAvatarFallback: {
+    backgroundColor: "#6d28d9",
     alignItems: "center",
     justifyContent: "center",
   },
-  giftPopupCard: {
-    backgroundColor: "rgba(26,10,46,0.95)",
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.45)",
-    paddingHorizontal: 36,
-    paddingVertical: 28,
-    alignItems: "center",
-    shadowColor: "#ff4ea3",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 16,
-    elevation: 12,
+  giftBannerAvatarInitial: {
+    color: "#ffffff",
+    fontWeight: "900",
+    fontSize: ms(16),
   },
-  giftPopupEmoji: { fontSize: 64, marginBottom: 10 },
-  giftPopupImage: { width: 96, height: 96, marginBottom: 10 },
-  giftPopupTitle: {
-    color: "white",
-    fontSize: 22,
-    fontWeight: "800",
-    marginBottom: 4,
+  giftBannerSparkleBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -3,
+    backgroundColor: "#FFD700",
+    borderRadius: s(8),
+    paddingHorizontal: s(2),
   },
-  giftPopupSub: {
-    color: "#f9a8d4",
-    fontSize: 15,
+  giftBannerTextCol: {
+    flex: 1,
+    justifyContent: "center",
+    paddingRight: s(6),
+  },
+  giftBannerSenderName: {
+    color: "#FFE500",
+    fontWeight: "900",
+    fontSize: ms(14.5),
+    letterSpacing: 0.3,
+    textShadowColor: "rgba(0,0,0,0.6)",
+    textShadowOffset: { width: 0, height: 1.5 },
+    textShadowRadius: 3,
+  },
+  giftBannerActionText: {
+    color: "#FFFFFF",
+    fontSize: ms(11.5),
     fontWeight: "700",
+    marginTop: vs(2),
+    textShadowColor: "rgba(0,0,0,0.5)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  giftBannerVisualWrap: {
+    position: "relative",
+    width: s(72),
+    height: s(72),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  giftBannerGlowBackdrop: {
+    position: "absolute",
+    width: s(64),
+    height: s(64),
+    borderRadius: s(32),
+    backgroundColor: "rgba(255, 215, 0, 0.22)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 215, 0, 0.55)",
+    shadowColor: "#FFD700",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+  },
+  giftBannerImageContainer: {
+    width: s(68),
+    height: s(68),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  giftBannerImage: {
+    width: s(64),
+    height: s(64),
+  },
+  giftBannerEmojiMain: {
+    fontSize: ms(36),
+    textAlign: "center",
+    includeFontPadding: false,
+    alignSelf: "center",
+  },
+  giftBannerEmojiBig: {
+    fontSize: ms(42),
+    textAlign: "center",
+    includeFontPadding: false,
+  },
+  giftBannerMultiplierBadge: {
+    position: "absolute",
+    top: -vs(5),
+    right: -s(6),
+    borderRadius: s(12),
+    overflow: "hidden",
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+  },
+  giftBannerMultiplierGrad: {
+    paddingHorizontal: s(7),
+    paddingVertical: vs(2.5),
+    borderRadius: s(12),
+  },
+  giftBannerMultiplierText: {
+    color: "#ffffff",
+    fontWeight: "900",
+    fontSize: ms(13),
+    fontStyle: "italic",
+    textShadowColor: "rgba(0,0,0,0.7)",
+    textShadowOffset: { width: 0, height: 1.5 },
+    textShadowRadius: 3,
+  },
+
+  // ── Floating Gift Rise (Bottom to Top) ──
+  floatingGiftRiseWrap: {
+    position: "absolute",
+    top: 0,
+    zIndex: 10002,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  floatingGiftRiseGlow: {
+    width: s(68),
+    height: s(68),
+    borderRadius: s(34),
+    backgroundColor: "rgba(255, 215, 0, 0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#FFD700",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 16,
+    elevation: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 215, 0, 0.4)",
+  },
+  floatingGiftRiseImage: {
+    width: s(58),
+    height: s(58),
+  },
+  floatingGiftRiseEmoji: {
+    fontSize: ms(40),
   },
 
   // ── Seat action popup (centered) ──
@@ -7379,5 +8784,334 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 15,
     fontWeight: "700",
+  },
+  activeUsersOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  activeUsersBox: {
+    backgroundColor: "rgba(56, 40, 72, 0.96)",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 215, 240, 0.4)",
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 14,
+    width: "100%",
+    maxWidth: 360,
+    maxHeight: "55%",
+    shadowColor: "#f472b6",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  activeUsersHandle: {
+    width: 32,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(255, 215, 240, 0.4)",
+    alignSelf: "center",
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  activeUsersHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 215, 240, 0.18)",
+    marginBottom: 6,
+  },
+  activeUsersTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    flexWrap: "wrap",
+  },
+  activeUsersTitle: {
+    color: "white",
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+  activeUsersBadge: {
+    backgroundColor: "rgba(124,77,255,0.3)",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.4)",
+  },
+  activeUsersBadgeText: {
+    color: "#c4b5fd",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  activeUsersSeatedBadge: {
+    backgroundColor: "rgba(167, 139, 250, 0.22)",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(167, 139, 250, 0.4)",
+  },
+  activeUsersSeatedBadgeText: {
+    color: "#e9d5ff",
+    fontSize: 9.5,
+    fontWeight: "700",
+  },
+  activeUsersCloseBtn: {
+    padding: 3,
+  },
+  activeUsersCloseText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  activeUsersList: {
+    maxHeight: 220,
+  },
+  activeUsersListContent: {
+    paddingVertical: 2,
+    gap: 5,
+  },
+  activeUsersEmpty: {
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  activeUsersEmptyText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+  },
+  activeUserCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    backgroundColor: "transparent",
+    gap: 7,
+  },
+  activeUserAvatarWrap: {
+    position: "relative",
+  },
+  activeUserAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
+  activeUserAvatarPlaceholder: {
+    backgroundColor: "#3b1580",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  activeUserInitial: {
+    color: "white",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  activeUserMicDot: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#1a0a2e",
+  },
+  activeUserInfo: {
+    flex: 1,
+  },
+  activeUserName: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 0,
+  },
+  activeUserStatus: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 10,
+  },
+  activeUserNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 0,
+  },
+  activeUserLevelBadge: {
+    backgroundColor: "#ec4899",
+    paddingHorizontal: 3,
+    paddingVertical: 0.5,
+    borderRadius: 4,
+  },
+  activeUserLevelText: {
+    color: "white",
+    fontSize: 7.5,
+    fontWeight: "800",
+  },
+  activeUserActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  seatStatusBadge: {
+    backgroundColor: "rgba(167, 139, 250, 0.28)",
+    borderWidth: 1,
+    borderColor: "#a78bfa",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+    shadowColor: "#a78bfa",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  seatStatusText: {
+    color: "#ffffff",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  leaveSeatBtn: {
+    backgroundColor: "rgba(239, 68, 68, 0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.45)",
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  leaveSeatBtnText: {
+    color: "#fca5a5",
+    fontSize: 8.5,
+    fontWeight: "700",
+  },
+  audienceStatusBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  audienceStatusText: {
+    color: "rgba(255, 255, 255, 0.65)",
+    fontSize: 9,
+    fontWeight: "600",
+  },
+  followModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingHorizontal: 0,
+  },
+  followModalBox: {
+    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 3,
+    borderColor: "#F8C8DC",
+    paddingHorizontal: 24,
+    paddingTop: 44,
+    paddingBottom: 32,
+    width: "100%",
+    maxWidth: "100%",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 10,
+    position: "relative",
+  },
+  followModalCloseBtn: {
+    position: "absolute",
+    top: 14,
+    right: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(26, 26, 46, 0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 15,
+  },
+  followModalAvatarWrap: {
+    position: "absolute",
+    top: -40,
+    alignSelf: "center",
+    zIndex: 10,
+    elevation: 10,
+    backgroundColor: "transparent",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+  },
+  followModalAvatar: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    // borderWidth: 3.5,
+    // borderColor: "#ffffff",
+  },
+  followModalRoomName: {
+    color: "#1a1a2e",
+    fontSize: 16,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  followModalRoomId: {
+    color: "rgba(26, 26, 46, 0.55)",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  followModalActionBtn: {
+    backgroundColor: "#7c4dff",
+    paddingVertical: 11,
+    paddingHorizontal: 36,
+    borderRadius: 22,
+    minWidth: 150,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    marginBottom: 8,
+
+  },
+  followModalActionBtnFollowing: {
+    backgroundColor: "rgba(124, 77, 255, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(124, 77, 255, 0.35)",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  followModalActionBtnContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  followModalActionBtnText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  followModalActionBtnTextFollowing: {
+    color: "#7c4dff",
   },
 });

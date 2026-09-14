@@ -6,9 +6,11 @@ import {
   LogBox,
   Text,
   TextInput,
+  Linking,
 } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { setSessionExpiredHandler } from "../src/api/axios";
+import { getToken } from "../src/store/authStore";
 import { initFirebase } from "../src/lib/firebase";
 import {
   initPushNotificationListeners,
@@ -16,6 +18,10 @@ import {
 } from "../src/services/pushNotificationService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { navigateFromNotification } from "../src/utils/notificationNavigation";
+import {
+  extractRoomIdFromUrl,
+  setPendingDeepLink,
+} from "../src/utils/deepLinkUtils";
 
 LogBox.ignoreAllLogs();
 // ── Global font-scale guard ────────────────────────────────────────────────
@@ -90,6 +96,38 @@ export default function RootLayout() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleDeepLinkUrl = (event) => {
+      const url = event?.url;
+      if (!url) return;
+      console.log("[_layout] Incoming deep link URL:", url);
+      const roomId = extractRoomIdFromUrl(url);
+      if (roomId) {
+        getToken()
+          .then((token) => {
+            if (token) {
+              router.push({
+                pathname: "/voice-party",
+                params: { roomId: String(roomId) },
+              });
+            } else {
+              setPendingDeepLink(url);
+              router.push("/login");
+            }
+          })
+          .catch(() => {
+            setPendingDeepLink(url);
+            router.push("/login");
+          });
+      }
+    };
+
+    const linkSub = Linking.addEventListener("url", handleDeepLinkUrl);
+    return () => {
+      linkSub.remove();
+    };
+  }, []);
+
   return (
     <SafeAreaProvider>
       <Stack screenOptions={{ headerShown: false }}>
@@ -109,6 +147,7 @@ export default function RootLayout() {
         <Stack.Screen name="user-profile" />
         <Stack.Screen name="blocked-accounts" />
         <Stack.Screen name="message-notification" />
+        <Stack.Screen name="room/[roomId]" />
       </Stack>
     </SafeAreaProvider>
   );
