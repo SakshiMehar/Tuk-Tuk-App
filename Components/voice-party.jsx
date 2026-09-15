@@ -1,3 +1,4 @@
+import * as DocumentPicker from "expo-document-picker";
 import { Audio } from "expo-av";
 import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -600,6 +601,7 @@ export default function VoiceParty() {
   const [welcomeMessage, setWelcomeMessage] = useState(
     "Welcome everyone! Let's chat and have fun together!",
   );
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
   const [welcomeDraft, setWelcomeDraft] = useState("");
 
@@ -1498,6 +1500,27 @@ export default function VoiceParty() {
       unsubReconnect();
     };
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
+
+  const handleToggleMusic = useCallback(async () => {
+    if (isMusicPlaying) {
+      agoraVoice.stopAudioForEveryone();
+      setIsMusicPlaying(false);
+    } else {
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: "audio/*",
+          copyToCacheDirectory: false,
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const localUri = result.assets[0].uri;
+          agoraVoice.playAudioForEveryone(localUri);
+          setIsMusicPlaying(true);
+        }
+      } catch (err) {
+        console.error("Audio selection error:", err);
+      }
+    }
+  }, [isMusicPlaying]);
 
   const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
@@ -4236,6 +4259,12 @@ export default function VoiceParty() {
               onPress={() => setShowMoreMenu(true)}
             >
               <MoreVertical size={20} color="white" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerBtn}
+              onPress={handleToggleMusic}
+            >
+              <Play size={20} color={isMusicPlaying ? "#10b981" : "white"} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.headerBtn}

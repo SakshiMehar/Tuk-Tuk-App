@@ -12,6 +12,15 @@ let remoteUid = 0;
 let speakerphoneEnabled = true;
 let statusListeners = new Set();
 
+export const playAudioForEveryone = (filePath) => {
+  if (!engine) return;
+  engine.startAudioMixing(filePath, false, 1, 0);
+};
+
+export const stopAudioForEveryone = () => {
+  if (!engine) return;
+  engine.stopAudioMixing();
+};
 export const requestPermissions = async (isVideo = false) => {
   if (Platform.OS === "android") {
     const permissionsToRequest = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
