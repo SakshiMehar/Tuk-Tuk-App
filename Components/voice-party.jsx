@@ -2193,6 +2193,16 @@ export default function VoiceParty() {
       agoraVoice.stopAudioForEveryone();
       setIsMusicPlaying(false);
     } else {
+      let hasMicPermission = true;
+      if (Platform.OS === 'android') {
+        hasMicPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      }
+      
+      if (!hasMicPermission) {
+        setMicPermWarning('music');
+        return;
+      }
+
       try {
         const result = await DocumentPicker.getDocumentAsync({
           type: "audio/*",
@@ -2207,7 +2217,7 @@ export default function VoiceParty() {
               console.log("Failed to unmute mic:", e);
             }
           }
-          
+
           const localUri = result.assets[0].uri;
           agoraVoice.playAudioForEveryone(localUri);
           setIsMusicPlaying(true);
@@ -4524,7 +4534,9 @@ export default function VoiceParty() {
                 activeOpacity={0.75}
                 onPress={() => {
                   setShowPlayCenter(false);
-                  handleToggleMusic();
+                  setTimeout(() => {
+                    handleToggleMusic();
+                  }, 400);
                 }}
               >
                 <View style={styles.playCenterIconWrap}>
@@ -5066,8 +5078,13 @@ export default function VoiceParty() {
                   const pendingSeatId = micPermWarning;
                   setMicPermWarning(null);
                   const granted = await agoraVoice.requestMicPermission();
-                  if (granted && pendingSeatId != null) {
-                    handleTakeSeat(pendingSeatId);
+                  if (granted) {
+                    if (pendingSeatId === 'music') {
+                      // Automatically try toggling music again now that permission is granted
+                      handleToggleMusic();
+                    } else if (pendingSeatId != null) {
+                      handleTakeSeat(pendingSeatId);
+                    }
                   }
                 }}
               >
@@ -8859,5 +8876,4 @@ const styles = StyleSheet.create({
   followModalActionBtnTextFollowing: {
     color: "#7c4dff",
   },
-
 });

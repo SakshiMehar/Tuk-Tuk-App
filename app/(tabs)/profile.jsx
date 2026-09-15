@@ -1576,10 +1576,10 @@ export default function Profile() {
               const showProgress = t.targetCount > 1;
               return (
                 <View key={t.taskType} style={[styles.mmTaskRow]}>
-                  <Image 
-                    source={{ uri: t.iconUrl }} 
-                    style={{ width: 36, height: 36, marginRight: 10 }} 
-                    resizeMode="contain" 
+                  <Image
+                    source={{ uri: t.iconUrl }}
+                    style={{ width: 36, height: 36, marginRight: 10 }}
+                    resizeMode="contain"
                   />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone, { color: "#1e293b" }]}>
@@ -2549,7 +2549,7 @@ export default function Profile() {
                 </View>
                 <Text style={[styles.mmHeaderTitle, activeMenu?.label === "Task" && { color: "#1e293b" }]}>{activeMenu?.label}</Text>
                 <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
-                  <Ionicons name="close" size={20} color={activeMenu?.label === "Task" ? "#1e293b" : "white"} />
+                  <Ionicons name="close" size={20} color={activeMenu?.label === "Task" ? "#1e293b" : "#1e293b"} />
                 </TouchableOpacity>
               </View>
               <View style={[styles.mmDivider, activeMenu?.label === "Task" && { backgroundColor: "#f1f5f9" }]} />
