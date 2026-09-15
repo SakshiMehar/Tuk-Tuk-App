@@ -7,6 +7,9 @@ import {
   Image,
   StatusBar,
   Linking,
+  StyleSheet,
+  View,
+  Text,
 } from "react-native";
 import { moderateScale, scale, verticalScale } from "react-native-size-matters";
 import { Colors } from "../src/constants/colors";

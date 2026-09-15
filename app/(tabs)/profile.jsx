@@ -2535,7 +2535,11 @@ export default function Profile() {
       {/* ── MENU DETAIL MODAL (full screen) ── */}
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
         <View style={[styles.mmPanel, { paddingBottom: insets.bottom }]}>
-          <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+          {activeMenu?.label === "Task" ? (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: "#ffffff" }]} />
+          ) : (
+            <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+          )}
           {/* Header — Premium and TukTuk Pass render their own custom headers */}
           {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && (
             <>
