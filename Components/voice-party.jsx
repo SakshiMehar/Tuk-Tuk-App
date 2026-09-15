@@ -1,6 +1,6 @@
-import * as DocumentPicker from "expo-document-picker";
 import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
 import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -509,10 +509,10 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
 
   const code = String(
     giftOrPayload?.giftCode ||
-      giftOrPayload?.giftId ||
-      giftOrPayload?.id ||
-      giftOrPayload?.code ||
-      "",
+    giftOrPayload?.giftId ||
+    giftOrPayload?.id ||
+    giftOrPayload?.code ||
+    "",
   )
     .toLowerCase()
     .trim();
@@ -1856,8 +1856,8 @@ export default function VoiceParty() {
       if (activeRoomId && !exitedRef.current) {
         exitedRef.current = true;
         const cleanup = async () => {
-          await partyVoice.teardownVoice().catch(() => {});
-          await exitRoomSession(String(activeRoomId)).catch(() => {});
+          await partyVoice.teardownVoice().catch(() => { });
+          await exitRoomSession(String(activeRoomId)).catch(() => { });
         };
         cleanup();
       } else {
@@ -2199,6 +2199,15 @@ export default function VoiceParty() {
           copyToCacheDirectory: false,
         });
         if (!result.canceled && result.assets && result.assets.length > 0) {
+          if (onMic && isMicMuted && roomId && mySeatNumber) {
+            try {
+              await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
+              setIsMicMuted(false);
+            } catch (e) {
+              console.log("Failed to unmute mic:", e);
+            }
+          }
+          
           const localUri = result.assets[0].uri;
           agoraVoice.playAudioForEveryone(localUri);
           setIsMusicPlaying(true);
@@ -2207,7 +2216,7 @@ export default function VoiceParty() {
         console.error("Audio selection error:", err);
       }
     }
-  }, [isMusicPlaying]);
+  }, [isMusicPlaying, onMic, isMicMuted, roomId, mySeatNumber]);
 
   const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
@@ -4502,7 +4511,7 @@ export default function VoiceParty() {
         onRequestClose={() => setShowPlayCenter(false)}
       >
         <TouchableOpacity
-          style={styles.modalOverlay}
+          style={styles.playCenterOverlay}
           activeOpacity={1}
           onPress={() => setShowPlayCenter(false)}
         >
@@ -4515,7 +4524,7 @@ export default function VoiceParty() {
                 activeOpacity={0.75}
                 onPress={() => {
                   setShowPlayCenter(false);
-                  Alert.alert("Music", "Music player coming soon!");
+                  handleToggleMusic();
                 }}
               >
                 <View style={styles.playCenterIconWrap}>
@@ -4682,7 +4691,6 @@ export default function VoiceParty() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
-
       {/* ── ACTIVE USERS MODAL ── */}
       <Modal
         visible={showActiveUsersModal}
@@ -5276,12 +5284,6 @@ export default function VoiceParty() {
               onPress={() => setShowMoreMenu(true)}
             >
               <MoreVertical size={20} color="white" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.headerBtn}
-              onPress={handleToggleMusic}
-            >
-              <Play size={20} color={isMusicPlaying ? "#10b981" : "white"} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.headerBtn}
@@ -7046,6 +7048,14 @@ const styles = StyleSheet.create({
   },
 
   // ── Play center modal ──
+  playCenterOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+    alignItems: "flex-end",
+    paddingBottom: 90,
+    paddingRight: 12,
+  },
   playCenterBox: {
     backgroundColor: "#1a0a2e",
     borderRadius: 16,
@@ -8739,4 +8749,115 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     letterSpacing: 1,
   },
+
+  followModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingHorizontal: 0,
+  },
+  followModalBox: {
+    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 3,
+    borderColor: "#F8C8DC",
+    paddingHorizontal: 24,
+    paddingTop: 44,
+    paddingBottom: 32,
+    width: "100%",
+    maxWidth: "100%",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 10,
+    position: "relative",
+  },
+  followModalCloseBtn: {
+    position: "absolute",
+    top: 14,
+    right: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(26, 26, 46, 0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 15,
+  },
+  followModalAvatarWrap: {
+    position: "absolute",
+    top: -40,
+    alignSelf: "center",
+    zIndex: 10,
+    elevation: 10,
+    backgroundColor: "transparent",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+  },
+  followModalAvatar: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    // borderWidth: 3.5,
+    // borderColor: "#ffffff",
+  },
+  followModalRoomName: {
+    color: "#1a1a2e",
+    fontSize: 16,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  followModalRoomId: {
+    color: "rgba(26, 26, 46, 0.55)",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  followModalActionBtn: {
+    backgroundColor: "#7c4dff",
+    paddingVertical: 11,
+    paddingHorizontal: 36,
+    borderRadius: 22,
+    minWidth: 150,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    marginBottom: 8,
+
+  },
+  followModalActionBtnFollowing: {
+    backgroundColor: "rgba(124, 77, 255, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(124, 77, 255, 0.35)",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  followModalActionBtnContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  followModalActionBtnText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  followModalActionBtnTextFollowing: {
+    color: "#7c4dff",
+  },
+
 });
