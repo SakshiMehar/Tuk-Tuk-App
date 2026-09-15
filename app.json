@@ -47,7 +47,25 @@
         "monochromeImage": "./assets/images/adaptive-icon-foreground.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "https",
+              "host": "tuktuk.live",
+              "pathPrefix": "/room"
+            },
+            {
+              "scheme": "http",
+              "host": "tuktuk.live",
+              "pathPrefix": "/room"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",

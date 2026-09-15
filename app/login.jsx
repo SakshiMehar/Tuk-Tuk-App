@@ -24,6 +24,10 @@ import {
 } from "../src/hooks/useGoogleSignIn";
 import { establishSessionFromApi } from "../src/services/authSessionService";
 import {
+  consumePendingDeepLink,
+  extractRoomIdFromUrl,
+} from "../src/utils/deepLinkUtils";
+import {
   configureFacebookSdk,
   getFacebookAuthErrorMessage,
   signInWithFacebook,
@@ -100,7 +104,16 @@ export default function Login() {
 
   const finishLogin = async () => {
     await setTermsAccepted(true);
-    router.replace("/(tabs)/home");
+    const pendingUrl = await consumePendingDeepLink();
+    const roomId = extractRoomIdFromUrl(pendingUrl);
+    if (roomId) {
+      router.replace({
+        pathname: "/voice-party",
+        params: { roomId: String(roomId) },
+      });
+    } else {
+      router.replace("/(tabs)/home");
+    }
   };
 
   const handleGoogleLogin = async () => {

@@ -6,16 +6,23 @@ import {
   LogBox,
   Text,
   TextInput,
+  Linking,
 } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { setSessionExpiredHandler } from "../src/api/axios";
 import { Colors } from "../src/constants/colors";
+import { getToken } from "../src/store/authStore";
 import { initFirebase } from "../src/lib/firebase";
 import {
   initPushNotificationListeners,
   registerForPushNotifications,
 } from "../src/services/pushNotificationService";
 import { openUserChat } from "../src/utils/chatNavigation";
+import { navigateFromNotification } from "../src/utils/notificationNavigation";
+import {
+  extractRoomIdFromUrl,
+  setPendingDeepLink,
+} from "../src/utils/deepLinkUtils";
 
 LogBox.ignoreAllLogs();
 // ── Global font-scale guard ────────────────────────────────────────────────
@@ -59,17 +66,27 @@ export default function RootLayout() {
     });
 
     const unsubscribePush = initPushNotificationListeners({
-      onForegroundMessage: ({ title, body }) => {
-        if (body) Alert.alert(title, body);
+      onForegroundMessage: ({ title, body, data }) => {
+        if (!body && !title) return;
+        Alert.alert(
+          title || "Tuk-Tuk",
+          body || "",
+          [
+            { text: "Dismiss", style: "cancel" },
+            {
+              text: "View",
+              onPress: () => {
+                if (data) navigateFromNotification(router, data);
+              },
+            },
+          ],
+          { cancelable: true }
+        );
       },
       onNotificationTap: ({ data }) => {
-        // Placeholder payload shape (chatUserId/senderName) — adjust once
-        // backend confirms what a push notification's `data` actually contains.
-        if (data?.chatUserId) {
-          openUserChat(router, {
-            userId: data.chatUserId,
-            name: data.senderName,
-          });
+        if (data) {
+          console.log("[_layout] Push notification tapped -> navigating:", data);
+          navigateFromNotification(router, data);
         }
       },
     });
@@ -77,6 +94,38 @@ export default function RootLayout() {
     return () => {
       sessionSub.remove();
       unsubscribePush();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleDeepLinkUrl = (event) => {
+      const url = event?.url;
+      if (!url) return;
+      console.log("[_layout] Incoming deep link URL:", url);
+      const roomId = extractRoomIdFromUrl(url);
+      if (roomId) {
+        getToken()
+          .then((token) => {
+            if (token) {
+              router.push({
+                pathname: "/voice-party",
+                params: { roomId: String(roomId) },
+              });
+            } else {
+              setPendingDeepLink(url);
+              router.push("/login");
+            }
+          })
+          .catch(() => {
+            setPendingDeepLink(url);
+            router.push("/login");
+          });
+      }
+    };
+
+    const linkSub = Linking.addEventListener("url", handleDeepLinkUrl);
+    return () => {
+      linkSub.remove();
     };
   }, []);
 
@@ -101,6 +150,11 @@ export default function RootLayout() {
         <Stack.Screen name="voice-party" />
         <Stack.Screen name="find-friends" />
         <Stack.Screen name="nearby" />
+        <Stack.Screen name="chat-box" />
+        <Stack.Screen name="user-profile" />
+        <Stack.Screen name="blocked-accounts" />
+        <Stack.Screen name="message-notification" />
+        <Stack.Screen name="room/[roomId]" />
       </Stack>
     </SafeAreaProvider>
   );

@@ -1,5 +1,5 @@
-import API, { authRequestConfig } from "./axios";
 import { API_BASE_URL } from "../config/env";
+import API, { authRequestConfig } from "./axios";
 
 const maskToken = (value) => {
   if (!value || typeof value !== "string") return value;
@@ -10,13 +10,11 @@ const maskToken = (value) => {
 const logAuthRequest = (method, path, body) => {
   const safeBody = { ...body };
   if (safeBody.idToken) safeBody.idToken = maskToken(safeBody.idToken);
-  if (safeBody.accessToken) safeBody.accessToken = maskToken(safeBody.accessToken);
-  
+  if (safeBody.accessToken)
+    safeBody.accessToken = maskToken(safeBody.accessToken);
 };
 
-const logAuthResponse = (endpoint, data) => {
-  
-};
+const logAuthResponse = (endpoint, data) => {};
 
 const logAuthError = (method, path, error) => {
   console.error(
@@ -28,8 +26,8 @@ const logAuthError = (method, path, error) => {
         data: error?.responseData ?? error?.response?.data ?? null,
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 };
 
@@ -41,7 +39,6 @@ const postAuthWithFallback = async (paths, body) => {
       const response = await API.post(path, body);
       logAuthResponse(`POST ${path}`, response.data);
       if (path !== paths[0]) {
-        
       }
       return response.data;
     } catch (error) {
@@ -51,7 +48,6 @@ const postAuthWithFallback = async (paths, body) => {
       if (status !== 404 || path === paths[paths.length - 1]) {
         throw error;
       }
-      
     }
   }
   throw lastError;
@@ -84,16 +80,15 @@ export const firebaseFacebookAuth = async (idToken, phoneNumber, name) => {
   };
   return postAuthWithFallback(
     ["/api/auth/firebase-facebook", "/api/auth/facebook-login"],
-    body
+    body,
   );
 };
 
 export const logout = async () => {
-  
   const response = await API.post(
     "/api/auth/logout",
     {},
-    await authRequestConfig()
+    await authRequestConfig(),
   );
   logAuthResponse("POST /api/auth/logout", response.data);
   return response.data;
@@ -104,7 +99,7 @@ export const deleteAccount = async ({ reason, additionalComment } = {}) => {
     reason: String(reason ?? "").trim(),
     additionalComment: String(additionalComment ?? "").trim(),
   };
-  
+
   const response = await API.delete("/api/auth/account", {
     ...(await authRequestConfig()),
     data: body,

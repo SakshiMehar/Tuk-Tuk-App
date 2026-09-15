@@ -161,14 +161,14 @@ export default function ChatTab() {
 
         }
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => { cancelled = true; };
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       fetchChats();
-      wsService.connect().catch(() => {});
+      wsService.connect().catch(() => { });
     }, [fetchChats])
   );
 
@@ -360,14 +360,14 @@ export default function ChatTab() {
                 avatarStyle={{ borderRadius: 26, borderWidth: 1.5, borderColor: "white" }}
                 {...(item.vipProfileFrameUrl
                   ? {
-                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                    }
+                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                  }
                   : {})}
               />
             ) : (
@@ -563,8 +563,8 @@ export default function ChatTab() {
                       <Text style={styles.chatsLoadingText}>Loading...</Text>
                     </View>
                   ) : familyGroups.filter((f) =>
-                      f.name.toLowerCase().includes(contactSearch.toLowerCase())
-                    ).length === 0 ? (
+                    f.name.toLowerCase().includes(contactSearch.toLowerCase())
+                  ).length === 0 ? (
                     <View style={styles.emptyContacts}>
                       <Text style={styles.emptyContactsEmoji}>👪</Text>
                       <Text style={styles.emptyContactsText}>You haven&apos;t joined a family group yet</Text>
@@ -667,62 +667,62 @@ export default function ChatTab() {
                       {user.online && <View style={styles.onlineDot} />}
                     </View>
 
-                    {/* Info */}
-                    <View style={styles.contactInfo}>
-                      <View style={styles.contactNameRow}>
-                        <Text style={styles.contactName} numberOfLines={1}>{user.name}</Text>
-                        {user.verified && (
-                          <View style={styles.verifiedBadge}>
-                            <Check size={9} color="white" strokeWidth={3} />
+                        {/* Info */}
+                        <View style={styles.contactInfo}>
+                          <View style={styles.contactNameRow}>
+                            <Text style={styles.contactName} numberOfLines={1}>{user.name}</Text>
+                            {user.verified && (
+                              <View style={styles.verifiedBadge}>
+                                <Check size={9} color="white" strokeWidth={3} />
+                              </View>
+                            )}
                           </View>
+                          <Text style={styles.contactHandle} numberOfLines={1}>{user.handle}</Text>
+                        </View>
+
+                        {/* Action button */}
+                        {showFollowBack ? (
+                          <TouchableOpacity
+                            style={styles.followBackBtn}
+                            activeOpacity={0.8}
+                            disabled={followBackLoadingId === userId}
+                            onPress={() => handleFollowBack(user)}
+                          >
+                            <LinearGradient
+                              colors={["#7c4dff", "#4a6cf7"]}
+                              style={styles.followBackGrad}
+                            >
+                              {followBackLoadingId === userId ? (
+                                <ActivityIndicator size="small" color="white" />
+                              ) : (
+                                <Text style={styles.followBackText}>Follow Back</Text>
+                              )}
+                            </LinearGradient>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.msgBtn}
+                            activeOpacity={0.8}
+                            onPress={() => handleOpenUserChat(user)}
+                          >
+                            <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.msgBtnGrad}>
+                              <Text style={styles.msgBtnText}>Message</Text>
+                            </LinearGradient>
+                          </TouchableOpacity>
                         )}
-                      </View>
-                      <Text style={styles.contactHandle} numberOfLines={1}>{user.handle}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                {!contactsLoading && getContactsForPage(contactsPage).filter((u) =>
+                  u.name.toLowerCase().includes(contactSearch.toLowerCase())
+                ).length === 0 && (
+                    <View style={styles.emptyContacts}>
+                      <Text style={styles.emptyContactsEmoji}>🔍</Text>
+                      <Text style={styles.emptyContactsText}>No results found</Text>
                     </View>
-
-                    {/* Action button */}
-                    {showFollowBack ? (
-                      <TouchableOpacity
-                        style={styles.followBackBtn}
-                        activeOpacity={0.8}
-                        disabled={followBackLoadingId === userId}
-                        onPress={() => handleFollowBack(user)}
-                      >
-                        <LinearGradient
-                          colors={["#7c4dff", "#4a6cf7"]}
-                          style={styles.followBackGrad}
-                        >
-                          {followBackLoadingId === userId ? (
-                            <ActivityIndicator size="small" color="white" />
-                          ) : (
-                            <Text style={styles.followBackText}>Follow Back</Text>
-                          )}
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.msgBtn}
-                        activeOpacity={0.8}
-                        onPress={() => handleOpenUserChat(user)}
-                      >
-                        <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.msgBtnGrad}>
-                          <Text style={styles.msgBtnText}>Message</Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    )}
-                  </TouchableOpacity>
-                  );
-                })}
-
-              {!contactsLoading && getContactsForPage(contactsPage).filter((u) =>
-                u.name.toLowerCase().includes(contactSearch.toLowerCase())
-              ).length === 0 && (
-                <View style={styles.emptyContacts}>
-                  <Text style={styles.emptyContactsEmoji}>🔍</Text>
-                  <Text style={styles.emptyContactsText}>No results found</Text>
-                </View>
-              )}
-            </View>
+                  )}
+              </View>
             )}
           </View>
         )}
@@ -871,10 +871,10 @@ export default function ChatTab() {
               </View>
             </View>
 
-        {/* ── CHAT LIST ── */}
-        <View style={styles.chatList}>{renderChatList()}</View>
+            {/* ── CHAT LIST ── */}
+            <View style={styles.chatList}>{renderChatList()}</View>
 
-        <View style={{ height: 30 }} />
+            <View style={{ height: 30 }} />
           </>
         )}
 

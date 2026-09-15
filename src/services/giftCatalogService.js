@@ -233,14 +233,111 @@ export const buyGiftToBackpack = async ({ giftCode, giftId, quantity = 1 }) => {
 };
 
 /** Normalize send/WS animation payload for the gift popup */
-export const normalizeGiftAnimation = (payload, fallbackGift) => ({
-  name: payload?.giftName ?? payload?.name ?? fallbackGift?.name ?? "Gift",
-  emoji: payload?.emoji ?? fallbackGift?.emoji ?? "🎁",
-  imageUrl: payload?.imageUrl ?? fallbackGift?.imageUrl ?? null,
-  videoUrl: payload?.videoUrl ?? fallbackGift?.videoUrl ?? null,
-  senderName: payload?.senderName ?? payload?.sender ?? null,
-  quantity: Math.max(1, Number(payload?.quantity ?? 1)),
-});
+export const normalizeGiftAnimation = (payload, fallbackGift) => {
+  const senderName =
+    payload?.senderName ??
+    payload?.sender ??
+    payload?.userName ??
+    payload?.username ??
+    payload?.user?.name ??
+    payload?.fromUser?.name ??
+    payload?.from?.name ??
+    payload?.nickname ??
+    fallbackGift?.senderName ??
+    fallbackGift?.sender ??
+    fallbackGift?.user?.name ??
+    null;
+
+  const senderAvatar =
+    payload?.senderAvatar ??
+    payload?.avatar ??
+    payload?.user?.avatar ??
+    payload?.profileImageUrl ??
+    payload?.profilePicUrl ??
+    payload?.user?.profileImageUrl ??
+    fallbackGift?.senderAvatar ??
+    fallbackGift?.avatar ??
+    fallbackGift?.profileImageUrl ??
+    null;
+
+  const receiverName =
+    payload?.receiverName ??
+    payload?.receiver ??
+    payload?.toUser?.name ??
+    payload?.recipientName ??
+    fallbackGift?.receiverName ??
+    fallbackGift?.receiver ??
+    null;
+
+  const receiverAvatar =
+    payload?.receiverAvatar ??
+    payload?.toUser?.avatar ??
+    payload?.recipientAvatar ??
+    fallbackGift?.receiverAvatar ??
+    null;
+
+  const giftName =
+    payload?.giftName ??
+    payload?.name ??
+    payload?.gift?.name ??
+    fallbackGift?.name ??
+    fallbackGift?.giftName ??
+    "Gift";
+
+  const emoji =
+    payload?.emoji ??
+    payload?.gift?.emoji ??
+    fallbackGift?.emoji ??
+    "🎁";
+
+  const imageUrl =
+    payload?.imageUrl ??
+    payload?.image ??
+    payload?.gift?.imageUrl ??
+    fallbackGift?.imageUrl ??
+    fallbackGift?.image ??
+    null;
+
+  const videoUrl =
+    payload?.videoUrl ??
+    payload?.gift?.videoUrl ??
+    fallbackGift?.videoUrl ??
+    null;
+
+  return {
+    id:
+      payload?.id ??
+      payload?.giftId ??
+      payload?.giftCode ??
+      fallbackGift?.id ??
+      `gift-${Date.now()}`,
+    giftCode: String(
+      payload?.giftCode ??
+        payload?.code ??
+        fallbackGift?.giftCode ??
+        fallbackGift?.id ??
+        "",
+    ),
+    name: giftName,
+    emoji,
+    imageUrl,
+    videoUrl,
+    senderName: senderName || "User",
+    senderAvatar,
+    receiverName,
+    receiverAvatar,
+    quantity: Math.max(
+      1,
+      Number(
+        payload?.quantity ??
+          payload?.qty ??
+          fallbackGift?.quantity ??
+          fallbackGift?.qty ??
+          1,
+      ),
+    ),
+  };
+};
 
 /** Party room gift send — inventory uses /give|/room/send, diamonds use /rooms/{id}/gift */
 export const sendPartyRoomGift = async ({

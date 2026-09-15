@@ -55,7 +55,16 @@ const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", 
 // image URL — resolve those to the local asset, otherwise treat as a URI.
 const resolveAvatarSource = (avatar) => {
   if (isBundledAvatarId(avatar)) return getAvatarSource(avatar);
-  return { uri: avatar };
+  return /ngrok-free\.dev|ngrok\.io/i.test(avatar)
+    ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri: avatar };
+};
+
+const resolveImageUriSource = (uri) => {
+  if (!uri) return null;
+  return /ngrok-free\.dev|ngrok\.io/i.test(uri)
+    ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri };
 };
 
 const AudioPlayer = ({ uri, durationMs, fromMe }) => {
@@ -279,7 +288,7 @@ export default function ChatBox({ user = {}, onBack }) {
     audio: m.audio ?? null,
     audioDuration: m.audioDuration ?? 0,
     fromMe: String(m.senderId) === String(currentUserId),
-    time: m.timestamp ? new Date(m.timestamp) : new Date(),
+    time: m.timestamp || m.createdAt ? new Date(m.timestamp || m.createdAt) : new Date(),
   });
 
   useEffect(() => {

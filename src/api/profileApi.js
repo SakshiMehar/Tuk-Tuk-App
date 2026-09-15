@@ -4,6 +4,7 @@ import API, {
   refreshTokenCache,
 } from "./axios";
 import { API_BASE_URL } from "../config/env";
+import { getUser } from "../store/authStore";
 
 const buildAuthedConfig = async (label) => {
   await refreshTokenCache();
@@ -55,14 +56,45 @@ export const getMyProfile = async () => {
   return response.data;
 };
 
-// PATCH /api/app/users/me/profile  { name, profilePicUrl, ... }
+// PATCH /api/app/users/me/profile  { name, avatar, countryName, ... }
 export const patchMyProfile = async (updates = {}) => {
   const { token, headers } = await buildAuthedConfig("patch-profile");
   const body = { ...updates, token };
-  
+
+  if (body.country && !body.countryName) {
+    body.countryName = String(body.country).trim();
+  }
+  if ((body.profilePicUrl || body.avatarId) && !body.avatar) {
+    body.avatar = body.profilePicUrl || body.avatarId;
+  }
+
+  const hasRequired = Boolean(
+    (body.name && String(body.name).trim()) ||
+    (body.avatar && String(body.avatar).trim()) ||
+    (body.countryName && String(body.countryName).trim())
+  );
+
+  if (!hasRequired) {
+    const user = await getUser().catch(() => null);
+    if (user?.name || user?.username) {
+      body.name = String(user.name || user.username).trim();
+    } else if (user?.countryName || user?.country) {
+      body.countryName = String(user.countryName || user.country).trim();
+    } else if (user?.avatar || user?.avatarId || user?.profilePicUrl) {
+      body.avatar = user.avatar || user.avatarId || user.profilePicUrl;
+    }
+  }
+
+  // If still missing any required field, skip to avoid 400 Bad Request
+  if (!body.name && !body.avatar && !body.countryName) {
+    console.warn(
+      "[profileApi] patchMyProfile skipped: at least one of name, avatar, or countryName is required by backend."
+    );
+    return null;
+  }
+
   const response = await API.patch("/api/app/users/me/profile", body, { headers });
-  
-  
+
   return response.data;
 };
 

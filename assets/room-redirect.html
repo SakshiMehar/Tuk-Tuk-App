@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="description" content="Join a Tuk-Tuk voice party room. Open in the Tuk-Tuk app or download it now." />
+  <title>Join Tuk-Tuk Room</title>
+  <meta property="og:title" content="Join Tuk-Tuk Voice Room" />
+  <meta property="og:description" content="You have been invited to join a voice party room on Tuk-Tuk!" />
+  <meta property="og:type" content="website" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(135deg, #0d0618 0%, #1a0a2e 45%, #110d2f 75%, #150f3d 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 24px;
+      padding: 40px 32px 36px;
+      max-width: 360px;
+      width: 92%;
+      text-align: center;
+      backdrop-filter: blur(24px);
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+    }
+    .logo-wrap {
+      width: 80px; height: 80px; border-radius: 20px;
+      background: rgba(124, 77, 255, 0.25);
+      border: 1.5px solid rgba(124, 77, 255, 0.5);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px; font-size: 42px;
+    }
+    .app-name {
+      font-size: 28px; font-weight: 800; letter-spacing: 0.5px;
+      background: linear-gradient(90deg, #c084fc, #e879f9, #7c4dff);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; margin-bottom: 8px;
+    }
+    .invite-text { font-size: 15px; color: rgba(255,255,255,0.7); margin-bottom: 6px; }
+    .room-badge {
+      display: inline-block;
+      background: rgba(124, 77, 255, 0.2);
+      border: 1px solid rgba(124, 77, 255, 0.4);
+      border-radius: 20px; padding: 5px 16px;
+      font-size: 13px; color: #c084fc; font-weight: 600; margin-bottom: 30px;
+    }
+    .divider { width: 100%; height: 1px; background: rgba(255,255,255,0.08); margin-bottom: 28px; }
+    .btn {
+      display: block; width: 100%; padding: 15px 20px; border-radius: 14px;
+      font-size: 16px; font-weight: 700; text-decoration: none; border: none;
+      cursor: pointer; letter-spacing: 0.3px; transition: opacity 0.2s, transform 0.15s;
+    }
+    .btn:active { transform: scale(0.97); opacity: 0.85; }
+    .btn-primary {
+      background: linear-gradient(135deg, #7c4dff, #e879f9); color: #fff;
+      margin-bottom: 12px; box-shadow: 0 4px 20px rgba(124, 77, 255, 0.4);
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: rgba(255,255,255,0.85);
+    }
+    .status-msg { font-size: 13px; color: rgba(255,255,255,0.45); margin-top: 22px; line-height: 1.5; }
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2.5px solid rgba(255,255,255,0.25);
+      border-top-color: #fff; border-radius: 50%;
+      display: inline-block; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo-wrap">🎙️</div>
+    <div class="app-name">Tuk Tuk</div>
+    <p class="invite-text">You're invited to join a voice party room</p>
+    <span class="room-badge" id="roomBadge">Loading room…</span>
+    <div class="divider"></div>
+    <a id="openAppBtn" class="btn btn-primary" href="#" onclick="tryOpenApp(event)">
+      <span class="spinner hidden" id="spinner"></span>
+      Open in Tuk-Tuk App
+    </a>
+    <a class="btn btn-secondary" href="https://play.google.com/store/apps/details?id=tuk.tuk.app" target="_blank" rel="noopener noreferrer">
+      📲 Download Tuk-Tuk on Play Store
+    </a>
+    <p class="status-msg" id="statusMsg">
+      Already have the app? Tap <b>Open in Tuk-Tuk App</b> above.<br/>
+      Otherwise download the app to join voice rooms.
+    </p>
+  </div>
+  <script>
+    var pathParts = window.location.pathname.split('/').filter(Boolean);
+    var roomId = pathParts[pathParts.length - 1] || '';
+    if (roomId) {
+      document.getElementById('roomBadge').textContent = 'Room #' + roomId;
+    } else {
+      document.getElementById('roomBadge').textContent = 'Voice Room';
+    }
+    function tryOpenApp(e) {
+      if (e && e.preventDefault) e.preventDefault();
+      var btn = document.getElementById('openAppBtn');
+      var spinner = document.getElementById('spinner');
+      var status = document.getElementById('statusMsg');
+      spinner.classList.remove('hidden');
+      btn.style.pointerEvents = 'none';
+      status.innerHTML = 'Opening Tuk-Tuk App\u2026';
+      var deepLink = 'tuktuk://room/' + encodeURIComponent(roomId);
+      var playStore = 'https://play.google.com/store/apps/details?id=tuk.tuk.app';
+      var appOpened = false;
+      var onBlur = function() { appOpened = true; };
+      window.addEventListener('blur', onBlur);
+      window.addEventListener('pagehide', onBlur);
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) appOpened = true;
+      });
+      window.location.href = deepLink;
+      setTimeout(function() {
+        window.removeEventListener('blur', onBlur);
+        window.removeEventListener('pagehide', onBlur);
+        if (!appOpened) {
+          status.innerHTML = 'Tuk-Tuk app not found. Redirecting to Play Store\u2026';
+          setTimeout(function() { window.location.href = playStore; }, 700);
+        } else {
+          spinner.classList.add('hidden');
+          btn.style.pointerEvents = '';
+          status.innerHTML = 'Already have the app? Tap <b>Open in Tuk-Tuk App</b> above.<br/>Otherwise download the app to join voice rooms.';
+        }
+      }, 1800);
+    }
+    var ua = navigator.userAgent || '';
+    var isMobile = /android/i.test(ua) || /iphone|ipad|ipod/i.test(ua);
+    if (isMobile && roomId) {
+      setTimeout(function() { tryOpenApp(null); }, 800);
+    }
+  </script>
+</body>
+</html>

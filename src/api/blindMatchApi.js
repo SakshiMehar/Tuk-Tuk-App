@@ -8,11 +8,16 @@ const buildAuthedConfig = async (label) => {
   await refreshTokenCache();
   const token = await getBearerToken();
   if (!token) {
-    
     throw new Error("Please log in again to continue.");
   }
   const authConfig = await authRequestConfig();
-  
+
+  console.log("====================================");
+  console.log(`[AUTH] ${label}`);
+  console.log("[AUTH] Bearer token:", token);
+  console.log("[AUTH] Token length:", token.length);
+  console.log("====================================");
+
   return {
     token,
     headers: {
@@ -28,9 +33,9 @@ const buildAuthedConfig = async (label) => {
 export const getNextBlindMatch = async () => {
   const { token, headers } = await buildAuthedConfig("blind-match/next");
   const url = `/api/app/blind-match/next?token=${encodeURIComponent(token)}`;
-  
+
   const response = await API.get(url, { headers });
-  
+
   return response.data;
 };
 
@@ -38,11 +43,15 @@ export const getNextBlindMatch = async () => {
 // POST /api/app/blind-match/action  { targetUserId, action }
 // action: "LIKE" | "SKIP"
 export const sendBlindMatchAction = async (targetUserId, action) => {
-  const { token, headers } = await buildAuthedConfig(`blind-match/action ${action}`);
+  const { token, headers } = await buildAuthedConfig(
+    `blind-match/action ${action}`,
+  );
   const body = { targetUserId, action, token };
-  
-  const response = await API.post("/api/app/blind-match/action", body, { headers });
-  
+
+  const response = await API.post("/api/app/blind-match/action", body, {
+    headers,
+  });
+
   return response.data;
 };
 
@@ -51,8 +60,10 @@ export const sendBlindMatchAction = async (targetUserId, action) => {
 export const openBlindMatchChat = async (targetUserId) => {
   const { token, headers } = await buildAuthedConfig("blind-match/chat");
   const body = { targetUserId, token };
-  
-  const response = await API.post("/api/app/blind-match/chat", body, { headers });
-  
+
+  const response = await API.post("/api/app/blind-match/chat", body, {
+    headers,
+  });
+
   return response.data;
 };

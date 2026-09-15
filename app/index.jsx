@@ -6,13 +6,20 @@ import {
   Easing,
   Image,
   StatusBar,
-  StyleSheet,
-  Text,
-  View
+  Linking,
 } from "react-native";
 import { moderateScale, scale, verticalScale } from "react-native-size-matters";
 import { Colors } from "../src/constants/colors";
 import { getToken } from "../src/store/authStore";
+import {
+  consumePendingNotification,
+  navigateFromNotification,
+} from "../src/utils/notificationNavigation";
+import {
+  extractRoomIdFromUrl,
+  setPendingDeepLink,
+  consumePendingDeepLink,
+} from "../src/utils/deepLinkUtils";
 
 const splashIcon = require("../assets/images/splash-icon.png");
 
@@ -113,9 +120,51 @@ export default function Index() {
           easing: Easing.out(Easing.cubic),
         }),
       ]),
-      Animated.delay(1500),
-    ]).start(() => {
-      onComplete();
+      Animated.delay(900),
+      Animated.timing(screenOpacity, {
+        toValue: 0,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+    ]).start(async () => {
+      let initialUrl = null;
+      try {
+        initialUrl = (await Linking.getInitialURL()) || (await consumePendingDeepLink());
+      } catch {
+        // fallback
+      }
+
+      const initialRoomId = extractRoomIdFromUrl(initialUrl);
+
+      // Check if the user is already logged in — skip the login screen if so
+      getToken()
+        .then(async (token) => {
+          if (token) {
+            if (initialRoomId) {
+              router.replace({
+                pathname: "/voice-party",
+                params: { roomId: String(initialRoomId) },
+              });
+              return;
+            }
+
+            const pending = consumePendingNotification();
+            router.replace("/(tabs)/home");
+            if (pending) {
+              setTimeout(() => {
+                navigateFromNotification(router, pending);
+              }, 300);
+            }
+          } else {
+            if (initialUrl) {
+              await setPendingDeepLink(initialUrl);
+            }
+            router.replace("/login");
+          }
+        })
+        .catch(() => {
+          router.replace("/login");
+        });
     });
   };
 
