@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { VIP_XP_THRESHOLD, VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+
+// Same badge-row aspect ratios used by UserProfileView/RoomUserProfilePopup —
+// level art is 142:149, the decoration/verified badge art is 438:179.
+const BADGE_HEIGHT = 18;
+const LEVEL_BADGE_ASPECT = 142 / 149;
+const DECORATION_BADGE_ASPECT = 438 / 179;
 
 /**
  * Dark user-info card for the wallet/recharge screen — avatar, username, and
@@ -21,6 +29,8 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
   const [level, setLevel] = useState(1);
   const [gamificationXp, setGamificationXp] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
+  const [vipLogo, setVipLogo] = useState(null);
+  const [decorationBadgeUrl, setDecorationBadgeUrl] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,7 +45,15 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
       setGamificationXp(levelResult?.xp ?? null);
 
       const vipAssets = await loadMyVipAssets(levelResult?.xp?.totalXp).catch(() => null);
-      if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
+      if (cancelled) return;
+      setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
+      setVipLogo(vipAssets?.unlocked ? vipAssets.logo : null);
+
+      // Decoration/verified badge — a single per-user GET for this one card
+      // (the logged-in user), not a per-row list, so it's safe here.
+      const myUserId = storedUser?.id ?? storedUser?.userId;
+      const decorations = await fetchUserDecorations(myUserId).catch(() => null);
+      if (!cancelled) setDecorationBadgeUrl(decorations?.badgeUrl ?? null);
     })();
     return () => {
       cancelled = true;
@@ -78,6 +96,23 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
         <Text style={styles.username} numberOfLines={1}>
           {username}
         </Text>
+        <View style={styles.badgeRow}>
+          <Image
+            source={resolveLocalLevelBadge(level)}
+            style={styles.levelBadge}
+            resizeMode="contain"
+          />
+          {vipLogo && (
+            <Image source={{ uri: vipLogo }} style={styles.vipBadge} resizeMode="contain" />
+          )}
+          {decorationBadgeUrl && (
+            <Image
+              source={{ uri: decorationBadgeUrl }}
+              style={styles.decorationBadge}
+              resizeMode="contain"
+            />
+          )}
+        </View>
         <Text style={styles.xpText}>
           {resolvedXpCurrent.toLocaleString("en-IN")}/{resolvedXpTarget.toLocaleString("en-IN")}
         </Text>
@@ -117,6 +152,23 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "800",
+  },
+  badgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  levelBadge: {
+    height: BADGE_HEIGHT,
+    width: BADGE_HEIGHT * LEVEL_BADGE_ASPECT,
+  },
+  vipBadge: {
+    height: BADGE_HEIGHT,
+    width: BADGE_HEIGHT,
+  },
+  decorationBadge: {
+    height: BADGE_HEIGHT,
+    width: BADGE_HEIGHT * DECORATION_BADGE_ASPECT,
   },
   xpText: {
     color: "rgba(255,255,255,0.5)",

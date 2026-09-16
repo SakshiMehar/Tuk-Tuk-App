@@ -194,6 +194,35 @@ export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fiel
   }
 };
 
+/** GET /api/v1/tuktuk/rooms/{roomId}/announcement — fetch the room's pinned announcement */
+export const getRoomAnnouncement = async (roomId) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/announcement`;
+  logRequest("GET", path);
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    throw error;
+  }
+};
+
+/** PUT /api/v1/tuktuk/rooms/{roomId}/announcement — set the room's pinned announcement */
+export const updateRoomAnnouncement = async (roomId, announcement) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/announcement`;
+  const payload = { announcement };
+  logRequest("PUT", path, payload);
+  try {
+    const response = await API.put(path, payload, await authRequestConfig());
+    logResponse("PUT", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("PUT", path, error);
+    throw error;
+  }
+};
+
 export const joinRoom = async (roomId) => {
   const response = await API.post(
     `/api/v1/tuktuk/rooms/${roomId}/join`,
@@ -253,6 +282,11 @@ export const getRoomUserCount = async (roomId) => {
   } catch {
     return 0;
   }
+};
+
+export const getClaimedSeats = async (roomId) => {
+  const response = await API.get(`/api/public/rooms/${roomId}/claimed-seat`);
+  return response.data;
 };
 
 export const getRoomChatMessages = async (roomId) => {

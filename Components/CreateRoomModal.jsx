@@ -21,6 +21,7 @@ import {
 } from "react-native-safe-area-context";
 import {
   createAndEnterPartyRoom,
+  saveRoomAnnouncement,
   updateRoomCoverPhoto,
 } from "../src/services/partyService";
 import { getUser } from "../src/store/authStore";
@@ -162,6 +163,15 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
       });
 
       const targetRoomId = String(session.roomId ?? userId);
+
+      try {
+        await saveRoomAnnouncement(targetRoomId, trimmedAnnouncement);
+      } catch (announcementErr) {
+        console.warn(
+          "[CreateRoomModal] Announcement save failed:",
+          announcementErr,
+        );
+      }
 
       if (roomPhotoUri) {
         try {

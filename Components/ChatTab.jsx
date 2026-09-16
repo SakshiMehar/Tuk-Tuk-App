@@ -15,9 +15,14 @@ import {
   View,
 } from "react-native";
 import { APP_BG } from "../src/constants/theme";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
+} from "../src/constants/vip";
 import { getAvatarSource, isBundledAvatarId } from "../src/data/avatarOptions";
 import { loadConversations } from "../src/services/chatService";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { loadFamilyDetail, loadFamilyLists } from "../src/services/familyService";
 import { getRecommendedUsers } from "../src/services/homeService";
 import {
@@ -37,6 +42,18 @@ import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ProfileConnectionsModal from "./ProfileConnectionsModal";
 
 const RECOMMEND_RING_COLORS = ["#333333", "#888888"];
+
+// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
+// appears (UserProfileView, ChatBox) — the conversation list already carries
+// vipProfileFrameUrl per row (normalizeConversation in chatService.js), so
+// the tier can be derived here with no extra network call. `level` is now
+// also normalized onto conversation rows (normalizeConversation in
+// chatService.js) and onto relationship/recommended-user rows, so the level
+// badge is rendered alongside the VIP/verified badges wherever those fields
+// are present, with no extra per-row fetch.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
+);
 
 // Backend may send a bundled preset id (e.g. "avatar3") instead of a real
 // image URL — resolve those to the local asset, otherwise treat as a URI.
@@ -334,7 +351,10 @@ export default function ChatTab() {
         ? filteredChats.filter((c) => c.unread > 0)
         : filteredChats;
 
-    return list.map((item, idx) => (
+    return list.map((item, idx) => {
+      const rowVipTier = resolveVipTierFromAssetUrl(item.vipProfileFrameUrl);
+      const rowVipLogo = rowVipTier != null ? VIP_LOGO_BY_TIER[rowVipTier] : null;
+      return (
       <TouchableOpacity
         key={String(item.userId ?? item.id ?? idx)}
         style={[styles.chatItem, idx === 0 && styles.chatItemFirst]}
@@ -389,6 +409,20 @@ export default function ChatTab() {
           <View style={styles.chatTopRow}>
             <View style={styles.chatNameRow}>
               <Text style={styles.chatName} numberOfLines={1}>{item.name}</Text>
+              {item.level != null && (
+                <Image
+                  source={resolveLocalLevelBadge(item.level)}
+                  style={styles.chatLevelBadge}
+                  resizeMode="contain"
+                />
+              )}
+              {rowVipLogo && (
+                <Image
+                  source={{ uri: rowVipLogo }}
+                  style={styles.chatVipBadge}
+                  resizeMode="contain"
+                />
+              )}
               {item.verified && (
                 <View style={styles.verifiedBadge}>
                   <Check size={9} color="white" strokeWidth={3} />
@@ -408,7 +442,8 @@ export default function ChatTab() {
           </View>
         </View>
       </TouchableOpacity>
-    ));
+      );
+    });
   };
 
   return (
@@ -671,6 +706,13 @@ export default function ChatTab() {
                         <View style={styles.contactInfo}>
                           <View style={styles.contactNameRow}>
                             <Text style={styles.contactName} numberOfLines={1}>{user.name}</Text>
+                            {user.level != null && (
+                              <Image
+                                source={resolveLocalLevelBadge(user.level)}
+                                style={styles.contactLevelBadge}
+                                resizeMode="contain"
+                              />
+                            )}
                             {user.verified && (
                               <View style={styles.verifiedBadge}>
                                 <Check size={9} color="white" strokeWidth={3} />
@@ -804,7 +846,10 @@ export default function ChatTab() {
               style={styles.recommendScroll}
               contentContainerStyle={styles.recommendContent}
             >
-              {recommendedUsers.map((user) => (
+              {recommendedUsers.map((user) => {
+                const recommendVipTier = resolveVipTierFromAssetUrl(user.vipProfileFrameUrl);
+                const recommendVipLogo = recommendVipTier != null ? VIP_LOGO_BY_TIER[recommendVipTier] : null;
+                return (
                 <TouchableOpacity
                   key={user.id}
                   style={styles.recommendCard}
@@ -843,9 +888,29 @@ export default function ChatTab() {
                   </LinearGradient>
                   <View style={styles.recommendNameRow}>
                     <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
+                    {user.level != null && (
+                      <Image
+                        source={resolveLocalLevelBadge(user.level)}
+                        style={styles.recommendLevelBadge}
+                        resizeMode="contain"
+                      />
+                    )}
+                    {recommendVipLogo && (
+                      <Image
+                        source={{ uri: recommendVipLogo }}
+                        style={styles.recommendVipBadge}
+                        resizeMode="contain"
+                      />
+                    )}
+                    {user.verified && (
+                      <View style={styles.recommendVerifiedBadge}>
+                        <Check size={7} color="white" strokeWidth={3} />
+                      </View>
+                    )}
                   </View>
                 </TouchableOpacity>
-              ))}
+                );
+              })}
             </ScrollView>
 
             {/* ── CHATLIST HEADER ── */}
@@ -1158,14 +1223,32 @@ const styles = StyleSheet.create({
   recommendNameRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 3,
+    width: 72,
   },
   recommendName: {
     color: "rgba(26,26,46,0.75)",
     fontSize: 11,
     fontWeight: "500",
     textAlign: "center",
-    width: 72,
+    flexShrink: 1,
+  },
+  recommendLevelBadge: {
+    height: 10,
+    width: 10 * (142 / 149),
+  },
+  recommendVipBadge: {
+    height: 10,
+    width: 10,
+  },
+  recommendVerifiedBadge: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#4a6cf7",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // Chatlist header
@@ -1301,6 +1384,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     flexShrink: 1,
+  },
+  chatLevelBadge: {
+    height: 16,
+    width: 16 * (142 / 149),
+  },
+  chatVipBadge: {
+    width: 16,
+    height: 16,
   },
   verifiedBadge: {
     width: 16,
@@ -1481,6 +1572,7 @@ const styles = StyleSheet.create({
   contactInfo: { flex: 1, gap: 3 },
   contactNameRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   contactName: { color: "#1a1a2e", fontSize: 14, fontWeight: "700", flexShrink: 1 },
+  contactLevelBadge: { height: 16, width: 16 * (142 / 149) },
   contactHandle: { color: "rgba(26,26,46,0.45)", fontSize: 12 },
 
   // Action buttons

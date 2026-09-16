@@ -61,6 +61,7 @@ import Animated, {
 import { refreshTokenCache } from "../src/api/axios";
 import {
   followRoom,
+  getClaimedSeats,
   getRoomChatMessages,
   getRoomState,
   getRoomUserCount,
@@ -76,6 +77,7 @@ import {
   VIP_CHAT_FRAME_FITTED_BY_TIER,
   VIP_PROFILE_FRAME_LAYOUT,
   VIP_TIER1_FALLBACK_ASSETS,
+  VIP_TIER_THRESHOLDS,
   resolveVipTierFromAssetUrl,
 } from "../src/constants/vip";
 import {
@@ -104,6 +106,8 @@ import {
   sendPartyRoomGift,
 } from "../src/services/giftCatalogService";
 import { loadUserDetail } from "../src/services/nearbyService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import { loadPublicProfile } from "../src/services/publicProfileService";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
 import {
   createLocalChatMessage,
@@ -111,11 +115,13 @@ import {
   enterRoomSession,
   exitRoomSession,
   loadFollowingRooms,
+  fetchRoomAnnouncement,
   normalizeChatMessage,
   normalizeChatMessages,
   parseOnlineUsers,
   parseSeats,
   roomStateFromPayload,
+  saveRoomAnnouncement,
   upsertChatMessage,
 } from "../src/services/partyService";
 import * as partyVoice from "../src/services/partyVoiceService";
@@ -131,6 +137,7 @@ import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
 import { applyWalletFromSources, refreshWalletBalance } from "../src/store/walletStore";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import { resolveProfileAvatarSource, resolveProfileAvatarUri } from "../src/utils/profileAvatar";
 import { ms, s, useResponsive, vs } from "../src/utils/responsive";
@@ -154,6 +161,28 @@ Dimensions.addEventListener("change", ({ window }) => {
 const TREASURE_BOX_GIF = require("../assets/Gift/tresurebox.gif");
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
 const ROOM_HEADER_BG = require("../assets/images/roomHeaderBg.png");
+
+// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
+// appears (UserProfileView, VipCenterPanel's tier carousel) — used here to
+// show a VIP badge next to OTHER senders' names in chat, since only the
+// tier-baked-into-the-URL is known for them (msg.vipProfileFrameUrl /
+// userFrameData[userId].vipProfileFrameUrl), not their full asset bundle.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
+);
+
+// These S3 icons are 1280x720 canvases with the actual glyph confined to a small
+// centered region (huge transparent margin baked into the file), so rendering them
+// with plain resizeMode="contain" scales the whole padded canvas, not just the
+// glyph, and they look tiny no matter how big the Image style box is. Each one is
+// "cropped" at render time instead: the Image is drawn oversized (scaled up from
+// its native 1280x720) and shifted with negative left/top so only the glyph's own
+// region lands inside a same-sized, overflow:hidden wrapper — see *_CROP below,
+// values derived from each icon's actual alpha bounding box.
+const RECHARGE_BONUS_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box1.png";
+const GIFT_PANEL_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box2.png";
+const MIC_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/mic.png";
+const CHAT_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/chat.png";
 
 // Listen Rewards — countdown thresholds in seconds
 const LISTEN_THRESHOLDS = [60, 3600, 18000]; // 1 min, 1 hr, 5 hr
@@ -1433,6 +1462,9 @@ export default function VoiceParty() {
     chatFrame: null,
     logo: null,
   });
+  // The logged-in user's own gamification level — same value shown on the
+  // Profile tab's level badge, used for the room's mini profile popup.
+  const [myLevel, setMyLevel] = useState(1);
   // Current name/avatar fetched per-userId for chat senders who aren't in the
   // room's live participant/seat lists — see resolveChatSenderName/Avatar below.
   const [userProfileCache, setUserProfileCache] = useState({});
@@ -1704,6 +1736,7 @@ export default function VoiceParty() {
           setUserFrameData((prev) => ({
             ...prev,
             [userId]: {
+              ...prev[userId],
               hasNewUserFrame: showFrame,
               newUserFrameUrl: frameUrl,
               vipProfileFrameUrl,
@@ -1718,6 +1751,22 @@ export default function VoiceParty() {
             );
         });
 
+      // Same decorations (badge + frame) API used on the profile screens —
+      // backend-assigned per user, independent of VIP tier — so the same
+      // "verified"/decoration badge shown there also appears below every
+      // sender's name here, not just the logged-in user's own messages.
+      fetchUserDecorations(userId)
+        .then(({ badgeUrl, frameUrl: decorationFrameUrl }) => {
+          setUserFrameData((prev) => ({
+            ...prev,
+            [userId]: {
+              ...prev[userId],
+              decorationBadgeUrl: badgeUrl,
+              decorationFrameUrl,
+            },
+          }));
+        })
+        .catch(() => {});
     });
   }, [seats, onlineUsers, messages]);
 
@@ -2072,11 +2121,20 @@ export default function VoiceParty() {
       try {
         await syncNewUserFrameForSession();
         const levelData = await syncUserLevelForSession();
+        if (!cancelled && levelData?.level != null) setMyLevel(levelData.level);
         let loadedVip = null;
         try {
           loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
           if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
-        } catch (e) { }
+          console.log(
+            "[VoiceParty] myVipAssets loaded, xp used:",
+            levelData?.xp?.totalXp,
+            "-> ",
+            JSON.stringify(loadedVip),
+          );
+        } catch (e) {
+          console.log("[VoiceParty] loadMyVipAssets threw:", e?.message ?? e);
+        }
         let session;
         if (isRandomParty) {
           session = await enterRandomPartySession();
@@ -2089,6 +2147,12 @@ export default function VoiceParty() {
         setRoomId(session.roomId);
         roomIdRef.current = session.roomId;
         setRoomInfo(session.room);
+        if (session.room?.body) setWelcomeMessage(session.room.body);
+        fetchRoomAnnouncement(session.roomId)
+          .then((announcement) => {
+            if (!cancelled && announcement) setWelcomeMessage(announcement);
+          })
+          .catch(() => {});
         onMicRef.current = false;
         mySeatNumberRef.current = null;
         setOnMic(false);
@@ -3286,7 +3350,10 @@ export default function VoiceParty() {
       text,
       user: user?.name ?? user?.username ?? user?.nickname ?? "You",
       avatar: user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null,
-      extra: { level: user?.level ?? 1, ...extra },
+      // userId is set here (not left to the server echo) so the sender's own
+      // VIP/decoration badges show immediately — the local echo never used
+      // to carry userId at all, so isSenderSelf was permanently false for it.
+      extra: { level: user?.level ?? 1, userId: myUserId, ...extra },
     });
     setMessages((prev) => [...prev, localMsg]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -3539,6 +3606,7 @@ export default function VoiceParty() {
         user: senderName,
         avatar: senderAvatar,
         extra: {
+          userId: myUserId,
           diamonds: Number(selectedGift.price ?? 0) * qty,
           isGift: true,
           pending: false,
@@ -3562,6 +3630,25 @@ export default function VoiceParty() {
       Alert.alert("Send failed", err?.message || "Could not send gift.");
     }
   };
+
+  // Inventory rows don't always carry the gift artwork, so fall back to the
+  // catalog entry for the same gift code before showing the emoji placeholder.
+  const resolveBackpackGiftImage = useCallback(
+    (gift) => {
+      if (gift?.imageUrl) return gift.imageUrl;
+      const catalogGifts = [
+        ...giftCatalog.gift,
+        ...giftCatalog.random,
+        ...giftCatalog.activity,
+        ...giftCatalog.relationship,
+        ...giftCatalog.pk,
+        ...giftCatalog.special,
+        ...giftCatalog.vip,
+      ];
+      return catalogGifts.find((item) => giftsMatch(item, gift))?.imageUrl ?? null;
+    },
+    [giftCatalog],
+  );
 
   const displayGiftItems = giftCatalog.gift;
   const displayPkGifts = giftCatalog.pk;
@@ -3680,6 +3767,20 @@ export default function VoiceParty() {
           }
         } catch {
           // keep initial profile from room state
+        }
+
+        // loadUserDetail (nearbyService) doesn't carry `level` — same public
+        // profile API UserProfileView.jsx already uses for the level badge.
+        try {
+          const { profile: publicProfile } = await loadPublicProfile(userId);
+          if (publicProfile?.level != null) {
+            setProfilePopupUser((prev) => ({
+              ...(prev ?? initial),
+              level: publicProfile.level,
+            }));
+          }
+        } catch {
+          // no level badge for this user if the endpoint fails
         }
       }
     } finally {
@@ -4312,40 +4413,53 @@ export default function VoiceParty() {
                       style={{ flex: 1 }}
                     >
                       <View style={styles.bpGiftGrid}>
-                        {backpackGifts.map((gift) => (
-                          <TouchableOpacity
-                            key={gift.id}
-                            style={[
-                              styles.bpGiftCard,
-                              giftsMatch(selectedGift, gift) &&
-                              styles.bpGiftCardSelected,
-                            ]}
-                            activeOpacity={0.8}
-                            onPress={() => setSelectedGift(gift)}
-                          >
-                            <View style={styles.bpGiftQtyBadge}>
-                              <Text style={styles.bpGiftQtyBadgeText}>
-                                ×{gift.qty}
-                              </Text>
-                            </View>
-                            <LinearGradient
-                              colors={["#2a0d50", "#4a1d80"]}
-                              style={styles.bpGiftEmojiWrap}
+                        {backpackGifts.map((gift) => {
+                          const giftImageUrl = resolveBackpackGiftImage(gift);
+                          return (
+                            <TouchableOpacity
+                              key={gift.id}
+                              style={[
+                                styles.bpGiftCard,
+                                giftsMatch(selectedGift, gift) &&
+                                styles.bpGiftCardSelected,
+                              ]}
+                              activeOpacity={0.8}
+                              onPress={() => setSelectedGift(gift)}
                             >
-                              <Text style={styles.bpGiftEmoji}>
-                                {gift.emoji}
+                              <View style={styles.bpGiftQtyBadge}>
+                                <Text style={styles.bpGiftQtyBadgeText}>
+                                  ×{gift.qty}
+                                </Text>
+                              </View>
+                              {giftImageUrl ? (
+                                <View style={styles.bpGiftImageWrap}>
+                                  <Image
+                                    source={resolveImageSource(giftImageUrl)}
+                                    style={styles.bpGiftImage}
+                                    resizeMode="contain"
+                                  />
+                                </View>
+                              ) : (
+                                <LinearGradient
+                                  colors={["#2a0d50", "#4a1d80"]}
+                                  style={styles.bpGiftEmojiWrap}
+                                >
+                                  <Text style={styles.bpGiftEmoji}>
+                                    {gift.emoji}
+                                  </Text>
+                                </LinearGradient>
+                              )}
+                              <Text style={styles.bpGiftName} numberOfLines={1}>
+                                {gift.name}
                               </Text>
-                            </LinearGradient>
-                            <Text style={styles.bpGiftName} numberOfLines={1}>
-                              {gift.name}
-                            </Text>
-                            <View style={styles.bpGiftPriceRow}>
-                              <Text style={styles.bpGiftPriceText}>
-                                💎 {formatGiftPrice(gift.price)}
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                        ))}
+                              <View style={styles.bpGiftPriceRow}>
+                                <Text style={styles.bpGiftPriceText}>
+                                  💎 {formatGiftPrice(gift.price)}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
                     </ScrollView>
                   ) : (
@@ -4850,6 +4964,11 @@ export default function VoiceParty() {
       <RoomUserProfilePopup
         visible={Boolean(profilePopupUser || profilePopupLoading)}
         user={profilePopupUser}
+        level={
+          isSameUser(profilePopupUser?.id, myUserId)
+            ? myLevel
+            : (profilePopupUser?.level ?? null)
+        }
         avatarSource={profilePopupAvatarSource}
         frameSource={
           isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
@@ -5338,6 +5457,30 @@ export default function VoiceParty() {
                     ((myUserId != null && String(uId) === String(myUserId)) ||
                       user.name === "You" ||
                       user.id === "local-user");
+                  // Same level/VIP/decoration badge row shown in the chat and the
+                  // mini profile popup — derived from the same per-user
+                  // userFrameData fetch (already covers every online user, see
+                  // the effect that builds `audienceUserIds`), so every row here
+                  // gets the same badges without any extra network calls.
+                  const isRowSelf =
+                    myUserId != null &&
+                    uId != null &&
+                    String(uId) === String(myUserId);
+                  const rowIsVip = isRowSelf && myVipAssets.unlocked;
+                  const rowVipTier = !isRowSelf
+                    ? resolveVipTierFromAssetUrl(
+                        userFrameData[String(uId)]?.vipProfileFrameUrl,
+                      )
+                    : null;
+                  const rowVipLogo = rowIsVip
+                    ? myVipAssets.logo
+                    : rowVipTier
+                      ? VIP_LOGO_BY_TIER[rowVipTier]
+                      : null;
+                  const rowDecorationBadge =
+                    uId != null
+                      ? (userFrameData[String(uId)]?.decorationBadgeUrl ?? null)
+                      : null;
                   return (
                     <TouchableOpacity
                       key={uId ?? `active-user-${idx}`}
@@ -5383,13 +5526,27 @@ export default function VoiceParty() {
                           <Text style={styles.activeUserName} numberOfLines={1}>
                             {user.name || user.username || `User ${uId || ""}`}
                           </Text>
-                          {user.level ? (
-                            <View style={styles.activeUserLevelBadge}>
-                              <Text style={styles.activeUserLevelText}>
-                                Lv.{user.level}
-                              </Text>
-                            </View>
-                          ) : null}
+                          {user.level != null && (
+                            <Image
+                              source={resolveLocalLevelBadge(user.level)}
+                              style={styles.activeUserLevelImg}
+                              resizeMode="contain"
+                            />
+                          )}
+                          {rowVipLogo && (
+                            <Image
+                              source={{ uri: rowVipLogo }}
+                              style={styles.activeUserVipBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                          {rowDecorationBadge && (
+                            <Image
+                              source={{ uri: rowDecorationBadge }}
+                              style={styles.activeUserVerifiedBadge}
+                              resizeMode="contain"
+                            />
+                          )}
                         </View>
                         <Text style={styles.activeUserStatus}>
                           {uId != null && String(uId) === String(hostId)
@@ -5708,8 +5865,16 @@ export default function VoiceParty() {
                 style={styles.welcomeEditSave}
                 activeOpacity={0.8}
                 onPress={() => {
-                  if (welcomeDraft.trim())
-                    setWelcomeMessage(welcomeDraft.trim());
+                  const trimmed = welcomeDraft.trim();
+                  if (trimmed) {
+                    setWelcomeMessage(trimmed);
+                    saveRoomAnnouncement(roomId, trimmed).catch((err) => {
+                      console.warn(
+                        "[voice-party] Announcement save failed:",
+                        err,
+                      );
+                    });
+                  }
                   setShowWelcomeEdit(false);
                 }}
               >
@@ -5948,7 +6113,12 @@ export default function VoiceParty() {
             )}
             <TouchableOpacity
               style={styles.headerBtn}
-              onPress={() => setShowActiveUsersModal(true)}
+              onPress={() => {
+                getClaimedSeats(String(roomId))
+                  .then((data) => console.log("[claimed-seat]", data))
+                  .catch((err) => console.log("[claimed-seat] failed", err));
+                setShowActiveUsersModal(true);
+              }}
             >
               <Users size={20} color="white" />
             </TouchableOpacity>
@@ -6185,6 +6355,31 @@ export default function VoiceParty() {
                   const senderProfileFrame = isSenderVip
                     ? myVipAssets.profileFrame
                     : otherSenderVipProfileFrame;
+                  // VIP badge shown next to the name, for every sender — self
+                  // uses the confirmed logo from /api/app/vip/me/logo
+                  // (myVipAssets), other senders only expose the tier baked
+                  // into their profile-frame URL, so their badge is looked up
+                  // from that same VIP_TIER_THRESHOLDS table used elsewhere.
+                  const otherSenderVipTier = !isSenderSelf
+                    ? resolveVipTierFromAssetUrl(
+                        msg.vipProfileFrameUrl ??
+                          userFrameData[String(msg.userId)]
+                            ?.vipProfileFrameUrl,
+                      )
+                    : null;
+                  const senderVipLogo = isSenderVip
+                    ? myVipAssets.logo
+                    : otherSenderVipTier
+                      ? VIP_LOGO_BY_TIER[otherSenderVipTier]
+                      : null;
+                  // Same backend-assigned decoration badge shown below the
+                  // name on the profile screens (fetchUserDecorations) —
+                  // fetched per userId for every visible sender, self included.
+                  const senderDecorationBadge =
+                    msg.userId != null
+                      ? (userFrameData[String(msg.userId)]?.decorationBadgeUrl ??
+                        null)
+                      : null;
                   // Trimmed whole-image chat frame for this sender's tier (keyed
                   // by tier number, not by URL — the URL can vary once the real
                   // API is wired up). Falls back to the raw remote asset (old
@@ -6324,9 +6519,25 @@ export default function VoiceParty() {
                           >
                             <Text style={styles.chatUser}>{senderName}</Text>
                           </TouchableOpacity>
-                          <View style={styles.lvBadge}>
-                            <Text style={styles.lvText}>Lv.{msg.level}</Text>
-                          </View>
+                          <Image
+                            source={resolveLocalLevelBadge(msg.level)}
+                            style={styles.lvBadgeImg}
+                            resizeMode="contain"
+                          />
+                          {senderVipLogo && (
+                            <Image
+                              source={{ uri: senderVipLogo }}
+                              style={styles.chatVipBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                          {senderDecorationBadge && (
+                            <Image
+                              source={{ uri: senderDecorationBadge }}
+                              style={styles.chatVerifiedBadge}
+                              resizeMode="contain"
+                            />
+                          )}
                           {msg.userId != null &&
                             (userFrameData[String(msg.userId)]
                               ?.hasNewUserFrame ??
@@ -6378,7 +6589,7 @@ export default function VoiceParty() {
               >
                 <ExpoImage
                   source={TREASURE_BOX_GIF}
-                  style={styles.treasureBoxGif}
+                  style={styles.treasureBoxImage}
                   contentFit="contain"
                 />
               </TouchableOpacity>
@@ -6386,13 +6597,23 @@ export default function VoiceParty() {
                 style={styles.rightIconBtn}
                 onPress={() => setShowGiftPanel(true)}
               >
-                <Text style={styles.rightIconEmoji}>🎁</Text>
+                <View style={styles.giftPanelCropWrap}>
+                  <Image
+                    source={{ uri: GIFT_PANEL_ICON }}
+                    style={styles.giftPanelCropImage}
+                  />
+                </View>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.rightIconBtn}
+                style={styles.chatIconBtn}
                 onPress={handleOpenChatTab}
               >
-                <MessageSquare size={22} color="white" />
+                <View style={styles.chatCropWrap}>
+                  <Image
+                    source={{ uri: CHAT_ICON }}
+                    style={styles.chatCropImage}
+                  />
+                </View>
                 {chatUnreadCount > 0 && (
                   <View style={styles.chatBadge}>
                     <Text style={styles.chatBadgeText}>
@@ -6410,9 +6631,14 @@ export default function VoiceParty() {
                   <ActivityIndicator size="small" color="white" />
                 ) : (
                   <>
-                    <Text style={styles.takeMicEmoji}>🎤</Text>
+                    <View style={styles.micCropWrap}>
+                      <Image
+                        source={{ uri: MIC_ICON }}
+                        style={styles.micCropImage}
+                      />
+                    </View>
                     <Text style={styles.takeMicText}>
-                      {onMic ? "Leave Mic" : "Claim seat"}
+                      {onMic ? "Leave Mic" : "Take seat"}
                     </Text>
                   </>
                 )}
@@ -6605,11 +6831,15 @@ export default function VoiceParty() {
               />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.bottomIconBtn, styles.giftShortcutHighlight]}
+              style={styles.giftShortcutHighlight}
               onPress={() => setShowBackpack(true)}
             >
-              <Text style={styles.giftShortcutEmoji}>💰</Text>
-              <Text style={styles.giftShortcutLabel}>Recharge{"\n"}Bonus</Text>
+              <View style={styles.rechargeBonusCropWrap}>
+                <Image
+                  source={{ uri: RECHARGE_BONUS_ICON }}
+                  style={styles.rechargeBonusCropImage}
+                />
+              </View>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.bottomIconBtn}
@@ -6998,7 +7228,8 @@ const styles = StyleSheet.create({
   chatArea: {
     flex: 1,
     flexDirection: "row",
-    paddingHorizontal: 12,
+    paddingLeft: 12,
+    paddingRight: 0,
     gap: 8,
     minHeight: 0,
   },
@@ -7055,13 +7286,11 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   chatUser: { color: "#b44dff", fontSize: 12, fontWeight: "700" },
-  lvBadge: {
-    backgroundColor: "#f5a623",
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  lvText: { color: "white", fontSize: 10, fontWeight: "700" },
+  // Same level-badge image (and aspect ratio) shown on the Profile tab —
+  // 142/149 measured from the actual asset files, see levelBadge.js.
+  lvBadgeImg: { height: 18, width: 18 * (142 / 149) },
+  chatVipBadge: { width: 18, height: 18 },
+  chatVerifiedBadge: { width: 18 * (438 / 179), height: 18 },
   newStartBadge: { width: 52, height: 24, marginLeft: 2 },
   chatCoin: { fontSize: 11, color: "#ffd700" },
   chatDiamond: { fontSize: 11, color: "#4dc8ff" },
@@ -7070,8 +7299,9 @@ const styles = StyleSheet.create({
   chatRight: {
     // width: 60,
     alignItems: "center",
-    gap: 8,
+    gap: 10,
     justifyContent: "flex-end",
+    marginRight: -6,
   },
   luckyStarBox: {
     alignItems: "center",
@@ -7096,25 +7326,95 @@ const styles = StyleSheet.create({
   },
   luckyProgressText: { color: "white", fontSize: 9, fontWeight: "700" },
   rightIconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    width: 33,
+    height: 33,
+    borderRadius: 16.5,
+    backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
   },
   treasureBoxBtn: {
-    width: 74,
-    height: 74,
+    width: 70,
+    height: 70,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: -6,
   },
-  treasureBoxGif: {
-    width: 72,
-    height: 72,
+  treasureBoxImage: {
+    width: 68,
+    height: 68,
   },
-  rightIconEmoji: { fontSize: 22 },
+  // Crop wrappers below: each S3 icon is a 1280x720 canvas with its glyph
+  // confined to a small centered region (huge transparent margin baked in), so
+  // rendering it straight scales the whole padded canvas and looks tiny. Each
+  // wrapper is sized to the glyph's own scaled bounding box (overflow: hidden),
+  // and its Image child is drawn at the full scaled 1280x720 size then shifted
+  // left/top by -bboxLeft*scale / -bboxTop*scale so only the glyph lands inside.
+  giftPanelCropWrap: {
+    // gift+box2.png bbox (337,72)-(841,648) in a 1280x720 source, scaled so the
+    // glyph's own height fills 29px (matching the other right-panel icons).
+    width: 25.38,
+    height: 29,
+    overflow: "hidden",
+    position: "relative",
+  },
+  giftPanelCropImage: {
+    position: "absolute",
+    width: 64.44,
+    height: 36.25,
+    left: -16.97,
+    top: -3.62,
+  },
+  rechargeBonusCropWrap: {
+    // gift+box1.png bbox (371,73)-(909,646), glyph height scaled to 32px.
+    width: 30.05,
+    height: 32,
+    overflow: "hidden",
+    position: "relative",
+    marginTop: -1,
+  },
+  rechargeBonusCropImage: {
+    position: "absolute",
+    width: 71.48,
+    height: 40.21,
+    left: -20.72,
+    top: -4.08,
+  },
+  micCropWrap: {
+    // mic.png bbox (502,83)-(773,606), glyph height scaled to 34px.
+    width: 17.62,
+    height: 34,
+    overflow: "hidden",
+    position: "relative",
+  },
+  micCropImage: {
+    position: "absolute",
+    width: 83.21,
+    height: 46.81,
+    left: -32.63,
+    top: -5.4,
+  },
+  chatIconBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatCropWrap: {
+    // chat.png bbox (447,166)-(748,477), glyph height scaled to 26px.
+    width: 25.16,
+    height: 26,
+    overflow: "hidden",
+    position: "relative",
+  },
+  chatCropImage: {
+    position: "absolute",
+    width: 107.01,
+    height: 60.19,
+    left: -37.37,
+    top: -13.88,
+  },
   rightBannerBtn: {
     width: 44,
     height: 60,
@@ -7149,13 +7449,12 @@ const styles = StyleSheet.create({
   giftBadgeText: { color: "white", fontSize: 10, fontWeight: "700" },
   takeMicBtn: {
     alignItems: "center",
-    backgroundColor: "#16131eb3",
+    backgroundColor: "transparent",
     borderRadius: 22,
-    paddingVertical: 8,
+    paddingVertical: 0,
     paddingHorizontal: 6,
-    width: 54,
+    width: 38,
   },
-  takeMicEmoji: { fontSize: 20 },
   takeMicText: {
     color: "white",
     fontSize: 9,
@@ -7209,19 +7508,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   giftShortcutHighlight: {
-    backgroundColor: "rgba(255,255,255,0.1)",
-    width: 52,
-    height: 40,
-    borderRadius: 20,
-    paddingHorizontal: 2,
-  },
-  giftShortcutEmoji: { fontSize: 14 },
-  giftShortcutLabel: {
-    color: "#ffd700",
-    fontSize: 7,
-    fontWeight: "700",
-    textAlign: "center",
-    lineHeight: 8,
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: -6,
   },
   inputRow: {
     flexDirection: "row",
@@ -9325,17 +9616,9 @@ const styles = StyleSheet.create({
     gap: 4,
     marginBottom: 0,
   },
-  activeUserLevelBadge: {
-    backgroundColor: "#ec4899",
-    paddingHorizontal: 3,
-    paddingVertical: 0.5,
-    borderRadius: 4,
-  },
-  activeUserLevelText: {
-    color: "white",
-    fontSize: 7.5,
-    fontWeight: "800",
-  },
+  activeUserLevelImg: { height: 14, width: 14 * (142 / 149) },
+  activeUserVipBadge: { width: 14, height: 14 },
+  activeUserVerifiedBadge: { width: 14 * (438 / 179), height: 14 },
   activeUserActionsRow: {
     flexDirection: "row",
     alignItems: "center",

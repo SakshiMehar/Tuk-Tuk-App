@@ -23,7 +23,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getRoomUserCount } from "../src/api/partyApi";
 import { APP_BG, APP_TEXT, APP_TEXT_DIM, APP_TEXT_MUTED } from "../src/constants/theme";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
+} from "../src/constants/vip";
 import { COUNTRY_OPTIONS } from "../src/data/countryOptions";
 import exploreData from "../src/data/partyExploreData.json";
 import { getRecommendedUsers } from "../src/services/homeService";
@@ -39,6 +43,7 @@ import {
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { getUser } from "../src/store/authStore";
 import { openUserChat } from "../src/utils/chatNavigation";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import AppBackground from "./AppBackground";
 import ComingSoonModal from "./ComingSoonModal";
 import CreateRoomModal from "./CreateRoomModal";
@@ -46,6 +51,15 @@ import LevelGateModal from "./LevelGateModal";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
 const MIN_CREATE_ROOM_LEVEL = 5;
+
+// Same per-tier VIP "logo" crest used as the VIP badge elsewhere (ChatBox,
+// UserProfileView, find-friends) — built the same way here for the
+// "Recommend user in the room" row.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
+);
+const BADGE_ASPECT = { level: 142 / 149, verified: 438 / 179 };
+const VERIFIED_BADGE = require("../assets/Batches/verified-batch.png");
 
 const { width: W } = Dimensions.get("window");
 
@@ -188,6 +202,12 @@ function useUserCountryFlag() {
   return flag;
 }
 
+// Identity badges (level/VIP/decoration) are intentionally NOT added to these
+// room cards: normalizeRoom() (src/services/partyService.js) only exposes
+// `hostId`, not the host's name/avatar/level/vipProfileFrameUrl, and this is
+// a long, frequently re-rendered list — adding per-card host profile/
+// decoration requests here would be an N+1 network call. Revisit once the
+// room list API embeds host identity fields directly.
 function ExploreRoomItem({ room, onPress }) {
   const userCount = useRoomUserCount(room.id);
   const countryFlag = useUserCountryFlag();
@@ -207,9 +227,6 @@ function ExploreRoomItem({ room, onPress }) {
           <View style={styles.roomTypeChip}>
             <Text style={styles.roomTypeText}>{room.roomTypeLabel}</Text>
           </View>
-        )}
-        {!!room.body && (
-          <Text style={styles.roomBody} numberOfLines={2}>{room.body}</Text>
         )}
       </View>
       <View style={styles.roomMeta}>
@@ -242,7 +259,6 @@ function RelatedRoomItem({ room, onPress, showFollow }) {
       )}
       <View style={styles.roomInfo}>
         <Text style={styles.roomName} numberOfLines={1}>{room.name ?? room.title}</Text>
-        {!!room.body && <Text style={styles.roomBody} numberOfLines={1}>{room.body}</Text>}
         {room.badges?.length > 0 && (
           <View style={styles.badgeRow}>
             {room.badges.map((b, i) => (
@@ -743,7 +759,12 @@ export default function PartyExplore() {
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.recommendContent}
                 >
-                  {recommendedUsers.map((user) => (
+                  {recommendedUsers.map((user) => {
+                    const levelBadge =
+                      user?.level != null ? resolveLocalLevelBadge(user.level) : null;
+                    const vipTier = resolveVipTierFromAssetUrl(user?.vipProfileFrameUrl);
+                    const vipLogo = vipTier != null ? VIP_LOGO_BY_TIER[vipTier] : null;
+                    return (
                     <TouchableOpacity
                       key={user.id}
                       style={styles.recommendItem}
@@ -783,8 +804,34 @@ export default function PartyExplore() {
                         )}
                       </LinearGradient>
                       <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
+                      {(levelBadge || vipLogo || user?.verified) && (
+                        <View style={styles.recommendBadgeRow}>
+                          {levelBadge && (
+                            <Image
+                              source={levelBadge}
+                              style={styles.recommendLevelBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                          {vipLogo && (
+                            <Image
+                              source={{ uri: vipLogo }}
+                              style={styles.recommendVipBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                          {user?.verified && (
+                            <Image
+                              source={VERIFIED_BADGE}
+                              style={styles.recommendVerifiedBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                        </View>
+                      )}
                     </TouchableOpacity>
-                  ))}
+                    );
+                  })}
                 </ScrollView>
               </View>
             </>
@@ -1642,6 +1689,25 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.75)",
     textAlign: "center",
     maxWidth: 72,
+  },
+  recommendBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    marginTop: 2,
+  },
+  recommendLevelBadge: {
+    height: 12,
+    width: 12 * BADGE_ASPECT.level,
+  },
+  recommendVipBadge: {
+    width: 12,
+    height: 12,
+  },
+  recommendVerifiedBadge: {
+    height: 12,
+    width: 12 * BADGE_ASPECT.verified,
   },
 
   // ── Ranking / Family modals ──

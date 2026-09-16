@@ -16,6 +16,14 @@ const firstText = (...values) =>
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
 
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
 const mapObjectToUserList = (map) =>
   Object.entries(map).map(([key, val]) => {
     if (val && typeof val === "object") {
@@ -89,6 +97,7 @@ export const normalizeRelationshipUser = (user) => {
     verified: Boolean(user?.verified ?? user?.vip),
     online: Boolean(user?.isOnline ?? user?.online),
     vipProfileFrameUrl: extractVipProfileFrameUrl(user),
+    level: firstNumber(user?.level, user?.profile?.level),
   };
 };
 
