@@ -25,6 +25,7 @@ const resolveMediaUrl = (url) => {
 
 const normalizeEntry = (user) => {
   const userId = String(user?.userId ?? user?.id ?? "");
+  const level = Number(user?.level);
   return {
     userId,
     name: user?.name ?? user?.title ?? user?.displayName ?? "User",
@@ -36,6 +37,8 @@ const normalizeEntry = (user) => {
       null,
     occupation: user?.occupation ?? null,
     vipProfileFrameUrl: extractVipProfileFrameUrl(user),
+    verified: Boolean(user?.verified ?? user?.isVerified),
+    level: Number.isFinite(level) ? level : null,
     savedAt: Date.now(),
   };
 };

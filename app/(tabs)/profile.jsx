@@ -131,7 +131,7 @@ const menuPages = [
     { icon: "id-badge",     label: "TukTuk Pass",   badge: true  },
   ],
   [
-    { icon: "level-up-alt", label: "Level",        badge: true,  comingSoon: true },
+    { icon: "level-up-alt", label: "Level",        badge: true  },
     { icon: "instagram",    label: "Instagram",    badge: false },
     { icon: "share-alt",    label: "Share",        badge: false },
     { icon: "headset",      label: "Help",         badge: true  },
@@ -2204,7 +2204,6 @@ export default function Profile() {
                 {decorations.badgeUrl && (
                   <ProfileBadge source={{ uri: decorations.badgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
                 )}
-                <ProfileBadge source={VERIFIED_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
               </View>
 
             </View>

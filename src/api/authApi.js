@@ -68,6 +68,7 @@ export const firebasePhoneAuth = async (idToken, phoneNumber, name) => {
 
 export const googleLogin = async (idToken, name) => {
   const response = await API.post("/api/auth/google-login", { idToken, name });
+  console.log("[authApi] POST /api/auth/google-login response:", response.data);
   logAuthResponse("POST /api/auth/google-login", response.data);
   return response.data;
 };

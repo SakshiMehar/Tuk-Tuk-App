@@ -19,6 +19,15 @@ import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
 import { followUser } from "../src/services/relationshipService";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
+import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
+
+// Same per-tier VIP "logo" crest used as the small VIP badge on
+// UserProfileView / RoomUserProfilePopup — distinct from the profile-frame
+// ring already rendered around the card photo via extractVipProfileFrameUrl.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
+);
 
 const { width: W, height: H } = Dimensions.get("window");
 
@@ -180,6 +189,14 @@ export default function FindFriends() {
   const [cardLoading, setCardLoading] = useState(false);
   const [actionBusy,  setActionBusy]  = useState(false);
   const [noMore,      setNoMore]      = useState(false);
+
+  // Decoration badge still skipped: fetching it per-card would risk an N+1
+  // pattern. Level/verified read straight off whatever getNextFriend already
+  // returns (no extra request) — render conditionally so nothing shows if
+  // the backend doesn't include those fields on this payload.
+  const cardVipTier = resolveVipTierFromAssetUrl(extractVipProfileFrameUrl(card));
+  const cardVipLogo = cardVipTier != null ? VIP_LOGO_BY_TIER[cardVipTier] : null;
+  const cardVerified = Boolean(card?.verified ?? card?.isVerified);
 
   const loadNextFriend = useCallback(async () => {
     setCardLoading(true);
@@ -511,7 +528,24 @@ export default function FindFriends() {
                 </View>
               )}
               <View style={styles.matchInfo}>
-                <Text style={styles.matchName}>{card.name ?? "User"}</Text>
+                <View style={styles.matchNameRow}>
+                  <Text style={styles.matchName}>{card.name ?? "User"}</Text>
+                  {cardVerified && <Text style={{ fontSize: 13 }}>✅</Text>}
+                  {card.level != null && (
+                    <Image
+                      source={resolveLocalLevelBadge(card.level)}
+                      style={styles.matchLevelBadge}
+                      resizeMode="contain"
+                    />
+                  )}
+                  {cardVipLogo && (
+                    <Image
+                      source={{ uri: cardVipLogo }}
+                      style={styles.matchVipLogo}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
                 {card.occupation ? <Text style={styles.matchBio}>💼 {card.occupation}</Text> : null}
                 {Array.isArray(card.matchedFields) && card.matchedFields.length > 0 && (
                   <View style={styles.matchTags}>
@@ -774,7 +808,10 @@ const styles = StyleSheet.create({
   matchInfo: {
     position: "absolute", bottom: 20, left: 20, right: 20, gap: 6,
   },
+  matchNameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   matchName: { color: "white", fontSize: 24, fontWeight: "800" },
+  matchVipLogo: { width: 22, height: 22 },
+  matchLevelBadge: { height: 20, width: 20 * (142 / 149) },
   matchBio: { color: "rgba(255,255,255,0.75)", fontSize: 13 },
   matchTags: { flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 },
   matchTag: {

@@ -10,11 +10,13 @@ import {
 import { X, UserPlus, UserCheck } from "lucide-react-native";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { resolveImageSource } from "../src/utils/videoSource";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
 export default function RoomUserProfilePopup({
   visible,
   user,
+  level = null,
   avatarSource = null,
   frameSource = null,
   frameLayout = null,
@@ -87,16 +89,30 @@ export default function RoomUserProfilePopup({
                 />
               </View>
 
-              <View style={styles.nameRow}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {displayName}
-                </Text>
+              {/* Same level/VIP/verified badge row shown below the name on the
+                  Profile tab and the full profile view — level is a local
+                  bundled asset per number, VIP/decoration badges are the
+                  backend-provided URLs already resolved by the caller. */}
+              <View style={styles.badgeRow}>
+                {level != null && (
+                  <Image
+                    source={resolveLocalLevelBadge(level)}
+                    style={styles.levelBadge}
+                    resizeMode="contain"
+                  />
+                )}
                 {logoSource && (
                   <Image source={{ uri: logoSource }} style={styles.vipLogo} resizeMode="contain" />
                 )}
                 {badgeSource && (
                   <Image source={{ uri: badgeSource }} style={styles.vipLogo} resizeMode="contain" />
                 )}
+              </View>
+
+              <View style={styles.nameRow}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {displayName}
+                </Text>
               </View>
               <Text style={styles.username} numberOfLines={1}>
                 @{username}
@@ -196,6 +212,16 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 32,
     fontWeight: "800",
+  },
+  badgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  levelBadge: {
+    height: 20,
+    width: 20 * (142 / 149),
   },
   nameRow: {
     flexDirection: "row",

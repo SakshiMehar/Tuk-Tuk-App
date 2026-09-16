@@ -7,6 +7,14 @@ const firstText = (...values) =>
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
 
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
 const listFrom = (value, key) => {
   const target = key && value?.[key] !== undefined ? value[key] : value;
   if (Array.isArray(target)) return target;
@@ -106,6 +114,7 @@ const normalizeConversation = (conversation) => {
     live: Boolean(conversation?.live ?? conversation?.isLive ?? peer?.isLive),
     liked: Boolean(conversation?.liked),
     vipProfileFrameUrl: extractVipProfileFrameUrl(conversation) ?? extractVipProfileFrameUrl(peer),
+    level: firstNumber(conversation?.level, peer?.level),
   };
 };
 

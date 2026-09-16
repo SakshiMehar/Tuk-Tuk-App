@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  View, Text, TouchableOpacity, StyleSheet,
+  View, Text, Image, TouchableOpacity, StyleSheet,
   StatusBar, Dimensions, FlatList, Animated, Modal,
   ScrollView, TextInput, ActivityIndicator,
 } from "react-native";
@@ -16,17 +16,29 @@ import Toast from "./Toast";
 import { loadNearbyWithLocation, loadUserDetail } from "../src/services/nearbyService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import {
   followUser,
   unfollowUser,
   loadRelationshipStatus,
 } from "../src/services/relationshipService";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
+} from "../src/constants/vip";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Two-column grid card width — accounts for 14px side padding and 10px gap
 const CARD_W = (W - 14 * 2 - 10) / 2;
+
+// Same per-tier VIP "logo" crest used as the small VIP badge on
+// UserProfileView / RoomUserProfilePopup — distinct from the profile-frame
+// ring rendered around the avatar via vipProfileFrameUrl.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
+);
 
 // ── Locations ────────────────────────────────────────────────
 const LOCATIONS = [
@@ -157,6 +169,8 @@ function ProfileModal({
 }) {
   const insets = useSafeAreaInsets();
   if (!user && !loading) return null;
+  const vipTier = user ? resolveVipTierFromAssetUrl(user.vipProfileFrameUrl) : null;
+  const vipLogo = vipTier != null ? VIP_LOGO_BY_TIER[vipTier] : null;
   return (
     <Modal visible={Boolean(user || loading)} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.profileModalWrap}>
@@ -212,6 +226,20 @@ function ProfileModal({
                   <Text style={styles.profileModalName}>{user.displayName ?? user.name}</Text>
                   {user.verified && <Text style={{ fontSize: 14 }}>✅</Text>}
                   {user.online && <View style={styles.onlineDot} />}
+                  {user.level != null && (
+                    <Image
+                      source={resolveLocalLevelBadge(user.level)}
+                      style={styles.profileModalLevelBadge}
+                      resizeMode="contain"
+                    />
+                  )}
+                  {vipLogo && (
+                    <Image
+                      source={{ uri: vipLogo }}
+                      style={styles.profileModalVipLogo}
+                      resizeMode="contain"
+                    />
+                  )}
                 </View>
                 <View style={styles.distanceRow}>
                   <MapPin size={13} color="#a78bfa" />
@@ -804,6 +832,8 @@ export default function Nearby() {
         onRefresh={fetchNearbyUsers}
         renderItem={({ item }) => {
           const isLiked = liked.has(item.id);
+          const itemVipTier = resolveVipTierFromAssetUrl(item.vipProfileFrameUrl);
+          const itemVipLogo = itemVipTier != null ? VIP_LOGO_BY_TIER[itemVipTier] : null;
           return (
             <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={() => handleOpenProfile(item)}>
               <LinearGradient colors={item.bgColors} style={styles.cardBg}>
@@ -842,7 +872,23 @@ export default function Nearby() {
                 </View>
               )}
               <View style={styles.cardInfo}>
-                <Text style={styles.cardName} numberOfLines={1}>{item.displayName ?? item.name}</Text>
+                <View style={styles.cardNameRow}>
+                  <Text style={styles.cardName} numberOfLines={1}>{item.displayName ?? item.name}</Text>
+                  {item.level != null && (
+                    <Image
+                      source={resolveLocalLevelBadge(item.level)}
+                      style={styles.cardLevelBadge}
+                      resizeMode="contain"
+                    />
+                  )}
+                  {itemVipLogo && (
+                    <Image
+                      source={{ uri: itemVipLogo }}
+                      style={styles.cardVipLogo}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
                 <Text style={styles.cardDist}>
                   📍 {typeof item.distanceKm === "number"
                     ? `${item.distanceKm === 0 ? "0" : item.distanceKm} km`
@@ -918,7 +964,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingTop: 6, paddingBottom: 2,
     backgroundColor: "rgba(13,6,24,0.95)",
   },
+  cardNameRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   cardName: { color: "white", fontSize: 12, fontWeight: "800" },
+  cardVipLogo: { width: 14, height: 14 },
+  cardLevelBadge: { height: 14, width: 14 * (142 / 149) },
   cardDist: { color: "rgba(167,139,250,0.9)", fontSize: 10, fontWeight: "600", marginTop: 1 },
   cardBio: { color: "rgba(255,255,255,0.45)", fontSize: 9, fontWeight: "500", marginTop: 2 },
   cardActions: {
@@ -974,6 +1023,8 @@ const styles = StyleSheet.create({
   profileModalInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 18, gap: 8 },
   profileModalNameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   profileModalName: { color: "white", fontSize: 21, fontWeight: "900" },
+  profileModalVipLogo: { width: 18, height: 18 },
+  profileModalLevelBadge: { height: 18, width: 18 * (142 / 149) },
   onlineDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#00e676", borderWidth: 2, borderColor: "#0d0618" },
   distanceRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   distanceText: { color: "#a78bfa", fontSize: 13, fontWeight: "600" },

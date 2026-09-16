@@ -24,12 +24,24 @@ import {
 import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
+import { loadPublicProfile } from "../src/services/publicProfileService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
 
 // Use current window width at module time (portrait-locked app, safe to do once)
 const { width: W } = Dimensions.get("window");
 // Clamp card size so it looks good on both small (320px) and large (480px) screens
 const CARD_W = Math.min(W * 0.72, 320);
 const CARD_H = CARD_W * 1.3;
+
+// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
+// appears (UserProfileView, RoomUserProfilePopup).
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
+);
+const BADGE_HEIGHT = 18;
+const BADGE_ASPECT = { level: 142 / 149, verified: 438 / 179 };
 
 const PHASE = { IDLE: "idle", SEARCHING: "searching", MATCHED: "matched" };
 
@@ -89,6 +101,12 @@ export default function BlindPick() {
   const [searchSecs, setSearchSecs] = useState(0);
   const [actionBusy, setActionBusy] = useState(false);
   const [savedThisMatch, setSavedThisMatch] = useState(false);
+  // Level + decoration badge for the currently revealed candidate. Only one
+  // candidate is ever on screen at a time here (unlike a scrollable list), so
+  // it's safe to fetch these per match rather than needing them embedded in
+  // the match payload up front.
+  const [matchLevel, setMatchLevel] = useState(null);
+  const [matchBadgeUrl, setMatchBadgeUrl] = useState(null);
 
   // Idle rings
   const r1 = useRef(new Animated.Value(0)).current;
@@ -301,6 +319,38 @@ export default function BlindPick() {
     setSavedThisMatch(false);
   }, [profile?.id]);
 
+  // Fetch this candidate's level + decoration badge once per reveal. VIP logo
+  // doesn't need a separate request — it's derived below from the
+  // vipProfileFrameUrl already present on the match payload.
+  useEffect(() => {
+    const candidateId = profile?.id;
+    if (candidateId == null) {
+      setMatchLevel(null);
+      setMatchBadgeUrl(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [{ profile: publicProfile }, decorations] = await Promise.all([
+          loadPublicProfile(String(candidateId)),
+          fetchUserDecorations(String(candidateId)),
+        ]);
+        if (cancelled) return;
+        setMatchLevel(publicProfile?.level ?? null);
+        setMatchBadgeUrl(decorations?.badgeUrl ?? null);
+      } catch {
+        if (!cancelled) {
+          setMatchLevel(null);
+          setMatchBadgeUrl(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.id]);
+
   const handleSaveFavorite = useCallback(async () => {
     if (!profile?.id || actionBusy) return;
     try {
@@ -354,6 +404,9 @@ export default function BlindPick() {
   const backRot = flip.interpolate({ inputRange: [0, 180], outputRange: ["180deg", "360deg"] });
   const frontOp = flip.interpolate({ inputRange: [89, 91], outputRange: [1, 0] });
   const backOp = flip.interpolate({ inputRange: [89, 91], outputRange: [0, 1] });
+
+  const matchVipTier = resolveVipTierFromAssetUrl(profile?.vipProfileFrameUrl);
+  const matchVipLogo = matchVipTier != null ? VIP_LOGO_BY_TIER[matchVipTier] : null;
 
   return (
     <View style={s.wrap}>
@@ -600,6 +653,23 @@ export default function BlindPick() {
                     </View>
                   )}
                 </View>
+                {(matchLevel != null || matchVipLogo || matchBadgeUrl) && (
+                  <View style={s.badgeRow}>
+                    {matchLevel != null && (
+                      <Image
+                        source={resolveLocalLevelBadge(matchLevel)}
+                        style={s.levelBadge}
+                        resizeMode="contain"
+                      />
+                    )}
+                    {matchVipLogo && (
+                      <Image source={{ uri: matchVipLogo }} style={s.vipLogoBadge} resizeMode="contain" />
+                    )}
+                    {matchBadgeUrl && (
+                      <Image source={{ uri: matchBadgeUrl }} style={s.decorationBadge} resizeMode="contain" />
+                    )}
+                  </View>
+                )}
                 <View style={s.distRow}>
                   <View style={s.distDot} />
                   <Text style={s.distTxt}>{profile.distance} away</Text>
@@ -848,6 +918,10 @@ const s = StyleSheet.create({
 
   nameRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
   profileName: { color: "white", fontSize: 22, fontWeight: "800", flex: 1 },
+  badgeRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  levelBadge: { height: BADGE_HEIGHT, width: BADGE_HEIGHT * BADGE_ASPECT.level },
+  vipLogoBadge: { width: BADGE_HEIGHT, height: BADGE_HEIGHT },
+  decorationBadge: { height: BADGE_HEIGHT, width: BADGE_HEIGHT * BADGE_ASPECT.verified },
   ratingPill: {
     flexDirection: "row", alignItems: "center", gap: 3,
     backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 12,
