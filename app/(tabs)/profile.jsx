@@ -18,6 +18,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AppBackground from "../../Components/AppBackground";
@@ -132,11 +133,14 @@ const menuPages = [
   [
     { icon: "level-up-alt", label: "Level", badge: true, comingSoon: true },
     { icon: "instagram", label: "Instagram", badge: false },
+    { icon: "facebook", label: "Facebook", badge: false },
     { icon: "share-alt", label: "Share", badge: false },
     { icon: "headset", label: "Help", badge: true },
     { icon: "shield", label: "Room Badge", badge: true },
     { icon: "certificate", label: "Badge", badge: true },
     { icon: "house-user", label: "Room Title", badge: false },
+  ],
+  [
     { icon: "comment-dots", label: "Feedback", badge: false },
   ],
 ];
@@ -1809,7 +1813,17 @@ export default function Profile() {
           </View>
           <Text style={styles.mmEmptyTitle}>Connect {label}</Text>
           <Text style={styles.mmEmptySub}>Link your {label} account to share your Tuk-Tuk profile and grow your audience.</Text>
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+          <TouchableOpacity 
+            style={styles.mmPrimaryBtn} 
+            activeOpacity={0.8}
+            onPress={() => {
+              if (isIG) {
+                Linking.openURL("https://www.instagram.com/tuktukvoicechat?stkn=MXNtczAzNmtqOHZ0Mw==").catch(err => console.error("An error occurred", err));
+              } else {
+                Linking.openURL("https://www.facebook.com/share/1C3PpngDWc/").catch(err => console.error("An error occurred", err));
+              }
+            }}
+          >
             <LinearGradient colors={isIG ? ["#f09433", "#e1306c"] : ["#1877F2", "#3b5998"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
               <Ionicons name={isIG ? "logo-instagram" : "logo-facebook"} size={16} color="white" />
               <Text style={[styles.mmPrimaryBtnText, { marginLeft: 8 }]}>Connect {label}</Text>
@@ -2548,8 +2562,12 @@ export default function Profile() {
                   <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
                 </View>
                 <Text style={[styles.mmHeaderTitle, activeMenu?.label === "Task" && { color: "#1e293b" }]}>{activeMenu?.label}</Text>
-                <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
-                  <Ionicons name="close" size={20} color={activeMenu?.label === "Task" ? "#1e293b" : "#1e293b"} />
+                <TouchableOpacity 
+                  style={[styles.mmCloseBtn, activeMenu?.label === "Task" && { backgroundColor: "rgba(0,0,0,0.05)" }]} 
+                  onPress={() => setActiveMenu(null)} 
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="close" size={20} color={activeMenu?.label === "Task" ? "#1e293b" : "#ffffff"} />
                 </TouchableOpacity>
               </View>
               <View style={[styles.mmDivider, activeMenu?.label === "Task" && { backgroundColor: "#f1f5f9" }]} />
@@ -3727,7 +3745,6 @@ const styles = StyleSheet.create({
   },
   mmTaskTextDone: {
     color: "rgba(255,255,255,0.35)",
-    textDecorationLine: "line-through",
   },
   mmTaskReward: {
     color: "#a78bfa",

@@ -11,7 +11,7 @@ import WalletUserCard from "./WalletUserCard";
 import WalletDetailsModal from "./WalletDetailsModal";
 import DiamondRechargeModal from "./DiamondRechargeModal";
 
-const REWARD_GEMS_IMAGE = require("../assets/Treasure/reward-gems.png");
+const REWARD_GEMS_IMAGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Treasure/reward-gems.png" };
 
 const formatCompact = (value) => {
   const n = Number(value) || 0;
