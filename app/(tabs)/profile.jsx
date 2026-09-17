@@ -2578,35 +2578,6 @@ export default function Profile() {
                   ))}
                 </View>
               </View>
-            ) : (
-              (giftTab === "Receive" ? giftsReceived : giftsSent).map((item, idx) => {
-                const giftImageUrl = item?.gift?.imageUrl ?? item?.imageUrl;
-                const giftName = item?.gift?.name ?? item?.giftName ?? item?.name ?? "Gift";
-                const quantity = Number(item?.quantity) || 1;
-                return (
-                  <View key={String(item?.transactionId ?? item?.id ?? idx)} style={styles.giftItemRow}>
-                    {giftImageUrl ? (
-                      <Image source={resolveImageSource(giftImageUrl)} style={styles.giftItemImage} />
-                    ) : (
-                      <View style={[styles.giftItemImage, styles.giftItemImageFallback]}>
-                        <Text style={{ fontSize: 20 }}>{item?.gift?.emoji ?? "🎁"}</Text>
-                      </View>
-                    )}
-                    <Text style={styles.giftItemName}>
-                      {giftName}
-                      {quantity > 1 ? ` ×${quantity}` : ""}
-                    </Text>
-                    <Text style={styles.giftItemMeta}>
-                      {giftTab === "Receive"
-                        ? (item?.senderName ?? (item?.fromUserId ? `User ${item.fromUserId}` : "Someone"))
-                        : (item?.receiverName ?? (item?.toUserId ? `User ${item.toUserId}` : "Someone"))}
-                    </Text>
-                  </View>
-                );
-              })
-            )}
-          </View>
-        )}
 
               {/* Content area */}
               {giftsLoading ? (
@@ -2672,9 +2643,6 @@ export default function Profile() {
           ) : (
             <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
           )}
-          {/* Header — Premium and TukTuk Pass render their own custom headers */}
-          {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && (
-          <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
           {/* Header — Premium, TukTuk Pass, and Backpack render their own custom headers */}
           {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && activeMenu?.label !== "Backpack" && (
             <>
