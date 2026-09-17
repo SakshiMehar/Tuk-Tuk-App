@@ -26,6 +26,7 @@ export default function RoomUserProfilePopup({
   isFollowing = false,
   followLoading = false,
   isSelf = false,
+  countryFlag = null,
   onClose,
   onFollowToggle,
 }) {
@@ -113,6 +114,9 @@ export default function RoomUserProfilePopup({
                 <Text style={styles.name} numberOfLines={1}>
                   {displayName}
                 </Text>
+                {!!countryFlag && (
+                  <Text style={styles.countryFlag}>{countryFlag}</Text>
+                )}
               </View>
               <Text style={styles.username} numberOfLines={1}>
                 @{username}
@@ -236,6 +240,9 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     maxWidth: "100%",
     flexShrink: 1,
+  },
+  countryFlag: {
+    fontSize: 16,
   },
   vipLogo: {
     width: 22,

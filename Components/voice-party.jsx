@@ -109,6 +109,7 @@ import {
 } from "../src/services/giftCatalogService";
 import { loadUserDetail } from "../src/services/nearbyService";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
+import { useMyCountryFlag } from "../src/services/userCountryService";
 import {
   createLocalChatMessage,
   enterRandomPartySession,
@@ -534,7 +535,7 @@ const resolveEntryFrameLayout = (frameUrl, user) => {
   };
 };
 
-const UserEntryBanner = ({ user, onComplete }) => {
+const UserEntryBanner = ({ user, countryFlag = null, onComplete }) => {
   const { W: SW } = useResponsive();
   const translateX = useSharedValue(-SW - 30);
 
@@ -657,6 +658,7 @@ const UserEntryBanner = ({ user, onComplete }) => {
           >
             <Text style={styles.entryBannerName} numberOfLines={1}>
               {userName}
+              {!!countryFlag && ` ${countryFlag}`}
             </Text>
           </View>
         </>
@@ -676,6 +678,7 @@ const UserEntryBanner = ({ user, onComplete }) => {
           <View style={styles.entryBannerTextContainer}>
             <Text style={styles.entryBannerName} numberOfLines={1}>
               {userName}
+              {!!countryFlag && ` ${countryFlag}`}
             </Text>
             <Text style={styles.entryBannerJoined}>joined the room</Text>
           </View>
@@ -1630,6 +1633,7 @@ export default function VoiceParty() {
   const [profileFollowLoading, setProfileFollowLoading] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
   const [localSessionUser, setLocalSessionUser] = useState(null);
+  const myCountryFlag = useMyCountryFlag();
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
   const { treasureState, selectChest } = useTreasureBoxProgress(
@@ -5032,6 +5036,9 @@ export default function VoiceParty() {
         isFollowing={profilePopupFollowing}
         followLoading={profileFollowLoading}
         isSelf={isSameUser(profilePopupUser?.id, myUserId)}
+        countryFlag={
+          isSameUser(profilePopupUser?.id, myUserId) ? myCountryFlag : null
+        }
         onClose={closeProfilePopup}
         onFollowToggle={handleProfileFollowToggle}
       />
@@ -6040,13 +6047,18 @@ export default function VoiceParty() {
 
               {/* Dynamic Room Name & Room ID */}
               <View style={styles.ownerTextCol}>
-                <Text
-                  style={styles.ownerName}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
-                  {roomInfo?.name ?? "Voice Room"}
-                </Text>
+                <View style={styles.ownerNameRow}>
+                  <Text
+                    style={styles.ownerName}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {roomInfo?.name ?? "Voice Room"}
+                  </Text>
+                  {isHostSelf && !!myCountryFlag && (
+                    <Text style={styles.ownerCountryFlag}>{myCountryFlag}</Text>
+                  )}
+                </View>
                 <Text
                   style={styles.ownerId}
                   numberOfLines={1}
@@ -6297,6 +6309,7 @@ export default function VoiceParty() {
                 <UserEntryBanner
                   key={user._entryKey || `${user.id || user.userId || "entry"}-${idx}`}
                   user={user}
+                  countryFlag={myCountryFlag}
                   onComplete={() =>
                     handleEntryComplete(user._entryKey || user.id || user.userId)
                   }
@@ -7051,11 +7064,21 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     justifyContent: "center",
   },
+  ownerNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minWidth: 0,
+  },
   ownerName: {
     color: "#ffffff",
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.1,
+    flexShrink: 1,
+  },
+  ownerCountryFlag: {
+    fontSize: 12,
   },
   ownerId: {
     color: "#c4b5fd",

@@ -64,6 +64,7 @@ import {
   loadDailyTasks,
   tasksTotalReward,
 } from "../../src/services/rewardTaskService";
+import { useMyCountryFlag } from "../../src/services/userCountryService";
 import { syncUserLevelForSession } from "../../src/services/userLevelService";
 import { submitFeedback } from "../../src/services/userSettingsService";
 import { loadMyVipAssets } from "../../src/services/vipService";
@@ -1115,6 +1116,7 @@ export default function Profile() {
   const [editVisible, setEditVisible] = useState(false);
   const [editName, setEditName] = useState("");
   const [userGender, setUserGender] = useState("");
+  const countryFlag = useMyCountryFlag();
   const [profileSaving, setProfileSaving] = useState(false);
   const [userId, setUserId] = useState(null);
   const [newUserFrameSource, setNewUserFrameSource] = useState(null);
@@ -2264,6 +2266,9 @@ export default function Profile() {
                     <Text style={styles.genderSymbolFemale}>♀</Text>
                   </View>
                 )}
+                {!!countryFlag && (
+                  <Text style={styles.profileCountryFlag}>{countryFlag}</Text>
+                )}
               </View>
 
               {/* Row 3: Level badge + New Star badge + Verified badge — same height,
@@ -3108,6 +3113,10 @@ const styles = StyleSheet.create({
     color: "#ff4aaa",
     fontSize: 13,
     fontWeight: "900",
+  },
+  profileCountryFlag: {
+    fontSize: 15,
+    marginLeft: 6,
   },
   profileLevelWrap: {
     flexDirection: "row",

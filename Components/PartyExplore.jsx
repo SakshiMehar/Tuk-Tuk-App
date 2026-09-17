@@ -28,7 +28,6 @@ import {
   VIP_TIER_THRESHOLDS,
   resolveVipTierFromAssetUrl,
 } from "../src/constants/vip";
-import { COUNTRY_OPTIONS } from "../src/data/countryOptions";
 import exploreData from "../src/data/partyExploreData.json";
 import { getRecommendedUsers } from "../src/services/homeService";
 import {
@@ -40,8 +39,8 @@ import {
   loadRoomRecommendations,
   normalizeRoom
 } from "../src/services/partyService";
+import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
-import { getUser } from "../src/store/authStore";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import AppBackground from "./AppBackground";
@@ -187,21 +186,6 @@ function useRoomUserCount(roomId) {
   return count;
 }
 
-function useUserCountryFlag() {
-  const [flag, setFlag] = useState(null);
-  useEffect(() => {
-    getUser().then((user) => {
-      const countryName = user?.countryName ?? user?.country ?? null;
-      if (!countryName) return;
-      const match = COUNTRY_OPTIONS.find(
-        (c) => c.name.toLowerCase() === countryName.toLowerCase()
-      );
-      if (match?.flag) setFlag(match.flag);
-    }).catch(() => {});
-  }, []);
-  return flag;
-}
-
 // Identity badges (level/VIP/decoration) are intentionally NOT added to these
 // room cards: normalizeRoom() (src/services/partyService.js) only exposes
 // `hostId`, not the host's name/avatar/level/vipProfileFrameUrl, and this is
@@ -210,7 +194,7 @@ function useUserCountryFlag() {
 // room list API embeds host identity fields directly.
 function ExploreRoomItem({ room, onPress }) {
   const userCount = useRoomUserCount(room.id);
-  const countryFlag = useUserCountryFlag();
+  const countryFlag = useMyCountryFlag();
 
   return (
     <TouchableOpacity style={styles.exploreRoomCard} activeOpacity={0.8} onPress={onPress}>
