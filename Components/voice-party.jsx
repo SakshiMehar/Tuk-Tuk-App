@@ -92,6 +92,7 @@ import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
 import { useWalletBalance } from "../src/hooks/useWalletBalance";
 import * as agoraVoice from "../src/services/agoraVoiceService";
 import { loadConversations } from "../src/services/chatService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import {
   adjustInventoryQty,
   buyGiftToBackpack,
@@ -106,16 +107,14 @@ import {
   sendPartyRoomGift,
 } from "../src/services/giftCatalogService";
 import { loadUserDetail } from "../src/services/nearbyService";
-import { fetchUserDecorations } from "../src/services/decorationsService";
-import { loadPublicProfile } from "../src/services/publicProfileService";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
 import {
   createLocalChatMessage,
   enterRandomPartySession,
   enterRoomSession,
   exitRoomSession,
-  loadFollowingRooms,
   fetchRoomAnnouncement,
+  loadFollowingRooms,
   normalizeChatMessage,
   normalizeChatMessages,
   parseOnlineUsers,
@@ -125,6 +124,7 @@ import {
   upsertChatMessage,
 } from "../src/services/partyService";
 import * as partyVoice from "../src/services/partyVoiceService";
+import { loadPublicProfile } from "../src/services/publicProfileService";
 import {
   blockUser,
   followUser,
@@ -1486,8 +1486,49 @@ export default function VoiceParty() {
   const [showActiveUsersModal, setShowActiveUsersModal] = useState(false);
   const [showFollowModal, setShowFollowModal] = useState(false);
 
-  const displayActiveUsers =
-    Array.isArray(onlineUsers) ? onlineUsers : [];
+  const displayActiveUsers = useMemo(() => {
+    const list = Array.isArray(onlineUsers) ? [...onlineUsers] : [];
+    const seenIds = new Set(
+      list.map((u) => String(u?.id ?? u?.userId ?? "")).filter(Boolean),
+    );
+
+    // Include seated users if not already in onlineUsers list
+    (seats || []).forEach((seat) => {
+      const u = seat?.user;
+      const uId = u?.id != null ? String(u.id) : u?.userId != null ? String(u.userId) : null;
+      if (u && uId && !seenIds.has(uId)) {
+        seenIds.add(uId);
+        list.push({
+          ...u,
+          id: uId,
+          userId: uId,
+          name: u.name || u.username || "User",
+        });
+      }
+    });
+
+    // Include local session user / self if not in list
+    if (myUserId && !seenIds.has(String(myUserId)) && localSessionUser) {
+      seenIds.add(String(myUserId));
+      list.push({
+        ...localSessionUser,
+        id: String(myUserId),
+        userId: String(myUserId),
+        name: localSessionUser.name || localSessionUser.username || "You",
+      });
+    } else if (hostId && !seenIds.has(String(hostId)) && roomInfo) {
+      seenIds.add(String(hostId));
+      list.push({
+        id: String(hostId),
+        userId: String(hostId),
+        name: roomInfo.name || "Host",
+        avatar: roomInfo.profileImageUrl || null,
+        profileImageUrl: roomInfo.profileImageUrl || null,
+      });
+    }
+
+    return list;
+  }, [onlineUsers, seats, myUserId, localSessionUser, hostId, roomInfo]);
 
   const isUserSeated = useCallback(
     (userId) => {
@@ -1517,6 +1558,7 @@ export default function VoiceParty() {
   const seatSyncTokenRef = useRef(0);
   const buyingGiftRef = useRef(false);
   const roomIdRef = useRef(roomIdParam);
+  const isNavigatingToInboxRef = useRef(false);
   const fetchedUiAssetIdsRef = useRef(new Set());
   const { keyboardHeight, safeBottom, idleBottom } = useKeyboardInset();
   const [showPlayCenter, setShowPlayCenter] = useState(false);
@@ -1766,7 +1808,7 @@ export default function VoiceParty() {
             },
           }));
         })
-        .catch(() => {});
+        .catch(() => { });
     });
   }, [seats, onlineUsers, messages]);
 
@@ -2152,7 +2194,7 @@ export default function VoiceParty() {
           .then((announcement) => {
             if (!cancelled && announcement) setWelcomeMessage(announcement);
           })
-          .catch(() => {});
+          .catch(() => { });
         onMicRef.current = false;
         mySeatNumberRef.current = null;
         setOnMic(false);
@@ -2241,6 +2283,13 @@ export default function VoiceParty() {
         agoraVoice.toggleRemoteMute(false);
 
         const connectRoomAudio = async (attempt = 1) => {
+          if (partyVoice.getActiveRoomId() === String(session.roomId)) {
+            if (!cancelled) {
+              setVoiceListenStatus("ready");
+              agoraVoice.toggleRemoteMute(false);
+            }
+            return;
+          }
           try {
             await partyVoice.joinAsListener(String(session.roomId));
             if (!cancelled) {
@@ -2305,6 +2354,10 @@ export default function VoiceParty() {
     return () => {
       cancelled = true;
       const activeRoomId = roomIdRef.current;
+      if (isNavigatingToInboxRef.current) {
+        // User opened Inbox/Chat — keep room session & audio alive
+        return;
+      }
       if (activeRoomId && !exitedRef.current) {
         exitedRef.current = true;
         const cleanup = async () => {
@@ -2864,12 +2917,15 @@ export default function VoiceParty() {
       unsubGiftAnimation();
       unsubNotifications();
       unsubReconnect();
-      wsService.leaveRoom(activeRoomId);
+      if (!isNavigatingToInboxRef.current) {
+        wsService.leaveRoom(activeRoomId);
+      }
     };
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
   const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
+    isNavigatingToInboxRef.current = false;
     if (!roomId || exitedRef.current) {
       router.back();
       return;
@@ -2888,8 +2944,32 @@ export default function VoiceParty() {
     router.back();
   }, [roomId, router]);
 
+  const promptExitConfirmation = useCallback(() => {
+    Alert.alert(
+      "Leave Room?",
+      "Are you sure you want to leave the room?",
+      [
+        {
+          text: "No",
+          style: "cancel",
+          onPress: () => {
+            // Keep user in the room
+          },
+        },
+        {
+          text: "Yes",
+          style: "destructive",
+          onPress: () => {
+            handleExitRoom();
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  }, [handleExitRoom]);
+
   // Intercept Android hardware back button — close any open chat input /
-  // pickers first; only exit the room when none of those are open.
+  // pickers / modals in order; show confirmation popup before leaving room.
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (showTagPicker) {
@@ -2905,11 +2985,101 @@ export default function VoiceParty() {
         Keyboard.dismiss();
         return true;
       }
-      handleExitRoom();
+      if (showGiftReceiverPicker) {
+        setShowGiftReceiverPicker(false);
+        return true;
+      }
+      if (purchaseGift) {
+        setPurchaseGift(null);
+        return true;
+      }
+      if (showBackpack) {
+        setShowBackpack(false);
+        return true;
+      }
+      if (showGiftPanel) {
+        setShowGiftPanel(false);
+        return true;
+      }
+      if (showTreasureBox) {
+        setShowTreasureBox(false);
+        return true;
+      }
+      if (showPlayCenter) {
+        setShowPlayCenter(false);
+        return true;
+      }
+      if (showPowerMenu) {
+        setShowPowerMenu(false);
+        return true;
+      }
+      if (showFollowModal) {
+        setShowFollowModal(false);
+        return true;
+      }
+      if (showActiveUsersModal) {
+        setShowActiveUsersModal(false);
+        return true;
+      }
+      if (showMoreMenu) {
+        setShowMoreMenu(false);
+        return true;
+      }
+      if (showReportModal) {
+        setShowReportModal(false);
+        return true;
+      }
+      if (showVideoModal) {
+        setShowVideoModal(false);
+        setCurrentVideo(null);
+        return true;
+      }
+      if (profilePopupUser || profilePopupLoading) {
+        closeProfilePopup();
+        return true;
+      }
+      if (seatActionSheet) {
+        setSeatActionSheet(null);
+        return true;
+      }
+      if (micPermWarning) {
+        setMicPermWarning(null);
+        return true;
+      }
+      if (showWelcomeEdit) {
+        setShowWelcomeEdit(false);
+        return true;
+      }
+
+      // No modal is open — prompt exit confirmation
+      promptExitConfirmation();
       return true; // prevent default navigation
     });
     return () => sub.remove();
-  }, [handleExitRoom, showChatInput, showEmojiPicker, showTagPicker]);
+  }, [
+    promptExitConfirmation,
+    showChatInput,
+    showEmojiPicker,
+    showTagPicker,
+    showGiftReceiverPicker,
+    purchaseGift,
+    showBackpack,
+    showGiftPanel,
+    showTreasureBox,
+    showPlayCenter,
+    showPowerMenu,
+    showFollowModal,
+    showActiveUsersModal,
+    showMoreMenu,
+    showReportModal,
+    showVideoModal,
+    profilePopupUser,
+    profilePopupLoading,
+    seatActionSheet,
+    micPermWarning,
+    showWelcomeEdit,
+    closeProfilePopup,
+  ]);
 
   // Listen Rewards — tick every second while in the room.
   // Component unmounts on exit so counters reset automatically.
@@ -3332,7 +3502,11 @@ export default function VoiceParty() {
   ];
 
   const handleOpenChatTab = () => {
-    router.push("/(tabs)/chat");
+    isNavigatingToInboxRef.current = true;
+    router.push({
+      pathname: "/(tabs)/chat",
+      params: { fromRoom: String(roomId || roomIdParam || "") },
+    });
   };
 
   const handleOpenPartyChat = () => {
@@ -5291,7 +5465,10 @@ export default function VoiceParty() {
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
-                onPress={handleExitRoom}
+                onPress={() => {
+                  setShowPowerMenu(false);
+                  promptExitConfirmation();
+                }}
               >
                 <View
                   style={[styles.playCenterIconWrap, styles.powerExitIconWrap]}
@@ -5405,6 +5582,7 @@ export default function VoiceParty() {
         visible={showActiveUsersModal}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setShowActiveUsersModal(false)}
       >
         <TouchableOpacity
@@ -5469,8 +5647,8 @@ export default function VoiceParty() {
                   const rowIsVip = isRowSelf && myVipAssets.unlocked;
                   const rowVipTier = !isRowSelf
                     ? resolveVipTierFromAssetUrl(
-                        userFrameData[String(uId)]?.vipProfileFrameUrl,
-                      )
+                      userFrameData[String(uId)]?.vipProfileFrameUrl,
+                    )
                     : null;
                   const rowVipLogo = rowIsVip
                     ? myVipAssets.logo
@@ -6011,18 +6189,20 @@ export default function VoiceParty() {
               </View>
 
               {/* + Follow Button inside capsule */}
-              {!isHostSelf && (
-                <TouchableOpacity
-                  style={[
-                    styles.capsulePlusBtn,
-                    isFollowing && styles.capsulePlusBtnFollowing,
-                  ]}
-                  onPress={() => setShowFollowModal(true)}
-                  activeOpacity={0.8}
-                >
+              <TouchableOpacity
+                style={[
+                  styles.capsulePlusBtn,
+                  isFollowing && styles.capsulePlusBtnFollowing,
+                ]}
+                onPress={() => setShowFollowModal(true)}
+                activeOpacity={0.8}
+              >
+                {isFollowing ? (
+                  <Text style={{ color: "white", fontSize: 11, fontWeight: "800" }}>✓</Text>
+                ) : (
                   <Plus size={13} color="white" strokeWidth={3} />
-                </TouchableOpacity>
-              )}
+                )}
+              </TouchableOpacity>
             </View>
           </TouchableOpacity>
 
@@ -6362,10 +6542,10 @@ export default function VoiceParty() {
                   // from that same VIP_TIER_THRESHOLDS table used elsewhere.
                   const otherSenderVipTier = !isSenderSelf
                     ? resolveVipTierFromAssetUrl(
-                        msg.vipProfileFrameUrl ??
-                          userFrameData[String(msg.userId)]
-                            ?.vipProfileFrameUrl,
-                      )
+                      msg.vipProfileFrameUrl ??
+                      userFrameData[String(msg.userId)]
+                        ?.vipProfileFrameUrl,
+                    )
                     : null;
                   const senderVipLogo = isSenderVip
                     ? myVipAssets.logo
@@ -6896,7 +7076,7 @@ const styles = StyleSheet.create({
     height: 48,
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: 4,
+    paddingLeft: 0,
     paddingRight: 4,
     overflow: "visible",
   },
@@ -6916,7 +7096,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-    marginLeft: 8.5,
+    marginLeft: 12,
   },
   ownerAvatarCircle: {
     width: 24,
@@ -9459,27 +9639,29 @@ const styles = StyleSheet.create({
   },
   activeUsersOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.65)",
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0, 0, 0, 0.72)",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,
   },
   activeUsersBox: {
-    backgroundColor: "rgba(56, 40, 72, 0.96)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255, 215, 240, 0.4)",
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 14,
+    backgroundColor: "#1e0e36",
+    borderRadius: 20,
+    borderWidth: 1.2,
+    borderColor: "rgba(167, 139, 250, 0.35)",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
     width: "100%",
-    maxWidth: 360,
-    maxHeight: "55%",
-    shadowColor: "#f472b6",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+    maxWidth: 350,
+    maxHeight: "65%",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    elevation: 12,
   },
   activeUsersHandle: {
     width: 32,

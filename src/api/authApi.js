@@ -85,14 +85,27 @@ export const firebaseFacebookAuth = async (idToken, phoneNumber, name) => {
   );
 };
 
-export const logout = async () => {
-  const response = await API.post(
-    "/api/auth/logout",
-    {},
-    await authRequestConfig(),
-  );
-  logAuthResponse("POST /api/auth/logout", response.data);
+export const refreshToken = async (refreshTokenValue) => {
+  const token =
+    typeof refreshTokenValue === "string"
+      ? refreshTokenValue
+      : refreshTokenValue?.refreshToken;
+  const body = { refreshToken: token };
+  const response = await API.post("/api/auth/refresh-token", body, {
+    _skipAuthRefresh: true,
+  });
+  logAuthResponse("POST /api/auth/refresh-token", response.data);
   return response.data;
+};
+
+export const logout = async (payload = {}) => {
+  const refreshTokenValue =
+    typeof payload === "string" ? payload : payload?.refreshToken;
+  const body = refreshTokenValue ? { refreshToken: refreshTokenValue } : {};
+  return postAuthWithFallback(
+    ["/api/app/users/logout", "/api/auth/logout"],
+    body,
+  );
 };
 
 export const deleteAccount = async ({ reason, additionalComment } = {}) => {

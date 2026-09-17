@@ -11,16 +11,27 @@ const resetVoiceUid = () => {
 };
 
 const TOKEN_KEY = "@auth_token";
+const REFRESH_TOKEN_KEY = "@refresh_token";
 const USER_KEY  = "@auth_user";
 const TERMS_ACCEPTED_KEY = "@terms_accepted";
 const PENDING_INVITE_CODE_KEY = "@pending_invite_code";
 
-// ── Save token + user after any successful login ────────────
-export const saveSession = async (token, user) => {
+// ── Save token(s) + user after any successful login ─────────
+export const saveSession = async (tokenOrTokens, user, refreshTokenParam = null) => {
   let sessionUser = user ?? {};
+  let accessToken = null;
+  let refreshToken = refreshTokenParam;
+
+  if (tokenOrTokens && typeof tokenOrTokens === "object") {
+    accessToken = tokenOrTokens.accessToken ?? tokenOrTokens.token ?? null;
+    refreshToken = tokenOrTokens.refreshToken ?? refreshTokenParam ?? null;
+  } else if (typeof tokenOrTokens === "string") {
+    accessToken = tokenOrTokens;
+  }
+
   try {
     const { resolveAppUserId } = require("../utils/sessionUser");
-    const userId = resolveAppUserId(sessionUser, token);
+    const userId = resolveAppUserId(sessionUser, accessToken);
     if (userId) {
       sessionUser = {
         ...sessionUser,
@@ -32,18 +43,42 @@ export const saveSession = async (token, user) => {
     // keep raw user payload
   }
 
-  await AsyncStorage.multiSet([
-    [TOKEN_KEY, token],
+  const pairs = [
+    [TOKEN_KEY, String(accessToken || "")],
     [USER_KEY, JSON.stringify(sessionUser)],
-  ]);
+  ];
+  if (refreshToken) {
+    pairs.push([REFRESH_TOKEN_KEY, String(refreshToken)]);
+  }
+
+  await AsyncStorage.multiSet(pairs);
   await refreshTokenCache();
   resetVoiceUid();
   DeviceEventEmitter.emit("sessionSaved", sessionUser);
 };
 
+// ── Update access + refresh tokens (e.g. after refresh rotation) ──
+export const saveTokens = async (accessToken, refreshToken = null) => {
+  const pairs = [];
+  if (accessToken) pairs.push([TOKEN_KEY, String(accessToken)]);
+  if (refreshToken) pairs.push([REFRESH_TOKEN_KEY, String(refreshToken)]);
+  if (pairs.length > 0) {
+    await AsyncStorage.multiSet(pairs);
+    await refreshTokenCache();
+  }
+};
+
 // ── Read stored token ───────────────────────────────────────
 export const getToken = async () => {
   return AsyncStorage.getItem(TOKEN_KEY);
+};
+
+export const getAccessToken = async () => {
+  return AsyncStorage.getItem(TOKEN_KEY);
+};
+
+export const getRefreshToken = async () => {
+  return AsyncStorage.getItem(REFRESH_TOKEN_KEY);
 };
 
 export const setTermsAccepted = async (accepted = true) => {
@@ -100,6 +135,6 @@ export const updateUser = async (updates) => {
 
 // ── Clear session on logout ─────────────────────────────────
 export const clearSession = async () => {
-  await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, TERMS_ACCEPTED_KEY]);
+  await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY, TERMS_ACCEPTED_KEY]);
   resetVoiceUid();
 };

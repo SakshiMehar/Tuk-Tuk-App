@@ -67,15 +67,26 @@ const buildUserFromPayload = (payload) => {
   return user;
 };
 
-/** Normalize backend auth payloads ({ token } vs { access_token }, nested vs flat user). */
+/** Normalize backend auth payloads ({ accessToken, refreshToken, token }, nested vs flat user). */
 export const normalizeAuthResponse = (data) => {
   const payload = data?.data ?? data;
-  const token =
+  const accessToken =
+    payload?.accessToken ??
     payload?.token ??
     payload?.access_token ??
-    payload?.accessToken ??
+    data?.accessToken ??
     data?.token ??
-    data?.access_token;
+    data?.access_token ??
+    null;
+
+  const refreshToken =
+    payload?.refreshToken ??
+    payload?.refresh_token ??
+    data?.refreshToken ??
+    data?.refresh_token ??
+    null;
+
+  const token = accessToken;
 
   const nestedUser = payload?.user ?? data?.user;
   if (nestedUser && typeof nestedUser === "object" && Object.keys(nestedUser).length > 0) {
@@ -109,11 +120,11 @@ export const normalizeAuthResponse = (data) => {
       payload?.honorLevel
     );
     if (level != null) user.level = Number(level);
-    return { token, user };
+    return { token, accessToken, refreshToken, user };
   }
 
   // Flat login: { userId, username, token, profilePicUrl, role, ... }
-  return { token, user: buildUserFromPayload(payload ?? data ?? {}) };
+  return { token, accessToken, refreshToken, user: buildUserFromPayload(payload ?? data ?? {}) };
 };
 
 export const extractIsNewUser = (data) => {

@@ -5,6 +5,7 @@ import {
   setTermsAccepted,
   getUser,
   updateUser,
+  getRefreshToken,
   getPendingInviteCode,
   clearPendingInviteCode,
 } from "../store/authStore";
@@ -28,8 +29,9 @@ export const logoutSession = async () => {
   try {
     // 1. Unregister FCM token from backend & delete local FCM token while user JWT is still valid
     await unregisterDevicePushToken().catch(() => {});
-    // 2. Call backend logout API
-    const data = await apiLogout();
+    // 2. Call backend logout API with current refreshToken
+    const refreshToken = await getRefreshToken().catch(() => null);
+    const data = await apiLogout({ refreshToken });
     return data;
   } catch (err) {
     throw err;
@@ -99,12 +101,13 @@ const applyPendingInviteCodeIfAny = async () => {
 /** Call backend auth endpoint, persist JWT + user. */
 export const establishSessionFromApi = async (apiCall, credential) => {
   const data = await apiCall(credential);
-  const { token, user } = normalizeAuthResponse(data);
+  const { token, accessToken, refreshToken, user } = normalizeAuthResponse(data);
+  const activeAccessToken = accessToken ?? token;
 
-  if (!token) {
+  if (!activeAccessToken) {
     throw new Error("Authentication succeeded but no token was returned.");
   }
-  await saveSession(token, user);
+  await saveSession({ accessToken: activeAccessToken, refreshToken }, user);
   await refreshTokenCache();
   await hydrateSessionUserFromProfile();
   await applyNewUserFrameForLogin(data);
@@ -117,5 +120,5 @@ export const establishSessionFromApi = async (apiCall, credential) => {
     // WebSocket optional on login — reconnect when chat/party opens
   }
   const sessionUser = (await getUser()) ?? user;
-  return { token, user: sessionUser };
+  return { token: activeAccessToken, accessToken: activeAccessToken, refreshToken, user: sessionUser };
 };

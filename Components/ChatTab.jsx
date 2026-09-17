@@ -1,10 +1,11 @@
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { AlignJustify, Check, ChevronDown, Plus, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   ScrollView,
   StatusBar,
@@ -135,6 +136,8 @@ const CONTACT_MENU_ITEMS = [
 
 export default function ChatTab() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const fromRoom = params?.fromRoom ?? null;
   const scrollRef = useRef(null);
   useScrollToTop(scrollRef);
   const [activeTopTab, setActiveTopTab] = useState("Chats");
@@ -156,6 +159,31 @@ export default function ChatTab() {
   const [familyGroups, setFamilyGroups] = useState([]);
   const [familyGroupsLoading, setFamilyGroupsLoading] = useState(false);
   const [chatFamily, setChatFamily] = useState(null);
+
+  const handleReturnToRoom = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else if (fromRoom) {
+      router.push({
+        pathname: "/voice-party",
+        params: { roomId: String(fromRoom) },
+      });
+    }
+  }, [router, fromRoom]);
+
+  useEffect(() => {
+    if (!fromRoom) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (contactsPage) {
+        setContactsPage(null);
+        setContactSearch("");
+        return true;
+      }
+      handleReturnToRoom();
+      return true;
+    });
+    return () => sub.remove();
+  }, [fromRoom, contactsPage, handleReturnToRoom]);
 
   const fetchChats = useCallback(() => {
     setChatsLoading(true);
@@ -487,6 +515,17 @@ export default function ChatTab() {
           <>
             {/* Chats / Contacts tabs */}
             <View style={styles.headerTabs}>
+              {fromRoom ? (
+                <TouchableOpacity
+                  style={styles.roomReturnBtn}
+                  activeOpacity={0.75}
+                  onPress={handleReturnToRoom}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Text style={styles.roomReturnArrow}>‹</Text>
+                  <Text style={styles.roomReturnLabel}>Room</Text>
+                </TouchableOpacity>
+              ) : null}
               {["Chats", "Contacts"].map((tab) => (
                 <TouchableOpacity
                   key={tab}
@@ -982,8 +1021,31 @@ const styles = StyleSheet.create({
   },
   headerTabs: {
     flexDirection: "row",
-    gap: 20,
+    gap: 16,
     alignItems: "center",
+  },
+  roomReturnBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(124, 77, 255, 0.14)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    marginRight: 4,
+    gap: 2,
+    borderWidth: 1,
+    borderColor: "rgba(124, 77, 255, 0.3)",
+  },
+  roomReturnArrow: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#7c4dff",
+    lineHeight: 20,
+  },
+  roomReturnLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#7c4dff",
   },
   headerTabBtn: {
     alignItems: "center",
