@@ -442,3 +442,48 @@ export const sendRoomGift = async (roomId, body) => {
     throw error;
   }
 };
+
+/** GET /api/v1/tuktuk/rooms/{roomId}/gift-ranking — fetch dynamic top gift ranking in room */
+export const getRoomGiftRanking = async (roomId) => {
+  if (!roomId) return [];
+  const path = `/api/v1/tuktuk/rooms/${roomId}/gift-ranking`;
+  logRequest("GET", path);
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/app/room-follows/{roomId} — follow room */
+export const followRoom = async (roomId) => {
+  if (!roomId) throw new Error("Room ID is required to follow");
+  const path = `/api/app/room-follows/${roomId}`;
+  logRequest("POST", path);
+  try {
+    const response = await API.post(path, {}, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** DELETE /api/app/room-follows/{roomId} — unfollow room */
+export const unfollowRoom = async (roomId) => {
+  if (!roomId) throw new Error("Room ID is required to unfollow");
+  const path = `/api/app/room-follows/${roomId}`;
+  logRequest("DELETE", path);
+  try {
+    const response = await API.delete(path, await authRequestConfig());
+    logResponse("DELETE", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("DELETE", path, error);
+    throw error;
+  }
+};

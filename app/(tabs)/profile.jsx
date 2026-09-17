@@ -83,6 +83,69 @@ const boyMeImg = require("../../assets/images/boyme.png");
 const NEW_START_BADGE = require("../../assets/Batches/newstart-batch.png");
 const VERIFIED_BADGE = require("../../assets/Batches/verified-batch.png");
 
+// ── Dummy gifts for UI preview until API data is populated ──
+const DUMMY_GIFTS_RECEIVED = [
+  {
+    id: "dummy-r1",
+    name: "Purple Wand",
+    localImage: require("../../assets/Gift/gift1.png"),
+    quantity: 1,
+    senderName: "Sakshi",
+  },
+  {
+    id: "dummy-r2",
+    name: "Love Balloon",
+    localImage: require("../../assets/Gift/gift2.png"),
+    quantity: 1,
+    senderName: "Rahul",
+  },
+  {
+    id: "dummy-r3",
+    name: "Wood Elephant",
+    localImage: require("../../assets/Gift/gift3.png"),
+    quantity: 1,
+    senderName: "Amit",
+  },
+  {
+    id: "dummy-r4",
+    name: "Rose",
+    localImage: require("../../assets/Gift/gift1.png"),
+    quantity: 1,
+    senderName: "Priya",
+  },
+  {
+    id: "dummy-r5",
+    name: "Cricket Kit",
+    localImage: require("../../assets/Gift/gift2.png"),
+    quantity: 2,
+    senderName: "Vikram",
+  },
+];
+
+const DUMMY_GIFTS_SENT = [
+  {
+    id: "dummy-s1",
+    name: "Rose",
+    localImage: require("../../assets/Gift/gift1.png"),
+    quantity: 3,
+    receiverName: "Sakshi",
+  },
+  {
+    id: "dummy-s2",
+    name: "Love Balloon",
+    localImage: require("../../assets/Gift/gift2.png"),
+    quantity: 1,
+    receiverName: "Priya",
+  },
+  {
+    id: "dummy-s3",
+    name: "Wood Elephant",
+    localImage: require("../../assets/Gift/gift3.png"),
+    quantity: 1,
+    receiverName: "Rahul",
+  },
+];
+
 // ── Profile info-card badge row (level / new star / verified / any future badge) ──
 // Every badge in that row shares this fixed height; only its own aspectRatio
 // (source image width / height) changes. That keeps every badge visually the
@@ -1767,7 +1830,7 @@ export default function Profile() {
 
     // ── BACKPACK ──────────────────────────────────────────────────────────────
     if (label === "Backpack") {
-      return <BackpackPanel />;
+      return <BackpackPanel onClose={() => setActiveMenu(null)} />;
     }
 
     // ── ROOM PREMIUM ─────────────────────────────────────────────────────────
@@ -2451,50 +2514,50 @@ export default function Profile() {
           </View>
         )}
 
-        {activeTab === "Gift" && (
-          <View style={styles.giftSection}>
-            {/* Header: Gift title + Earned count */}
-            <View style={styles.giftHeader}>
-              <Text style={styles.giftHeaderTitle}>Gift</Text>
-              <TouchableOpacity style={styles.giftEarnedBtn} activeOpacity={0.7}>
-                <Text style={styles.giftEarnedText}>Earned {giftEarnedCount} </Text>
-                <FontAwesome name="chevron-right" size={11} color="#a78bfa" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Segmented slider: Receive | Send */}
-            <View style={styles.giftSlider}>
-              {["Receive", "Send"].map((tab) => (
-                <TouchableOpacity
-                  key={tab}
-                  activeOpacity={0.85}
-                  onPress={() => setGiftTab(tab)}
-                  style={[styles.giftSliderBtn, giftTab === tab && styles.giftSliderBtnActive]}
-                >
-                  {giftTab === tab && (
-                    <LinearGradient
-                      colors={["#7c4dff", "#a855f7"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={StyleSheet.absoluteFill}
-                    />
-                  )}
-                  <Text style={[styles.giftSliderBtnText, giftTab === tab && styles.giftSliderBtnTextActive]}>
-                    {tab}
+        {activeTab === "Gift" && (() => {
+          const apiGifts = giftTab === "Receive" ? giftsReceived : giftsSent;
+          // Fallback to dummy gifts for UI preview when API gifts list is empty
+          const currentGifts = apiGifts && apiGifts.length > 0
+            ? apiGifts
+            : (giftTab === "Receive" ? DUMMY_GIFTS_RECEIVED : DUMMY_GIFTS_SENT);
+          const totalCount = currentGifts.reduce((acc, item) => acc + (Number(item?.quantity) || 1), 0);
+          return (
+            <View style={styles.giftSection}>
+              {/* Header: Gift title + Earned count */}
+              <View style={styles.giftHeader}>
+                <Text style={styles.giftHeaderTitle}>Gift</Text>
+                <TouchableOpacity style={styles.giftEarnedBtn} activeOpacity={0.7}>
+                  <Text style={styles.giftEarnedText}>
+                    {giftTab === "Receive" ? "Earned" : "Sent"} {totalCount}{" "}
                   </Text>
+                  <FontAwesome name="chevron-right" size={11} color="#948fa8" />
                 </TouchableOpacity>
-              ))}
-            </View>
+              </View>
 
-            {/* Content area */}
-            {giftsLoading ? (
-              <ActivityIndicator color="#a78bfa" style={{ marginVertical: 32 }} />
-            ) : (giftTab === "Receive" ? giftsReceived : giftsSent).length === 0 ? (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyEmoji}>🎁</Text>
-                <Text style={styles.emptyText}>
-                  {giftTab === "Receive" ? "No gifts received yet" : "No gifts sent yet"}
-                </Text>
+              {/* Segmented slider: Receive | Send */}
+              <View style={styles.giftSliderContainer}>
+                <View style={styles.giftSlider}>
+                  {["Receive", "Send"].map((tab) => (
+                    <TouchableOpacity
+                      key={tab}
+                      activeOpacity={0.85}
+                      onPress={() => setGiftTab(tab)}
+                      style={[styles.giftSliderBtn, giftTab === tab && styles.giftSliderBtnActive]}
+                    >
+                      {giftTab === tab && (
+                        <LinearGradient
+                          colors={["#c084fc", "#a855f7"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={StyleSheet.absoluteFill}
+                        />
+                      )}
+                      <Text style={[styles.giftSliderBtnText, giftTab === tab && styles.giftSliderBtnTextActive]}>
+                        {tab}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
             ) : (
               (giftTab === "Receive" ? giftsReceived : giftsSent).map((item, idx) => {
@@ -2526,6 +2589,61 @@ export default function Profile() {
           </View>
         )}
 
+              {/* Content area */}
+              {giftsLoading ? (
+                <ActivityIndicator color="#a78bfa" style={{ marginVertical: 32 }} />
+              ) : currentGifts.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyEmoji}>🎁</Text>
+                  <Text style={styles.emptyText}>
+                    {giftTab === "Receive" ? "No gifts received yet" : "No gifts sent yet"}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.giftGrid}>
+                  {currentGifts.map((item, idx) => {
+                    const giftImageUrl = item?.gift?.imageUrl ?? item?.imageUrl ?? item?.gift?.iconUrl ?? item?.iconUrl;
+                    const giftName = item?.gift?.name ?? item?.giftName ?? item?.name ?? "Gift";
+                    const quantity = Number(item?.quantity) || 1;
+                    const imageSource = item?.localImage
+                      ? item.localImage
+                      : giftImageUrl
+                      ? resolveImageSource(giftImageUrl)
+                      : null;
+
+                    return (
+                      <View key={String(item?.transactionId ?? item?.id ?? idx)} style={styles.giftCard}>
+                        <View style={styles.giftCardBadge}>
+                          <Text style={styles.giftCardBadgeText}>x{quantity}</Text>
+                        </View>
+                        <View style={styles.giftCardImageContainer}>
+                          {imageSource ? (
+                            <Image
+                              source={imageSource}
+                              style={[
+                                styles.giftCardImage,
+                                item?.iconRounded && styles.giftCardImageRounded,
+                              ]}
+                              resizeMode="contain"
+                            />
+                          ) : (
+                            <View style={[styles.giftCardImage, styles.giftCardImageFallback]}>
+                              <Text style={{ fontSize: 26 }}>{item?.gift?.emoji ?? item?.emoji ?? "🎁"}</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.giftCardName} numberOfLines={1} ellipsizeMode="tail">
+                          {giftName}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          );
+        })()}
+
       </ScrollView>
       {/* ── MENU DETAIL MODAL (full screen) ── */}
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
@@ -2537,6 +2655,9 @@ export default function Profile() {
           )}
           {/* Header — Premium and TukTuk Pass render their own custom headers */}
           {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && (
+          <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+          {/* Header — Premium, TukTuk Pass, and Backpack render their own custom headers */}
+          {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && activeMenu?.label !== "Backpack" && (
             <>
               <View style={[styles.mmHeader, { paddingTop: insets.top + 10 }]}>
                 <View style={styles.mmHeaderIcon}>
@@ -4180,84 +4301,121 @@ const styles = StyleSheet.create({
   // Gift section
   giftSection: {
     marginHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 24,
   },
   giftHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 12,
-    paddingHorizontal: 4,
+    marginBottom: 14,
+    paddingHorizontal: 2,
   },
   giftHeaderTitle: {
-    color: APP_TEXT,
-    fontSize: 17,
+    color: "#181424",
+    fontSize: 18,
     fontWeight: "800",
   },
   giftEarnedBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: 4,
   },
   giftEarnedText: {
-    color: "#a78bfa",
+    color: "#948fa8",
     fontSize: 13,
     fontWeight: "600",
   },
+  giftSliderContainer: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
   giftSlider: {
     flexDirection: "row",
-    backgroundColor: APP_CARD,
-    borderRadius: 14,
-    padding: 4,
-    marginBottom: 16,
-    gap: 4,
+    backgroundColor: "#ebe7f5",
+    borderRadius: 24,
+    padding: 3,
+    width: 250,
   },
   giftSliderBtn: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 11,
+    paddingVertical: 7,
+    borderRadius: 20,
     alignItems: "center",
+    justifyContent: "center",
     overflow: "hidden",
   },
   giftSliderBtnActive: {},
   giftSliderBtnText: {
-    color: APP_TEXT_MUTED,
-    fontSize: 14,
+    color: "#7e7892",
+    fontSize: 13.5,
     fontWeight: "600",
   },
   giftSliderBtnTextActive: {
-    color: "white",
-    fontWeight: "800",
+    color: "#ffffff",
+    fontWeight: "700",
   },
-  giftItemRow: {
+  giftGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
+  },
+  giftCard: {
+    width: Math.floor((screen.width - 32 - 24) / 4),
+    height: 102,
+    backgroundColor: "#f7f9fe",
+    borderRadius: 14,
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(124,77,255,0.08)",
+    position: "relative",
   },
-  giftItemImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    marginRight: 10,
+  giftCardBadge: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: "rgba(150, 155, 175, 0.65)",
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
   },
-  giftItemImageFallback: {
-    backgroundColor: "rgba(124,77,255,0.15)",
+  giftCardBadgeText: {
+    color: "#ffffff",
+    fontSize: 9.5,
+    fontWeight: "600",
+    lineHeight: 12,
+  },
+  giftCardImageContainer: {
+    width: 52,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  giftCardImage: {
+    width: 48,
+    height: 48,
+  },
+  giftCardImageRounded: {
+    borderRadius: 10,
+  },
+  giftCardImageFallback: {
     alignItems: "center",
     justifyContent: "center",
   },
-  giftItemName: {
-    color: APP_TEXT,
-    fontSize: 14,
-    fontWeight: "700",
-    flex: 1,
-  },
-  giftItemMeta: {
-    color: APP_TEXT_MUTED,
-    fontSize: 12,
+  giftCardName: {
+    color: "#544f68",
+    fontSize: 11.5,
+    fontWeight: "500",
+    textAlign: "center",
+    width: "100%",
+    paddingHorizontal: 2,
   },
   taskRewardModalOverlay: {
     flex: 1,
