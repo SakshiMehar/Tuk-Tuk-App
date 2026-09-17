@@ -60,7 +60,16 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { refreshTokenCache } from "../src/api/axios";
-import { getClaimedSeats, getRoomChatMessages, getRoomState, getRoomUserCount, postRoomHeartbeat, postSeatHeartbeat } from "../src/api/partyApi";
+import {
+  followRoom,
+  getClaimedSeats,
+  getRoomChatMessages,
+  getRoomState,
+  getRoomUserCount,
+  postRoomHeartbeat,
+  postSeatHeartbeat,
+  unfollowRoom
+} from "../src/api/partyApi";
 import { reportUser } from "../src/api/postApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
 import { getRoomShareUrl } from "../src/config/env";
@@ -105,6 +114,7 @@ import {
   enterRandomPartySession,
   enterRoomSession,
   exitRoomSession,
+  loadFollowingRooms,
   fetchRoomAnnouncement,
   normalizeChatMessage,
   normalizeChatMessages,
@@ -452,78 +462,334 @@ const SpeakingRing = ({ active }) => {
   );
 };
 
+const resolveEntryFrameLayout = (frameUrl, user) => {
+  const tierFromUrl = resolveVipTierFromAssetUrl(frameUrl);
+  const tier = tierFromUrl ?? user?.vipTier ?? user?.tier ?? 1;
+
+  if (tier === 1) {
+    return {
+      tier: 1,
+      heightFrac: 0.48, // 108px for 225px width (VIP 1 has 1536x1024 canvas with transparent margins)
+      bannerW: 225,
+      avatarCenterX: 0.148,
+      avatarCenterY: 0.505,
+      avatarSizeFrac: 0.142,
+      shiftX: 4.5,
+      shiftY: -2.8,
+      textLeftFrac: 0.22,
+      textWidthFrac: 0.58,
+      textTopFrac: 0.4,
+      textHeightFrac: 0.14,
+    };
+  }
+
+  if (tier === 3) {
+    return {
+      tier: 3,
+      heightFrac: 0.35,
+      bannerW: 245,
+      avatarCenterX: 0.160,
+      avatarCenterY: 0.48,
+      avatarSizeFrac: 0.150,
+      shiftX: 3.5,
+      shiftY: 0,
+      textLeftFrac: 0.25,
+      textWidthFrac: 0.50,
+      textTopFrac: 0.38,
+      textHeightFrac: 0.28,
+    };
+  }
+
+  if (tier === 8) {
+    return {
+      tier: 8,
+      heightFrac: 0.417,
+      bannerW: 245,
+      avatarCenterX: 0.155,
+      avatarCenterY: 0.50,
+      avatarSizeFrac: 0.150,
+      shiftX: 3.5,
+      shiftY: 0,
+      textLeftFrac: 0.25,
+      textWidthFrac: 0.50,
+      textTopFrac: 0.38,
+      textHeightFrac: 0.28,
+    };
+  }
+
+  // Tiers 2, 4, 5, 6, 7 (standard tight banner aspect ratio ~3.75:1, e.g. VIP 6 on ngrok)
+  return {
+    tier,
+    heightFrac: 0.267,
+    bannerW: 250,
+    avatarCenterX: 0.200,
+    avatarCenterY: 0.56,
+    avatarSizeFrac: 0.138,
+    shiftX: 0,
+    shiftY: 0,
+    textLeftFrac: 0.32,
+    textWidthFrac: 0.38,
+    textTopFrac: 0.49,
+    textHeightFrac: 0.26,
+  };
+};
+
 const UserEntryBanner = ({ user, onComplete }) => {
   const { W: SW } = useResponsive();
-  const BANNER_W = s(310);
-  const BANNER_H = vs(185);
-  const translateX = useSharedValue(-BANNER_W - s(30));
+  const translateX = useSharedValue(-SW - 30);
 
   useEffect(() => {
-    // Slower, smooth slide across the screen (8.5s) once per entry, then auto-dismiss
+    // Smooth glide from left to right (7.5s) once per entry, then auto-dismiss
     translateX.value = withTiming(
-      SW + BANNER_W + s(30),
-      { duration: 8500 },
+      SW + 30,
+      { duration: 7500 },
       (finished) => {
         if (finished && onComplete) {
           runOnJS(onComplete)();
         }
       },
     );
-  }, [BANNER_W, SW, onComplete, translateX]);
+  }, [SW, onComplete, translateX]);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
   }));
 
+  // Dynamic banner image URL resolution with safe fallback
   const frameUrl =
-    user.entryFrameUrl ||
-    user.newUserFrameUrl ||
+    user?.entryFrameUrl ||
+    user?.newUserFrameUrl ||
+    user?.bannerUrl ||
+    user?.bannerImageUrl ||
+    user?.frameUrl ||
+    user?.entryFrame ||
+    user?.banner ||
+    user?.entry_frame_url ||
+    user?.banner_url ||
     VIP_TIER1_FALLBACK_ASSETS.entryFrame;
   const hasFrame = Boolean(frameUrl);
+
+  const userName =
+    user?.name ||
+    user?.username ||
+    user?.nickname ||
+    user?.displayName ||
+    "User";
+
+  const userAvatarUrl =
+    user?.avatar ||
+    user?.profileImageUrl ||
+    user?.avatarUrl ||
+    user?.profilePicUrl ||
+    user?.profilePic ||
+    user?.image ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=7c4dff&color=fff`;
+
+  const layout = resolveEntryFrameLayout(frameUrl, user);
+  const BANNER_W = Math.min(layout.bannerW, Math.round(SW * 0.56));
+  const BANNER_H = Math.round(BANNER_W * layout.heightFrac);
+
+  // Precise ring hole coordinates inside the frame scaled proportionally per tier artwork
+  const avatarSize = Math.round(BANNER_W * layout.avatarSizeFrac);
+  const avatarLeft = Math.round(BANNER_W * layout.avatarCenterX - avatarSize / 2) + layout.shiftX;
+  const avatarTop = Math.round(BANNER_H * layout.avatarCenterY - avatarSize / 2) + layout.shiftY;
+
+  // Precise middle banner text region between ring and VIP crest
+  const textLeft = Math.round(BANNER_W * layout.textLeftFrac);
+  const textWidth = Math.round(BANNER_W * layout.textWidthFrac);
+  const textTop = Math.round(BANNER_H * layout.textTopFrac);
+  const textHeight = Math.round(BANNER_H * layout.textHeightFrac);
 
   return (
     <Animated.View
       style={[
         styles.entryBannerContainer,
-        { width: BANNER_W, height: BANNER_H },
+        {
+          width: BANNER_W,
+          height: BANNER_H,
+          alignSelf: "center",
+        },
         animStyle,
       ]}
       pointerEvents="none"
     >
-      {hasFrame && (
-        <Image
-          source={{ uri: frameUrl }}
-          style={[styles.entryBannerBg, { width: BANNER_W, height: BANNER_H }]}
-          resizeMode="stretch"
-        />
-      )}
-      <View
-        style={[
-          styles.entryBannerContent,
-          !hasFrame && styles.entryBannerBgDefault,
-          { width: BANNER_W, height: BANNER_H },
-        ]}
-      >
-        <Image
-          source={{
-            uri:
-              user.avatar ||
-              user.profileImageUrl ||
-              user.avatarUrl ||
-              "https://ui-avatars.com/api/?name=" + (user.name || "U") + "&background=7c4dff&color=fff",
-          }}
-          style={styles.entryBannerAvatar}
-          resizeMode="cover"
-        />
-        <View style={styles.entryBannerTextContainer}>
-          <Text style={styles.entryBannerName} numberOfLines={1}>
-            {user.name}
-          </Text>
-          {!hasFrame && (
+      {hasFrame ? (
+        <>
+          <Image
+            source={{ uri: frameUrl }}
+            style={[styles.entryBannerBg, { width: BANNER_W, height: BANNER_H }]}
+            resizeMode="stretch"
+          />
+          {/* Pixel-locked avatar spot inside the left ring circle */}
+          <View
+            style={[
+              styles.entryBannerFramedAvatarWrap,
+              {
+                left: avatarLeft,
+                top: avatarTop,
+                width: avatarSize,
+                height: avatarSize,
+                borderRadius: avatarSize / 2,
+              },
+            ]}
+          >
+            <Image
+              source={{ uri: userAvatarUrl }}
+              style={{
+                width: avatarSize,
+                height: avatarSize,
+                borderRadius: avatarSize / 2,
+              }}
+              resizeMode="cover"
+            />
+          </View>
+          {/* Centered name text inside banner section */}
+          <View
+            style={[
+              styles.entryBannerFramedTextWrap,
+              {
+                left: textLeft,
+                width: textWidth,
+                top: textTop,
+                height: textHeight,
+              },
+            ]}
+          >
+            <Text style={styles.entryBannerName} numberOfLines={1}>
+              {userName}
+            </Text>
+          </View>
+        </>
+      ) : (
+        <View
+          style={[
+            styles.entryBannerContent,
+            styles.entryBannerBgDefault,
+            { width: BANNER_W, height: BANNER_H },
+          ]}
+        >
+          <Image
+            source={{ uri: userAvatarUrl }}
+            style={styles.entryBannerAvatar}
+            resizeMode="cover"
+          />
+          <View style={styles.entryBannerTextContainer}>
+            <Text style={styles.entryBannerName} numberOfLines={1}>
+              {userName}
+            </Text>
             <Text style={styles.entryBannerJoined}>joined the room</Text>
+          </View>
+        </View>
+      )}
+    </Animated.View>
+  );
+};
+
+const RoomActivityEventBanner = ({ event, onDismiss, onClap }) => {
+  const { W: SW } = useResponsive();
+  const translateX = useSharedValue(-SW * 0.9);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (!event) return;
+    opacity.value = withTiming(1, { duration: 220 });
+    translateX.value = withSpring(0, { damping: 14, stiffness: 140 });
+
+    const timer = setTimeout(() => {
+      opacity.value = withTiming(0, { duration: 240 });
+      translateX.value = withTiming(-SW * 0.9, { duration: 240 }, (finished) => {
+        if (finished && onDismiss) {
+          runOnJS(onDismiss)();
+        }
+      });
+    }, 3600);
+
+    return () => clearTimeout(timer);
+  }, [event, SW, onDismiss, opacity, translateX]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    opacity: opacity.value,
+  }));
+
+  if (!event) return null;
+
+  const user = event.user || {};
+  const userName = user.name || user.username || "User";
+  const avatarUri =
+    user.avatar ||
+    user.profileImageUrl ||
+    user.avatarUrl ||
+    user.profilePicUrl ||
+    (user.id
+      ? `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=7c4dff&color=fff`
+      : null);
+
+  let actionText = "entered the room";
+  let actionColor = "#ffd54f"; // warm gold for enter
+  let iconEmoji = "👏";
+
+  if (event.type === "exit" || event.type === "leave") {
+    actionText = "left the room";
+    actionColor = "#cbd5e1"; // light slate for leave
+    iconEmoji = "👋";
+  } else if (event.type === "seat" || event.type === "seated") {
+    actionText = event.seatId ? `seated on mic ${event.seatId}` : "seated";
+    actionColor = "#4ade80"; // green for seated
+    iconEmoji = "🎙️";
+  }
+
+  return (
+    <Animated.View style={[styles.activityBannerContainer, animStyle]}>
+      <LinearGradient
+        colors={["rgba(26, 12, 54, 0.94)", "rgba(44, 18, 88, 0.90)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.activityBannerGradient}
+      >
+        {/* Left: Avatar DP */}
+        <View style={styles.activityBannerAvatarWrap}>
+          {avatarUri ? (
+            <Image
+              source={{ uri: avatarUri }}
+              style={styles.activityBannerAvatar}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.activityBannerAvatar, styles.activityBannerAvatarFallback]}>
+              <Text style={styles.activityBannerAvatarInitial}>
+                {userName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
           )}
         </View>
-      </View>
+
+        {/* Middle: Name & Action text */}
+        <View style={styles.activityBannerTextCol}>
+          <Text style={styles.activityBannerName} numberOfLines={1}>
+            {userName}
+          </Text>
+          <Text style={[styles.activityBannerAction, { color: actionColor }]} numberOfLines={1}>
+            {actionText}
+          </Text>
+        </View>
+
+        {/* Right: Quick interaction button (clapping / wave) */}
+        <TouchableOpacity
+          style={styles.activityBannerClapBtn}
+          activeOpacity={0.7}
+          onPress={() => onClap && onClap(event)}
+        >
+          <LinearGradient
+            colors={["#8b5cf6", "#6d28d9"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.activityBannerClapGrad}
+          >
+            <Text style={styles.activityBannerClapText}>{iconEmoji}</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </LinearGradient>
     </Animated.View>
   );
 };
@@ -1034,6 +1300,60 @@ export default function VoiceParty() {
   const [recentEntries, setRecentEntries] = useState([]);
   const [canShowEntryBanner, setCanShowEntryBanner] = useState(false);
   const prevOnlineUsersRef = useRef([]);
+  const prevSeatsRef = useRef([]);
+  const hasInitializedPresenceRef = useRef(false);
+  const hasInitializedSeatsRef = useRef(false);
+
+  // ── Real-time Room Activity Event Toast (Enter / Leave / Seated) ──
+  const [currentActivityEvent, setCurrentActivityEvent] = useState(null);
+  const activityEventQueueRef = useRef([]);
+  const isProcessingActivityRef = useRef(false);
+
+  const processNextActivityEvent = useCallback(() => {
+    if (isProcessingActivityRef.current || activityEventQueueRef.current.length === 0) return;
+    const next = activityEventQueueRef.current.shift();
+    if (!next) return;
+    isProcessingActivityRef.current = true;
+    setCurrentActivityEvent(next);
+  }, []);
+
+  const enqueueActivityEvent = useCallback(
+    (event) => {
+      if (!event || !event.user) return;
+      activityEventQueueRef.current.push(event);
+      processNextActivityEvent();
+    },
+    [processNextActivityEvent],
+  );
+
+  const handleActivityDismiss = useCallback(() => {
+    setCurrentActivityEvent(null);
+    isProcessingActivityRef.current = false;
+    setTimeout(() => {
+      processNextActivityEvent();
+    }, 150);
+  }, [processNextActivityEvent]);
+
+  const handleActivityClap = useCallback(
+    async (event) => {
+      if (!event?.user || !roomId) return;
+      const targetUser = event.user;
+      const targetName = targetUser.name || targetUser.username || "Friend";
+      const greeting =
+        event.type === "exit" || event.type === "leave"
+          ? `@${targetName} Bye! 👋 See you soon!`
+          : event.type === "seat" || event.type === "seated"
+            ? `@${targetName} 🎙️ Welcome to the mic!`
+            : `@${targetName} 👏 Welcome to the room!`;
+      try {
+        await appendOutgoingMessage(greeting);
+        await wsService.sendRoomMessage(String(roomId), greeting);
+      } catch {
+        // safe fallback
+      }
+    },
+    [roomId],
+  );
 
   useEffect(() => {
     setCanShowEntryBanner(false);
@@ -1045,38 +1365,81 @@ export default function VoiceParty() {
     }
   }, [roomLoading, roomId]);
 
+  // Track Real-Time Joins (Enter) & Exits (Leave)
   useEffect(() => {
-    if (!onlineUsers || !prevOnlineUsersRef.current) {
-      prevOnlineUsersRef.current = onlineUsers || [];
+    if (!onlineUsers || !Array.isArray(onlineUsers)) return;
+
+    if (!hasInitializedPresenceRef.current) {
+      prevOnlineUsersRef.current = onlineUsers;
+      hasInitializedPresenceRef.current = true;
       return;
     }
-    const prevIds = new Set(
-      (prevOnlineUsersRef.current || []).map((u) => u?.id ?? u?.userId).filter(Boolean),
-    );
-    const newJoins = (onlineUsers || [])
-      .filter((u) => {
-        const uId = u?.id ?? u?.userId;
-        return uId != null && !prevIds.has(uId);
-      })
-      .map((u) => ({
-        ...u,
-        _entryKey: `${u?.id ?? u?.userId ?? "entry"}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      }));
 
-    if (newJoins.length > 0) {
-      setRecentEntries((prev) => {
-        const existingIds = new Set(
-          prev.map((item) => item?.id ?? item?.userId).filter(Boolean),
-        );
-        const filteredNew = newJoins.filter((item) => {
-          const id = item?.id ?? item?.userId;
-          return id == null || !existingIds.has(id);
+    const prevUsersMap = new Map(
+      (prevOnlineUsersRef.current || []).map((u) => [String(u?.id ?? u?.userId), u])
+    );
+    const currUsersMap = new Map(
+      onlineUsers.map((u) => [String(u?.id ?? u?.userId), u])
+    );
+
+    // 1. Detect Joins (Entered the room)
+    onlineUsers.forEach((u) => {
+      const uId = String(u?.id ?? u?.userId);
+      if (uId && !prevUsersMap.has(uId)) {
+        enqueueActivityEvent({
+          id: `enter-${uId}-${Date.now()}`,
+          type: "enter",
+          user: u,
         });
-        return [...prev, ...filteredNew];
-      });
-    }
+      }
+    });
+
+    // 2. Detect Exits (Left the room)
+    (prevOnlineUsersRef.current || []).forEach((u) => {
+      const uId = String(u?.id ?? u?.userId);
+      if (uId && !currUsersMap.has(uId)) {
+        enqueueActivityEvent({
+          id: `exit-${uId}-${Date.now()}`,
+          type: "exit",
+          user: u,
+        });
+      }
+    });
+
     prevOnlineUsersRef.current = onlineUsers;
-  }, [onlineUsers]);
+  }, [onlineUsers, enqueueActivityEvent]);
+
+  // Track Real-Time Seated Events
+  useEffect(() => {
+    if (!seats || !Array.isArray(seats)) return;
+
+    if (!hasInitializedSeatsRef.current) {
+      prevSeatsRef.current = seats;
+      hasInitializedSeatsRef.current = true;
+      return;
+    }
+
+    const prevSeats = prevSeatsRef.current || [];
+    seats.forEach((seat) => {
+      const prevSeat = prevSeats.find((s) => s.id === seat.id);
+      const currUser = seat.user;
+      const prevUser = prevSeat?.user;
+
+      const currId = currUser?.id != null ? String(currUser.id) : null;
+      const prevId = prevUser?.id != null ? String(prevUser.id) : null;
+
+      if (currId && currId !== prevId) {
+        enqueueActivityEvent({
+          id: `seat-${currId}-${seat.id}-${Date.now()}`,
+          type: "seat",
+          seatId: seat.id,
+          user: currUser,
+        });
+      }
+    });
+
+    prevSeatsRef.current = seats;
+  }, [seats, enqueueActivityEvent]);
 
   const handleEntryComplete = useCallback((entryKeyOrId) => {
     setRecentEntries((prev) =>
@@ -1677,36 +2040,61 @@ export default function VoiceParty() {
   }, []);
 
   useEffect(() => {
-    if (!hostId || isSameUser(hostId, myUserId)) {
+    const targetRoomId = roomIdRef.current || roomId;
+    if (!targetRoomId || isHostSelf) {
       setIsFollowing(false);
       return;
     }
     let cancelled = false;
-    loadRelationshipStatus(hostId)
-      .then((status) => {
-        if (!cancelled) setIsFollowing(status.following);
+    loadFollowingRooms()
+      .then((rooms) => {
+        if (cancelled) return;
+        const list = Array.isArray(rooms) ? rooms : [];
+        const isFollowed = list.some((r) => {
+          const id = r?.id ?? r?.roomId;
+          return id != null && String(id).toLowerCase() === String(targetRoomId).toLowerCase();
+        });
+        setIsFollowing(Boolean(isFollowed));
       })
-      .catch(() => { });
+      .catch(() => {
+        if (!cancelled) setIsFollowing(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [hostId, myUserId]);
+  }, [roomId, isHostSelf]);
 
   const handleFollowToggle = async () => {
-    if (!hostId || isHostSelf) return;
+    const targetRoomId = roomIdRef.current || roomId;
+    if (!targetRoomId || isHostSelf) return;
     setFollowLoading(true);
     try {
       if (isFollowing) {
-        await unfollowUser(hostId);
+        await unfollowRoom(targetRoomId);
+        setIsFollowing(false);
       } else {
-        await followUser(hostId);
+        await followRoom(targetRoomId);
+        setIsFollowing(true);
       }
-      setIsFollowing((v) => !v);
     } catch (err) {
-      Alert.alert(
-        isFollowing ? "Unfollow failed" : "Follow failed",
-        err.message || "Please try again.",
-      );
+      const rawError =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "";
+      const lowerMsg = String(rawError).toLowerCase();
+
+      // If backend reports out-of-sync state, sync local state
+      if (lowerMsg.includes("not following")) {
+        setIsFollowing(false);
+      } else if (lowerMsg.includes("already follow")) {
+        setIsFollowing(true);
+      } else {
+        Alert.alert(
+          isFollowing ? "Unfollow failed" : "Follow failed",
+          typeof rawError === "string" ? rawError : "Please try again.",
+        );
+      }
     } finally {
       setFollowLoading(false);
     }
@@ -1786,30 +2174,33 @@ export default function VoiceParty() {
         );
         setOnlineCount(session.onlineCount);
 
-        // Show our own entry banner after 10s of completed loading and screen display
+        // Show entry toast banner immediately upon entering the room
         const localUser = await getUser();
         if (localUser && !cancelled) {
           const resolvedAvatar =
             resolveProfileAvatarUri(localUser) ??
             localUser?.profilePicUrl ??
             localUser?.avatarUrl;
-          setTimeout(() => {
-            if (!cancelled) {
-              setRecentEntries((prev) => [
-                ...prev,
-                {
-                  id: localUser.id || "my-id",
-                  name: localUser.name || localUser.username || "Me",
-                  avatar: resolvedAvatar,
-                  entryFrameUrl:
-                    loadedVip?.entryFrame || localUser?.newUserFrameUrl,
-                  newUserFrameUrl: localUser?.newUserFrameUrl,
-                  profileFrameUrl:
-                    loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
-                },
-              ]);
-            }
-          }, 10000);
+          const selfEntryUser = {
+            id: localUser.id || "my-id",
+            name: localUser.name || localUser.username || "You",
+            avatar: resolvedAvatar,
+            entryFrameUrl:
+              loadedVip?.entryFrame || localUser?.newUserFrameUrl,
+            newUserFrameUrl: localUser?.newUserFrameUrl,
+            profileFrameUrl:
+              loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
+          };
+
+          // Immediately display real-time "entered the room" toast banner
+          enqueueActivityEvent({
+            id: `enter-self-${Date.now()}`,
+            type: "enter",
+            user: selfEntryUser,
+          });
+
+          // Also trigger VIP entry banner if equipped
+          setRecentEntries((prev) => [...prev, selfEntryUser]);
         }
 
         // Chat is session-local: start with a clean screen on every entry
@@ -2008,6 +2399,19 @@ export default function VoiceParty() {
 
   useEffect(() => {
     if (!roomId) return undefined;
+    const activeRoomId = String(roomId);
+
+    console.log(`[VoiceParty] Initializing WebSocket subscriptions for room: ${activeRoomId}`);
+    wsService
+      .connect()
+      .then(() => {
+        console.log(`[VoiceParty] WS connected, joining room: ${activeRoomId}`);
+        wsService.joinRoom(activeRoomId);
+      })
+      .catch((err) => {
+        console.error("[VoiceParty] WS connection error:", err?.message || err);
+      });
+
     const appendChatMessage = (payload) => {
       setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -2214,6 +2618,219 @@ export default function VoiceParty() {
         );
       },
     );
+    const unsubNotifications = wsService.onRoomNotifications(
+      String(roomId),
+      (payload) => {
+        if (!payload) return;
+        const eventType = String(payload.eventType || payload.type || "").toUpperCase();
+        console.log(`[VoiceParty Notification] 🔔 Event: ${eventType}`, payload);
+        const uId = payload.userId != null ? String(payload.userId) : null;
+        const uName = payload.userName || payload.senderName || payload.name || "User";
+        const uAvatar =
+          payload.profileImage ||
+          payload.avatar ||
+          payload.avatarUrl ||
+          payload.profilePicUrl ||
+          null;
+
+        switch (eventType) {
+          case "USER_JOINED":
+          case "JOIN":
+          case "USER_ENTERED": {
+            if (uId) {
+              const joinedUser = {
+                id: uId,
+                userId: uId,
+                name: uName,
+                avatar: uAvatar,
+                profileImageUrl: uAvatar,
+                profilePicUrl: uAvatar,
+              };
+
+              enqueueActivityEvent({
+                id: `ws-enter-${uId}-${Date.now()}`,
+                type: "enter",
+                user: joinedUser,
+              });
+
+              setOnlineUsers((prev) => {
+                const exists = prev.some((u) => String(u?.id ?? u?.userId) === uId);
+                if (exists) return prev;
+                return [...prev, joinedUser];
+              });
+              setOnlineCount((prev) => prev + 1);
+            }
+            break;
+          }
+
+          case "USER_LEFT":
+          case "LEAVE":
+          case "EXIT":
+          case "USER_EXIT": {
+            if (uId) {
+              const leftUser = {
+                id: uId,
+                userId: uId,
+                name: uName,
+                avatar: uAvatar,
+              };
+
+              enqueueActivityEvent({
+                id: `ws-exit-${uId}-${Date.now()}`,
+                type: "exit",
+                user: leftUser,
+              });
+
+              setOnlineUsers((prev) =>
+                prev.filter((u) => String(u?.id ?? u?.userId) !== uId),
+              );
+              setOnlineCount((prev) => Math.max(0, prev - 1));
+
+              // Clear seat if left user was seated
+              setSeats((prev) =>
+                prev.map((seat) => {
+                  if (seat.user && String(seat.user.id ?? seat.user.userId) === uId) {
+                    return { ...seat, user: null };
+                  }
+                  return seat;
+                }),
+              );
+            }
+            break;
+          }
+
+          case "CHAT_MESSAGE":
+          case "CHAT": {
+            const chatMsgText = payload.message || payload.text || payload.content || "";
+            if (!chatMsgText) break;
+            const normalized = normalizeChatMessage({
+              id: payload.id ?? `ws-chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              message: chatMsgText,
+              text: chatMsgText,
+              senderName: uName,
+              user: uName,
+              userId: uId,
+              avatar: uAvatar,
+              createdAt: payload.timestamp || new Date().toISOString(),
+            });
+            setMessages((prev) => upsertChatMessage(prev, normalized));
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+            break;
+          }
+
+          case "GIFT_SENT":
+          case "GIFT": {
+            const giftName = payload.giftName || payload.name || "a gift";
+            const qty = Math.max(1, Number(payload.quantity || payload.qty || 1));
+            const receiverName = payload.receiverName || payload.receiver || null;
+            revealGiftAnimation(
+              {
+                ...payload,
+                senderName: uName,
+                senderAvatar: uAvatar,
+                receiverName,
+                giftName,
+                quantity: qty,
+              },
+              {
+                senderName: uName,
+                senderAvatar: uAvatar,
+                receiverName,
+                name: giftName,
+                quantity: qty,
+              },
+            );
+
+            const giftChatText = `sent 🎁 ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
+            const normalized = normalizeChatMessage({
+              id: payload.id ?? `ws-gift-${Date.now()}`,
+              message: `${uName} ${giftChatText}`,
+              text: `${uName} ${giftChatText}`,
+              senderName: uName,
+              avatar: uAvatar,
+              isGift: true,
+            });
+            setMessages((prev) => upsertChatMessage(prev, normalized));
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+            break;
+          }
+
+          case "MIC_MUTED":
+          case "MIC_UNMUTED": {
+            const isMuted = eventType === "MIC_MUTED" || payload.isMuted === true;
+            const targetSeatId = Number(payload.seatNumber || payload.seatId);
+            setSeats((prev) =>
+              prev.map((seat) => {
+                const matches = targetSeatId
+                  ? seat.id === targetSeatId
+                  : uId && String(seat.user?.id ?? seat.user?.userId) === uId;
+                if (!matches || !seat.user) return seat;
+                return {
+                  ...seat,
+                  user: { ...seat.user, muted: isMuted },
+                };
+              }),
+            );
+            break;
+          }
+
+          case "SEAT_TAKEN":
+          case "SEAT_CLAIMED": {
+            const targetSeatId = Number(payload.seatNumber || payload.seatId);
+            if (targetSeatId) {
+              setSeats((prev) =>
+                prev.map((seat) => {
+                  if (seat.id === targetSeatId) {
+                    return {
+                      ...seat,
+                      user: {
+                        ...(seat.user || {}),
+                        id: uId,
+                        userId: uId,
+                        name: uName,
+                        avatar: uAvatar,
+                        active: false,
+                        muted: false,
+                      },
+                    };
+                  }
+                  return seat;
+                }),
+              );
+
+              enqueueActivityEvent({
+                id: `ws-seat-${uId}-${targetSeatId}-${Date.now()}`,
+                type: "seat",
+                seatId: targetSeatId,
+                user: { id: uId, userId: uId, name: uName, avatar: uAvatar },
+              });
+            }
+            break;
+          }
+
+          case "SEAT_RELEASED":
+          case "SEAT_LEFT": {
+            const targetSeatId = Number(payload.seatNumber || payload.seatId);
+            setSeats((prev) =>
+              prev.map((seat) => {
+                const matches = targetSeatId
+                  ? seat.id === targetSeatId
+                  : uId && String(seat.user?.id ?? seat.user?.userId) === uId;
+                if (matches) {
+                  return { ...seat, user: null };
+                }
+                return seat;
+              }),
+            );
+            break;
+          }
+
+          default:
+            break;
+        }
+      },
+    );
+
     // STOMP delivers no backlog to a resubscribing client, so any seat/chat
     // updates broadcast during a brief drop (backgrounding, network blip)
     // are otherwise lost until the user leaves and re-enters the room.
@@ -2248,7 +2865,9 @@ export default function VoiceParty() {
       unsubUi();
       unsubSpeaking();
       unsubGiftAnimation();
+      unsubNotifications();
       unsubReconnect();
+      wsService.leaveRoom(activeRoomId);
     };
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
@@ -5669,11 +6288,12 @@ export default function VoiceParty() {
                 bottom: vs(120),
                 left: 0,
                 right: 0,
+                alignItems: "center",
                 zIndex: 9999,
                 elevation: 99,
               }}
             >
-              {recentEntries.slice(0, 3).map((user, idx) => (
+              {recentEntries.slice(-1).map((user, idx) => (
                 <UserEntryBanner
                   key={user._entryKey || `${user.id || user.userId || "entry"}-${idx}`}
                   user={user}
@@ -5684,6 +6304,16 @@ export default function VoiceParty() {
               ))}
             </View>
           )}
+
+          {/* Real-time Room Activity Event Toast (Enter / Leave / Seated) */}
+          {!roomLoading && currentActivityEvent && (
+            <RoomActivityEventBanner
+              event={currentActivityEvent}
+              onDismiss={handleActivityDismiss}
+              onClap={handleActivityClap}
+            />
+          )}
+
           <View style={styles.chatArea}>
             <View style={styles.chatLeft}>
               <ScrollView
@@ -6268,7 +6898,7 @@ export default function VoiceParty() {
 
         {/* ── TOP 3 GIFTING RANKING FLOATING WIDGET ── */}
         {!roomLoading && (
-          <TopGiftingRanking onUserPress={handleOnlineUserPress} />
+          <TopGiftingRanking roomId={roomId} onUserPress={handleOnlineUserPress} />
         )}
       </KeyboardAvoidingView>
 
@@ -6369,7 +6999,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
-    marginLeft: -6,
     marginRight: 6,
   },
   ownerSection: {
@@ -6378,7 +7007,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 4,
-    paddingRight: 6,
+    paddingRight: 4,
     overflow: "visible",
   },
   ownerSectionBg: {
@@ -6392,17 +7021,17 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   ownerAvatarSpot: {
-    width: 54,
-    height: 54,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-    marginLeft: 2,
+    marginLeft: 8.5,
   },
   ownerAvatarCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
   ownerAvatarPlaceholder: {
     backgroundColor: "rgba(124, 77, 255, 0.45)",
@@ -6411,7 +7040,7 @@ const styles = StyleSheet.create({
   },
   ownerInitial: {
     color: "white",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "800",
   },
   ownerTextCol: {
@@ -6419,7 +7048,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
-    marginLeft: 2,
+    marginLeft: 6,
     justifyContent: "center",
   },
   ownerName: {
@@ -6435,9 +7064,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.1,
   },
   capsulePlusBtn: {
-    width: 23,
-    height: 23,
-    borderRadius: 11.5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderColor: '#ffffff',
     borderWidth: 1,
     backgroundColor: "#7c4dff",
@@ -6449,8 +7078,8 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
     flexShrink: 0,
-    marginLeft: 2,
-    marginRight: 28,
+    marginLeft: 4,
+    marginRight: 24,
   },
   capsulePlusBtnFollowing: {
     backgroundColor: "rgba(124, 77, 255, 0.45)",
@@ -7713,35 +8342,48 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: "100%",
   },
+  entryBannerFramedAvatarWrap: {
+    position: "absolute",
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+
+  },
+  entryBannerFramedTextWrap: {
+    position: "absolute",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 2,
+  },
   entryBannerAvatar: {
-    width: s(48),
-    height: s(44),
-    borderRadius: s(22),
-    marginLeft: s(6),
-    marginBottom: s(4),
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginLeft: 12,
     alignSelf: "center",
   },
 
   entryBannerTextContainer: {
-    marginLeft: s(4),
+    marginLeft: 4,
     flex: 1,
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    paddingRight: s(28),
+    paddingRight: 20,
   },
   entryBannerName: {
     color: "#FFD700",
     fontWeight: "800",
-    fontSize: ms(14),
-    letterSpacing: 0.3,
+    fontSize: 8,
+    letterSpacing: 0.1,
     textAlign: "center",
-    marginBottom: ms(6)
+
   },
   entryBannerJoined: {
     color: "rgba(255,255,255,0.75)",
-    fontSize: ms(9.5),
-    marginTop: vs(1.5),
+    fontSize: 9.5,
+    marginTop: 1.5,
     textAlign: "center",
   },
 
@@ -9208,5 +9850,82 @@ const styles = StyleSheet.create({
   },
   followModalActionBtnTextFollowing: {
     color: "#7c4dff",
+  },
+
+  // ── Room Activity Event Banner (Enter / Leave / Seated) ──
+  activityBannerContainer: {
+    position: "absolute",
+    bottom: vs(155),
+    left: s(14),
+    zIndex: 9999,
+    elevation: 99,
+    maxWidth: W * 0.78,
+  },
+  activityBannerGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 5,
+    paddingLeft: 6,
+    paddingRight: 8,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(167, 139, 250, 0.4)",
+    backgroundColor: "rgba(22, 10, 46, 0.90)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.45,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  activityBannerAvatarWrap: {
+    marginRight: 8,
+  },
+  activityBannerAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.6)",
+  },
+  activityBannerAvatarFallback: {
+    backgroundColor: "#6d28d9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activityBannerAvatarInitial: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  activityBannerTextCol: {
+    justifyContent: "center",
+    marginRight: 10,
+    maxWidth: W * 0.46,
+  },
+  activityBannerName: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  activityBannerAction: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  activityBannerClapBtn: {
+    marginLeft: "auto",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  activityBannerClapGrad: {
+    paddingHorizontal: 9,
+    paddingVertical: 4.5,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activityBannerClapText: {
+    fontSize: 14,
   },
 });

@@ -105,6 +105,40 @@ export interface FamilyChatSummaryPayload {
   [key: string]: unknown;
 }
 
+export interface RoomNotificationPayload {
+  eventType?:
+    | 'USER_JOINED'
+    | 'USER_LEFT'
+    | 'CHAT_MESSAGE'
+    | 'GIFT_SENT'
+    | 'MIC_MUTED'
+    | 'MIC_UNMUTED'
+    | 'SEAT_TAKEN'
+    | 'SEAT_RELEASED'
+    | string;
+  type?: string;
+  roomId?: string;
+  userId?: number | string;
+  userName?: string;
+  senderName?: string;
+  profileImage?: string;
+  avatar?: string;
+  avatarUrl?: string;
+  profilePicUrl?: string;
+  message?: string;
+  text?: string;
+  content?: string;
+  seatNumber?: number | string;
+  seatId?: number | string;
+  isMuted?: boolean;
+  giftName?: string;
+  giftCode?: string;
+  quantity?: number;
+  qty?: number;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
 export type RoomTopic =
   | 'chat'
   | 'chat-summary'
@@ -112,7 +146,8 @@ export type RoomTopic =
   | 'ui-state'
   | 'gift-animation'
   | 'closed'
-  | 'moderation';
+  | 'moderation'
+  | 'notifications';
 
 export type FamilyTopic = 'chat' | 'chat-summary';
 
@@ -126,6 +161,7 @@ const ROOM_TOPICS: RoomTopic[] = [
   'gift-animation',
   'closed',
   'moderation',
+  'notifications',
 ];
 
 const FAMILY_TOPICS: FamilyTopic[] = ['chat', 'chat-summary'];
@@ -172,6 +208,7 @@ class WebSocketService {
       return;
     }
 
+    console.log(`[WS] Initializing connection to: ${API_BASE_URL}/ws-tuktuk`);
     this.connectPromise = new Promise<void>((resolve, reject) => {
       this.client = new Client({
         webSocketFactory: () => new SockJS(`${API_BASE_URL}/ws-tuktuk`) as unknown as WebSocket,
@@ -181,13 +218,29 @@ class WebSocketService {
         reconnectDelay: 5000,
         heartbeatIncoming: 10000,
         heartbeatOutgoing: 10000,
+        debug: (msg: string) => {
+          if (__DEV__) {
+            console.log('[WS Debug]', msg);
+          }
+        },
         onConnect: () => {
+          console.log('[WS] ✅ Connected to STOMP server successfully!');
           this._onConnect();
           resolve();
         },
-        onDisconnect: this._onDisconnect.bind(this),
+        onDisconnect: () => {
+          console.log('[WS] ⚠️ Disconnected from STOMP server.');
+          this._onDisconnect();
+        },
         onStompError: (frame) => {
+          console.error('[WS] ❌ STOMP error frame:', frame.headers, frame.body);
           reject(new Error(frame.headers?.message || '[WS] STOMP connect failed.'));
+        },
+        onWebSocketError: (event) => {
+          console.error('[WS] ❌ WebSocket socket error event:', event);
+        },
+        onWebSocketClose: (event) => {
+          console.log('[WS] 🔌 WebSocket closed event:', event);
         },
       });
 
@@ -315,9 +368,15 @@ class WebSocketService {
       const destination = `/topic/room/${roomId}/${topic}`;
       const handlers = this._getRoomHandlerSet(roomId, topic);
 
+      console.log(`[WS] Subscribed: ${destination}`);
       const sub = this.client!.subscribe(destination, (frame: IMessage) => {
-        const payload = JSON.parse(frame.body);
-        handlers.forEach((h) => h(payload));
+        try {
+          const payload = JSON.parse(frame.body);
+          console.log(`[WS] Received on ${destination}:`, payload);
+          handlers.forEach((h) => h(payload));
+        } catch (err) {
+          console.error(`[WS] Error parsing payload from ${destination}:`, err);
+        }
       });
       this.subscriptions.set(key, sub);
     });
@@ -326,8 +385,10 @@ class WebSocketService {
   private _unsubscribeRoom(roomId: string): void {
     ROOM_TOPICS.forEach((topic) => {
       const key = this._roomSubKey(roomId, topic);
+      const destination = `/topic/room/${roomId}/${topic}`;
       this.subscriptions.get(key)?.unsubscribe();
       this.subscriptions.delete(key);
+      console.log(`[WS] Unsubscribed: ${destination}`);
     });
     this.roomHandlers.delete(roomId);
   }
@@ -484,6 +545,10 @@ class WebSocketService {
     return this._onRoomTopic(roomId, 'moderation', handler);
   }
 
+  onRoomNotifications(roomId: string, handler: Handler<RoomNotificationPayload>): () => void {
+    return this._onRoomTopic(roomId, 'notifications', handler as Handler<unknown>);
+  }
+
   onLiveRooms(handler: Handler<unknown>): () => void {
     this.liveRoomsHandlers.add(handler);
     return () => this.liveRoomsHandlers.delete(handler);
@@ -528,10 +593,12 @@ class WebSocketService {
     topic: RoomTopic,
     handler: Handler<unknown>,
   ): () => void {
-    const handlers = this._getRoomHandlerSet(roomId, topic);
+    const id = String(roomId);
+    this.joinedRooms.add(id);
+    const handlers = this._getRoomHandlerSet(id, topic);
     handlers.add(handler);
-    if (this.connected && this.joinedRooms.has(roomId)) {
-      this._subscribeRoomTopics(roomId);
+    if (this.connected) {
+      this._subscribeRoomTopics(id);
     }
     return () => handlers.delete(handler);
   }

@@ -7,6 +7,7 @@ import {
   PanResponder,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import Svg, {
@@ -18,37 +19,9 @@ import Svg, {
   LinearGradient as SvgGradient,
   Text as SvgText,
 } from "react-native-svg";
+import { getRoomGiftRanking } from "../src/api/partyApi";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-
-// ── TEMPORARY MOCK DATA (COMMENTED) ───────────────────────────────
-// Replace with backend gifting/ranking API data later.
-// export const MOCK_GIFTING_USERS = [
-//   {
-//     userId: "user-001",
-//     name: "ABHISHEK",
-//     profileImage: "https://randomuser.me/api/portraits/men/32.jpg",
-//     totalGiftAmount: 200000,
-//   },
-//   {
-//     userId: "user-002",
-//     name: "KRRISH",
-//     profileImage: "https://randomuser.me/api/portraits/men/44.jpg",
-//     totalGiftAmount: 150000,
-//   },
-//   {
-//     userId: "user-003",
-//     name: "RAJ",
-//     profileImage: "https://randomuser.me/api/portraits/men/68.jpg",
-//     totalGiftAmount: 90000,
-//   },
-//   {
-//     userId: "user-004",
-//     name: "RAKESH",
-//     profileImage: "https://randomuser.me/api/portraits/men/75.jpg",
-//     totalGiftAmount: 40000,
-//   },
-// ];
 
 // Helper: Format gift amounts (e.g. 200000 -> 200K, 1500000 -> 1.5M)
 export const formatGiftAmount = (amount) => {
@@ -74,23 +47,67 @@ const INITIAL_X = SCREEN_WIDTH - WIDGET_WIDTH - 12;
 const INITIAL_Y = 220;
 
 export default function TopGiftingRanking({
+  roomId,
   users,
   title = "Calculator ranking",
   onUserPress,
   visible = true,
+  refreshInterval = 15000,
 }) {
+  const [rankingData, setRankingData] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // Fetch dynamic ranking from GET /api/v1/tuktuk/rooms/{roomId}/gift-ranking
+  useEffect(() => {
+    if (!roomId) return;
+    let isMounted = true;
+
+    const fetchRanking = async () => {
+      try {
+        const res = await getRoomGiftRanking(roomId);
+        if (!isMounted) return;
+        const list = Array.isArray(res)
+          ? res
+          : (res?.ranking || res?.rankings || res?.data?.ranking || res?.data?.rankings || res?.data || res?.users || res?.topGifters || res?.list || []);
+
+        const normalized = list.map((item, idx) => ({
+          userId: item?.userId || item?.user_id || item?.id || `user-${idx}`,
+          name: item?.name || item?.username || item?.nickname || item?.userName || `User ${idx + 1}`,
+          profileImage: item?.avatarUrl || item?.avatar || item?.profileImage || item?.profileImageUrl || item?.image || null,
+          totalGiftAmount: Number(item?.totalGiftValue ?? item?.totalGiftAmount ?? item?.giftAmount ?? item?.amount ?? item?.totalAmount ?? item?.diamonds ?? item?.score ?? 0),
+          rank: item?.rank ?? (idx + 1),
+          ...item,
+        }));
+        setRankingData(normalized);
+      } catch (err) {
+        console.warn("[TopGiftingRanking] Failed to fetch gift ranking:", err?.message || err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchRanking();
+
+    // Auto-refresh interval to update live room gifting rankings
+    const intervalId = setInterval(fetchRanking, refreshInterval);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [roomId, refreshInterval]);
+
   const topGifters = useMemo(() => {
-    const list = Array.isArray(users) ? users : [];
+    const list = Array.isArray(users) && users.length > 0 ? users : rankingData;
     return [...list]
       .sort((a, b) => {
-        const diff = (b.totalGiftAmount || 0) - (a.totalGiftAmount || 0);
+        const diff = (b.totalGiftAmount || b.totalGiftValue || 0) - (a.totalGiftAmount || a.totalGiftValue || 0);
         if (diff !== 0) return diff;
         return String(a.userId || a.name || "").localeCompare(
           String(b.userId || b.name || ""),
         );
       })
       .slice(0, 3);
-  }, [users]);
+  }, [users, rankingData]);
 
   const pan = useRef(
     new Animated.ValueXY({ x: INITIAL_X, y: INITIAL_Y }),
@@ -429,7 +446,11 @@ function RankingRow({ user, rank, avatarUri, userName, onPress }) {
   const [imgError, setImgError] = useState(false);
 
   return (
-    <View style={styles.row}>
+    <TouchableOpacity
+      activeOpacity={0.75}
+      onPress={() => onPress && onPress(user)}
+      style={styles.row}
+    >
       {/* Winged Medal */}
       <View style={styles.medalWrap}>
         <WingedRankMedal rank={rank} />
@@ -458,7 +479,7 @@ function RankingRow({ user, rank, avatarUri, userName, onPress }) {
           {userName}
         </Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
