@@ -1,9 +1,9 @@
 import { Audio } from "expo-av";
 import {
-    ChannelProfileType,
-    ClientRoleType,
-    ConnectionStateType,
-    createAgoraRtcEngine,
+  ChannelProfileType,
+  ClientRoleType,
+  ConnectionStateType,
+  createAgoraRtcEngine,
 } from "react-native-agora";
 import { AGORA_APP_ID } from "../config/env";
 import { parseTokenPayload, unwrapVoiceTokenResponse, validateTokenPayload } from "./voice/voiceTokenUtils";
@@ -25,6 +25,15 @@ let statusListeners = new Set();
 let speakingListeners = new Set();   // { uid: number, isSpeaking: boolean }
 let connectionState = ConnectionStateType.ConnectionStateDisconnected;
 
+export const playAudioForEveryone = (filePath) => {
+  if (!engine) return;
+  engine.startAudioMixing(filePath, false, 1, 0);
+};
+
+export const stopAudioForEveryone = () => {
+  if (!engine) return;
+  engine.stopAudioMixing();
+};
 // Volume threshold — Agora reports 0–255; anything above this is "speaking"
 const SPEAKING_VOLUME_THRESHOLD = 20;
 
@@ -290,7 +299,7 @@ export const setTokenRenewalHandler = (handler) => {
 };
 
 export const subscribeVoiceStatus = (listener) => {
-  if (typeof listener !== "function") return () => {};
+  if (typeof listener !== "function") return () => { };
   statusListeners.add(listener);
   listener(getVoiceDiagnostics());
   return () => statusListeners.delete(listener);
@@ -303,7 +312,7 @@ export const subscribeVoiceStatus = (listener) => {
  * Returns an unsubscribe function.
  */
 export const subscribeSpeaking = (callback) => {
-  if (typeof callback !== "function") return () => {};
+  if (typeof callback !== "function") return () => { };
   speakingListeners.add(callback);
   return () => speakingListeners.delete(callback);
 };

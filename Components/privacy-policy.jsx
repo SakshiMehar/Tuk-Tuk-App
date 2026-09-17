@@ -1,13 +1,15 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft } from "lucide-react-native";
+import { Colors } from "../src/constants/colors";
 
 export default function PrivacyPolicy() {
   const router = useRouter();
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
       <LinearGradient
         colors={["#070616", "#110d2f", "#150f3d"]}
         style={StyleSheet.absoluteFill}

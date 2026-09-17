@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from "react-native";
-import Svg, { Polygon } from "react-native-svg";
-import { LinearGradient } from "expo-linear-gradient";
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useState } from "react";
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import Svg, { Polygon } from "react-native-svg";
 
 const TIERS = [
   {

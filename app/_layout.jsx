@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { setSessionExpiredHandler } from "../src/api/axios";
+import { Colors } from "../src/constants/colors";
 import { getToken } from "../src/store/authStore";
 import { initFirebase } from "../src/lib/firebase";
 import {
@@ -130,7 +131,13 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: Colors.background },
+          animation: "slide_from_right",
+        }}
+      >
         <Stack.Screen name="index" />
         <Stack.Screen name="login" />
         <Stack.Screen name="(tabs)" />
