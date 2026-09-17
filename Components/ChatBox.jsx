@@ -194,7 +194,7 @@ export default function ChatBox({ user = {}, onBack }) {
   // above (already fetched via getUserUiAssets) instead of a second fetch.
   const [otherUserProfileLevel, setOtherUserProfileLevel] = useState(null);
   const [otherUserDecorationBadge, setOtherUserDecorationBadge] = useState(null);
-  const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom } = useKeyboardInset();
+  const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom, idleBottom } = useKeyboardInset();
   const scrollRef = useRef(null);
   const [composerHeight, setComposerHeight] = useState(136);
 
