@@ -34,6 +34,7 @@ import RoomPremiumPanel from "../../Components/RoomPremiumPanel";
 import TukTukPassPanel from "../../Components/TukTukPassPanel";
 import UserLevelPanel from "../../Components/UserLevelPanel";
 import VipCenterPanel from "../../Components/VipCenterPanel";
+import HonorLevelPanel from "../../Components/HonorLevelPanel";
 import WalletRechargeSection from "../../Components/WalletRechargeSection";
 import { refreshTokenCache } from "../../src/api/axios";
 import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
@@ -1728,26 +1729,7 @@ export default function Profile() {
 
     // ── HONOR LEVEL ───────────────────────────────────────────────────────────
     if (label === "Honor Level") {
-      const perks = ["Custom profile border at Lv 5", "Honor badge on profile at Lv 10", "Priority in discovery at Lv 20", "Exclusive room themes at Lv 50"];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <View style={styles.mmHonorHero}>
-            <Text style={{ fontSize: 52, marginBottom: 8 }}>⭐</Text>
-            <Text style={styles.mmHonorLevel}>Level {userLevel ?? 1}</Text>
-            <Text style={styles.mmHonorXP}>0 / 500 XP to Level 2</Text>
-            <View style={[styles.mmProgressBar, { width: "100%", marginTop: 10 }]}>
-              <View style={[styles.mmProgressFill, { width: "3%" }]} />
-            </View>
-          </View>
-          <Text style={styles.mmSectionLabel}>Upcoming Perks</Text>
-          {perks.map((p) => (
-            <View key={p} style={styles.mmPerkRow}>
-              <Ionicons name="star" size={16} color="#fbbf24" />
-              <Text style={styles.mmPerkText}>{p}</Text>
-            </View>
-          ))}
-        </ScrollView>
-      );
+      return <HonorLevelPanel onClose={() => setActiveMenu(null)} />;
     }
 
     // ── FAMILY ────────────────────────────────────────────────────────────────
@@ -2548,7 +2530,7 @@ export default function Profile() {
       {/* ── MENU DETAIL MODAL (full screen) ── */}
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
         <View style={[styles.mmPanel, { paddingBottom: insets.bottom }]}>
-          {activeMenu?.label === "Task" ? (
+          {activeMenu?.label === "Task" || activeMenu?.label === "Honor Level" ? (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: "#ffffff" }]} />
           ) : (
             <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
@@ -2560,16 +2542,16 @@ export default function Profile() {
                 <View style={styles.mmHeaderIcon}>
                   <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
                 </View>
-                <Text style={[styles.mmHeaderTitle, activeMenu?.label === "Task" && { color: "#1e293b" }]}>{activeMenu?.label}</Text>
+                <Text style={[styles.mmHeaderTitle, (activeMenu?.label === "Task" || activeMenu?.label === "Honor Level") && { color: "#1e293b" }]}>{activeMenu?.label}</Text>
                 <TouchableOpacity 
-                  style={[styles.mmCloseBtn, activeMenu?.label === "Task" && { backgroundColor: "rgba(0,0,0,0.05)" }]} 
+                  style={[styles.mmCloseBtn, (activeMenu?.label === "Task" || activeMenu?.label === "Honor Level") && { backgroundColor: "rgba(0,0,0,0.05)" }]} 
                   onPress={() => setActiveMenu(null)} 
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="close" size={20} color={activeMenu?.label === "Task" ? "#1e293b" : "#ffffff"} />
+                  <Ionicons name="close" size={20} color={(activeMenu?.label === "Task" || activeMenu?.label === "Honor Level") ? "#1e293b" : "#ffffff"} />
                 </TouchableOpacity>
               </View>
-              <View style={[styles.mmDivider, activeMenu?.label === "Task" && { backgroundColor: "#f1f5f9" }]} />
+              <View style={[styles.mmDivider, (activeMenu?.label === "Task" || activeMenu?.label === "Honor Level") && { backgroundColor: "#f1f5f9" }]} />
             </>
           )}
           {/* Dynamic content */}

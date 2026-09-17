@@ -25,18 +25,12 @@ export const endLocalSession = async () => {
 };
 
 export const logoutSession = async () => {
-  try {
-    // 1. Unregister FCM token from backend & delete local FCM token while user JWT is still valid
-    await unregisterDevicePushToken().catch(() => {});
-    // 2. Call backend logout API
-    const data = await apiLogout();
-    return data;
-  } catch (err) {
-    throw err;
-  } finally {
-    // 3. Clear local session (websocket, storage, token cache)
-    await endLocalSession();
-  }
+  // Fire backend requests in the background without waiting for them
+  unregisterDevicePushToken().catch(() => {});
+  apiLogout().catch(() => {});
+  
+  // Clear local session immediately so the user can log out instantly
+  await endLocalSession();
 };
 
 export const deleteAccountSession = async ({ reason, additionalComment }) => {
