@@ -65,6 +65,7 @@ export const registerForPushNotifications = async ({ force = false } = {}) => {
 
       if (!deviceToken) return null;
       currentDeviceToken = deviceToken;
+      console.log("[FCM] token:", deviceToken);
 
       // Only register with backend if user has an active, valid login session
       const authToken = await getBearerToken();
@@ -174,6 +175,7 @@ export const initPushNotificationListeners = ({
 
   const unsubscribeOnTokenRefresh = onTokenRefresh(messagingInstance, async (token) => {
     currentDeviceToken = token;
+    console.log("[FCM] token (refreshed):", token);
 
     // When Firebase generates a new token, update backend only if logged in and changed
     try {

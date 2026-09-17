@@ -2219,7 +2219,6 @@ export default function Profile() {
                 {decorations.badgeUrl && (
                   <ProfileBadge source={{ uri: decorations.badgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
                 )}
-                <ProfileBadge source={VERIFIED_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
               </View>
 
             </View>

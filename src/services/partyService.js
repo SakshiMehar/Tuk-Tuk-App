@@ -7,6 +7,7 @@ import {
     getManagedRooms,
     getPartyRanking as getPartyRankingApi,
     getRecentlyRooms,
+    getRoomAnnouncement as getRoomAnnouncementApi,
     getRoomChatMessages,
     getRoomRecommendations,
     getRoomState,
@@ -14,6 +15,7 @@ import {
     joinRoom as joinRoomApi,
     searchRooms as searchRoomsApi,
     updateRoom as updateRoomApi,
+    updateRoomAnnouncement as updateRoomAnnouncementApi,
 } from "../api/partyApi";
 import { resolveBundledAvatarId } from "../data/avatarOptions";
 import { syncUserFromToken } from "../utils/sessionUser";
@@ -27,6 +29,14 @@ const firstText = (...values) =>
 
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
+
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
 
 const normalizeAvatarField = (value) => {
   if (!value) return null;
@@ -130,6 +140,7 @@ const normalizeSeatUser = (seatValue) => {
     ),
     muted: Boolean(user?.muted ?? user?.isMuted ?? seatValue?.muted),
     id: firstValue(user?.id, user?.userId, user?.uid, seatValue?.userId),
+    level: firstNumber(user?.level, seatValue?.level),
   };
 };
 
@@ -195,6 +206,7 @@ export const parseOnlineUsers = (stateData, joinData) => {
       avatar: normalizeAvatarField(rawAvatar),
       muted: Boolean(user?.muted ?? user?.isMuted),
       isSpeaking: Boolean(user?.isSpeaking),
+      level: firstNumber(user?.level),
     };
   });
 };
@@ -560,6 +572,27 @@ export const updateRoomCoverPhoto = async (
     updated?.imageUrl,
     updated?.room?.profileImageUrl,
     updated?.data?.profileImageUrl,
+  );
+};
+
+/** Fetch the room's pinned announcement (shown on the voice room screen). */
+export const fetchRoomAnnouncement = async (roomId) => {
+  const data = await getRoomAnnouncementApi(roomId);
+  return (
+    firstText(
+      data?.announcement,
+      data?.body,
+      data?.data?.announcement,
+      data?.data?.body,
+    ) ?? ""
+  );
+};
+
+/** Persist the room's pinned announcement via PUT .../announcement. */
+export const saveRoomAnnouncement = async (roomId, announcement) => {
+  const data = await updateRoomAnnouncementApi(roomId, announcement);
+  return (
+    firstText(data?.announcement, data?.body, announcement) ?? announcement
   );
 };
 

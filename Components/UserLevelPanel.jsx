@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Image, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Circle, Polygon, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,7 @@ import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
 const LEVEL_TABS = ["Active Level", "Wealth Level", "Charm Level", "Game Level"];
@@ -23,17 +24,17 @@ const LEVEL_UP_WAYS = [
   { label: "Gold cost", rate: "10 golds / 1 Exp", current: 0, target: 50 },
 ];
 
-const LEVEL_MEDALS = [
-  { lv: 1, colors: ["#c084fc", "#7c4dff"] },
-  { lv: 10, colors: ["#818cf8", "#6366f1"] },
-  { lv: 21, colors: ["#a78bfa", "#7c4dff"] },
-  { lv: 31, colors: ["#c026d3", "#7c4dff"] },
-  { lv: 41, colors: ["#e879f9", "#c026d3"] },
-  { lv: 51, colors: ["#7c4dff", "#5b21b6"] },
-  { lv: 61, colors: ["#9333ea", "#6d28d9"] },
-  { lv: 71, colors: ["#e879f9", "#a21caf"] },
-  { lv: 81, colors: ["#f472b6", "#c026d3"] },
-  { lv: 91, colors: ["#fb923c", "#e879f9"] },
+// Every level that has a real badge image in the CDN asset set — shown as the
+// actual unlockable medals instead of placeholder numbers.
+const LEVEL_MEDAL_LEVELS = [1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 30];
+
+// Cycled per medal card for visual variety across the grid.
+const MEDAL_CARD_PALETTE = [
+  ["#ede9fe", "#ddd6fe"],
+  ["#fce7f3", "#fbcfe8"],
+  ["#e0f2fe", "#bae6fd"],
+  ["#fef3c7", "#fde68a"],
+  ["#dcfce7", "#bbf7d0"],
 ];
 
 // Radius kept large relative to height so the arc's peak sits well clear of the
@@ -50,9 +51,9 @@ const ARC_TRACK_PATH = `M ${ARC_CX - ARC_R} ${ARC_CY} A ${ARC_R} ${ARC_R} 0 0 1 
 function SectionTitle({ children }) {
   return (
     <View style={styles.sectionTitleRow}>
-      <Ionicons name="ribbon" size={16} color="#e879f9" />
+      <Ionicons name="ribbon" size={16} color="#c026d3" />
       <Text style={styles.sectionTitleText}>{children}</Text>
-      <Ionicons name="ribbon" size={16} color="#e879f9" />
+      <Ionicons name="ribbon" size={16} color="#c026d3" />
     </View>
   );
 }
@@ -126,13 +127,19 @@ export default function UserLevelPanel() {
 
   return (
     <View style={{ flex: 1 }}>
-      <LinearGradient colors={["#3b1a78", "#7c4dff", "#5b21b6"]} style={styles.hero}>
+      <LinearGradient colors={["#f3e8ff", "#fdf2ff", "#ffffff"]} style={styles.hero}>
         <View style={styles.arcWrap}>
           <Svg width={ARC_WIDTH} height={ARC_HEIGHT} viewBox={`0 0 ${ARC_WIDTH} ${ARC_HEIGHT}`}>
-            <Path d={ARC_TRACK_PATH} stroke="rgba(255,255,255,0.25)" strokeWidth={ARC_STROKE} strokeLinecap="round" fill="none" />
+            <Defs>
+              <SvgLinearGradient id="arcProgressGrad" x1="0" y1="0" x2="1" y2="0">
+                <Stop offset="0" stopColor="#7c4dff" />
+                <Stop offset="1" stopColor="#e879f9" />
+              </SvgLinearGradient>
+            </Defs>
+            <Path d={ARC_TRACK_PATH} stroke="#ede4ff" strokeWidth={ARC_STROKE} strokeLinecap="round" fill="none" />
             <Path
               d={ARC_TRACK_PATH}
-              stroke="#e879f9"
+              stroke="url(#arcProgressGrad)"
               strokeWidth={ARC_STROKE}
               strokeLinecap="round"
               fill="none"
@@ -180,7 +187,7 @@ export default function UserLevelPanel() {
               marker) so they always sit right on the line, at any percent. */}
           <Text style={[styles.arcEndLabel, { left: 0 }]}>{xpCurrent}/{xpTarget}</Text>
           <Text style={[styles.arcEndLabel, { right: -12 }]}>
-            Next: <Text style={{ fontWeight: "900" }}>Lv.{level + 1}</Text>
+            Next: <Text style={{ fontWeight: "900", color: "#7c4dff" }}>Lv.{level + 1}</Text>
           </Text>
         </View>
 
@@ -203,7 +210,11 @@ export default function UserLevelPanel() {
         </View>
       </LinearGradient>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
+      <ScrollView
+        style={styles.bodyScroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.body}
+      >
         <View style={styles.card}>
           <SectionTitle>Ways to Level Up</SectionTitle>
           <Text style={styles.cardIntro}>
@@ -269,17 +280,25 @@ export default function UserLevelPanel() {
         <View style={styles.card}>
           <SectionTitle>Level Medal</SectionTitle>
           <View style={styles.medalGrid}>
-            {LEVEL_MEDALS.map((m) => (
-              <LinearGradient
-                key={m.lv}
-                colors={m.colors}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.medalPill}
-              >
-                <Text style={styles.medalPillText}>Lv.{m.lv}</Text>
-              </LinearGradient>
-            ))}
+            {LEVEL_MEDAL_LEVELS.map((lv, index) => {
+              const unlocked = level >= lv;
+              return (
+                <LinearGradient
+                  key={lv}
+                  colors={MEDAL_CARD_PALETTE[index % MEDAL_CARD_PALETTE.length]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.medalCard, !unlocked && styles.medalCardLocked]}
+                >
+                  <Image
+                    source={resolveLocalLevelBadge(lv)}
+                    style={[styles.medalCardImage, !unlocked && styles.medalCardImageLocked]}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.medalCardText}>Lv.{lv}</Text>
+                </LinearGradient>
+              );
+            })}
           </View>
         </View>
 
@@ -354,15 +373,20 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: "rgba(232,121,249,0.35)",
+    backgroundColor: "rgba(232,121,249,0.25)",
   },
   avatar: {
     width: 76,
     height: 76,
     borderRadius: 38,
     borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.6)",
-    backgroundColor: "rgba(255,255,255,0.15)",
+    borderColor: "#ffffff",
+    backgroundColor: "#f3e8ff",
+    shadowColor: "#7c4dff",
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   levelRibbonWrap: {
     width: RIBBON_W,
@@ -381,7 +405,7 @@ const styles = StyleSheet.create({
   },
   equippedBadgeText: {
     marginTop: 6,
-    color: "rgba(255,255,255,0.65)",
+    color: "#9d7ad1",
     fontSize: 11,
     fontWeight: "700",
     maxWidth: 140,
@@ -389,15 +413,15 @@ const styles = StyleSheet.create({
   arcEndLabel: {
     position: "absolute",
     top: ARC_CY + 10,
-    color: "rgba(255,255,255,0.75)",
+    color: "#8b5cf6",
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   tabRowOuter: {
     alignSelf: "stretch",
     marginHorizontal: 16,
     marginTop: 16,
-    backgroundColor: "rgba(0,0,0,0.18)",
+    backgroundColor: "rgba(124,77,255,0.1)",
     borderRadius: 999,
     padding: 4,
   },
@@ -411,26 +435,39 @@ const styles = StyleSheet.create({
   },
   tabPillActive: {
     backgroundColor: "white",
+    shadowColor: "#7c4dff",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   tabPillText: {
-    color: "rgba(255,255,255,0.7)",
+    color: "#8b7aa8",
     fontSize: 13,
     fontWeight: "700",
   },
   tabPillTextActive: {
     color: "#7c4dff",
   },
+  bodyScroll: {
+    backgroundColor: "#f8f5ff",
+  },
   body: {
     padding: 16,
     paddingBottom: 32,
   },
   card: {
-    backgroundColor: "rgba(124,77,255,0.1)",
+    backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: "#ede9fe",
     borderRadius: 20,
     padding: 18,
     marginBottom: 16,
+    shadowColor: "#7c4dff",
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   sectionTitleRow: {
     flexDirection: "row",
@@ -440,18 +477,18 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   sectionTitleText: {
-    color: "white",
+    color: "#4c1d95",
     fontSize: 16,
     fontWeight: "800",
   },
   cardIntro: {
-    color: "rgba(255,255,255,0.6)",
+    color: "#8b7aa8",
     fontSize: 12,
     lineHeight: 18,
     marginBottom: 12,
   },
   cardIntroHighlight: {
-    color: "#e879f9",
+    color: "#c026d3",
     fontWeight: "800",
   },
   statsRow: {
@@ -463,22 +500,22 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   statValue: {
-    color: "white",
+    color: "#4c1d95",
     fontSize: 20,
     fontWeight: "900",
   },
   statLabel: {
-    color: "rgba(255,255,255,0.55)",
+    color: "#8b7aa8",
     fontSize: 11.5,
     fontWeight: "600",
   },
   wayRow: {
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
+    borderBottomColor: "#f1e9ff",
     paddingVertical: 12,
   },
   wayLabel: {
-    color: "white",
+    color: "#3b0764",
     fontSize: 14,
     fontWeight: "700",
     marginBottom: 8,
@@ -486,50 +523,63 @@ const styles = StyleSheet.create({
   wayTrack: {
     height: 5,
     borderRadius: 3,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "#f1e9ff",
     overflow: "hidden",
     marginBottom: 6,
   },
   wayFill: {
     height: "100%",
     borderRadius: 3,
-    backgroundColor: "#e879f9",
+    backgroundColor: "#c026d3",
   },
   wayFooterRow: {
     flexDirection: "row",
     justifyContent: "space-between",
   },
   wayRate: {
-    color: "rgba(255,255,255,0.5)",
+    color: "#a394c4",
     fontSize: 11.5,
   },
   wayRateHighlight: {
-    color: "#a78bfa",
+    color: "#7c4dff",
     fontWeight: "700",
   },
   wayCount: {
-    color: "rgba(255,255,255,0.5)",
+    color: "#a394c4",
     fontSize: 11.5,
   },
   benefitItem: {
-    color: "rgba(255,255,255,0.75)",
+    color: "#5b4d75",
     fontSize: 13,
     lineHeight: 20,
   },
   medalGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 10,
     justifyContent: "center",
   },
-  medalPill: {
-    width: "18%",
-    borderRadius: 999,
-    paddingVertical: 8,
+  medalCard: {
+    width: "22%",
+    borderRadius: 16,
+    paddingVertical: 10,
     alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.15)",
   },
-  medalPillText: {
-    color: "white",
+  medalCardLocked: {
+    opacity: 0.55,
+  },
+  medalCardImage: {
+    width: 40,
+    height: 40,
+  },
+  medalCardImageLocked: {
+    opacity: 0.6,
+  },
+  medalCardText: {
+    color: "#5b21b6",
     fontSize: 11,
     fontWeight: "800",
   },
@@ -541,12 +591,18 @@ const styles = StyleSheet.create({
   rewardItem: {
     alignItems: "center",
     gap: 6,
+    backgroundColor: "#faf5ff",
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    borderWidth: 1,
+    borderColor: "#ede9fe",
   },
   rewardEmoji: {
     fontSize: 40,
   },
   rewardLabel: {
-    color: "rgba(255,255,255,0.6)",
+    color: "#8b7aa8",
     fontSize: 12,
     fontWeight: "600",
   },

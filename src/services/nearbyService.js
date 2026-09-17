@@ -8,6 +8,14 @@ const firstText = (...values) =>
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
 
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
 const listFrom = (value) => {
   if (Array.isArray(value)) return value;
   return value?.content ?? value?.users ?? value?.data ?? value?.items ?? [];
@@ -101,6 +109,7 @@ export const normalizeNearbyUser = (user, index = 0) => {
     online: Boolean(user?.online ?? user?.isOnline ?? profile?.online ?? profile?.isOnline),
     verified: Boolean(user?.verified ?? user?.isVerified ?? profile?.verified),
     vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
+    level: firstNumber(user?.level, profile?.level),
     raw: user,
   };
 };

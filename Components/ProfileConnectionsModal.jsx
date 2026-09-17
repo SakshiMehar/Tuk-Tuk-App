@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
+  Image,
   Modal,
   TouchableOpacity,
   FlatList,
@@ -16,7 +17,18 @@ import { loadFollowing, loadFollowers } from "../src/services/relationshipServic
 import { loadProfileVisitsList } from "../src/services/profileStatsService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
+} from "../src/constants/vip";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
+
+// Same per-tier VIP "logo" crest already used as the VIP badge everywhere
+// else it appears (UserProfileView, RoomUserProfilePopup, WalletUserCard).
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
+);
 
 const TITLES = {
   following: "Following",
@@ -77,6 +89,13 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
 
   const renderItem = ({ item }) => {
     const userId = item.userId ?? item.id;
+    // VIP logo + level badge: both derived from fields normalizeRelationshipUser
+    // already puts on every row (no extra request) — vipProfileFrameUrl and level.
+    // Decoration badge is still skipped: fetchUserDecorations is a per-user GET,
+    // and this list has no pagination and no existing per-row enrichment, so
+    // calling it per row risks an N+1 storm on a large followers/following list.
+    const vipTier = resolveVipTierFromAssetUrl(item.vipProfileFrameUrl);
+    const vipLogo = vipTier != null ? VIP_LOGO_BY_TIER[vipTier] : null;
     return (
       <TouchableOpacity
         style={styles.row}
@@ -113,6 +132,16 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
           <View style={styles.nameRow}>
             <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
             {item.verified && <Text style={styles.verified}>✓</Text>}
+            {item.level != null && (
+              <Image
+                source={resolveLocalLevelBadge(item.level)}
+                style={styles.levelBadge}
+                resizeMode="contain"
+              />
+            )}
+            {vipLogo && (
+              <Image source={{ uri: vipLogo }} style={styles.vipBadge} resizeMode="contain" />
+            )}
           </View>
           {item.handle ? (
             <Text style={styles.handle} numberOfLines={1}>{item.handle}</Text>
@@ -258,6 +287,8 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   name: { color: "white", fontSize: 15, fontWeight: "700", flexShrink: 1 },
   verified: { color: "#4ade80", fontSize: 13, fontWeight: "800" },
+  vipBadge: { width: 16, height: 16, flexShrink: 0 },
+  levelBadge: { height: 16, width: 16 * (142 / 149), flexShrink: 0 },
   handle: { color: "rgba(255,255,255,0.45)", fontSize: 12 },
   empty: { alignItems: "center", paddingTop: 80, gap: 10, paddingHorizontal: 24 },
   emptyEmoji: { fontSize: 48 },

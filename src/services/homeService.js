@@ -42,6 +42,14 @@ const hasContent = (post) =>
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
 
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
 const listFrom = (value, key) => {
   const target = key && value?.[key] !== undefined ? value[key] : value;
   if (Array.isArray(target)) return target;
@@ -109,6 +117,12 @@ const normalizeRecommendedUser = (user) => {
       )) ?? null,
     isOnline: Boolean(user?.isOnline ?? user?.online ?? profile?.isOnline),
     vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
+    // Explicit fallback chain (not just the `...user` spread above) so this
+    // survives whichever of the raw top-level/nested `profile` shapes the
+    // backend actually returns — the spread alone silently drops it whenever
+    // the real value lives under `profile` instead of top-level.
+    verified: Boolean(user?.verified ?? user?.isVerified ?? profile?.verified),
+    level: firstNumber(user?.level, profile?.level),
   };
 };
 

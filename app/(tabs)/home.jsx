@@ -52,7 +52,11 @@ import {
   unlikePost,
 } from "../../src/api/postApi";
 import { patchMyProfile } from "../../src/api/profileApi";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
+} from "../../src/constants/vip";
 import { DIAMOND_ICON_URL } from "../../src/constants/theme";
 import {
   getAvatarSource,
@@ -65,6 +69,7 @@ import {
 import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import * as homeService from "../../src/services/homeService";
+import { fetchUserDecorations } from "../../src/services/decorationsService";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import {
   fetchNotificationsData,
@@ -78,7 +83,11 @@ import {
   loadFollowing,
   unfollowUser,
 } from "../../src/services/relationshipService";
-import { syncUserCountryToServer } from "../../src/services/userCountryService";
+import {
+  resolveUserCountryName,
+  syncUserCountryToServer,
+} from "../../src/services/userCountryService";
+import { syncUserLevelForSession } from "../../src/services/userLevelService";
 import { updateUserProfile } from "../../src/services/userProfileService";
 import { loadMyVipAssets } from "../../src/services/vipService";
 import { getUser, updateUser } from "../../src/store/authStore";
@@ -96,6 +105,17 @@ import { ms, s, vs } from "../../src/utils/responsive";
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import { resolveImageSource } from "../../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
+import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
+
+// Same per-tier VIP "logo" crest used as the VIP badge in UserProfileView /
+// RoomUserProfilePopup — the small logo, not the big profile-frame ring.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
+);
+const BADGE_ASPECT = { level: 142 / 149, verified: 438 / 179 };
+// Same verified badge asset used by UserProfileView/ChatBox as the fallback
+// when a user has no custom decoration badge but is flagged verified.
+const VERIFIED_BADGE = require("../../assets/Batches/verified-batch.png");
 
 const H_PAD = 20;
 const CARD_GAP = 10;
@@ -2456,6 +2476,31 @@ PostCard.displayName = "PostCard";
 
 const RecommendedUserItem = memo(({ user }) => {
   const router = useRouter();
+  const [decorationBadgeUrl, setDecorationBadgeUrl] = useState(null);
+
+  // Short "recommended for you" row — only a handful of cards render at
+  // once, so a one-time per-user decoration fetch here isn't the N+1 risk
+  // it would be on a long scrollable list.
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let cancelled = false;
+    fetchUserDecorations(user.id)
+      .then((d) => {
+        if (!cancelled) setDecorationBadgeUrl(d?.badgeUrl ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setDecorationBadgeUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const levelBadge =
+    user?.level != null ? resolveLocalLevelBadge(user.level) : null;
+  const vipTier = resolveVipTierFromAssetUrl(user?.vipProfileFrameUrl);
+  const vipLogo = vipTier != null ? VIP_LOGO_BY_TIER[vipTier] : null;
+
   return (
     <TouchableOpacity
       style={styles.recommendItem}
@@ -2501,6 +2546,38 @@ const RecommendedUserItem = memo(({ user }) => {
       <Text style={styles.recommendName} numberOfLines={1}>
         {user.name}
       </Text>
+      {(levelBadge || vipLogo || decorationBadgeUrl || user?.verified) && (
+        <View style={styles.recommendBadgeRow}>
+          {levelBadge && (
+            <Image
+              source={levelBadge}
+              style={styles.recommendLevelBadge}
+              resizeMode="contain"
+            />
+          )}
+          {vipLogo && (
+            <Image
+              source={{ uri: vipLogo }}
+              style={styles.recommendVipBadge}
+              resizeMode="contain"
+            />
+          )}
+          {decorationBadgeUrl && (
+            <Image
+              source={{ uri: decorationBadgeUrl }}
+              style={styles.recommendDecorationBadge}
+              resizeMode="contain"
+            />
+          )}
+          {!decorationBadgeUrl && user?.verified && (
+            <Image
+              source={VERIFIED_BADGE}
+              style={styles.recommendDecorationBadge}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      )}
     </TouchableOpacity>
   );
 });
@@ -2581,6 +2658,9 @@ const HomeHeader = memo(
     sessionAvatarSource,
     sessionNewUserFrameSource,
     vipProfileFrameSource,
+    myLevelBadge,
+    myVipLogo,
+    myDecorationBadge,
     stats,
     unreadNotifications,
     recommendedUsers,
@@ -2632,36 +2712,51 @@ const HomeHeader = memo(
                   }
                   : {})}
               />
+              <View style={styles.onlineDot} />
             </View>
-            <View style={styles.headerTitleCol}>
-              <View style={styles.appNameWrapper}>
-                {/* Thin #7f3f89 outline — 8 directions at 1px */}
-                {[
-                  [-1, 0],
-                  [1, 0],
-                  [0, -1],
-                  [0, 1],
-                  [-1, -1],
-                  [1, -1],
-                  [-1, 1],
-                  [1, 1],
-                ].map(([dx, dy], i) => (
-                  <Text
-                    key={i}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.85}
-                    allowFontScaling={false}
-                    style={[
-                      styles.appName,
-                      styles.appNameOutline,
-                      { position: "absolute", left: dx, top: dy },
-                    ]}
-                  >
-                    Tuk Tuk
-                  </Text>
-                ))}
-                {/* White text on top */}
+            {/* Own level / VIP / decoration badge row — same three-badge
+                pattern as UserProfileView and RoomUserProfilePopup, just
+                sized down to fit under this header's small 62px avatar
+                since there's no name text here to sit next to. */}
+            {(myLevelBadge || myVipLogo || myDecorationBadge) && (
+              <View style={styles.headerBadgeRow}>
+                {myLevelBadge && (
+                  <Image
+                    source={myLevelBadge}
+                    style={styles.headerLevelBadge}
+                    resizeMode="contain"
+                  />
+                )}
+                {myVipLogo && (
+                  <Image
+                    source={{ uri: myVipLogo }}
+                    style={styles.headerVipBadge}
+                    resizeMode="contain"
+                  />
+                )}
+                {myDecorationBadge && (
+                  <Image
+                    source={{ uri: myDecorationBadge }}
+                    style={styles.headerDecorationBadge}
+                    resizeMode="contain"
+                  />
+                )}
+              </View>
+            )}
+          </View>
+          <View style={styles.headerTitleCol}>
+            <View style={styles.appNameWrapper}>
+              {/* Thin #7f3f89 outline — 8 directions at 1px */}
+              {[
+                [-1, 0],
+                [1, 0],
+                [0, -1],
+                [0, 1],
+                [-1, -1],
+                [1, -1],
+                [-1, 1],
+                [1, 1],
+              ].map(([dx, dy], i) => (
                 <Text
                   numberOfLines={1}
                   adjustsFontSizeToFit
@@ -2979,6 +3074,13 @@ export default function Home() {
   const [sessionNewUserFrameSource, setSessionNewUserFrameSource] =
     useState(null);
   const [vipProfileFrameSource, setVipProfileFrameSource] = useState(null);
+  // Own identity badge row shown next to the header avatar — level (local
+  // asset), VIP logo (small crest, distinct from the profileFrame ring
+  // above) and decoration/verified badge, mirroring UserProfileView /
+  // RoomUserProfilePopup.
+  const [myLevelBadge, setMyLevelBadge] = useState(null);
+  const [myVipLogo, setMyVipLogo] = useState(null);
+  const [myDecorationBadge, setMyDecorationBadge] = useState(null);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
   const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
   const [genderPickerVisible, setGenderPickerVisible] = useState(false);
@@ -3014,8 +3116,17 @@ export default function Home() {
           ? resolveImageSource(vipAssets.profileFrame)
           : null,
       );
+      setMyVipLogo(vipAssets.unlocked && vipAssets.logo ? vipAssets.logo : null);
     } catch {
       setVipProfileFrameSource(null);
+      setMyVipLogo(null);
+    }
+
+    try {
+      const { level } = await syncUserLevelForSession();
+      setMyLevelBadge(level != null ? resolveLocalLevelBadge(level) : null);
+    } catch {
+      setMyLevelBadge(null);
     }
   }, []);
 
@@ -3025,13 +3136,27 @@ export default function Home() {
     }, [syncSessionAvatar]),
   );
 
-  // Show gender picker once if user hasn't set their gender yet
+  // Country and gender are both required, so show the picker whenever either
+  // one is still missing. A returning user's country may only exist on the
+  // server, so resolve it from the profile endpoints before prompting again.
   useEffect(() => {
-    getUser()
-      .then((user) => {
-        if (!user?.gender) setGenderPickerVisible(true);
-      })
-      .catch(() => { });
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = await getUser();
+        if (!user?.gender) {
+          if (!cancelled) setGenderPickerVisible(true);
+          return;
+        }
+        const country = await resolveUserCountryName();
+        if (!cancelled && !country) setGenderPickerVisible(true);
+      } catch {
+        // Session unreadable — leave the picker hidden.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Saves gender + country from the "Who are you?" picker straight to the
@@ -3039,31 +3164,40 @@ export default function Home() {
   // immediately (same fields/shape as the Account screen's own country save).
   const saveGenderSelection = useCallback(
     async (gender) => {
+      // Country and gender are both required — without a country the picker
+      // stays open so the user cannot enter the app with an incomplete profile.
+      const match = selectedCountry ? findCountryByName(selectedCountry) : null;
+      if (!match || !gender) {
+        Alert.alert(
+          "Country required",
+          "Please select your country and gender first.",
+        );
+        return;
+      }
+
       setGenderSaving(true);
       try {
-        const match = selectedCountry
-          ? findCountryByName(selectedCountry)
-          : null;
-        const countryFields = match
-          ? {
-            country: match.name,
-            countryCode: match.code,
-            countryName: match.name,
-          }
-          : {};
+        const countryFields = {
+          country: match.name,
+          countryCode: match.code,
+          countryName: match.name,
+        };
         await updateUser({ gender, ...countryFields });
         await updateUserProfile({ gender, ...countryFields }).catch(() => { });
-        if (match) {
-          await patchMyProfile(countryFields).catch(() => { });
-          await syncUserCountryToServer({
-            country: match.name,
-            countryCode: match.code,
-          }).catch(() => { });
-        }
-      } finally {
-        setGenderSaving(false);
+        await patchMyProfile(countryFields).catch(() => { });
+        await syncUserCountryToServer({
+          country: match.name,
+          countryCode: match.code,
+        }).catch(() => { });
         setGenderPickerVisible(false);
         setSelectedCountry("");
+      } catch (err) {
+        Alert.alert(
+          "Could not save",
+          err?.message || "Please try selecting your country and gender again.",
+        );
+      } finally {
+        setGenderSaving(false);
       }
     },
     [selectedCountry],
@@ -3123,6 +3257,24 @@ export default function Home() {
   // Ref for currentUserId — lets the tab feed loader stay a stable callback
   const currentUserIdRef = useRef(currentUserId);
   currentUserIdRef.current = currentUserId;
+
+  // Own decoration/verified badge for the header avatar — a single per-user
+  // GET once the session user id is known (currentUserId is set async), not
+  // repeated per render or per focus.
+  useEffect(() => {
+    if (!currentUserId) return undefined;
+    let cancelled = false;
+    fetchUserDecorations(currentUserId)
+      .then((d) => {
+        if (!cancelled) setMyDecorationBadge(d?.badgeUrl ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setMyDecorationBadge(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId]);
 
   // ── Data loading ──────────────────────────────────────────
   // Deferred until after navigation animations finish so the first
@@ -3344,6 +3496,7 @@ export default function Home() {
               avatar: u.avatar ?? null,
               level: u.level ?? null,
               vip: Boolean(u.vip),
+              verified: Boolean(u.verified),
               status: u.status ?? null,
               vipProfileFrameUrl:
                 u.vipProfileFrameUrl ?? extractVipProfileFrameUrl(u),
@@ -3371,19 +3524,27 @@ export default function Home() {
       avatar: result.avatar,
       level: result.level,
       vip: result.vip,
+      verified: result.verified,
       status: result.status,
       vipProfileFrameUrl: result.vipProfileFrameUrl ?? null,
       isOnline: Boolean(result.subtitle && result.subtitle.includes("Online")),
     });
     setSearchProfileLoading(true);
     try {
-      const detail = await homeService.getUserDetailById(result.userId);
+      // Single on-demand profile view (one open at a time), so a per-user
+      // decoration fetch alongside the detail fetch isn't an N+1 concern —
+      // same reasoning as fetchVipProfileFrameForUser's single-detail-view case.
+      const [detail, decorations] = await Promise.all([
+        homeService.getUserDetailById(result.userId),
+        fetchUserDecorations(result.userId),
+      ]);
       setSearchProfile((prev) => ({
         ...prev,
         ...detail,
         userId: result.userId,
         name: detail?.name ?? prev?.name,
         avatar: detail?.avatar ?? prev?.avatar,
+        decorationBadgeUrl: decorations?.badgeUrl ?? null,
       }));
     } catch {
       // Keep the room-state fallback profile if the detail fetch fails.
@@ -3832,6 +3993,9 @@ export default function Home() {
         sessionAvatarSource={sessionAvatarSource}
         sessionNewUserFrameSource={sessionNewUserFrameSource}
         vipProfileFrameSource={vipProfileFrameSource}
+        myLevelBadge={myLevelBadge}
+        myVipLogo={myVipLogo}
+        myDecorationBadge={myDecorationBadge}
         stats={stats}
         unreadNotifications={unreadNotifications}
         recommendedUsers={recommendedUsers}
@@ -3854,6 +4018,9 @@ export default function Home() {
       sessionAvatarSource,
       sessionNewUserFrameSource,
       vipProfileFrameSource,
+      myLevelBadge,
+      myVipLogo,
+      myDecorationBadge,
       stats,
       unreadNotifications,
       recommendedUsers,
@@ -3866,6 +4033,17 @@ export default function Home() {
       router,
     ],
   );
+
+  // Badges for the searched-user profile modal below — a single on-demand
+  // detail view (one open at a time), so deriving these per-render is cheap
+  // and matches the level/VIP badge derivation in UserProfileView.
+  const searchProfileLevelBadge =
+    searchProfile?.level != null ? resolveLocalLevelBadge(searchProfile.level) : null;
+  const searchProfileVipTier = resolveVipTierFromAssetUrl(
+    searchProfile?.vipProfileFrameUrl,
+  );
+  const searchProfileVipLogo =
+    searchProfileVipTier != null ? VIP_LOGO_BY_TIER[searchProfileVipTier] : null;
 
   return (
     <View style={styles.container}>
@@ -3960,7 +4138,25 @@ export default function Home() {
               {searchResults.length > 0 ? (
                 <View style={styles.searchResultsSection}>
                   <Text style={styles.searchSuggestLabel}>Search Results</Text>
-                  {searchResults.map((result) => (
+                  {searchResults.map((result) => {
+                    // Level/VIP already ride along on the search-people
+                    // result payload (see homeService's user mapping), so
+                    // this is free — no extra per-row network call. Decoration
+                    // badges are skipped here on purpose: this list isn't
+                    // bounded to a handful of rows like the recommended-users
+                    // row, so fetchUserDecorations per row would risk an N+1
+                    // call storm as results grow.
+                    const resultVipTier =
+                      result.type === "user"
+                        ? resolveVipTierFromAssetUrl(result.vipProfileFrameUrl)
+                        : null;
+                    const resultVipLogo =
+                      resultVipTier != null ? VIP_LOGO_BY_TIER[resultVipTier] : null;
+                    const resultLevelBadge =
+                      result.type === "user" && result.level != null
+                        ? resolveLocalLevelBadge(result.level)
+                        : null;
+                    return (
                     <TouchableOpacity
                       key={result.id}
                       style={styles.searchResultItem}
@@ -4022,7 +4218,32 @@ export default function Home() {
                         </LinearGradient>
                       )}
                       <View style={styles.resultTextCol}>
-                        <Text style={styles.resultTitle}>{result.title}</Text>
+                        <View style={styles.resultTitleRow}>
+                          <Text style={styles.resultTitle} numberOfLines={1}>
+                            {result.title}
+                          </Text>
+                          {resultLevelBadge && (
+                            <Image
+                              source={resultLevelBadge}
+                              style={styles.resultLevelBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                          {resultVipLogo && (
+                            <Image
+                              source={{ uri: resultVipLogo }}
+                              style={styles.resultVipBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                          {result.type === "user" && result.verified && (
+                            <Image
+                              source={VERIFIED_BADGE}
+                              style={styles.resultVerifiedBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                        </View>
                         {result.subtitle && (
                           <Text style={styles.resultSubtitle}>
                             {result.subtitle}
@@ -4031,7 +4252,8 @@ export default function Home() {
                       </View>
                       <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
                     </TouchableOpacity>
-                  ))}
+                    );
+                  })}
                 </View>
               ) : searchQuery.length === 0 ? (
                 <>
@@ -4616,6 +4838,45 @@ export default function Home() {
                 )}
               </View>
 
+              {/* Same level/VIP/decoration badge row as UserProfileView and
+                  RoomUserProfilePopup — additive alongside the existing
+                  "Lv N" / "VIP" text pills below. */}
+              {(searchProfileLevelBadge ||
+                searchProfileVipLogo ||
+                searchProfile?.decorationBadgeUrl ||
+                searchProfile?.verified) && (
+                <View style={styles.searchProfileBadgeRow}>
+                  {searchProfileLevelBadge && (
+                    <Image
+                      source={searchProfileLevelBadge}
+                      style={styles.searchProfileLevelBadge}
+                      resizeMode="contain"
+                    />
+                  )}
+                  {searchProfileVipLogo && (
+                    <Image
+                      source={{ uri: searchProfileVipLogo }}
+                      style={styles.searchProfileVipLogo}
+                      resizeMode="contain"
+                    />
+                  )}
+                  {searchProfile?.decorationBadgeUrl && (
+                    <Image
+                      source={{ uri: searchProfile.decorationBadgeUrl }}
+                      style={styles.searchProfileDecorationBadge}
+                      resizeMode="contain"
+                    />
+                  )}
+                  {!searchProfile?.decorationBadgeUrl && searchProfile?.verified && (
+                    <Image
+                      source={VERIFIED_BADGE}
+                      style={styles.searchProfileDecorationBadge}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
+              )}
+
               <View style={styles.searchProfileMetaRow}>
                 {searchProfile?.level != null && (
                   <View style={styles.searchProfileBadge}>
@@ -4733,6 +4994,10 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   searchProfileVip: { color: "#ffd700", fontSize: 13, fontWeight: "800" },
+  searchProfileBadgeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  searchProfileLevelBadge: { height: 20, width: 20 * BADGE_ASPECT.level },
+  searchProfileVipLogo: { width: 20, height: 20 },
+  searchProfileDecorationBadge: { height: 20, width: 20 * BADGE_ASPECT.verified },
   searchProfileMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   searchProfileBadge: {
     backgroundColor: "rgba(124,77,255,0.3)",
@@ -5025,7 +5290,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
-
   headerTitleCol: {
     flex: 1,
     minWidth: 0,
@@ -5579,6 +5843,25 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "500",
   },
+  recommendBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    marginTop: 2,
+  },
+  recommendLevelBadge: {
+    height: s(12),
+    width: s(12) * BADGE_ASPECT.level,
+  },
+  recommendVipBadge: {
+    width: s(12),
+    height: s(12),
+  },
+  recommendDecorationBadge: {
+    height: s(12),
+    width: s(12) * BADGE_ASPECT.verified,
+  },
 
   // Banner Slider
   bannerWrapper: {
@@ -5947,11 +6230,29 @@ const styles = StyleSheet.create({
   resultTextCol: {
     flex: 1,
   },
+  resultTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 2,
+  },
   resultTitle: {
     color: "white",
     fontSize: 14,
     fontWeight: "700",
-    marginBottom: 2,
+    flexShrink: 1,
+  },
+  resultLevelBadge: {
+    height: 14,
+    width: 14 * BADGE_ASPECT.level,
+  },
+  resultVipBadge: {
+    width: 14,
+    height: 14,
+  },
+  resultVerifiedBadge: {
+    height: 14,
+    width: 14 * BADGE_ASPECT.verified,
   },
   resultSubtitle: {
     color: "rgba(255,255,255,0.5)",

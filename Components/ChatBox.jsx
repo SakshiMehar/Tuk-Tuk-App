@@ -43,10 +43,19 @@ import { destroyCallEngine, leaveCall, requestPermissions, startCall, subscribeC
 import { formatChatTime, loadChatHistory, markChatAsRead } from "../src/services/chatService";
 import { wsService } from "../src/services/websocket";
 import { openUserProfile } from "../src/utils/profileNavigation";
-import { getAppUserId } from "../src/utils/sessionUser";
-import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import { loadPublicProfile } from "../src/services/publicProfileService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
+import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
 
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
+
+// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
+// appears (UserProfileView, RoomUserProfilePopup) — built the same way here
+// for the header identity badge row.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
+);
 
 const { width: W } = Dimensions.get("window");
 const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", "😡", "👍", "🙏", "🎉", "❤️"];
@@ -179,7 +188,13 @@ export default function ChatBox({ user = {}, onBack }) {
   const [showEmojiBox, setShowEmojiBox] = useState(false);
   const [otherUserHasNewFrame, setOtherUserHasNewFrame] = useState(false);
   const [otherUserVipFrame, setOtherUserVipFrame] = useState(null);
-  const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom, idleBottom } = useKeyboardInset();
+  // Header identity badge row (level + decoration) — fetched once when the
+  // other user's id becomes known, same one-shot pattern as
+  // UserProfileView's refresh(). VIP logo is derived from otherUserVipFrame
+  // above (already fetched via getUserUiAssets) instead of a second fetch.
+  const [otherUserProfileLevel, setOtherUserProfileLevel] = useState(null);
+  const [otherUserDecorationBadge, setOtherUserDecorationBadge] = useState(null);
+  const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom } = useKeyboardInset();
   const scrollRef = useRef(null);
   const [composerHeight, setComposerHeight] = useState(136);
 
@@ -330,6 +345,22 @@ export default function ChatBox({ user = {}, onBack }) {
 
         const vipFrameUrl = extractVipProfileFrameUrl(assets) ?? extractVipProfileFrameUrl(assets?.data);
         if (!cancelled) setOtherUserVipFrame(vipFrameUrl);
+      } catch {
+        // non-critical
+      }
+
+      // Level + decoration badge for the header badge row — one-shot fetch
+      // per other-user id (not per render), mirroring UserProfileView's
+      // Promise.all([loadPublicProfile, ...fetchUserDecorations]) pattern.
+      try {
+        const [{ profile }, decorations] = await Promise.all([
+          loadPublicProfile(userId),
+          fetchUserDecorations(userId),
+        ]);
+        if (!cancelled) {
+          setOtherUserProfileLevel(profile?.level ?? null);
+          setOtherUserDecorationBadge(decorations?.badgeUrl ?? null);
+        }
       } catch {
         // non-critical
       }
@@ -572,6 +603,13 @@ export default function ChatBox({ user = {}, onBack }) {
     return () => clearTimeout(timer);
   }, [isKeyboardVisible, message]);
 
+  // Header identity badge row — level (fetched profile, falls back to the
+  // level passed in via route params) + VIP logo (tier derived from the
+  // already-fetched otherUserVipFrame) + decoration badge.
+  const headerLevel = otherUserProfileLevel ?? level;
+  const headerVipTier = resolveVipTierFromAssetUrl(otherUserVipFrame);
+  const headerVipLogo = headerVipTier != null ? VIP_LOGO_BY_TIER[headerVipTier] : null;
+
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
@@ -581,17 +619,33 @@ export default function ChatBox({ user = {}, onBack }) {
         <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8} onPress={onBack}>
           <ArrowLeft size={22} color={Colors.primary} />
         </TouchableOpacity>
-        <View style={styles.headerTitleWrap}>
-          <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
-            {avatar ? (
-              <Image source={resolveAvatarSource(avatar)} style={styles.headerAvatar} />
-            ) : (
-              <View style={[styles.headerAvatar, styles.headerAvatarPlaceholder]}>
-                <Text style={styles.headerInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+        <View style={styles.headerNameRow}>
           <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
+          {(headerLevel != null || headerVipLogo || otherUserDecorationBadge) && (
+            <View style={styles.headerBadgeRow}>
+              {headerLevel != null && (
+                <Image
+                  source={resolveLocalLevelBadge(headerLevel)}
+                  style={styles.headerLevelBadge}
+                  resizeMode="contain"
+                />
+              )}
+              {headerVipLogo && (
+                <Image
+                  source={{ uri: headerVipLogo }}
+                  style={styles.headerVipBadge}
+                  resizeMode="contain"
+                />
+              )}
+              {otherUserDecorationBadge && (
+                <Image
+                  source={{ uri: otherUserDecorationBadge }}
+                  style={styles.headerDecorationBadge}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+          )}
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
@@ -1061,12 +1115,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
-  headerName: {
+  headerNameRow: {
     flex: 1,
-    color: Colors.textDark,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  headerName: {
+    color: "white",
     fontSize: 18,
     fontWeight: "700",
-    textAlign: "left",
+    textAlign: "center",
+    flexShrink: 1,
+  },
+  headerBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+  },
+  headerLevelBadge: {
+    height: 16,
+    width: 16 * (142 / 149),
+  },
+  headerVipBadge: {
+    width: 16,
+    height: 16,
+  },
+  headerDecorationBadge: {
+    height: 16,
+    width: 16 * (438 / 179),
   },
   headerRight: { flexDirection: "row", gap: 6 },
 
