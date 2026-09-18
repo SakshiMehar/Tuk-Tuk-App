@@ -115,6 +115,13 @@ const normalizeConversation = (conversation) => {
     liked: Boolean(conversation?.liked),
     vipProfileFrameUrl: extractVipProfileFrameUrl(conversation) ?? extractVipProfileFrameUrl(peer),
     level: firstNumber(conversation?.level, peer?.level),
+    countryCode: firstText(conversation?.countryCode, peer?.countryCode),
+    countryName: firstText(
+      conversation?.countryName,
+      conversation?.country,
+      peer?.countryName,
+      peer?.country
+    ),
   };
 };
 

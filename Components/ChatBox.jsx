@@ -47,6 +47,7 @@ import { loadPublicProfile } from "../src/services/publicProfileService";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
 

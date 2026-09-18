@@ -6578,6 +6578,9 @@ export default function VoiceParty() {
                           >
                             <Text style={styles.chatUser}>{senderName}</Text>
                           </TouchableOpacity>
+                          {isSenderSelf && !!myCountryFlag && (
+                            <Text style={styles.chatUserFlag}>{myCountryFlag}</Text>
+                          )}
                           <Image
                             source={resolveLocalLevelBadge(msg.level)}
                             style={styles.lvBadgeImg}
@@ -7419,6 +7422,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   chatUser: { color: "#b44dff", fontSize: 12, fontWeight: "700" },
+  chatUserFlag: { fontSize: 12 },
   // Same level-badge image (and aspect ratio) shown on the Profile tab —
   // 142/149 measured from the actual asset files, see levelBadge.js.
   lvBadgeImg: { height: 18, width: 18 * (142 / 149) },

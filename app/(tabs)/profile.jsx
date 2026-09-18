@@ -195,7 +195,7 @@ const menuPages = [
     { icon: "id-badge", label: "TukTuk Pass", badge: true },
   ],
   [
-    { icon: "level-up-alt", label: "Level", badge: true, comingSoon: true },
+    { icon: "level-up-alt", label: "Level", badge: true },
     { icon: "instagram", label: "Instagram", badge: false },
     { icon: "facebook", label: "Facebook", badge: false },
     { icon: "share-alt", label: "Share", badge: false },
@@ -2231,14 +2231,19 @@ export default function Profile() {
 
               {/* Row 1: Username + Edit */}
               <View style={styles.nameRow}>
-                <Text
-                  style={styles.userName}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                >
-                  {name}
-                </Text>
+                <View style={styles.userNameWithFlag}>
+                  <Text
+                    style={styles.userName}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {name}
+                  </Text>
+                  {!!countryFlag && (
+                    <Text style={styles.profileCountryFlag}>{countryFlag}</Text>
+                  )}
+                </View>
                 <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={handleOpenEditProfile}>
                   <LinearGradient
                     colors={["#a78bfa", "#7c4dff"]}
@@ -2265,9 +2270,6 @@ export default function Profile() {
                   <View style={styles.genderPillFemale}>
                     <Text style={styles.genderSymbolFemale}>♀</Text>
                   </View>
-                )}
-                {!!countryFlag && (
-                  <Text style={styles.profileCountryFlag}>{countryFlag}</Text>
                 )}
               </View>
 
@@ -3042,12 +3044,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  userNameWithFlag: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
   userName: {
     fontSize: ms(18),
     fontWeight: "800",
     color: APP_TEXT,
-    flex: 1,
-    marginRight: 8,
+    flexShrink: 1,
   },
   editBtn: {
     borderRadius: 16,

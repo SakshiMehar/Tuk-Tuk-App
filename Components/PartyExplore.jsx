@@ -29,6 +29,7 @@ import {
   resolveVipTierFromAssetUrl,
 } from "../src/constants/vip";
 import exploreData from "../src/data/partyExploreData.json";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import { getRecommendedUsers } from "../src/services/homeService";
 import {
   loadFamilies,
@@ -294,6 +295,12 @@ export default function PartyExplore() {
   const [relatedRooms, setRelatedRooms] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [recommendedUsers, setRecommendedUsers] = useState([]);
+  // userId -> decoration badgeUrl for the "Recommend user in the room" strip
+  // below — a small horizontal list (same size class as ChatTab.jsx's
+  // identical recommend row), so one fetchUserDecorations call per visible
+  // user id is fine, cached by id so it's never re-requested.
+  const [recommendDecorations, setRecommendDecorations] = useState({});
+  const recommendDecorationFetchedIds = useRef(new Set());
 
   // ── Search ──
   const [searchVisible, setSearchVisible] = useState(false);
@@ -386,7 +393,21 @@ export default function PartyExplore() {
     let cancelled = false;
     getRecommendedUsers()
       .then((users) => {
-        if (!cancelled) setRecommendedUsers(users);
+        if (!cancelled) {
+          setRecommendedUsers(users);
+          (users ?? []).forEach((u) => {
+            const uid = u?.id != null ? String(u.id) : u?.userId != null ? String(u.userId) : null;
+            if (!uid || recommendDecorationFetchedIds.current.has(uid)) return;
+            recommendDecorationFetchedIds.current.add(uid);
+            fetchUserDecorations(uid)
+              .then(({ badgeUrl }) => {
+                if (badgeUrl && !cancelled) {
+                  setRecommendDecorations((prev) => ({ ...prev, [uid]: badgeUrl }));
+                }
+              })
+              .catch(() => {});
+          });
+        }
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -748,6 +769,8 @@ export default function PartyExplore() {
                       user?.level != null ? resolveLocalLevelBadge(user.level) : null;
                     const vipTier = resolveVipTierFromAssetUrl(user?.vipProfileFrameUrl);
                     const vipLogo = vipTier != null ? VIP_LOGO_BY_TIER[vipTier] : null;
+                    const decorationBadge =
+                      user?.id != null ? recommendDecorations[String(user.id)] : null;
                     return (
                     <TouchableOpacity
                       key={user.id}
@@ -788,7 +811,7 @@ export default function PartyExplore() {
                         )}
                       </LinearGradient>
                       <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
-                      {(levelBadge || vipLogo || user?.verified) && (
+                      {(levelBadge || vipLogo || decorationBadge || user?.verified) && (
                         <View style={styles.recommendBadgeRow}>
                           {levelBadge && (
                             <Image
@@ -801,6 +824,13 @@ export default function PartyExplore() {
                             <Image
                               source={{ uri: vipLogo }}
                               style={styles.recommendVipBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                          {decorationBadge && (
+                            <Image
+                              source={{ uri: decorationBadge }}
+                              style={styles.recommendDecorationBadge}
                               resizeMode="contain"
                             />
                           )}
@@ -1688,6 +1718,10 @@ const styles = StyleSheet.create({
   recommendVipBadge: {
     width: 12,
     height: 12,
+  },
+  recommendDecorationBadge: {
+    height: 12,
+    width: 12 * BADGE_ASPECT.verified,
   },
   recommendVerifiedBadge: {
     height: 12,

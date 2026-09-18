@@ -22,6 +22,8 @@ import {
 } from "../src/constants/vip";
 import { getAvatarSource, isBundledAvatarId } from "../src/data/avatarOptions";
 import { loadConversations } from "../src/services/chatService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import { useMyCountryFlag } from "../src/services/userCountryService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { loadFamilyDetail, loadFamilyLists } from "../src/services/familyService";
 import { getRecommendedUsers } from "../src/services/homeService";
@@ -137,6 +139,10 @@ export default function ChatTab() {
   const router = useRouter();
   const scrollRef = useRef(null);
   useScrollToTop(scrollRef);
+  // Only the signed-in user's own country is ever fetched (GET /me/country) —
+  // there's no per-user country lookup for other people, so this same flag is
+  // what's shown next to every username row below, not a per-row value.
+  const myCountryFlag = useMyCountryFlag();
   const [activeTopTab, setActiveTopTab] = useState("Chats");
   const [searchText, setSearchText] = useState("");
   const [showBanner, setShowBanner] = useState(true);
@@ -156,6 +162,29 @@ export default function ChatTab() {
   const [familyGroups, setFamilyGroups] = useState([]);
   const [familyGroupsLoading, setFamilyGroupsLoading] = useState(false);
   const [chatFamily, setChatFamily] = useState(null);
+  // userId -> decoration badgeUrl, shared by the Chatlist rows and the
+  // "Recommend user in the room" rows below — both lists are small (a
+  // handful of visible rows), so one fetchUserDecorations call per visible
+  // user id is fine (same size reasoning as the rest of this file already
+  // uses for level/VIP). Cached by id via the ref so re-renders/refetches
+  // don't re-request a user we've already resolved.
+  const [decorationsByUserId, setDecorationsByUserId] = useState({});
+  const decorationFetchedIds = useRef(new Set());
+
+  const fetchDecorationsForUsers = useCallback((users) => {
+    (users ?? []).forEach((u) => {
+      const uid = u?.userId != null ? String(u.userId) : u?.id != null ? String(u.id) : null;
+      if (!uid || decorationFetchedIds.current.has(uid)) return;
+      decorationFetchedIds.current.add(uid);
+      fetchUserDecorations(uid)
+        .then(({ badgeUrl }) => {
+          if (badgeUrl) {
+            setDecorationsByUserId((prev) => ({ ...prev, [uid]: badgeUrl }));
+          }
+        })
+        .catch(() => { });
+    });
+  }, []);
 
   const fetchChats = useCallback(() => {
     setChatsLoading(true);
@@ -163,11 +192,12 @@ export default function ChatTab() {
     loadConversations()
       .then((list) => {
         setConversations(list);
+        fetchDecorationsForUsers(list);
 
       })
       .catch(() => setConversations([]))
       .finally(() => setChatsLoading(false));
-  }, []);
+  }, [fetchDecorationsForUsers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,12 +205,13 @@ export default function ChatTab() {
       .then((users) => {
         if (!cancelled) {
           setRecommendedUsers(users);
+          fetchDecorationsForUsers(users);
 
         }
       })
       .catch(() => { });
     return () => { cancelled = true; };
-  }, []);
+  }, [fetchDecorationsForUsers]);
 
   useFocusEffect(
     useCallback(() => {
@@ -354,6 +385,8 @@ export default function ChatTab() {
     return list.map((item, idx) => {
       const rowVipTier = resolveVipTierFromAssetUrl(item.vipProfileFrameUrl);
       const rowVipLogo = rowVipTier != null ? VIP_LOGO_BY_TIER[rowVipTier] : null;
+      const rowDecorationBadge =
+        item.userId != null ? decorationsByUserId[String(item.userId)] : null;
       return (
       <TouchableOpacity
         key={String(item.userId ?? item.id ?? idx)}
@@ -409,17 +442,20 @@ export default function ChatTab() {
           <View style={styles.chatTopRow}>
             <View style={styles.chatNameRow}>
               <Text style={styles.chatName} numberOfLines={1}>{item.name}</Text>
-              {item.level != null && (
-                <Image
-                  source={resolveLocalLevelBadge(item.level)}
-                  style={styles.chatLevelBadge}
-                  resizeMode="contain"
-                />
+              {!!myCountryFlag && (
+                <Text style={styles.chatCountryFlag}>{myCountryFlag}</Text>
               )}
               {rowVipLogo && (
                 <Image
                   source={{ uri: rowVipLogo }}
                   style={styles.chatVipBadge}
+                  resizeMode="contain"
+                />
+              )}
+              {rowDecorationBadge && (
+                <Image
+                  source={{ uri: rowDecorationBadge }}
+                  style={styles.chatDecorationBadge}
                   resizeMode="contain"
                 />
               )}
@@ -661,6 +697,12 @@ export default function ChatTab() {
                     contactsPage === "followers" &&
                     !followingIdSet.has(userId) &&
                     !isSameUser(userId, myUserId);
+                  const contactVipTier = resolveVipTierFromAssetUrl(user.vipProfileFrameUrl);
+                  const contactVipLogo = contactVipTier != null ? VIP_LOGO_BY_TIER[contactVipTier] : null;
+                  // Decoration/verified badge intentionally skipped here: Friends/
+                  // Followers/Following can be long, unbounded lists, so firing
+                  // fetchUserDecorations per row would risk an N+1 request storm
+                  // (unlike the small Chatlist/Recommend rows above).
 
                   return (
                   <TouchableOpacity
@@ -710,6 +752,13 @@ export default function ChatTab() {
                               <Image
                                 source={resolveLocalLevelBadge(user.level)}
                                 style={styles.contactLevelBadge}
+                                resizeMode="contain"
+                              />
+                            )}
+                            {contactVipLogo && (
+                              <Image
+                                source={{ uri: contactVipLogo }}
+                                style={styles.chatVipBadge}
                                 resizeMode="contain"
                               />
                             )}
@@ -849,6 +898,8 @@ export default function ChatTab() {
               {recommendedUsers.map((user) => {
                 const recommendVipTier = resolveVipTierFromAssetUrl(user.vipProfileFrameUrl);
                 const recommendVipLogo = recommendVipTier != null ? VIP_LOGO_BY_TIER[recommendVipTier] : null;
+                const recommendDecorationBadge =
+                  user.userId != null ? decorationsByUserId[String(user.userId)] : null;
                 return (
                 <TouchableOpacity
                   key={user.id}
@@ -899,6 +950,13 @@ export default function ChatTab() {
                       <Image
                         source={{ uri: recommendVipLogo }}
                         style={styles.recommendVipBadge}
+                        resizeMode="contain"
+                      />
+                    )}
+                    {recommendDecorationBadge && (
+                      <Image
+                        source={{ uri: recommendDecorationBadge }}
+                        style={styles.recommendDecorationBadge}
                         resizeMode="contain"
                       />
                     )}
@@ -1242,6 +1300,10 @@ const styles = StyleSheet.create({
     height: 10,
     width: 10,
   },
+  recommendDecorationBadge: {
+    height: 10,
+    width: 10 * (438 / 179),
+  },
   recommendVerifiedBadge: {
     width: 10,
     height: 10,
@@ -1389,9 +1451,16 @@ const styles = StyleSheet.create({
     height: 16,
     width: 16 * (142 / 149),
   },
+  chatCountryFlag: {
+    fontSize: 14,
+  },
   chatVipBadge: {
     width: 16,
     height: 16,
+  },
+  chatDecorationBadge: {
+    height: 16,
+    width: 16 * (438 / 179),
   },
   verifiedBadge: {
     width: 16,
