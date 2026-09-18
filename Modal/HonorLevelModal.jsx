@@ -68,7 +68,7 @@ const LevelRow = ({ item, isExpanded, onToggle }) => {
   );
 };
 
-export default function HonorLevelPanel({ onClose }) {
+export default function HonorLevelModal({ onClose }) {
   const [expandedId, setExpandedId] = useState(null);
   const insets = useSafeAreaInsets();
 

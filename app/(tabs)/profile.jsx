@@ -23,6 +23,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AppBackground from "../../Components/AppBackground";
 import BackpackPanel from "../../Components/BackpackPanel";
+import HelpMenu from "../../Modal/HelpMenu";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import FamilyChatModal from "../../Components/FamilyChatModal";
 import GetRewardsPanel from "../../Components/GetRewardsPanel";
@@ -34,7 +35,7 @@ import RoomPremiumPanel from "../../Components/RoomPremiumPanel";
 import TukTukPassPanel from "../../Components/TukTukPassPanel";
 import UserLevelPanel from "../../Components/UserLevelPanel";
 import VipCenterPanel from "../../Components/VipCenterPanel";
-import HonorLevelPanel from "../../Components/HonorLevelPanel";
+import HonorLevelModal from "../../Modal/HonorLevelModal";
 import WalletRechargeSection from "../../Components/WalletRechargeSection";
 import { refreshTokenCache } from "../../src/api/axios";
 import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
@@ -1136,7 +1137,6 @@ export default function Profile() {
 
   // Menu modal state
   const [activeMenu, setActiveMenu] = useState(null);
-  const [expandedFaqMM, setExpandedFaqMM] = useState(null);
   const [profileFeedback, setProfileFeedback] = useState("");
   const [feedbackSentMM, setFeedbackSentMM] = useState(false);
   const [feedbackSubmittingMM, setFeedbackSubmittingMM] = useState(false);
@@ -1792,7 +1792,7 @@ export default function Profile() {
 
     // ── HONOR LEVEL ───────────────────────────────────────────────────────────
     if (label === "Honor Level") {
-      return <HonorLevelPanel onClose={() => setActiveMenu(null)} />;
+      return <HonorLevelModal onClose={() => setActiveMenu(null)} />;
     }
 
     // ── FAMILY ────────────────────────────────────────────────────────────────
@@ -1907,29 +1907,7 @@ export default function Profile() {
 
     // ── HELP ──────────────────────────────────────────────────────────────────
     if (label === "Help") {
-      const faqs = [
-        { q: "How do I match with someone?", a: "Enable Match switch in Settings and browse nearby profiles. Tap the heart to match!" },
-        { q: "How do I earn diamonds?", a: "Complete daily tasks, login streaks, attend events, or purchase from the Store." },
-        { q: "How do I report a user?", a: "Open the user's profile, tap the three-dot menu, then select Report. We review all reports within 24 hours." },
-      ];
-      return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <Text style={styles.mmSectionLabel}>Frequently Asked Questions</Text>
-          {faqs.map((f) => (
-            <TouchableOpacity key={f.q} style={styles.mmFaqRow} activeOpacity={0.8} onPress={() => setExpandedFaqMM(expandedFaqMM === f.q ? null : f.q)}>
-              <View style={styles.mmFaqQ}>
-                <Ionicons name="help-circle" size={18} color="#a78bfa" />
-                <Text style={styles.mmFaqQText}>{f.q}</Text>
-                <Ionicons name={expandedFaqMM === f.q ? "chevron-up" : "chevron-down"} size={14} color="rgba(255,255,255,0.4)" />
-              </View>
-              {expandedFaqMM === f.q && <Text style={styles.mmFaqAText}>{f.a}</Text>}
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={[styles.mmOutlineBtn, { marginTop: 20 }]} activeOpacity={0.8}>
-            <Text style={styles.mmOutlineBtnText}>Contact Support</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      );
+      return <HelpMenu insets={insets} onClose={() => setActiveMenu(null)} />;
     }
 
     // ── ROOM BADGE ────────────────────────────────────────────────────────────
@@ -2617,14 +2595,16 @@ export default function Profile() {
       </ScrollView>
       {/* ── MENU DETAIL MODAL (full screen) ── */}
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
-        <View style={[styles.mmPanel, { paddingBottom: insets.bottom }]}>
+        <View style={[styles.mmPanel, { paddingBottom: activeMenu?.label === "Help" ? 0 : insets.bottom }]}>
           {activeMenu?.label === "Task" || activeMenu?.label === "Honor Level" ? (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: "#ffffff" }]} />
+          ) : activeMenu?.label === "Help" ? (
+            <LinearGradient colors={["#f8f9fe", "#f0f4ff", "#ffffff"]} style={StyleSheet.absoluteFill} />
           ) : (
             <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
           )}
-          {/* Header — Premium, TukTuk Pass, and Backpack render their own custom headers */}
-          {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && activeMenu?.label !== "Backpack" && (
+          {/* Header — Premium, TukTuk Pass, Backpack, and Help render their own custom headers */}
+          {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && activeMenu?.label !== "Backpack" && activeMenu?.label !== "Help" && (
             <>
               <View style={[styles.mmHeader, { paddingTop: insets.top + 10 }]}>
                 <View style={styles.mmHeaderIcon}>
@@ -4464,5 +4444,159 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  helpContainer: {
+    flex: 1,
+  },
+  helpTopBg: {
+    paddingBottom: 24,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+  },
+  helpHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    marginBottom: 20,
+  },
+  helpHeaderBackCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  helpHeaderRightCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  helpHeaderTitle: {
+    color: "#ffffff",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  helpTabRow: {
+    flexDirection: "row",
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    padding: 4,
+    marginHorizontal: 20,
+    marginBottom: 20,
+  },
+  helpTabBtn: {
+    flex: 1,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  helpTabBtnActive: {
+    backgroundColor: "#ff7f00",
+  },
+  helpTabBtnInactive: {
+    backgroundColor: "transparent",
+  },
+  helpTabText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+  helpTabTextActive: {
+    color: "#ffffff",
+  },
+  helpSearchWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 20,
+    marginHorizontal: 20,
+    height: 48,
+  },
+  helpSearchInput: {
+    flex: 1,
+    color: "#ffffff",
+    fontSize: 15,
+    height: "100%",
+  },
+  helpFilterBtn: {
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderTopRightRadius: 20,
+    borderBottomRightRadius: 20,
+  },
+  helpContentScroll: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  helpFaqCard: {
+    backgroundColor: "#f9f8ff",
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#ede8ff",
+    overflow: "hidden",
+    shadowColor: "#7b4aff",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  helpFaqQ: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 18,
+  },
+  helpFaqQText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#2a1b54",
+    marginRight: 16,
+  },
+  helpFaqDivider: {
+    height: 1,
+    backgroundColor: "#ede8ff",
+    marginBottom: 12,
+    marginHorizontal: -18,
+  },
+  helpFaqA: {
+    paddingHorizontal: 18,
+    paddingBottom: 18,
+  },
+  helpFaqAText: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: "#5f4f8d",
+  },
+  helpContactView: {
+    alignItems: "center",
+    marginTop: 40,
+  },
+  helpContactTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1e293b",
+    marginBottom: 20,
+  },
+  helpContactBtn: {
+    backgroundColor: "#6a4cff",
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 24,
+  },
+  helpContactBtnText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "700",
   },
 });
