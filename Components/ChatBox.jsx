@@ -300,8 +300,8 @@ export default function ChatBox({ user = {}, onBack }) {
   const mapApiMessage = (m, currentUserId) => ({
     id: String(m.messageId ?? m.id ?? Date.now()),
     text: m.content ?? m.message ?? m.text ?? "",
-    image: m.image ?? null,
-    audio: m.audio ?? null,
+    image: m.imageUrl ?? m.image ?? null,
+    audio: m.audioUrl ?? m.audio ?? null,
     audioDuration: m.audioDuration ?? 0,
     fromMe: String(m.senderId) === String(currentUserId),
     time: m.timestamp || m.createdAt ? new Date(m.timestamp || m.createdAt) : new Date(),

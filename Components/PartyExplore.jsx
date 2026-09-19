@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Image,
   Modal,
@@ -485,6 +486,24 @@ export default function PartyExplore() {
       setLevelGateVisible(true);
       return;
     }
+
+    // One room per user — block opening the create form if they already
+    // manage a room, instead of letting them create a second one.
+    try {
+      const managedRooms = await loadManagedRooms();
+      if (managedRooms.length > 0) {
+        Alert.alert(
+          "You already have a room",
+          "You cannot create a room because you already have one.",
+        );
+        return;
+      }
+    } catch {
+      // If this check fails (e.g. network hiccup), fall through — the
+      // create call itself already handles the "room already exists" case
+      // defensively (see the conflict branch in createPartyRoom).
+    }
+
     setCreateRoomVisible(true);
   };
 

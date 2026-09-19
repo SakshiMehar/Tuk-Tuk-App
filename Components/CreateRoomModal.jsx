@@ -155,6 +155,9 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
         name: trimmedName,
         announcement: trimmedAnnouncement,
         body: trimmedAnnouncement,
+        // Send the picked room photo as multipart on the create call itself
+        // (backend now accepts the image directly at creation time).
+        imageUri: roomPhotoUri,
         ...(user?.profilePicUrl || user?.avatarUrl
           ? {
               userProfileImageUrl: user.profilePicUrl ?? user.avatarUrl,

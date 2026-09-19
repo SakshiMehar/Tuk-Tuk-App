@@ -132,6 +132,8 @@ const normalizeMessage = (message) => ({
   receiverId: firstValue(message?.receiverId, message?.toUserId),
   content: firstText(message?.content, message?.text, message?.message, message?.body) ?? "",
   imageUrl: firstText(message?.imageUrl, message?.image, message?.mediaUrl, message?.attachmentUrl, message?.attachment) ?? null,
+  audioUrl: firstText(message?.audioUrl, message?.audio, message?.voiceUrl, message?.voiceNoteUrl) ?? null,
+  audioDuration: firstNumber(message?.audioDuration, message?.duration, message?.audioDurationMs) ?? 0,
   timestamp: firstText(message?.timestamp, message?.createdAt, message?.sentAt) ?? "",
   status: message?.status ?? "MESSAGE_SENT",
 });

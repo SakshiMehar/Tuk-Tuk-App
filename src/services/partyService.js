@@ -465,6 +465,13 @@ export const createPartyRoom = async (payload = {}) => {
     ...(roomAnnouncement ? { body: roomAnnouncement } : {}),
     ...(rest.category ? { category: rest.category } : {}),
     ...(rest.roomType ? { roomType: rest.roomType } : {}),
+    // A locally-picked room photo (rest.imageUri, a file:// uri) is sent as
+    // multipart/form-data directly on the create call — createRoom /
+    // createRoomForUser in partyApi.js switch to FormData whenever this is
+    // present, matching the backend's create-time image upload contract.
+    ...(rest.imageUri
+      ? { imageUri: rest.imageUri, mimeType: rest.mimeType, fileName: rest.fileName }
+      : {}),
   };
 
   if (personalRoom) {
