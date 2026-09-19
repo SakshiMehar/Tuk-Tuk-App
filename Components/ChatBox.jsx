@@ -27,6 +27,7 @@ import {
   Gift,
   Phone,
   Shield,
+  Sparkles,
 } from "lucide-react-native";
 import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services/chatService";
 import { wsService } from "../src/services/websocket";
@@ -39,6 +40,8 @@ import { loadPublicProfile } from "../src/services/publicProfileService";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
+import { parseRoomInviteMessage } from "../src/utils/deepLinkUtils";
+import { getActiveRoomId } from "../src/services/partyVoiceService";
 
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
 
@@ -95,9 +98,65 @@ export default function ChatBox({ user = {}, onBack }) {
   // above (already fetched via getUserUiAssets) instead of a second fetch.
   const [otherUserProfileLevel, setOtherUserProfileLevel] = useState(null);
   const [otherUserDecorationBadge, setOtherUserDecorationBadge] = useState(null);
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
   const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom } = useKeyboardInset();
   const scrollRef = useRef(null);
   const [composerHeight, setComposerHeight] = useState(136);
+
+  const handleJoinRoomInvite = (inviteInfo) => {
+    if (!inviteInfo?.roomId || isJoiningRoom) return;
+    const targetRoomId = String(inviteInfo.roomId);
+    const activeRoomId = getActiveRoomId?.();
+
+    if (activeRoomId && String(activeRoomId) === targetRoomId) {
+      Alert.alert(
+        "Already in Room",
+        `You are already in "${inviteInfo.roomTitle || "this room"}".`,
+        [
+          {
+            text: "Open Room",
+            onPress: () => {
+              router.push({
+                pathname: "/voice-party",
+                params: { roomId: targetRoomId },
+              });
+            },
+          },
+          { text: "OK", style: "cancel" },
+        ],
+      );
+      return;
+    }
+
+    if (activeRoomId && String(activeRoomId) !== targetRoomId) {
+      Alert.alert(
+        "Switch Room?",
+        "You are currently in another voice room. Do you want to leave it and join this party room?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Join Room",
+            onPress: () => {
+              setIsJoiningRoom(true);
+              router.push({
+                pathname: "/voice-party",
+                params: { roomId: targetRoomId },
+              });
+              setTimeout(() => setIsJoiningRoom(false), 1500);
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    setIsJoiningRoom(true);
+    router.push({
+      pathname: "/voice-party",
+      params: { roomId: targetRoomId },
+    });
+    setTimeout(() => setIsJoiningRoom(false), 1500);
+  };
 
   const mapApiMessage = (m, currentUserId) => ({
     id: String(m.messageId ?? m.id ?? Date.now()),
@@ -446,82 +505,54 @@ export default function ChatBox({ user = {}, onBack }) {
             <View style={styles.emptyChat} />
           ) : (
             <View style={styles.messagesList}>
-              {messages.map((msg) => (
-                <View
-                  key={msg.id}
-                  style={[
-                    styles.msgRow,
-                    msg.fromMe ? styles.msgRowMe : styles.msgRowThem,
-                  ]}
-                >
-                  {!msg.fromMe && (
-                    <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
-                      <View style={styles.msgAvatarWrap}>
-                        {avatar ? (
-                          <Image
-                            source={resolveAvatarSource(avatar)}
-                            style={styles.msgAvatar}
-                          />
-                        ) : (
-                          <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
-                            <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
-                          </View>
-                        )}
-                        {otherUserVipFrame ? (
-                          // VIP profile frame overlay — scale/position may need visual tuning on device
-                          <Image
-                            source={{ uri: otherUserVipFrame }}
-                            style={styles.msgAvatarFrameOverlay}
-                            resizeMode="contain"
-                            pointerEvents="none"
-                          />
-                        ) : null}
-                      </View>
-                    </TouchableOpacity>
-                  )}
+              {messages.map((msg) => {
+                const inviteInfo = parseRoomInviteMessage(msg.text);
+                return (
                   <View
+                    key={msg.id}
                     style={[
-                      styles.msgBubble,
-                      msg.fromMe ? styles.msgBubbleMe : styles.msgBubbleThem,
+                      styles.msgRow,
+                      msg.fromMe ? styles.msgRowMe : styles.msgRowThem,
                     ]}
                   >
-                    {msg.fromMe ? (
-                      <LinearGradient
-                        colors={["#5b21b6", "#7c4dff"]}
-                        style={styles.msgBubbleGrad}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                      >
-                        {msg.imageUrl ? (
-                          <Image
-                            source={resolveImageUriSource(msg.imageUrl)}
-                            style={styles.msgImage}
-                            resizeMode="cover"
-                          />
-                        ) : null}
-                        {msg.text ? (
-                          <Text style={styles.msgTextMe}>{msg.text}</Text>
-                        ) : null}
-                        <Text style={styles.msgTime}>{formatTime(msg.time)}</Text>
-                      </LinearGradient>
-                    ) : (
-                      <View>
-                        {/* Lv. badge + NEW STAR badge row */}
-                        {level != null && (
-                          <View style={styles.msgBadgeRow}>
-                            <View style={styles.msgLvBadge}>
-                              <Text style={styles.msgLvText}>Lv.{level}</Text>
+                    {!msg.fromMe && (
+                      <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
+                        <View style={styles.msgAvatarWrap}>
+                          {avatar ? (
+                            <Image
+                              source={resolveAvatarSource(avatar)}
+                              style={styles.msgAvatar}
+                            />
+                          ) : (
+                            <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
+                              <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
                             </View>
-                            {otherUserHasNewFrame && (
-                              <Image
-                                source={NEW_START_BADGE}
-                                style={styles.msgNewStarBadge}
-                                resizeMode="contain"
-                              />
-                            )}
-                          </View>
-                        )}
-                        <View style={styles.msgBubbleThemInner}>
+                          )}
+                          {otherUserVipFrame ? (
+                            <Image
+                              source={{ uri: otherUserVipFrame }}
+                              style={styles.msgAvatarFrameOverlay}
+                              resizeMode="contain"
+                              pointerEvents="none"
+                            />
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    )}
+                    <View
+                      style={[
+                        styles.msgBubble,
+                        msg.fromMe ? styles.msgBubbleMe : styles.msgBubbleThem,
+                        inviteInfo.isRoomInvite && styles.msgBubbleInvite,
+                      ]}
+                    >
+                      {msg.fromMe ? (
+                        <LinearGradient
+                          colors={inviteInfo.isRoomInvite ? ["#2e1065", "#4c1d95"] : ["#5b21b6", "#7c4dff"]}
+                          style={[styles.msgBubbleGrad, inviteInfo.isRoomInvite && styles.msgBubbleGradInvite]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                        >
                           {msg.imageUrl ? (
                             <Image
                               source={resolveImageUriSource(msg.imageUrl)}
@@ -529,18 +560,113 @@ export default function ChatBox({ user = {}, onBack }) {
                               resizeMode="cover"
                             />
                           ) : null}
-                          {msg.text ? (
-                            <Text style={styles.msgTextThem}>{msg.text}</Text>
+
+                          {inviteInfo.isRoomInvite ? (
+                            <View style={styles.roomInviteCard}>
+                              <View style={styles.roomInviteHeader}>
+                                <View style={styles.roomInviteBadge}>
+                                  <Text style={styles.roomInviteBadgeText}>🎙️ Voice Party</Text>
+                                </View>
+                                <Sparkles size={14} color="#fde047" />
+                              </View>
+                              <Text style={styles.roomInviteTitle} numberOfLines={2}>
+                                {inviteInfo.roomTitle}
+                              </Text>
+                              <Text style={styles.roomInviteSub}>
+                                You invited them to join this room.
+                              </Text>
+                              <TouchableOpacity
+                                style={styles.roomInviteJoinBtn}
+                                activeOpacity={0.85}
+                                disabled={isJoiningRoom}
+                                onPress={() => handleJoinRoomInvite(inviteInfo)}
+                              >
+                                <LinearGradient
+                                  colors={["#f97316", "#ea580c"]}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 0 }}
+                                  style={styles.roomInviteJoinGrad}
+                                >
+                                  <Text style={styles.roomInviteJoinText}>Open Room 🎙️</Text>
+                                </LinearGradient>
+                              </TouchableOpacity>
+                            </View>
+                          ) : msg.text ? (
+                            <Text style={styles.msgTextMe}>{msg.text}</Text>
                           ) : null}
-                          <Text style={[styles.msgTime, { color: "rgba(255,255,255,0.35)" }]}>
-                            {formatTime(msg.time)}
-                          </Text>
+
+                          <Text style={styles.msgTime}>{formatTime(msg.time)}</Text>
+                        </LinearGradient>
+                      ) : (
+                        <View>
+                          {/* Lv. badge + NEW STAR badge row */}
+                          {level != null && (
+                            <View style={styles.msgBadgeRow}>
+                              <View style={styles.msgLvBadge}>
+                                <Text style={styles.msgLvText}>Lv.{level}</Text>
+                              </View>
+                              {otherUserHasNewFrame && (
+                                <Image
+                                  source={NEW_START_BADGE}
+                                  style={styles.msgNewStarBadge}
+                                  resizeMode="contain"
+                                />
+                              )}
+                            </View>
+                          )}
+                          <View style={[styles.msgBubbleThemInner, inviteInfo.isRoomInvite && styles.msgBubbleThemInnerInvite]}>
+                            {msg.imageUrl ? (
+                              <Image
+                                source={resolveImageUriSource(msg.imageUrl)}
+                                style={styles.msgImage}
+                                resizeMode="cover"
+                              />
+                            ) : null}
+
+                            {inviteInfo.isRoomInvite ? (
+                              <View style={styles.roomInviteCard}>
+                                <View style={styles.roomInviteHeader}>
+                                  <View style={styles.roomInviteBadge}>
+                                    <Text style={styles.roomInviteBadgeText}>🎙️ Voice Party</Text>
+                                  </View>
+                                  <Sparkles size={14} color="#fde047" />
+                                </View>
+                                <Text style={styles.roomInviteTitle} numberOfLines={2}>
+                                  {inviteInfo.roomTitle}
+                                </Text>
+                                <Text style={styles.roomInviteSub}>
+                                  You've been invited to join this room!
+                                </Text>
+                                <TouchableOpacity
+                                  style={styles.roomInviteJoinBtn}
+                                  activeOpacity={0.85}
+                                  disabled={isJoiningRoom}
+                                  onPress={() => handleJoinRoomInvite(inviteInfo)}
+                                >
+                                  <LinearGradient
+                                    colors={["#f97316", "#ea580c"]}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 0 }}
+                                    style={styles.roomInviteJoinGrad}
+                                  >
+                                    <Text style={styles.roomInviteJoinText}>Join Room 🎙️</Text>
+                                  </LinearGradient>
+                                </TouchableOpacity>
+                              </View>
+                            ) : msg.text ? (
+                              <Text style={styles.msgTextThem}>{msg.text}</Text>
+                            ) : null}
+
+                            <Text style={[styles.msgTime, { color: "rgba(255,255,255,0.35)" }]}>
+                              {formatTime(msg.time)}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
-                    )}
+                      )}
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
         </ScrollView>
@@ -1004,5 +1130,76 @@ const styles = StyleSheet.create({
     borderColor: "rgba(167,139,250,0.15)",
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  // Voice Party Room Invitation Card
+  msgBubbleInvite: {
+    maxWidth: W * 0.76,
+  },
+  msgBubbleGradInvite: {
+    padding: 12,
+  },
+  msgBubbleThemInnerInvite: {
+    backgroundColor: "#1f1238",
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(124, 77, 255, 0.3)",
+  },
+  roomInviteCard: {
+    width: "100%",
+    minWidth: 200,
+    gap: 6,
+    marginBottom: 4,
+  },
+  roomInviteHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+  roomInviteBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+  },
+  roomInviteBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  roomInviteTitle: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  roomInviteSub: {
+    color: "rgba(255, 255, 255, 0.75)",
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  roomInviteJoinBtn: {
+    marginTop: 8,
+    borderRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#f97316",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  roomInviteJoinGrad: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roomInviteJoinText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
   },
 });

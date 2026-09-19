@@ -1,4 +1,4 @@
-import { resolveBundledAvatarId } from "../data/avatarOptions";
+import { resolveBundledAvatarId } from "../data/avatarOptions.js";
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;

@@ -96,15 +96,18 @@ import { fetchUserDecorations } from "../src/services/decorationsService";
 import {
   adjustInventoryQty,
   buyGiftToBackpack,
+  claimRewardToBackpack,
   findInventoryGift,
   giftsMatch,
   loadGiftCatalog,
   loadGiftInventory,
+  loadListenRewardStatus,
   loadPartyGiftCatalog,
   normalizeGiftAnimation,
   parseBuyResultInventory,
   reconcileInventory,
   sendPartyRoomGift,
+  syncListenRewardProgress,
 } from "../src/services/giftCatalogService";
 import { loadUserDetail } from "../src/services/nearbyService";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
@@ -124,6 +127,7 @@ import {
   upsertChatMessage,
 } from "../src/services/partyService";
 import * as partyVoice from "../src/services/partyVoiceService";
+import { getUserProfile } from "../src/api/userApi";
 import { loadPublicProfile } from "../src/services/publicProfileService";
 import {
   blockUser,
@@ -137,6 +141,7 @@ import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
 import { applyWalletFromSources, refreshWalletBalance } from "../src/store/walletStore";
+import { openUserChat } from "../src/utils/chatNavigation";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import { resolveProfileAvatarSource, resolveProfileAvatarUri } from "../src/utils/profileAvatar";
@@ -471,14 +476,14 @@ const resolveEntryFrameLayout = (frameUrl, user) => {
       heightFrac: 0.48, // 108px for 225px width (VIP 1 has 1536x1024 canvas with transparent margins)
       bannerW: 225,
       avatarCenterX: 0.148,
-      avatarCenterY: 0.505,
+      avatarCenterY: 0.492,
       avatarSizeFrac: 0.142,
-      shiftX: 4.5,
-      shiftY: -2.8,
+      shiftX: 5.8,
+      shiftY: -0.8,
       textLeftFrac: 0.22,
       textWidthFrac: 0.58,
-      textTopFrac: 0.4,
-      textHeightFrac: 0.14,
+      textTopFrac: 0.32,
+      textHeightFrac: 0.16,
     };
   }
 
@@ -488,14 +493,14 @@ const resolveEntryFrameLayout = (frameUrl, user) => {
       heightFrac: 0.35,
       bannerW: 245,
       avatarCenterX: 0.160,
-      avatarCenterY: 0.48,
+      avatarCenterY: 0.468,
       avatarSizeFrac: 0.150,
-      shiftX: 3.5,
-      shiftY: 0,
+      shiftX: 4.8,
+      shiftY: -0.6,
       textLeftFrac: 0.25,
       textWidthFrac: 0.50,
-      textTopFrac: 0.38,
-      textHeightFrac: 0.28,
+      textTopFrac: 0.31,
+      textHeightFrac: 0.24,
     };
   }
 
@@ -505,14 +510,14 @@ const resolveEntryFrameLayout = (frameUrl, user) => {
       heightFrac: 0.417,
       bannerW: 245,
       avatarCenterX: 0.155,
-      avatarCenterY: 0.50,
+      avatarCenterY: 0.478,
       avatarSizeFrac: 0.150,
-      shiftX: 3.5,
-      shiftY: 0,
+      shiftX: 4.8,
+      shiftY: -0.6,
       textLeftFrac: 0.25,
       textWidthFrac: 0.50,
-      textTopFrac: 0.38,
-      textHeightFrac: 0.28,
+      textTopFrac: 0.31,
+      textHeightFrac: 0.24,
     };
   }
 
@@ -522,13 +527,13 @@ const resolveEntryFrameLayout = (frameUrl, user) => {
     heightFrac: 0.267,
     bannerW: 250,
     avatarCenterX: 0.200,
-    avatarCenterY: 0.56,
+    avatarCenterY: 0.535,
     avatarSizeFrac: 0.138,
-    shiftX: 0,
-    shiftY: 0,
+    shiftX: 1.5,
+    shiftY: -0.6,
     textLeftFrac: 0.32,
     textWidthFrac: 0.38,
-    textTopFrac: 0.49,
+    textTopFrac: 0.38,
     textHeightFrac: 0.26,
   };
 };
@@ -591,12 +596,12 @@ const UserEntryBanner = ({ user, onComplete }) => {
   // Precise ring hole coordinates inside the frame scaled proportionally per tier artwork
   const avatarSize = Math.round(BANNER_W * layout.avatarSizeFrac);
   const avatarLeft = Math.round(BANNER_W * layout.avatarCenterX - avatarSize / 2) + layout.shiftX;
-  const avatarTop = Math.round(BANNER_H * layout.avatarCenterY - avatarSize / 2) + layout.shiftY;
+  const avatarTop = Math.round(BANNER_H * layout.avatarCenterY - avatarSize / 2) + layout.shiftY - 2;
 
   // Precise middle banner text region between ring and VIP crest
   const textLeft = Math.round(BANNER_W * layout.textLeftFrac);
   const textWidth = Math.round(BANNER_W * layout.textWidthFrac);
-  const textTop = Math.round(BANNER_H * layout.textTopFrac);
+  const textTop = Math.round(BANNER_H * layout.textTopFrac) - 2;
   const textHeight = Math.round(BANNER_H * layout.textHeightFrac);
 
   return (
@@ -1566,6 +1571,10 @@ export default function VoiceParty() {
   const [showGiftPanel, setShowGiftPanel] = useState(false);
   const [listenSeconds, setListenSeconds] = useState(0);
   const listenSecondsRef = useRef(0);
+  const syncedListenSecondsRef = useRef(0);
+  const activeListenSyncPromiseRef = useRef(null);
+  const currentUtcDateRef = useRef(new Date().toISOString().slice(0, 10));
+  const claimingRewardTierRef = useRef(null);
   const [rewardStates, setRewardStates] = useState([
     { claimed: false, rewardImg: null },
     { claimed: false, rewardImg: null },
@@ -1891,6 +1900,144 @@ export default function VoiceParty() {
       cancelled = true;
     };
   }, [showBackpack, catalogRefreshKey]);
+
+  const refreshListenRewardStatus = useCallback(
+    async (isDateReset = false) => {
+      try {
+        const data = await loadListenRewardStatus();
+        if (!data) return;
+
+        const responseDate = data.date ? String(data.date) : null;
+        if (responseDate) {
+          currentUtcDateRef.current = responseDate;
+        }
+
+        if (typeof data.listenedSeconds === "number") {
+          const srvSec = Math.max(0, data.listenedSeconds);
+          if (isDateReset) {
+            // On date reset, set local baseline to server's new-day listenedSeconds
+            listenSecondsRef.current = srvSec;
+            setListenSeconds(srvSec);
+            syncedListenSecondsRef.current = srvSec;
+          } else {
+            // On normal load/mount, advance baselines if server value is higher
+            if (srvSec > listenSecondsRef.current) {
+              listenSecondsRef.current = srvSec;
+              setListenSeconds(srvSec);
+            }
+            if (srvSec > syncedListenSecondsRef.current) {
+              syncedListenSecondsRef.current = srvSec;
+            }
+          }
+        }
+
+        if (Array.isArray(data.tiers) && data.tiers.length > 0) {
+          setRewardStates((prev) =>
+            data.tiers.map((t, idx) => {
+              const existing = isDateReset ? {} : (prev[idx] || {});
+              const threshold = Number(
+                t.thresholdSeconds ?? LISTEN_THRESHOLDS[idx] ?? 0,
+              );
+              const isUnlocked = Boolean(
+                t.unlocked ?? (listenSecondsRef.current >= threshold),
+              );
+              const isClaimed = Boolean(t.claimed);
+              let rewardImg = existing.rewardImg;
+              if (t.reward?.imageUrl) {
+                rewardImg = { uri: t.reward.imageUrl };
+              }
+              return {
+                ...existing,
+                tier: t.tier ?? (idx + 1),
+                thresholdSeconds: threshold,
+                label: t.label ?? LISTEN_THRESHOLD_LABELS[idx],
+                claimed: isClaimed,
+                claimedAt: t.claimedAt ?? null,
+                unlocked: isUnlocked,
+                reward: t.reward ?? existing.reward ?? null,
+                rewardImg,
+              };
+            }),
+          );
+        }
+      } catch (err) {
+        console.warn(
+          "[VoiceParty] Failed to load listen reward status:",
+          err?.message ?? err,
+        );
+      }
+    },
+    [],
+  );
+
+  // Load Listen Reward status when Listen Rewards modal opens or room initializes
+  useEffect(() => {
+    let cancelled = false;
+    refreshListenRewardStatus(false);
+    return () => {
+      cancelled = true;
+    };
+  }, [showGiftPanel, roomId, refreshListenRewardStatus]);
+
+  const flushListenRewardProgress = useCallback(
+    async (targetRoomId) => {
+      const activeRoom = String(targetRoomId || roomIdRef.current || "");
+      if (!activeRoom) return;
+
+      // 1. Wait for any currently in-flight sync to complete
+      while (activeListenSyncPromiseRef.current) {
+        try {
+          await activeListenSyncPromiseRef.current;
+        } catch {
+          // Failure handled inside the sync promise
+        }
+      }
+
+      // 2. Sequentially drain remaining unsynced delta in chunks of at most 120s
+      while (true) {
+        const deltaSeconds =
+          listenSecondsRef.current - syncedListenSecondsRef.current;
+        if (deltaSeconds <= 0) break;
+
+        const sendDelta = Math.min(deltaSeconds, 120);
+
+        const syncPromise = (async () => {
+          try {
+            const res = await syncListenRewardProgress({
+              roomId: activeRoom,
+              deltaSeconds: sendDelta,
+            });
+            if (res && res.success !== false) {
+              syncedListenSecondsRef.current += sendDelta;
+              return true;
+            }
+            return false;
+          } catch (err) {
+            console.warn(
+              "[VoiceParty] Failed to sync listen reward progress:",
+              err?.message ?? err,
+            );
+            return false;
+          }
+        })();
+
+        activeListenSyncPromiseRef.current = syncPromise;
+
+        let success = false;
+        try {
+          success = await syncPromise;
+        } finally {
+          if (activeListenSyncPromiseRef.current === syncPromise) {
+            activeListenSyncPromiseRef.current = null;
+          }
+        }
+
+        // If a request fails, stop draining loop (keep remaining delta unsynced for future retry)
+        if (!success) break;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const keys = Object.keys(giftCatalog.activityByEvent);
@@ -2361,6 +2508,7 @@ export default function VoiceParty() {
       if (activeRoomId && !exitedRef.current) {
         exitedRef.current = true;
         const cleanup = async () => {
+          await flushListenRewardProgress(activeRoomId).catch(() => {});
           await partyVoice.teardownVoice().catch(() => { });
           await exitRoomSession(String(activeRoomId)).catch(() => { });
         };
@@ -2932,6 +3080,11 @@ export default function VoiceParty() {
     }
     exitedRef.current = true;
     try {
+      await flushListenRewardProgress(roomId);
+    } catch {
+      // Non-blocking for room exit
+    }
+    try {
       await partyVoice.teardownVoice();
       await exitRoomSession(String(roomId));
     } catch {
@@ -2942,7 +3095,7 @@ export default function VoiceParty() {
     setOnMic(false);
     setMySeatNumber(null);
     router.back();
-  }, [roomId, router]);
+  }, [roomId, router, flushListenRewardProgress]);
 
   const promptExitConfirmation = useCallback(() => {
     Alert.alert(
@@ -3149,6 +3302,28 @@ export default function VoiceParty() {
     const interval = setInterval(ping, 25_000);
     return () => clearInterval(interval);
   }, [roomId]);
+
+  // Listen Rewards progress sync & UTC midnight reset check — every 30 s
+  useEffect(() => {
+    if (!roomId) return undefined;
+
+    const interval = setInterval(async () => {
+      if (exitedRef.current || !roomId) return;
+
+      const nowUtc = new Date().toISOString().slice(0, 10);
+      if (currentUtcDateRef.current && nowUtc !== currentUtcDateRef.current) {
+        // 1. Flush any remaining unsynced seconds for the ending UTC day first
+        await flushListenRewardProgress(roomId);
+        // 2. Fetch new day's backend status and reset baselines/tiers
+        await refreshListenRewardStatus(true);
+      } else {
+        // Normal 30s progress sync
+        await flushListenRewardProgress(roomId);
+      }
+    }, 30_000);
+
+    return () => clearInterval(interval);
+  }, [roomId, flushListenRewardProgress, refreshListenRewardStatus]);
 
   // Room user-count badge — refresh from the public count endpoint.
   useEffect(() => {
@@ -3361,6 +3536,21 @@ export default function VoiceParty() {
     }
   };
 
+  const handleShareToChatList = useCallback(() => {
+    const activeRoomId = roomIdRef.current || roomId;
+    if (!activeRoomId) return;
+    isNavigatingToInboxRef.current = true;
+    setShowShareMenu(false);
+    router.push({
+      pathname: "/(tabs)/chat",
+      params: {
+        fromRoom: "true",
+        shareRoomId: String(activeRoomId),
+        shareRoomTitle: String(roomInfo?.name || "Voice Party Room"),
+      },
+    });
+  }, [roomId, roomInfo?.name, router]);
+
   const handleShareRoom = useCallback(async () => {
     const activeRoomId = roomIdRef.current || roomId;
     if (!activeRoomId) {
@@ -3371,16 +3561,16 @@ export default function VoiceParty() {
       return;
     }
 
-    const deepLink = getRoomShareUrl(activeRoomId); // tuktuk://room/:id
+    const deepLink = getRoomShareUrl(activeRoomId); // https://tuktuk.live/room/:id
     const roomTitle = roomInfo?.name?.trim()
       ? `"${roomInfo.name.trim()}"`
       : "voice party room";
 
-    // The message contains the tuktuk:// deep link that opens the app directly,
+    // The message contains the room invite link that opens the app directly,
     // plus a Play Store fallback for users who don't have the app installed.
     const shareMessage =
       `Join me in ${roomTitle} on Tuk-Tuk! 🎉\n` +
-      `Open in app: ${deepLink}\n` +
+      `Room link: ${deepLink}\n` +
       `Don't have Tuk-Tuk? Download: https://play.google.com/store/apps/details?id=tuk.tuk.app`;
 
     try {
@@ -3434,6 +3624,7 @@ export default function VoiceParty() {
   const shareTabs = ["Recently", "Friends", "Followers", "Room Followers"];
 
   const sharePlatforms = [
+    { label: "Friends", bg: "#8b5cf6", icon: "💬", onPress: handleShareToChatList },
     { label: "Share", bg: "#7c4dff", icon: "🪐", onPress: handleShareRoom },
     { label: "Copy Link", bg: "#4f46e5", icon: "🔗", onPress: handleCopyRoomLink },
     { label: "WhatsApp", bg: "#25d366", icon: "💬", onPress: handleShareRoom },
@@ -3906,8 +4097,16 @@ export default function VoiceParty() {
     const lockedAvatarSource = resolveRoomUserAvatarSource(userLike);
     const initial = {
       id: userId,
-      name: userLike?.name ?? "User",
-      username: userLike?.username ?? userLike?.name,
+      name: userLike?.name ?? userLike?.displayName ?? userLike?.username ?? "User",
+      username: userLike?.username ?? userLike?.handle ?? userLike?.name,
+      avatar: userLike?.avatar ?? userLike?.profilePicUrl ?? userLike?.avatarUrl,
+      profilePicUrl: userLike?.profilePicUrl ?? userLike?.avatar,
+      gender: userLike?.gender,
+      level: userLike?.level ?? userLike?.userLevel,
+      countryName: userLike?.countryName,
+      countryCode: userLike?.countryCode,
+      flagUrl: userLike?.flagUrl,
+      badgeUrl: userLike?.badgeUrl,
     };
     setProfilePopupAvatarSource(lockedAvatarSource);
     setProfilePopupUser(initial);
@@ -3922,39 +4121,71 @@ export default function VoiceParty() {
         setProfilePopupFollowing(Boolean(status?.following));
       }
 
-      if (!isSameUser(userId, myUserId)) {
-        try {
-          const detail = await loadUserDetail(userId);
+      // Fetch dynamic profile: GET /api/app/users/user/profile/:userId
+      try {
+        const profileData = await getUserProfile(userId);
+        const userProfile = profileData?.data ?? profileData?.user ?? profileData;
+        if (userProfile) {
           setProfilePopupUser((prev) => ({
             ...(prev ?? initial),
-            id: userId,
+            ...userProfile,
+            id: userProfile.id ?? userId,
             name:
-              detail?.name ?? detail?.displayName ?? prev?.name ?? initial.name,
-            username:
-              detail?.username ??
-              detail?.handle ??
-              prev?.username ??
-              initial.username,
+              userProfile.name ??
+              userProfile.displayName ??
+              userProfile.username ??
+              prev?.name ??
+              initial.name,
+            gender: userProfile.gender ?? prev?.gender,
+            level: userProfile.level ?? prev?.level,
+            countryCode: userProfile.countryCode ?? prev?.countryCode,
+            countryName: userProfile.countryName ?? prev?.countryName,
+            flagUrl: userProfile.flagUrl ?? prev?.flagUrl,
+            badgeUrl: userProfile.badgeUrl ?? prev?.badgeUrl,
+            avatar: userProfile.avatar ?? userProfile.profilePicUrl ?? prev?.avatar,
+            profilePicUrl:
+              userProfile.profilePicUrl ?? userProfile.avatar ?? prev?.profilePicUrl,
           }));
-          if (!lockedAvatarSource) {
-            setProfilePopupAvatarSource(resolveRoomUserAvatarSource(detail));
+          if (!lockedAvatarSource && (userProfile.avatar || userProfile.profilePicUrl)) {
+            setProfilePopupAvatarSource(resolveRoomUserAvatarSource(userProfile));
           }
-        } catch {
-          // keep initial profile from room state
         }
-
-        // loadUserDetail (nearbyService) doesn't carry `level` — same public
-        // profile API UserProfileView.jsx already uses for the level badge.
-        try {
-          const { profile: publicProfile } = await loadPublicProfile(userId);
-          if (publicProfile?.level != null) {
+      } catch (err) {
+        console.warn("[voice-party] getUserProfile error:", err?.message ?? err);
+        if (!isSameUser(userId, myUserId)) {
+          try {
+            const detail = await loadUserDetail(userId);
             setProfilePopupUser((prev) => ({
               ...(prev ?? initial),
-              level: publicProfile.level,
+              id: userId,
+              name:
+                detail?.name ?? detail?.displayName ?? prev?.name ?? initial.name,
+              username:
+                detail?.username ??
+                detail?.handle ??
+                prev?.username ??
+                initial.username,
+              gender: detail?.gender ?? prev?.gender,
             }));
+            if (!lockedAvatarSource) {
+              setProfilePopupAvatarSource(resolveRoomUserAvatarSource(detail));
+            }
+          } catch {
+            // keep initial profile from room state
           }
-        } catch {
-          // no level badge for this user if the endpoint fails
+
+          try {
+            const { profile: publicProfile } = await loadPublicProfile(userId);
+            if (publicProfile?.level != null) {
+              setProfilePopupUser((prev) => ({
+                ...(prev ?? initial),
+                level: publicProfile.level,
+                gender: publicProfile.gender ?? prev?.gender,
+              }));
+            }
+          } catch {
+            // no level badge for this user if the endpoint fails
+          }
         }
       }
     } finally {
@@ -3985,6 +4216,50 @@ export default function VoiceParty() {
       setProfileFollowLoading(false);
     }
   };
+
+  const handlePopupChat = useCallback(() => {
+    if (!profilePopupUser) return;
+    const targetUser = {
+      userId: profilePopupUser.id,
+      name: profilePopupUser.name || profilePopupUser.username || "User",
+      avatar:
+        profilePopupAvatarSource?.uri ||
+        profilePopupUser.profilePicUrl ||
+        profilePopupUser.avatar ||
+        profilePopupUser.profileImageUrl,
+      level: profilePopupUser.level,
+    };
+    closeProfilePopup();
+    isNavigatingToInboxRef.current = true;
+    openUserChat(router, targetUser);
+  }, [profilePopupUser, profilePopupAvatarSource, router]);
+
+  const handlePopupSendGift = useCallback(() => {
+    if (!profilePopupUser) return;
+    const targetId = String(profilePopupUser.id);
+    closeProfilePopup();
+    giftReceiverTouchedRef.current = true;
+    setGiftReceiverId(targetId);
+    setShowBackpack(true);
+    setBackpackMainTab("Gift");
+  }, [profilePopupUser]);
+
+  const handlePopupMention = useCallback(() => {
+    if (!profilePopupUser) return;
+    const targetMember = {
+      id: String(profilePopupUser.id),
+      name: profilePopupUser.name || "User",
+      username: profilePopupUser.username || profilePopupUser.name || "User",
+    };
+    closeProfilePopup();
+    handleTagUser(targetMember);
+  }, [profilePopupUser, handleTagUser]);
+
+  const handlePopupReport = useCallback(() => {
+    if (!profilePopupUser) return;
+    closeProfilePopup();
+    setShowReportModal(true);
+  }, [profilePopupUser]);
 
   const handleUserAvatarPress = (userLike) => {
     if (!userLike) return;
@@ -4266,6 +4541,95 @@ export default function VoiceParty() {
     const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
     const s = String((seconds % 3600) % 60).padStart(2, "0");
     return `${h}:${m}:${s}`;
+  };
+
+  const handleClaimListenReward = async (reward, index) => {
+    const tier = reward?.tier ?? (index + 1);
+    const threshold = Number(
+      reward?.thresholdSeconds ?? LISTEN_THRESHOLDS[index] ?? 0,
+    );
+    const isReady =
+      !reward?.claimed &&
+      (reward?.unlocked ||
+        reward?.rewardImg != null ||
+        listenSeconds >= threshold);
+    const isClaimed = Boolean(reward?.claimed);
+    const remaining = Math.max(0, threshold - listenSeconds);
+
+    if (isClaimed) {
+      return;
+    }
+
+    if (!isReady) {
+      Alert.alert(
+        "Keep Listening",
+        `Unlock in ${formatListenTime(remaining)}`,
+      );
+      return;
+    }
+
+    if (claimingRewardTierRef.current === tier) {
+      return;
+    }
+
+    claimingRewardTierRef.current = tier;
+    try {
+      const response = await claimRewardToBackpack({
+        tier,
+        roomId,
+      });
+
+      if (response && response.success !== false) {
+        setRewardStates((prev) =>
+          prev.map((r, idx) => {
+            const itemTier = r.tier ?? (idx + 1);
+            if (itemTier === tier || idx === index) {
+              const rewardObj = response.reward ?? r.reward;
+              const rewardImg = rewardObj?.imageUrl
+                ? { uri: rewardObj.imageUrl }
+                : r.rewardImg;
+              return {
+                ...r,
+                claimed: true,
+                claimedAt: response.claimedAt ?? new Date().toISOString(),
+                reward: rewardObj,
+                rewardImg,
+              };
+            }
+            return r;
+          }),
+        );
+
+        try {
+          const inventory = await loadGiftInventory();
+          if (Array.isArray(inventory)) {
+            setBackpackGifts(inventory);
+          }
+        } catch (invErr) {
+          console.warn(
+            "[VoiceParty] Failed to refresh backpack inventory after claim:",
+            invErr,
+          );
+        }
+
+        Alert.alert(
+          "🎁 Reward Claimed!",
+          response?.message || "You received a gift! Check your backpack.",
+        );
+      } else {
+        const errMsg = response?.message || "Could not claim reward.";
+        Alert.alert("Claim Failed", errMsg);
+      }
+    } catch (err) {
+      console.warn("[VoiceParty] Failed to claim listen reward:", err);
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Could not claim reward.";
+      Alert.alert("Claim Failed", errMsg);
+    } finally {
+      claimingRewardTierRef.current = null;
+    }
   };
 
   return (
@@ -5045,37 +5409,27 @@ export default function VoiceParty() {
             {/* Reward cards */}
             <View style={styles.giftCardsRow}>
               {rewardStates.map((reward, i) => {
-                const remaining = Math.max(
-                  0,
-                  LISTEN_THRESHOLDS[i] - listenSeconds,
-                );
-                const isReady = reward.rewardImg != null && !reward.claimed;
-                const isClaimed = reward.claimed;
-                const img = reward.rewardImg ?? LISTEN_LOCKED_IMGS[i];
+                const threshold =
+                  reward.thresholdSeconds ?? LISTEN_THRESHOLDS[i] ?? 60;
+                const remaining = Math.max(0, threshold - listenSeconds);
+                const isReady =
+                  !reward.claimed &&
+                  (reward.unlocked ||
+                    reward.rewardImg != null ||
+                    listenSeconds >= threshold);
+                const isClaimed = Boolean(reward.claimed);
+                const img =
+                  (reward.reward?.imageUrl
+                    ? { uri: reward.reward.imageUrl }
+                    : null) ??
+                  (reward.rewardImg ?? LISTEN_LOCKED_IMGS[i]);
 
                 return (
                   <TouchableOpacity
-                    key={i}
+                    key={reward.tier ?? i}
                     style={[styles.giftCard, isReady && styles.giftCardReady]}
                     activeOpacity={0.8}
-                    onPress={() => {
-                      if (isReady) {
-                        setRewardStates((prev) =>
-                          prev.map((r, idx) =>
-                            idx === i ? { ...r, claimed: true } : r,
-                          ),
-                        );
-                        Alert.alert(
-                          "🎁 Reward Claimed!",
-                          "You received a gift! Check your backpack.",
-                        );
-                      } else if (!isClaimed) {
-                        Alert.alert(
-                          "Keep Listening",
-                          `Unlock in ${formatListenTime(remaining)}`,
-                        );
-                      }
-                    }}
+                    onPress={() => handleClaimListenReward(reward, i)}
                   >
                     <View style={styles.giftCardImgWrap}>
                       <Image
@@ -5096,7 +5450,7 @@ export default function VoiceParty() {
                     </View>
 
                     <Text style={styles.giftCardLabel}>
-                      {LISTEN_THRESHOLD_LABELS[i]}
+                      {reward.label ?? LISTEN_THRESHOLD_LABELS[i]}
                     </Text>
 
                     <View
@@ -5110,7 +5464,7 @@ export default function VoiceParty() {
                         style={[
                           styles.giftCardBtnText,
                           (isReady || isClaimed) &&
-                          styles.giftCardBtnTextActive,
+                            styles.giftCardBtnTextActive,
                         ]}
                       >
                         {isClaimed
@@ -5166,8 +5520,13 @@ export default function VoiceParty() {
         isFollowing={profilePopupFollowing}
         followLoading={profileFollowLoading}
         isSelf={isSameUser(profilePopupUser?.id, myUserId)}
+        isOwner={isSameUser(profilePopupUser?.id, hostId)}
         onClose={closeProfilePopup}
         onFollowToggle={handleProfileFollowToggle}
+        onChat={handlePopupChat}
+        onSendGift={handlePopupSendGift}
+        onMention={handlePopupMention}
+        onReport={handlePopupReport}
       />
 
       {/* ── EMOJI PICKER MODAL ── */}
@@ -6190,18 +6549,11 @@ export default function VoiceParty() {
 
               {/* + Follow Button inside capsule */}
               <TouchableOpacity
-                style={[
-                  styles.capsulePlusBtn,
-                  isFollowing && styles.capsulePlusBtnFollowing,
-                ]}
+                style={styles.capsulePlusBtn}
                 onPress={() => setShowFollowModal(true)}
                 activeOpacity={0.8}
               >
-                {isFollowing ? (
-                  <Text style={{ color: "white", fontSize: 11, fontWeight: "800" }}>✓</Text>
-                ) : (
-                  <Plus size={13} color="white" strokeWidth={3} />
-                )}
+                <Plus size={13} color="white" strokeWidth={3} />
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -6494,7 +6846,7 @@ export default function VoiceParty() {
                   <TouchableOpacity
                     style={styles.pinnedShareBtn}
                     activeOpacity={0.8}
-                    onPress={handleShareRoom}
+                    onPress={handleShareToChatList}
                   >
                     <Text style={styles.pinnedShareBtnText}>Share</Text>
                   </TouchableOpacity>
@@ -7096,7 +7448,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-    marginLeft: 12,
+    marginLeft: 14,
   },
   ownerAvatarCircle: {
     width: 24,

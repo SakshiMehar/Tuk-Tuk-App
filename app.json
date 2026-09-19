@@ -11,6 +11,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "associatedDomains": ["applinks:tuktuk.live"],
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Tuk-Tuk needs microphone access so you can speak in voice party rooms.",
         "NSLocationWhenInUseUsageDescription": "Tuk-Tuk uses your location to show people nearby.",
@@ -51,6 +52,7 @@
       "intentFilters": [
         {
           "action": "VIEW",
+          "autoVerify": true,
           "data": [
             {
               "scheme": "https",

@@ -210,11 +210,7 @@ class WebSocketService {
         reconnectDelay: 5000,
         heartbeatIncoming: 10000,
         heartbeatOutgoing: 10000,
-        debug: (msg: string) => {
-          if (__DEV__) {
-            console.log('[WS Debug]', msg);
-          }
-        },
+        debug: () => {},
         onConnect: () => {
           console.log('[WS] ✅ Connected to STOMP server successfully!');
           this._onConnect();

@@ -77,12 +77,23 @@ export const getRecentlyRooms = async () => {
 };
 
 export const getFollowingRooms = async () => {
-  const response = await API.get(
-    "/api/v1/tuktuk/rooms/following",
-    await authRequestConfig()
-  );
-  
-  return response.data;
+  const path = "/api/app/room-follows/my";
+  logRequest("GET", path);
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    // Fallback to legacy endpoint if room-follows/my fails
+    try {
+      const fallbackPath = "/api/v1/tuktuk/rooms/following";
+      const fallbackRes = await API.get(fallbackPath, await authRequestConfig());
+      return fallbackRes.data;
+    } catch {
+      throw error;
+    }
+  }
 };
 
 export const getManagedRooms = async () => {
@@ -447,10 +458,8 @@ export const sendRoomGift = async (roomId, body) => {
 export const getRoomGiftRanking = async (roomId) => {
   if (!roomId) return [];
   const path = `/api/v1/tuktuk/rooms/${roomId}/gift-ranking`;
-  logRequest("GET", path);
   try {
     const response = await API.get(path, await authRequestConfig());
-    logResponse("GET", path, response.data);
     return response.data;
   } catch (error) {
     logError("GET", path, error);

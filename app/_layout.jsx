@@ -22,6 +22,7 @@ import {
   extractRoomIdFromUrl,
   setPendingDeepLink,
 } from "../src/utils/deepLinkUtils";
+import { getActiveRoomId } from "../src/services/partyVoiceService";
 
 LogBox.ignoreAllLogs();
 // ── Global font-scale guard ────────────────────────────────────────────────
@@ -97,15 +98,31 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
+    let lastProcessedLink = null;
+    let lastProcessedTimestamp = 0;
+
     const handleDeepLinkUrl = (event) => {
       const url = event?.url;
       if (!url) return;
+
+      const now = Date.now();
+      if (lastProcessedLink === url && now - lastProcessedTimestamp < 2000) {
+        return;
+      }
+      lastProcessedLink = url;
+      lastProcessedTimestamp = now;
+
       console.log("[_layout] Incoming deep link URL:", url);
       const roomId = extractRoomIdFromUrl(url);
       if (roomId) {
         getToken()
           .then((token) => {
             if (token) {
+              const currentActiveRoomId = getActiveRoomId?.();
+              if (String(currentActiveRoomId) === String(roomId)) {
+                console.log("[_layout] User already in room", roomId);
+                return;
+              }
               router.push({
                 pathname: "/voice-party",
                 params: { roomId: String(roomId) },

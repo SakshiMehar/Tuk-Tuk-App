@@ -87,6 +87,10 @@ export const normalizePublicProfile = (data, details) => {
     ),
     postsCount: firstNumber(detailsUser?.postsCount, user?.postsCount, profile?.postsCount),
     level: firstNumber(detailsUser?.level, user?.level, profile?.level),
+    countryCode: firstText(user?.countryCode, profile?.countryCode, detailsUser?.countryCode),
+    countryName: firstText(user?.countryName, profile?.countryName, detailsUser?.countryName),
+    flagUrl: firstText(user?.flagUrl, profile?.flagUrl, detailsUser?.flagUrl),
+    badgeUrl: firstText(user?.badgeUrl, profile?.badgeUrl, detailsUser?.badgeUrl),
   };
 };
 

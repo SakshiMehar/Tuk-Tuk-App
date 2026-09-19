@@ -5,6 +5,7 @@ import { AlignJustify, Check, ChevronDown, Plus, Search, X } from "lucide-react-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   Image,
   ScrollView,
@@ -36,6 +37,7 @@ import { wsService } from "../src/services/websocket";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { openUserProfile } from "../src/utils/profileNavigation";
 import { getAppUserId } from "../src/utils/sessionUser";
+import { createRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import AppBackground from "./AppBackground";
 import ComingSoonModal from "./ComingSoonModal";
 import FamilyChatModal from "./FamilyChatModal";
@@ -138,6 +140,11 @@ export default function ChatTab() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const fromRoom = params?.fromRoom ?? null;
+  const shareRoomId = params?.shareRoomId ?? null;
+  const shareRoomTitle = params?.shareRoomTitle ?? "Voice Party Room";
+  const [shareDismissed, setShareDismissed] = useState(false);
+  const [sendingInviteId, setSendingInviteId] = useState(null);
+  const isShareMode = Boolean(shareRoomId && !shareDismissed);
   const scrollRef = useRef(null);
   useScrollToTop(scrollRef);
   const [activeTopTab, setActiveTopTab] = useState("Chats");
@@ -225,6 +232,61 @@ export default function ChatTab() {
   }, [fetchChats]);
 
   const handleOpenUserChat = (user) => {
+    if (isShareMode) {
+      const targetId = String(user?.userId ?? user?.id ?? "");
+      const targetName = user?.name ?? user?.username ?? "User";
+      if (!targetId) return;
+
+      Alert.alert(
+        "Send Room Invitation",
+        `Send room invitation to ${targetName}?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Send Invitation",
+            onPress: async () => {
+              if (sendingInviteId) return;
+              setSendingInviteId(targetId);
+              try {
+                await wsService.connect();
+                const inviteMsg = createRoomInviteMessage({
+                  roomId: shareRoomId,
+                  roomTitle: shareRoomTitle,
+                });
+                wsService.sendMessage(targetId, inviteMsg);
+                Alert.alert(
+                  "Invitation Sent! 🎉",
+                  `Room invitation was sent to ${targetName}.`,
+                  [
+                    {
+                      text: "Return to Room",
+                      onPress: handleReturnToRoom,
+                    },
+                    {
+                      text: "Open Chat",
+                      onPress: () => {
+                        openUserChat(router, user);
+                      },
+                    },
+                  ],
+                  { cancelable: false },
+                );
+              } catch (err) {
+                Alert.alert(
+                  "Send failed",
+                  err?.message || "Could not send room invitation.",
+                );
+              } finally {
+                setSendingInviteId(null);
+              }
+            },
+          },
+        ],
+        { cancelable: true },
+      );
+      return;
+    }
+
     openUserChat(router, user);
   };
 
@@ -573,6 +635,36 @@ export default function ChatTab() {
           </>
         )}
       </LinearGradient>
+
+      {/* ── ROOM SHARE MODE BANNER ── */}
+      {isShareMode && (
+        <View style={styles.shareBannerContainer}>
+          <LinearGradient
+            colors={["#7c3aed", "#4f46e5"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.shareBannerGrad}
+          >
+            <View style={styles.shareBannerIconWrap}>
+              <Text style={styles.shareBannerEmoji}>🎙️</Text>
+            </View>
+            <View style={styles.shareBannerTextCol}>
+              <Text style={styles.shareBannerTitle}>Invite to Voice Room</Text>
+              <Text style={styles.shareBannerSub} numberOfLines={1}>
+                Tap any friend to send an invite to "{shareRoomTitle}"
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.shareBannerCloseBtn}
+              activeOpacity={0.75}
+              onPress={() => setShareDismissed(true)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <X size={16} color="white" />
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+      )}
 
       <ScrollView ref={scrollRef} style={styles.body} showsVerticalScrollIndicator={false}>
 
@@ -1665,4 +1757,58 @@ const styles = StyleSheet.create({
   },
   emptyContactsEmoji: { fontSize: 36 },
   emptyContactsText: { color: "rgba(26,26,46,0.35)", fontSize: 14, fontWeight: "500" },
+
+  // Share mode banner
+  shareBannerContainer: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    borderRadius: 14,
+    overflow: "hidden",
+    shadowColor: "#7c3aed",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  shareBannerGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  shareBannerIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareBannerEmoji: {
+    fontSize: 18,
+  },
+  shareBannerTextCol: {
+    flex: 1,
+  },
+  shareBannerTitle: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  shareBannerSub: {
+    color: "rgba(255, 255, 255, 0.85)",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  shareBannerCloseBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });
