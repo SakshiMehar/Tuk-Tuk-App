@@ -5304,6 +5304,24 @@ export default function VoiceParty() {
                 </View>
                 <Text style={styles.playCenterLabel}>Lucky bag</Text>
               </TouchableOpacity>
+
+              {/* PK — opens the Backpack's PK gifts tab */}
+              <TouchableOpacity
+                style={styles.playCenterItem}
+                activeOpacity={0.75}
+                onPress={() => {
+                  setShowPlayCenter(false);
+                  setTimeout(() => {
+                    setBackpackMainTab("PK");
+                    setShowBackpack(true);
+                  }, 400);
+                }}
+              >
+                <View style={styles.playCenterIconWrap}>
+                  <Text style={styles.playCenterEmoji}>⚔️</Text>
+                </View>
+                <Text style={styles.playCenterLabel}>PK</Text>
+              </TouchableOpacity>
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
