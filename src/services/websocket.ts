@@ -31,8 +31,16 @@ export interface ChatMessage {
   senderId: string;
   receiverId: string;
   content: string;
+  image?: string;
+  audio?: string;
+  audioDuration?: number;
   timestamp: string;
   status: MessageStatus;
+  
+  // Call signaling
+  callSignalType?: 'OFFER' | 'ANSWER' | 'REJECT' | 'END';
+  callType?: 'audio' | 'video';
+  callChannelId?: string;
 }
 
 export interface TypingPayload {
@@ -314,7 +322,7 @@ class WebSocketService {
       
       const sub = this.client.subscribe(destination, (frame: IMessage) => {
         const payload: ChatMessage = JSON.parse(frame.body);
-        
+        console.log("[WS] Received user chat payload:", { ...payload, image: payload.image ? `${payload.image.substring(0, 50)}...` : null });
         this.messageHandlers.forEach((h) => h(payload));
       });
       this.subscriptions.set(key, sub);
@@ -593,12 +601,33 @@ class WebSocketService {
 
   // ── 1:1 chat publish ─────────────────────────────────────────────────────
 
-  sendMessage(recipientId: string, content: string): void {
+  sendMessage(recipientId: string, content: string, imageBase64?: string, audioBase64?: string, audioDuration?: number): void {
     this._assertConnected();
     const destination = `/app/users/${recipientId}/chat`;
-    const body = JSON.stringify({ message: content });
+    const payload: any = { message: content };
+    if (imageBase64) {
+      payload.image = imageBase64;
+    }
+    if (audioBase64) {
+      payload.audio = audioBase64;
+      payload.audioDuration = audioDuration;
+    }
+    console.log(`[WS] Sending chat to ${recipientId}:`, { ...payload, image: payload.image ? `${payload.image.substring(0, 50)}...` : null, audio: payload.audio ? `${payload.audio.substring(0, 50)}...` : null });
+    const body = JSON.stringify(payload);
     this.client!.publish({ destination, body });
-    
+  }
+
+  sendCallSignal(recipientId: string, signalType: 'OFFER' | 'ANSWER' | 'REJECT' | 'END', callType: 'audio' | 'video', channelId?: string): void {
+    this._assertConnected();
+    const destination = `/app/users/${recipientId}/chat`;
+    // Format: __CALL_SIGNAL__|{signalType}|{callType}|{channelId}
+    const signalString = `__CALL_SIGNAL__|${signalType}|${callType}|${channelId || ''}`;
+    const payload: any = { 
+      message: signalString
+    };
+    console.log(`[WS] Sending call signal to ${recipientId}:`, payload);
+    const body = JSON.stringify(payload);
+    this.client!.publish({ destination, body });
   }
 
   notifyTyping(receiverId: string): void {

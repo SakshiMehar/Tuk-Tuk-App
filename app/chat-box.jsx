@@ -14,7 +14,7 @@ export default function ChatBoxScreen() {
     level: params.level ? Number(params.level) : null,
   };
 
-  
+
 
   return <ChatBox user={user} onBack={() => router.back()} />;
 }

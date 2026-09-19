@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Image,
   Modal,
@@ -28,8 +29,8 @@ import {
   VIP_TIER_THRESHOLDS,
   resolveVipTierFromAssetUrl,
 } from "../src/constants/vip";
-import { COUNTRY_OPTIONS } from "../src/data/countryOptions";
 import exploreData from "../src/data/partyExploreData.json";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import { getRecommendedUsers } from "../src/services/homeService";
 import {
   loadFamilies,
@@ -40,8 +41,8 @@ import {
   loadRoomRecommendations,
   normalizeRoom
 } from "../src/services/partyService";
+import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
-import { getUser } from "../src/store/authStore";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import AppBackground from "./AppBackground";
@@ -187,21 +188,6 @@ function useRoomUserCount(roomId) {
   return count;
 }
 
-function useUserCountryFlag() {
-  const [flag, setFlag] = useState(null);
-  useEffect(() => {
-    getUser().then((user) => {
-      const countryName = user?.countryName ?? user?.country ?? null;
-      if (!countryName) return;
-      const match = COUNTRY_OPTIONS.find(
-        (c) => c.name.toLowerCase() === countryName.toLowerCase()
-      );
-      if (match?.flag) setFlag(match.flag);
-    }).catch(() => {});
-  }, []);
-  return flag;
-}
-
 // Identity badges (level/VIP/decoration) are intentionally NOT added to these
 // room cards: normalizeRoom() (src/services/partyService.js) only exposes
 // `hostId`, not the host's name/avatar/level/vipProfileFrameUrl, and this is
@@ -210,7 +196,7 @@ function useUserCountryFlag() {
 // room list API embeds host identity fields directly.
 function ExploreRoomItem({ room, onPress }) {
   const userCount = useRoomUserCount(room.id);
-  const countryFlag = useUserCountryFlag();
+  const countryFlag = useMyCountryFlag();
 
   return (
     <TouchableOpacity style={styles.exploreRoomCard} activeOpacity={0.8} onPress={onPress}>
@@ -310,6 +296,12 @@ export default function PartyExplore() {
   const [relatedRooms, setRelatedRooms] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [recommendedUsers, setRecommendedUsers] = useState([]);
+  // userId -> decoration badgeUrl for the "Recommend user in the room" strip
+  // below — a small horizontal list (same size class as ChatTab.jsx's
+  // identical recommend row), so one fetchUserDecorations call per visible
+  // user id is fine, cached by id so it's never re-requested.
+  const [recommendDecorations, setRecommendDecorations] = useState({});
+  const recommendDecorationFetchedIds = useRef(new Set());
 
   // ── Search ──
   const [searchVisible, setSearchVisible] = useState(false);
@@ -402,7 +394,21 @@ export default function PartyExplore() {
     let cancelled = false;
     getRecommendedUsers()
       .then((users) => {
-        if (!cancelled) setRecommendedUsers(users);
+        if (!cancelled) {
+          setRecommendedUsers(users);
+          (users ?? []).forEach((u) => {
+            const uid = u?.id != null ? String(u.id) : u?.userId != null ? String(u.userId) : null;
+            if (!uid || recommendDecorationFetchedIds.current.has(uid)) return;
+            recommendDecorationFetchedIds.current.add(uid);
+            fetchUserDecorations(uid)
+              .then(({ badgeUrl }) => {
+                if (badgeUrl && !cancelled) {
+                  setRecommendDecorations((prev) => ({ ...prev, [uid]: badgeUrl }));
+                }
+              })
+              .catch(() => {});
+          });
+        }
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -480,6 +486,24 @@ export default function PartyExplore() {
       setLevelGateVisible(true);
       return;
     }
+
+    // One room per user — block opening the create form if they already
+    // manage a room, instead of letting them create a second one.
+    try {
+      const managedRooms = await loadManagedRooms();
+      if (managedRooms.length > 0) {
+        Alert.alert(
+          "You already have a room",
+          "You cannot create a room because you already have one.",
+        );
+        return;
+      }
+    } catch {
+      // If this check fails (e.g. network hiccup), fall through — the
+      // create call itself already handles the "room already exists" case
+      // defensively (see the conflict branch in createPartyRoom).
+    }
+
     setCreateRoomVisible(true);
   };
 
@@ -764,6 +788,8 @@ export default function PartyExplore() {
                       user?.level != null ? resolveLocalLevelBadge(user.level) : null;
                     const vipTier = resolveVipTierFromAssetUrl(user?.vipProfileFrameUrl);
                     const vipLogo = vipTier != null ? VIP_LOGO_BY_TIER[vipTier] : null;
+                    const decorationBadge =
+                      user?.id != null ? recommendDecorations[String(user.id)] : null;
                     return (
                     <TouchableOpacity
                       key={user.id}
@@ -804,7 +830,7 @@ export default function PartyExplore() {
                         )}
                       </LinearGradient>
                       <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
-                      {(levelBadge || vipLogo || user?.verified) && (
+                      {(levelBadge || vipLogo || decorationBadge || user?.verified) && (
                         <View style={styles.recommendBadgeRow}>
                           {levelBadge && (
                             <Image
@@ -817,6 +843,13 @@ export default function PartyExplore() {
                             <Image
                               source={{ uri: vipLogo }}
                               style={styles.recommendVipBadge}
+                              resizeMode="contain"
+                            />
+                          )}
+                          {decorationBadge && (
+                            <Image
+                              source={{ uri: decorationBadge }}
+                              style={styles.recommendDecorationBadge}
                               resizeMode="contain"
                             />
                           )}
@@ -1704,6 +1737,10 @@ const styles = StyleSheet.create({
   recommendVipBadge: {
     width: 12,
     height: 12,
+  },
+  recommendDecorationBadge: {
+    height: 12,
+    width: 12 * BADGE_ASPECT.verified,
   },
   recommendVerifiedBadge: {
     height: 12,

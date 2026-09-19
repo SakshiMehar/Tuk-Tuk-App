@@ -1,5 +1,6 @@
 import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
 import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -111,6 +112,7 @@ import {
 } from "../src/services/giftCatalogService";
 import { loadUserDetail } from "../src/services/nearbyService";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
+import { useMyCountryFlag } from "../src/services/userCountryService";
 import {
   createLocalChatMessage,
   enterRandomPartySession,
@@ -538,7 +540,7 @@ const resolveEntryFrameLayout = (frameUrl, user) => {
   };
 };
 
-const UserEntryBanner = ({ user, onComplete }) => {
+const UserEntryBanner = ({ user, countryFlag = null, onComplete }) => {
   const { W: SW } = useResponsive();
   const translateX = useSharedValue(-SW - 30);
 
@@ -661,6 +663,7 @@ const UserEntryBanner = ({ user, onComplete }) => {
           >
             <Text style={styles.entryBannerName} numberOfLines={1}>
               {userName}
+              {!!countryFlag && ` ${countryFlag}`}
             </Text>
           </View>
         </>
@@ -680,6 +683,7 @@ const UserEntryBanner = ({ user, onComplete }) => {
           <View style={styles.entryBannerTextContainer}>
             <Text style={styles.entryBannerName} numberOfLines={1}>
               {userName}
+              {!!countryFlag && ` ${countryFlag}`}
             </Text>
             <Text style={styles.entryBannerJoined}>joined the room</Text>
           </View>
@@ -1488,6 +1492,7 @@ export default function VoiceParty() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
+  const [claimedRewardModal, setClaimedRewardModal] = useState(null);
   const [showActiveUsersModal, setShowActiveUsersModal] = useState(false);
   const [showFollowModal, setShowFollowModal] = useState(false);
 
@@ -1620,6 +1625,7 @@ export default function VoiceParty() {
   const [welcomeMessage, setWelcomeMessage] = useState(
     "Welcome everyone! Let's chat and have fun together!",
   );
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
   const [welcomeDraft, setWelcomeDraft] = useState("");
 
@@ -1678,6 +1684,7 @@ export default function VoiceParty() {
   const [profileFollowLoading, setProfileFollowLoading] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
   const [localSessionUser, setLocalSessionUser] = useState(null);
+  const myCountryFlag = useMyCountryFlag();
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
   const { treasureState, selectChest } = useTreasureBoxProgress(
@@ -3070,6 +3077,46 @@ export default function VoiceParty() {
       }
     };
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
+
+  const handleToggleMusic = useCallback(async () => {
+    if (isMusicPlaying) {
+      agoraVoice.stopAudioForEveryone();
+      setIsMusicPlaying(false);
+    } else {
+      let hasMicPermission = true;
+      if (Platform.OS === 'android') {
+        hasMicPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      }
+
+      if (!hasMicPermission) {
+        setMicPermWarning('music');
+        return;
+      }
+
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: "audio/*",
+          copyToCacheDirectory: false,
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          if (onMic && isMicMuted && roomId && mySeatNumber) {
+            try {
+              await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
+              setIsMicMuted(false);
+            } catch (e) {
+              console.log("Failed to unmute mic:", e);
+            }
+          }
+
+          const localUri = result.assets[0].uri;
+          agoraVoice.playAudioForEveryone(localUri);
+          setIsMusicPlaying(true);
+        }
+      } catch (err) {
+        console.error("Audio selection error:", err);
+      }
+    }
+  }, [isMusicPlaying, onMic, isMicMuted, roomId, mySeatNumber]);
 
   const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
@@ -5521,6 +5568,9 @@ export default function VoiceParty() {
         followLoading={profileFollowLoading}
         isSelf={isSameUser(profilePopupUser?.id, myUserId)}
         isOwner={isSameUser(profilePopupUser?.id, hostId)}
+        countryFlag={
+          isSameUser(profilePopupUser?.id, myUserId) ? myCountryFlag : null
+        }
         onClose={closeProfilePopup}
         onFollowToggle={handleProfileFollowToggle}
         onChat={handlePopupChat}
@@ -5752,7 +5802,7 @@ export default function VoiceParty() {
         onRequestClose={() => setShowPlayCenter(false)}
       >
         <TouchableOpacity
-          style={styles.modalOverlay}
+          style={styles.playCenterOverlay}
           activeOpacity={1}
           onPress={() => setShowPlayCenter(false)}
         >
@@ -5765,7 +5815,9 @@ export default function VoiceParty() {
                 activeOpacity={0.75}
                 onPress={() => {
                   setShowPlayCenter(false);
-                  Alert.alert("Music", "Music player coming soon!");
+                  setTimeout(() => {
+                    handleToggleMusic();
+                  }, 400);
                 }}
               >
                 <View style={styles.playCenterIconWrap}>
@@ -5787,6 +5839,24 @@ export default function VoiceParty() {
                   <Text style={styles.playCenterEmoji}>💰</Text>
                 </View>
                 <Text style={styles.playCenterLabel}>Lucky bag</Text>
+              </TouchableOpacity>
+
+              {/* PK — opens the Backpack's PK gifts tab */}
+              <TouchableOpacity
+                style={styles.playCenterItem}
+                activeOpacity={0.75}
+                onPress={() => {
+                  setShowPlayCenter(false);
+                  setTimeout(() => {
+                    setBackpackMainTab("PK");
+                    setShowBackpack(true);
+                  }, 400);
+                }}
+              >
+                <View style={styles.playCenterIconWrap}>
+                  <Text style={styles.playCenterEmoji}>⚔️</Text>
+                </View>
+                <Text style={styles.playCenterLabel}>PK</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -5935,7 +6005,6 @@ export default function VoiceParty() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
-
       {/* ── ACTIVE USERS MODAL ── */}
       <Modal
         visible={showActiveUsersModal}
@@ -6350,8 +6419,13 @@ export default function VoiceParty() {
                   const pendingSeatId = micPermWarning;
                   setMicPermWarning(null);
                   const granted = await agoraVoice.requestMicPermission();
-                  if (granted && pendingSeatId != null) {
-                    handleTakeSeat(pendingSeatId);
+                  if (granted) {
+                    if (pendingSeatId === 'music') {
+                      // Automatically try toggling music again now that permission is granted
+                      handleToggleMusic();
+                    } else if (pendingSeatId != null) {
+                      handleTakeSeat(pendingSeatId);
+                    }
                   }
                 }}
               >
@@ -6531,13 +6605,18 @@ export default function VoiceParty() {
 
               {/* Dynamic Room Name & Room ID */}
               <View style={styles.ownerTextCol}>
-                <Text
-                  style={styles.ownerName}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
-                  {roomInfo?.name ?? "Voice Room"}
-                </Text>
+                <View style={styles.ownerNameRow}>
+                  <Text
+                    style={styles.ownerName}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {roomInfo?.name ?? "Voice Room"}
+                  </Text>
+                  {isHostSelf && !!myCountryFlag && (
+                    <Text style={styles.ownerCountryFlag}>{myCountryFlag}</Text>
+                  )}
+                </View>
                 <Text
                   style={styles.ownerId}
                   numberOfLines={1}
@@ -6783,6 +6862,7 @@ export default function VoiceParty() {
                 <UserEntryBanner
                   key={user._entryKey || `${user.id || user.userId || "entry"}-${idx}`}
                   user={user}
+                  countryFlag={myCountryFlag}
                   onComplete={() =>
                     handleEntryComplete(user._entryKey || user.id || user.userId)
                   }
@@ -7051,6 +7131,9 @@ export default function VoiceParty() {
                           >
                             <Text style={styles.chatUser}>{senderName}</Text>
                           </TouchableOpacity>
+                          {isSenderSelf && !!myCountryFlag && (
+                            <Text style={styles.chatUserFlag}>{myCountryFlag}</Text>
+                          )}
                           <Image
                             source={resolveLocalLevelBadge(msg.level)}
                             style={styles.lvBadgeImg}
@@ -7387,6 +7470,70 @@ export default function VoiceParty() {
           <TopGiftingRanking roomId={roomId} onUserPress={handleOnlineUserPress} />
         )}
       </KeyboardAvoidingView>
+
+      {/* ── CUSTOM REWARD CLAIMED MODAL ── */}
+      <Modal
+        visible={Boolean(claimedRewardModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClaimedRewardModal(null)}
+      >
+        <View style={styles.rewardModalOverlay}>
+          <View style={styles.rewardModalOuter}>
+            {/* Bursting Gifts Overlay */}
+            <Image
+              source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/Rechargebonus/Popupheader/Popup.png" }}
+              style={styles.rewardModalHeaderImg}
+              resizeMode="contain"
+            />
+
+            <LinearGradient
+              colors={["#ffd17f", "#fffbf0", "#ffffff"]}
+              style={styles.rewardModalContainer}
+            >
+              <View style={styles.rewardModalBody}>
+                <View style={styles.rewardModalGiftBox}>
+                  <Image
+                    source={claimedRewardModal}
+                    style={styles.rewardModalGiftImg}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.rewardModalGiftBadge}>x1d</Text>
+                </View>
+                <Text style={styles.rewardModalGiftLabel}>Gift</Text>
+
+                <Text style={styles.rewardModalTips}>
+                  Tips: Stay in the room long enough to earn a gift.
+                </Text>
+
+                <TouchableOpacity
+                  style={{ width: '100%', alignItems: 'center' }}
+                  activeOpacity={0.8}
+                  onPress={() => setClaimedRewardModal(null)}
+                >
+                  <LinearGradient
+                    colors={["#ff7a00", "#ff007a"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.rewardModalOkBtn}
+                  >
+                    <Text style={styles.rewardModalOkText}>OK</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+
+            {/* Close Button floating above everything */}
+            <TouchableOpacity
+              style={styles.rewardModalCloseIcon}
+              activeOpacity={0.8}
+              onPress={() => setClaimedRewardModal(null)}
+            >
+              <X color="white" size={26} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -7473,11 +7620,21 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     justifyContent: "center",
   },
+  ownerNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minWidth: 0,
+  },
   ownerName: {
     color: "#ffffff",
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.1,
+    flexShrink: 1,
+  },
+  ownerCountryFlag: {
+    fontSize: 12,
   },
   ownerId: {
     color: "#c4b5fd",
@@ -7818,6 +7975,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   chatUser: { color: "#b44dff", fontSize: 12, fontWeight: "700" },
+  chatUserFlag: { fontSize: 12 },
   // Same level-badge image (and aspect ratio) shown on the Profile tab —
   // 142/149 measured from the actual asset files, see levelBadge.js.
   lvBadgeImg: { height: 18, width: 18 * (142 / 149) },
@@ -8407,6 +8565,14 @@ const styles = StyleSheet.create({
   },
 
   // ── Play center modal ──
+  playCenterOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+    alignItems: "flex-end",
+    paddingBottom: 90,
+    paddingRight: 12,
+  },
   playCenterBox: {
     backgroundColor: "#1a0a2e",
     borderRadius: 16,
@@ -9633,73 +9799,78 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.65)",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 32,
+    paddingHorizontal: 34,
   },
   seatActionCard: {
-    width: "100%",
+    width: "64%",
+    maxWidth: 245,
     backgroundColor: "#1e1035",
-    borderRadius: 24,
-    paddingHorizontal: 22,
-    paddingTop: 28,
-    paddingBottom: 22,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     shadowColor: "#7c4dff",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 20,
-    elevation: 16,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 10,
   },
   seatActionHeader: {
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 8,
   },
   seatActionHeaderEmoji: {
-    fontSize: 38,
-    marginBottom: 8,
+    fontSize: 24,
+    marginBottom: 4,
   },
   seatActionHeaderTitle: {
     color: "white",
-    fontSize: 20,
-    fontWeight: "800",
-    marginBottom: 4,
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 1,
   },
   seatActionHeaderSub: {
     color: "rgba(255,255,255,0.45)",
-    fontSize: 13,
+    fontSize: 11,
   },
   seatActionDivider: {
     height: 1,
     backgroundColor: "rgba(255,255,255,0.08)",
-    marginBottom: 18,
+    marginBottom: 8,
   },
   seatActionBtn: {
-    borderRadius: 14,
+    alignSelf: "center",
+    width: "65%",
+    maxWidth: 135,
+    borderRadius: 8,
     overflow: "hidden",
-    marginBottom: 12,
+    marginBottom: 3,
   },
   seatActionBtnGradient: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 15,
-    gap: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    gap: 4,
   },
-  seatActionBtnIcon: { fontSize: 20 },
+  seatActionBtnIcon: { fontSize: 12 },
   seatActionBtnText: {
     color: "white",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.3,
+    fontSize: 11.5,
+    fontWeight: "600",
+    letterSpacing: 0.2,
   },
   seatActionCancelBtn: {
-    marginTop: 4,
-    paddingVertical: 13,
+    marginTop: 1,
+    paddingVertical: 4,
     alignItems: "center",
   },
   seatActionCancelText: {
     color: "rgba(255,255,255,0.45)",
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: "600",
   },
 
@@ -9989,12 +10160,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
-  activeUsersOverlay: {
+
+  // Custom Reward Claimed Modal
+  rewardModalOverlay: {
     flex: 1,
     width: "100%",
     height: "100%",
     backgroundColor: "rgba(0, 0, 0, 0.72)",
     justifyContent: "center",
+  },
+  rewardModalOuter: {
+    width: "75%",
     alignItems: "center",
     paddingHorizontal: 20,
   },
@@ -10112,21 +10288,63 @@ const styles = StyleSheet.create({
   activeUserAvatarPlaceholder: {
     backgroundColor: "#3b1580",
     justifyContent: "center",
-    alignItems: "center",
   },
-  activeUserInitial: {
-    color: "white",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  activeUserMicDot: {
+  rewardModalHeaderImg: {
     position: "absolute",
-    bottom: -1,
-    right: -1,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    top: -70,
+    width: "110%",
+    height: 145,
+    zIndex: 10,
+    elevation: 10,
+    alignSelf: "center",
+  },
+  rewardModalContainer: {
+    width: "100%",
+    borderRadius: 20,
+    alignItems: "center",
+    paddingTop: 55,
+    paddingBottom: 20,
+    elevation: 5,
+  },
+  rewardModalCloseIcon: {
+    position: "absolute",
+    top: -60,
+    right: 0,
+    zIndex: 100,
+    padding: 5,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    borderRadius: 16,
+  },
+  rewardModalTitle: {
+    color: "white",
+    fontSize: 26,
+    fontWeight: "900",
+    textShadowColor: "#d6249f",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
+    zIndex: 20,
+    marginBottom: 20,
+  },
+  rewardModalBody: {
+    width: "100%",
+    paddingHorizontal: 20,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  rewardModalGiftBox: {
+    width: 100,
+    height: 100,
+    backgroundColor: "white",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#ffc107",
+    alignItems: "center",
     justifyContent: "center",
+    marginBottom: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#1a0a2e",
@@ -10170,39 +10388,56 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 2,
     elevation: 2,
+    marginTop: 20
   },
-  seatStatusText: {
-    color: "#ffffff",
-    fontSize: 9,
-    fontWeight: "700",
+  rewardModalGiftImg: {
+    width: "80%",
+    height: "80%",
+    position: "absolute",
+    top: "10%",
+    left: "10%",
   },
-  leaveSeatBtn: {
-    backgroundColor: "rgba(239, 68, 68, 0.18)",
-    borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.45)",
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 4,
+  rewardModalGiftBadge: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    color: "#e64a19",
+    fontSize: 12,
+    fontWeight: "bold",
   },
-  leaveSeatBtnText: {
-    color: "#fca5a5",
-    fontSize: 8.5,
-    fontWeight: "700",
+  rewardModalGiftLabel: {
+    color: "#e64a19",
+    fontSize: 14,
+    fontWeight: "bold",
+    marginBottom: 12,
   },
-  audienceStatusBadge: {
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 5,
-    shadowOpacity: 0,
-    elevation: 0,
+  rewardModalTips: {
+    color: "#a0a0a0",
+    fontSize: 10,
+    textAlign: "center",
+    marginBottom: 16,
   },
-  audienceStatusText: {
-    color: "rgba(255, 255, 255, 0.65)",
-    fontSize: 9,
-    fontWeight: "600",
+  rewardModalOkBtn: {
+    width: "100%",
+    height: 42,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#ff007a",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.4)",
   },
+  rewardModalOkText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+    letterSpacing: 1,
+  },
+
   followModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",

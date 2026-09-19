@@ -45,6 +45,7 @@ export default function RoomUserProfilePopup({
   isSelf = false,
   isOwner = false,
   role = null,
+  countryFlag = null,
   onClose,
   onFollowToggle,
   onChat,
@@ -165,6 +166,9 @@ export default function RoomUserProfilePopup({
                 <Text style={styles.nameText} numberOfLines={1}>
                   {displayName}
                 </Text>
+                {!!countryFlag && (
+                  <Text style={styles.countryFlag}>{countryFlag}</Text>
+                )}
               </View>
 
               {/* User ID (Copyable) */}
@@ -475,6 +479,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
     paddingHorizontal: 8,
     paddingVertical: 2,
+  },
+  countryFlag: {
+    fontSize: 16,
+  },
+  vipLogo: {
+    width: 22,
+    height: 22,
+    flexShrink: 0,
   },
   userIdText: {
     color: "#64748B",

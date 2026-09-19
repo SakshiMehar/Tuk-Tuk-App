@@ -57,7 +57,6 @@ import {
   VIP_TIER_THRESHOLDS,
   resolveVipTierFromAssetUrl,
 } from "../../src/constants/vip";
-import { DIAMOND_ICON_URL } from "../../src/constants/theme";
 import {
   getAvatarSource,
   isBundledAvatarId,
@@ -83,11 +82,7 @@ import {
   loadFollowing,
   unfollowUser,
 } from "../../src/services/relationshipService";
-import {
-  resolveUserCountryName,
-  syncUserCountryToServer,
-} from "../../src/services/userCountryService";
-import { syncUserLevelForSession } from "../../src/services/userLevelService";
+import { syncUserCountryToServer } from "../../src/services/userCountryService";
 import { updateUserProfile } from "../../src/services/userProfileService";
 import { loadMyVipAssets } from "../../src/services/vipService";
 import { getUser, updateUser } from "../../src/store/authStore";
@@ -97,6 +92,7 @@ import {
 } from "../../src/store/walletStore";
 import { openUserChat } from "../../src/utils/chatNavigation";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
+import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
 import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
 import { navigateFromNotification } from "../../src/utils/notificationNavigation";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
@@ -105,19 +101,15 @@ import { ms, s, vs } from "../../src/utils/responsive";
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import { resolveImageSource } from "../../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
-import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
 
-// Same per-tier VIP "logo" crest used as the VIP badge in UserProfileView /
-// RoomUserProfilePopup — the small logo, not the big profile-frame ring.
+// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
+// appears (UserProfileView, ChatTab) — derives the logo URL for a card that
+// already carries a vipProfileFrameUrl, with no extra network call.
 const VIP_LOGO_BY_TIER = Object.fromEntries(
   VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
 );
-const BADGE_ASPECT = { level: 142 / 149, verified: 438 / 179 };
-// Same verified badge asset used by UserProfileView/ChatBox as the fallback
-// when a user has no custom decoration badge but is flagged verified.
-const VERIFIED_BADGE = require("../../assets/Batches/verified-batch.png");
 
-const H_PAD = 14;
+const H_PAD = 20;
 const CARD_GAP = 10;
 // Module-level fallbacks using Dimensions — used in StyleSheet.create and
 // stable module-level arrays.
@@ -196,7 +188,7 @@ const iconItems = [
     label: "Voice Call",
     img: require("../../assets/images/officialchat.png"),
     colors: ["#cf91b6ff", "#180a31ff"],
-    imgSize: 70,
+    imgSize: 60,
     comingSoon: true,
   },
   {
@@ -224,7 +216,7 @@ const iconItems = [
     label: "Ludo",
     img: require("../../assets/images/ludo.jpg"),
     colors: ["#041e04ff", "#175726ff"],
-    imgSize: 70,
+    imgSize: 55,
     comingSoon: true,
   },
   {
@@ -1561,7 +1553,7 @@ PostFAB.displayName = "PostFAB";
 const fabStyles = StyleSheet.create({
   fab: {
     position: "absolute",
-    bottom: 40,
+    bottom: 20,
     right: 18,
     width: 56,
     height: 56,
@@ -2476,31 +2468,9 @@ PostCard.displayName = "PostCard";
 
 const RecommendedUserItem = memo(({ user }) => {
   const router = useRouter();
-  const [decorationBadgeUrl, setDecorationBadgeUrl] = useState(null);
-
-  // Short "recommended for you" row — only a handful of cards render at
-  // once, so a one-time per-user decoration fetch here isn't the N+1 risk
-  // it would be on a long scrollable list.
-  useEffect(() => {
-    if (!user?.id) return undefined;
-    let cancelled = false;
-    fetchUserDecorations(user.id)
-      .then((d) => {
-        if (!cancelled) setDecorationBadgeUrl(d?.badgeUrl ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setDecorationBadgeUrl(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
-
-  const levelBadge =
-    user?.level != null ? resolveLocalLevelBadge(user.level) : null;
-  const vipTier = resolveVipTierFromAssetUrl(user?.vipProfileFrameUrl);
-  const vipLogo = vipTier != null ? VIP_LOGO_BY_TIER[vipTier] : null;
-
+  const recommendVipTier = resolveVipTierFromAssetUrl(user.vipProfileFrameUrl);
+  const recommendVipLogo =
+    recommendVipTier != null ? VIP_LOGO_BY_TIER[recommendVipTier] : null;
   return (
     <TouchableOpacity
       style={styles.recommendItem}
@@ -2519,7 +2489,7 @@ const RecommendedUserItem = memo(({ user }) => {
           <ProfileAvatarWithFrame
             avatarSource={toImageSource(user.avatar)}
             frameSource={user.vipProfileFrameUrl}
-            size={s(72)}
+            size={s(60)}
             avatarStyle={{ borderRadius: s(36) }}
             {...(user.vipProfileFrameUrl
               ? {
@@ -2543,41 +2513,28 @@ const RecommendedUserItem = memo(({ user }) => {
           </View>
         )}
       </View>
-      <Text style={styles.recommendName} numberOfLines={1}>
-        {user.name}
-      </Text>
-      {(levelBadge || vipLogo || decorationBadgeUrl || user?.verified) && (
-        <View style={styles.recommendBadgeRow}>
-          {levelBadge && (
-            <Image
-              source={levelBadge}
-              style={styles.recommendLevelBadge}
-              resizeMode="contain"
-            />
-          )}
-          {vipLogo && (
-            <Image
-              source={{ uri: vipLogo }}
-              style={styles.recommendVipBadge}
-              resizeMode="contain"
-            />
-          )}
-          {decorationBadgeUrl && (
-            <Image
-              source={{ uri: decorationBadgeUrl }}
-              style={styles.recommendDecorationBadge}
-              resizeMode="contain"
-            />
-          )}
-          {!decorationBadgeUrl && user?.verified && (
-            <Image
-              source={VERIFIED_BADGE}
-              style={styles.recommendDecorationBadge}
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      )}
+      <View style={styles.recommendNameRow}>
+        <Text style={styles.recommendName} numberOfLines={1}>
+          {user.name}
+        </Text>
+        {user.level != null && (
+          <Image
+            source={resolveLocalLevelBadge(user.level)}
+            style={styles.recommendLevelBadge}
+            contentFit="contain"
+          />
+        )}
+        {recommendVipLogo && (
+          <Image
+            source={{ uri: recommendVipLogo }}
+            style={styles.recommendVipBadge}
+            contentFit="contain"
+          />
+        )}
+        {/* Decoration badge intentionally skipped here: this horizontal list
+            can show many recommended users, so firing fetchUserDecorations
+            per card would risk an N+1 request storm. */}
+      </View>
     </TouchableOpacity>
   );
 });
@@ -2658,9 +2615,6 @@ const HomeHeader = memo(
     sessionAvatarSource,
     sessionNewUserFrameSource,
     vipProfileFrameSource,
-    myLevelBadge,
-    myVipLogo,
-    myDecorationBadge,
     stats,
     unreadNotifications,
     recommendedUsers,
@@ -2675,12 +2629,18 @@ const HomeHeader = memo(
     onNearbyPress,
     onComingSoon,
     router,
-  }) => (
-    <>
-      {/* ── HEADER CARD ── */}
-      <View style={styles.headerCard}>
-        <View style={styles.headerTopRow}>
-          <View style={styles.headerAvatarCol}>
+  }) => {
+    const insets = useSafeAreaInsets();
+    return (
+      <>
+        {/* ── HEADER CARD ── */}
+        <LinearGradient
+          colors={["rgba(255,255,255,0)", "rgba(255,255,255,0)", "rgba(255,255,255,0)"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.headerCard, { marginTop: Math.max(insets.top, 10) }]}
+        >
+          <View style={styles.headerTopRow}>
             <View style={styles.avatarWrapper}>
               <ProfileAvatarWithFrame
                 avatarSource={
@@ -2688,7 +2648,7 @@ const HomeHeader = memo(
                   (userProfile?.avatarUrl ? { uri: userProfile.avatarUrl } : null)
                 }
                 frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
-                size={s(62)}
+                size={s(45)}
                 avatarStyle={styles.headerAvatar}
                 placeholderInitial={
                   (userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"
@@ -2706,310 +2666,291 @@ const HomeHeader = memo(
                   }
                   : {})}
               />
-              <View style={styles.onlineDot} />
             </View>
-            {/* Own level / VIP / decoration badge row — same three-badge
-                pattern as UserProfileView and RoomUserProfilePopup, just
-                sized down to fit under this header's small 62px avatar
-                since there's no name text here to sit next to. */}
-            {(myLevelBadge || myVipLogo || myDecorationBadge) && (
-              <View style={styles.headerBadgeRow}>
-                {myLevelBadge && (
-                  <Image
-                    source={myLevelBadge}
-                    style={styles.headerLevelBadge}
-                    resizeMode="contain"
-                  />
-                )}
-                {myVipLogo && (
-                  <Image
-                    source={{ uri: myVipLogo }}
-                    style={styles.headerVipBadge}
-                    resizeMode="contain"
-                  />
-                )}
-                {myDecorationBadge && (
-                  <Image
-                    source={{ uri: myDecorationBadge }}
-                    style={styles.headerDecorationBadge}
-                    resizeMode="contain"
-                  />
-                )}
-              </View>
-            )}
-          </View>
-          <View style={styles.headerTitleCol}>
-            <View style={styles.appNameWrapper}>
-              {/* Thin #7f3f89 outline — 8 directions at 1px */}
-              {[
-                [-1, 0],
-                [1, 0],
-                [0, -1],
-                [0, 1],
-                [-1, -1],
-                [1, -1],
-                [-1, 1],
-                [1, 1],
-              ].map(([dx, dy], i) => (
+            <View style={styles.headerTitleCol}>
+              <View style={styles.appNameWrapper}>
+                {/* Thin #7f3f89 outline — 8 directions at 1px */}
+                {[
+                  [-1, 0],
+                  [1, 0],
+                  [0, -1],
+                  [0, 1],
+                  [-1, -1],
+                  [1, -1],
+                  [-1, 1],
+                  [1, 1],
+                ].map(([dx, dy], i) => (
+                  <Text
+                    key={i}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                    allowFontScaling={false}
+                    style={[
+                      styles.appName,
+                      styles.appNameOutline,
+                      { position: "absolute", left: dx, top: dy },
+                    ]}
+                  >
+                    Tuk Tuk
+                  </Text>
+                ))}
+                {/* White text on top */}
                 <Text
-                  key={i}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   minimumFontScale={0.85}
                   allowFontScaling={false}
-                  style={[
-                    styles.appName,
-                    styles.appNameOutline,
-                    { position: "absolute", left: dx, top: dy },
-                  ]}
+                  style={styles.appName}
                 >
                   Tuk Tuk
                 </Text>
-              ))}
-              {/* White text on top */}
-              <Text
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.85}
-                allowFontScaling={false}
-                style={styles.appName}
-              >
-                Tuk Tuk
-              </Text>
+              </View>
             </View>
-          </View>
-          <View style={styles.headerIcons}>
-            <View style={styles.diamondPill}>
-              <Image source={{ uri: DIAMOND_ICON_URL }} style={styles.diamondIcon} contentFit="contain" />
-              <Text style={styles.diamondCount}>
-                {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString(
-                  "en-IN",
-                )}
-              </Text>
+            <View style={styles.headerIcons}>
+              <View style={styles.diamondPill}>
+                <Text style={styles.diamondEmoji}>💎</Text>
+                <Text
+                  style={[styles.diamondCount, { maxWidth: 85 }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString(
+                    "en-IN",
+                  )}
+                </Text>
+                <TouchableOpacity
+                  style={styles.diamondPlusBtn}
+                  activeOpacity={0.85}
+                  onPress={onRechargeOpen}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.diamondPlusText}>+</Text>
+                </TouchableOpacity>
+              </View>
               <TouchableOpacity
-                style={styles.diamondPlusBtn}
-                activeOpacity={0.85}
-                onPress={onRechargeOpen}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.headerIconBtn}
+                activeOpacity={0.8}
+                onPress={onGiftsOpen}
               >
-                <Text style={styles.diamondPlusText}>+</Text>
+                <RNImage
+                  source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box1.png" }}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
+                <View
+                  style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}
+                >
+                  <Text style={styles.headerIconBadgeText}>!</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerIconBtn}
+                activeOpacity={0.8}
+                onPress={onNotifOpen}
+              >
+                <RNImage
+                  source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/notifications.png" }}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
+                <View
+                  style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}
+                >
+                  <Text style={styles.headerIconBadgeText}>
+                    {unreadNotifications.length}
+                  </Text>
+                </View>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              style={styles.headerIconBtn}
-              activeOpacity={0.8}
-              onPress={onGiftsOpen}
-            >
-              <Text style={styles.headerIconEmoji}>🎁</Text>
-              <View
-                style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}
-              >
-                <Text style={styles.headerIconBadgeText}>!</Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.headerIconBtn}
-              activeOpacity={0.8}
-              onPress={onNotifOpen}
-            >
-              <Text style={styles.headerIconEmoji}>🔔</Text>
-              <View
-                style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}
-              >
-                <Text style={styles.headerIconBadgeText}>
-                  {unreadNotifications.length}
-                </Text>
-              </View>
-            </TouchableOpacity>
           </View>
-        </View>
 
-        <View style={styles.headerDivider} />
 
-        <View style={styles.activeRow}>
-          <TouchableOpacity
-            style={styles.matchPill}
-            activeOpacity={0.85}
-            onPress={() => router.push("/chat")}
-          >
-            <Image
-              source={toImageSource(
-                stats?.featuredUserAvatar ??
-                "https://randomuser.me/api/portraits/men/45.jpg",
-              )}
-              style={styles.matchAvatar}
-              cachePolicy="memory-disk"
-              transition={200}
-            />
-            <View style={styles.matchWaves}>
-              {MATCH_WAVE_HEIGHTS.map((h, i) => (
-                <View key={i} style={[styles.matchWaveBar, { height: h }]} />
-              ))}
-            </View>
-            <View style={styles.activeTextCol}>
-              <Text style={styles.activeNumber}>
-                {stats?.activeUsers?.toLocaleString() ?? "..."}
-              </Text>
-              <Text style={styles.activeLabel}>Active now</Text>
-            </View>
-            <View style={styles.matchArrow}>
-              <ChevronRight size={14} color="white" />
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.searchBtn}
-            activeOpacity={0.8}
-            onPress={onSearchOpen}
-          >
-            <Text style={styles.searchIcon}>🔍</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* ── 2×2 ACTION CARDS ── */}
-      <View style={styles.actionGrid}>
-        {actionCards.map((card) => (
-          <TouchableOpacity
-            key={card.title}
-            style={styles.actionCard}
-            activeOpacity={0.88}
-            onPress={() => {
-              if (card.partyRandom) {
-                router.push({
-                  pathname: "/voice-party",
-                  params: { party: "true" },
-                });
-              } else if (card.title === "Nearby" && onNearbyPress) {
-                onNearbyPress();
-              } else if (card.route) {
-                router.push(card.route);
-              }
-            }}
-          >
-            <LinearGradient
-              colors={card.colors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.actionCardGradient}
-            >
-              <Text style={styles.cardTitle}>{card.title}</Text>
-              {card.subtitle && (
-                <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
-              )}
-              {card.showWave && (
-                <View style={styles.waveRow}>
-                  {WAVE_HEIGHTS.map((h, wi) => (
-                    <View key={wi} style={[styles.waveBar, { height: h }]} />
-                  ))}
-                </View>
-              )}
-              <StaggeredImage
-                source={
-                  typeof card.img === "string" ? { uri: card.img } : card.img
-                }
-                style={[
-                  styles.cardIllustration,
-                  card.imgSize && { width: card.imgSize, height: card.imgSize },
-                ]}
-                contentFit="contain"
-                delay={card.gifDelay}
-              />
-            </LinearGradient>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* ── ICON ROW ── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.iconScroll}
-        style={styles.iconContainer}
-      >
-        {iconItems.map((item) => (
-          <TouchableOpacity
-            key={item.label}
-            style={styles.iconItem}
-            activeOpacity={0.8}
-            onPress={
-              item.comingSoon
-                ? () => onComingSoon?.(item.label.replace(/\n/g, " "))
-                : undefined
-            }
-          >
-            <LinearGradient
-              colors={item.colors}
-              style={styles.iconBox}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
+          <View style={styles.activeRow}>
+            <TouchableOpacity
+              style={styles.matchPill}
+              activeOpacity={0.85}
+              onPress={() => router.push("/chat")}
             >
               <Image
-                source={
-                  typeof item.img === "string" ? { uri: item.img } : item.img
-                }
-                style={[
-                  styles.iconImg,
-                  item.imgSize && { width: item.imgSize, height: item.imgSize },
-                ]}
-                contentFit="contain"
+                source={toImageSource(
+                  stats?.featuredUserAvatar ??
+                  "https://randomuser.me/api/portraits/men/45.jpg",
+                )}
+                style={styles.matchAvatar}
+                cachePolicy="memory-disk"
+                transition={200}
               />
-            </LinearGradient>
-            <Text style={styles.iconLabel}>{item.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* ── TABS ── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tabsScroll}
-        style={styles.tabsBar}
-      >
-        {TABS.map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            onPress={() => onTabPress(tab)}
-            style={styles.tabItem}
-            activeOpacity={1}
-          >
-            <Animated.Text
-              style={[
-                styles.tabText,
-                selectedTab === tab && styles.tabActive,
-                { transform: [{ scale: tabScales[tab] }] },
-              ]}
+              <View style={styles.matchWaves}>
+                {MATCH_WAVE_HEIGHTS.map((h, i) => (
+                  <View key={i} style={[styles.matchWaveBar, { height: h }]} />
+                ))}
+              </View>
+              <View style={styles.activeTextCol}>
+                <Text style={styles.activeNumber}>
+                  {stats?.activeUsers?.toLocaleString() ?? "..."}
+                </Text>
+                <Text style={styles.activeLabel}>Active now</Text>
+              </View>
+              <View style={styles.matchArrow}>
+                <ChevronRight size={14} color="white" />
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.searchBtn}
+              activeOpacity={0.8}
+              onPress={onSearchOpen}
             >
-              {tab}
-            </Animated.Text>
-            <Animated.View
-              style={[
-                styles.tabUnderline,
-                {
-                  transform: [{ scaleX: tabUnderlineScales[tab] }],
-                  opacity: tabUnderlineScales[tab],
-                },
-              ]}
-            />
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+              <Text style={styles.searchIcon}>🔍</Text>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
 
-      {/* ── RECOMMENDED USERS ── */}
-      <View style={styles.recommendSection}>
-        <Text style={styles.recommendTitle}>Recommend user in the room</Text>
+        {/* ── 2×2 ACTION CARDS ── */}
+        <View style={styles.actionGrid}>
+          {actionCards.map((card) => (
+            <TouchableOpacity
+              key={card.title}
+              style={styles.actionCard}
+              activeOpacity={0.88}
+              onPress={() => {
+                if (card.partyRandom) {
+                  router.push({
+                    pathname: "/voice-party",
+                    params: { party: "true" },
+                  });
+                } else if (card.title === "Nearby" && onNearbyPress) {
+                  onNearbyPress();
+                } else if (card.route) {
+                  router.push(card.route);
+                }
+              }}
+            >
+              <LinearGradient
+                colors={card.colors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.actionCardGradient}
+              >
+                <Text style={styles.cardTitle}>{card.title}</Text>
+                {card.subtitle && (
+                  <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
+                )}
+                {card.showWave && (
+                  <View style={styles.waveRow}>
+                    {WAVE_HEIGHTS.map((h, wi) => (
+                      <View key={wi} style={[styles.waveBar, { height: h }]} />
+                    ))}
+                  </View>
+                )}
+                <StaggeredImage
+                  source={
+                    typeof card.img === "string" ? { uri: card.img } : card.img
+                  }
+                  style={[
+                    styles.cardIllustration,
+                    card.imgSize && { width: card.imgSize, height: card.imgSize },
+                  ]}
+                  contentFit="contain"
+                  delay={card.gifDelay}
+                />
+              </LinearGradient>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* ── ICON ROW ── */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.recommendScroll}
+          contentContainerStyle={styles.iconScroll}
+          style={styles.iconContainer}
         >
-          {recommendedUsers.map((user) => (
-            <RecommendedUserItem key={user.id} user={user} />
+          {iconItems.map((item) => (
+            <TouchableOpacity
+              key={item.label}
+              style={styles.iconItem}
+              activeOpacity={0.8}
+              onPress={
+                item.comingSoon
+                  ? () => onComingSoon?.(item.label.replace(/\n/g, " "))
+                  : undefined
+              }
+            >
+              <LinearGradient
+                colors={item.colors}
+                style={styles.iconBox}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Image
+                  source={
+                    typeof item.img === "string" ? { uri: item.img } : item.img
+                  }
+                  style={[
+                    styles.iconImg,
+                    item.imgSize && { width: item.imgSize, height: item.imgSize },
+                  ]}
+                  contentFit="contain"
+                />
+              </LinearGradient>
+              <Text style={styles.iconLabel}>{item.label}</Text>
+            </TouchableOpacity>
           ))}
         </ScrollView>
-      </View>
-    </>
-  ),
+
+        {/* ── TABS ── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsScroll}
+          style={styles.tabsBar}
+        >
+          {TABS.map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              onPress={() => onTabPress(tab)}
+              style={styles.tabItem}
+              activeOpacity={1}
+            >
+              <Animated.Text
+                style={[
+                  styles.tabText,
+                  selectedTab === tab && styles.tabActive,
+                  { transform: [{ scale: tabScales[tab] }] },
+                ]}
+              >
+                {tab}
+              </Animated.Text>
+              <Animated.View
+                style={[
+                  styles.tabUnderline,
+                  {
+                    transform: [{ scaleX: tabUnderlineScales[tab] }],
+                    opacity: tabUnderlineScales[tab],
+                  },
+                ]}
+              />
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* ── RECOMMENDED USERS ── */}
+        <View style={styles.recommendSection}>
+          <Text style={styles.recommendTitle}>Recommend user in the room</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.recommendScroll}
+          >
+            {recommendedUsers.map((user) => (
+              <RecommendedUserItem key={user.id} user={user} />
+            ))}
+          </ScrollView>
+        </View>
+      </>
+    );
+  },
 );
 HomeHeader.displayName = "HomeHeader";
 
@@ -3072,13 +3013,6 @@ export default function Home() {
   const [sessionNewUserFrameSource, setSessionNewUserFrameSource] =
     useState(null);
   const [vipProfileFrameSource, setVipProfileFrameSource] = useState(null);
-  // Own identity badge row shown next to the header avatar — level (local
-  // asset), VIP logo (small crest, distinct from the profileFrame ring
-  // above) and decoration/verified badge, mirroring UserProfileView /
-  // RoomUserProfilePopup.
-  const [myLevelBadge, setMyLevelBadge] = useState(null);
-  const [myVipLogo, setMyVipLogo] = useState(null);
-  const [myDecorationBadge, setMyDecorationBadge] = useState(null);
   const [comingSoonFeature, setComingSoonFeature] = useState(null);
   const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
   const [genderPickerVisible, setGenderPickerVisible] = useState(false);
@@ -3114,17 +3048,8 @@ export default function Home() {
           ? resolveImageSource(vipAssets.profileFrame)
           : null,
       );
-      setMyVipLogo(vipAssets.unlocked && vipAssets.logo ? vipAssets.logo : null);
     } catch {
       setVipProfileFrameSource(null);
-      setMyVipLogo(null);
-    }
-
-    try {
-      const { level } = await syncUserLevelForSession();
-      setMyLevelBadge(level != null ? resolveLocalLevelBadge(level) : null);
-    } catch {
-      setMyLevelBadge(null);
     }
   }, []);
 
@@ -3134,27 +3059,13 @@ export default function Home() {
     }, [syncSessionAvatar]),
   );
 
-  // Country and gender are both required, so show the picker whenever either
-  // one is still missing. A returning user's country may only exist on the
-  // server, so resolve it from the profile endpoints before prompting again.
+  // Show gender picker once if user hasn't set their gender yet
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const user = await getUser();
-        if (!user?.gender) {
-          if (!cancelled) setGenderPickerVisible(true);
-          return;
-        }
-        const country = await resolveUserCountryName();
-        if (!cancelled && !country) setGenderPickerVisible(true);
-      } catch {
-        // Session unreadable — leave the picker hidden.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    getUser()
+      .then((user) => {
+        if (!user?.gender) setGenderPickerVisible(true);
+      })
+      .catch(() => { });
   }, []);
 
   // Saves gender + country from the "Who are you?" picker straight to the
@@ -3162,40 +3073,31 @@ export default function Home() {
   // immediately (same fields/shape as the Account screen's own country save).
   const saveGenderSelection = useCallback(
     async (gender) => {
-      // Country and gender are both required — without a country the picker
-      // stays open so the user cannot enter the app with an incomplete profile.
-      const match = selectedCountry ? findCountryByName(selectedCountry) : null;
-      if (!match || !gender) {
-        Alert.alert(
-          "Country required",
-          "Please select your country and gender first.",
-        );
-        return;
-      }
-
       setGenderSaving(true);
       try {
-        const countryFields = {
-          country: match.name,
-          countryCode: match.code,
-          countryName: match.name,
-        };
+        const match = selectedCountry
+          ? findCountryByName(selectedCountry)
+          : null;
+        const countryFields = match
+          ? {
+            country: match.name,
+            countryCode: match.code,
+            countryName: match.name,
+          }
+          : {};
         await updateUser({ gender, ...countryFields });
         await updateUserProfile({ gender, ...countryFields }).catch(() => { });
-        await patchMyProfile(countryFields).catch(() => { });
-        await syncUserCountryToServer({
-          country: match.name,
-          countryCode: match.code,
-        }).catch(() => { });
-        setGenderPickerVisible(false);
-        setSelectedCountry("");
-      } catch (err) {
-        Alert.alert(
-          "Could not save",
-          err?.message || "Please try selecting your country and gender again.",
-        );
+        if (match) {
+          await patchMyProfile(countryFields).catch(() => { });
+          await syncUserCountryToServer({
+            country: match.name,
+            countryCode: match.code,
+          }).catch(() => { });
+        }
       } finally {
         setGenderSaving(false);
+        setGenderPickerVisible(false);
+        setSelectedCountry("");
       }
     },
     [selectedCountry],
@@ -3255,24 +3157,6 @@ export default function Home() {
   // Ref for currentUserId — lets the tab feed loader stay a stable callback
   const currentUserIdRef = useRef(currentUserId);
   currentUserIdRef.current = currentUserId;
-
-  // Own decoration/verified badge for the header avatar — a single per-user
-  // GET once the session user id is known (currentUserId is set async), not
-  // repeated per render or per focus.
-  useEffect(() => {
-    if (!currentUserId) return undefined;
-    let cancelled = false;
-    fetchUserDecorations(currentUserId)
-      .then((d) => {
-        if (!cancelled) setMyDecorationBadge(d?.badgeUrl ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setMyDecorationBadge(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentUserId]);
 
   // ── Data loading ──────────────────────────────────────────
   // Deferred until after navigation animations finish so the first
@@ -3494,7 +3378,6 @@ export default function Home() {
               avatar: u.avatar ?? null,
               level: u.level ?? null,
               vip: Boolean(u.vip),
-              verified: Boolean(u.verified),
               status: u.status ?? null,
               vipProfileFrameUrl:
                 u.vipProfileFrameUrl ?? extractVipProfileFrameUrl(u),
@@ -3522,27 +3405,28 @@ export default function Home() {
       avatar: result.avatar,
       level: result.level,
       vip: result.vip,
-      verified: result.verified,
       status: result.status,
       vipProfileFrameUrl: result.vipProfileFrameUrl ?? null,
       isOnline: Boolean(result.subtitle && result.subtitle.includes("Online")),
     });
     setSearchProfileLoading(true);
+    // A single opened profile (not a list), so one fetchUserDecorations call
+    // here is fine — same reasoning UserProfileView uses for its badge row.
+    fetchUserDecorations(result.userId)
+      .then(({ badgeUrl }) => {
+        setSearchProfile((prev) =>
+          prev?.userId === result.userId ? { ...prev, decorationBadgeUrl: badgeUrl } : prev,
+        );
+      })
+      .catch(() => { });
     try {
-      // Single on-demand profile view (one open at a time), so a per-user
-      // decoration fetch alongside the detail fetch isn't an N+1 concern —
-      // same reasoning as fetchVipProfileFrameForUser's single-detail-view case.
-      const [detail, decorations] = await Promise.all([
-        homeService.getUserDetailById(result.userId),
-        fetchUserDecorations(result.userId),
-      ]);
+      const detail = await homeService.getUserDetailById(result.userId);
       setSearchProfile((prev) => ({
         ...prev,
         ...detail,
         userId: result.userId,
         name: detail?.name ?? prev?.name,
         avatar: detail?.avatar ?? prev?.avatar,
-        decorationBadgeUrl: decorations?.badgeUrl ?? null,
       }));
     } catch {
       // Keep the room-state fallback profile if the detail fetch fails.
@@ -3991,9 +3875,6 @@ export default function Home() {
         sessionAvatarSource={sessionAvatarSource}
         sessionNewUserFrameSource={sessionNewUserFrameSource}
         vipProfileFrameSource={vipProfileFrameSource}
-        myLevelBadge={myLevelBadge}
-        myVipLogo={myVipLogo}
-        myDecorationBadge={myDecorationBadge}
         stats={stats}
         unreadNotifications={unreadNotifications}
         recommendedUsers={recommendedUsers}
@@ -4016,9 +3897,6 @@ export default function Home() {
       sessionAvatarSource,
       sessionNewUserFrameSource,
       vipProfileFrameSource,
-      myLevelBadge,
-      myVipLogo,
-      myDecorationBadge,
       stats,
       unreadNotifications,
       recommendedUsers,
@@ -4031,17 +3909,6 @@ export default function Home() {
       router,
     ],
   );
-
-  // Badges for the searched-user profile modal below — a single on-demand
-  // detail view (one open at a time), so deriving these per-render is cheap
-  // and matches the level/VIP badge derivation in UserProfileView.
-  const searchProfileLevelBadge =
-    searchProfile?.level != null ? resolveLocalLevelBadge(searchProfile.level) : null;
-  const searchProfileVipTier = resolveVipTierFromAssetUrl(
-    searchProfile?.vipProfileFrameUrl,
-  );
-  const searchProfileVipLogo =
-    searchProfileVipTier != null ? VIP_LOGO_BY_TIER[searchProfileVipTier] : null;
 
   return (
     <View style={styles.container}>
@@ -4137,23 +4004,12 @@ export default function Home() {
                 <View style={styles.searchResultsSection}>
                   <Text style={styles.searchSuggestLabel}>Search Results</Text>
                   {searchResults.map((result) => {
-                    // Level/VIP already ride along on the search-people
-                    // result payload (see homeService's user mapping), so
-                    // this is free — no extra per-row network call. Decoration
-                    // badges are skipped here on purpose: this list isn't
-                    // bounded to a handful of rows like the recommended-users
-                    // row, so fetchUserDecorations per row would risk an N+1
-                    // call storm as results grow.
                     const resultVipTier =
                       result.type === "user"
                         ? resolveVipTierFromAssetUrl(result.vipProfileFrameUrl)
                         : null;
                     const resultVipLogo =
                       resultVipTier != null ? VIP_LOGO_BY_TIER[resultVipTier] : null;
-                    const resultLevelBadge =
-                      result.type === "user" && result.level != null
-                        ? resolveLocalLevelBadge(result.level)
-                        : null;
                     return (
                     <TouchableOpacity
                       key={result.id}
@@ -4217,30 +4073,25 @@ export default function Home() {
                       )}
                       <View style={styles.resultTextCol}>
                         <View style={styles.resultTitleRow}>
-                          <Text style={styles.resultTitle} numberOfLines={1}>
-                            {result.title}
-                          </Text>
-                          {resultLevelBadge && (
+                          <Text style={styles.resultTitle}>{result.title}</Text>
+                          {result.type === "user" && result.level != null && (
                             <Image
-                              source={resultLevelBadge}
+                              source={resolveLocalLevelBadge(result.level)}
                               style={styles.resultLevelBadge}
-                              resizeMode="contain"
+                              contentFit="contain"
                             />
                           )}
                           {resultVipLogo && (
                             <Image
                               source={{ uri: resultVipLogo }}
                               style={styles.resultVipBadge}
-                              resizeMode="contain"
+                              contentFit="contain"
                             />
                           )}
-                          {result.type === "user" && result.verified && (
-                            <Image
-                              source={VERIFIED_BADGE}
-                              style={styles.resultVerifiedBadge}
-                              resizeMode="contain"
-                            />
-                          )}
+                          {/* Decoration badge intentionally skipped here: search
+                              results can be a long, unbounded list, so firing
+                              fetchUserDecorations per row would risk an N+1
+                              request storm. */}
                         </View>
                         {result.subtitle && (
                           <Text style={styles.resultSubtitle}>
@@ -4834,46 +4685,14 @@ export default function Home() {
                 {searchProfile?.vip && (
                   <Text style={styles.searchProfileVip}>👑 VIP</Text>
                 )}
+                {searchProfile?.decorationBadgeUrl && (
+                  <Image
+                    source={{ uri: searchProfile.decorationBadgeUrl }}
+                    style={styles.searchProfileDecorationBadge}
+                    contentFit="contain"
+                  />
+                )}
               </View>
-
-              {/* Same level/VIP/decoration badge row as UserProfileView and
-                  RoomUserProfilePopup — additive alongside the existing
-                  "Lv N" / "VIP" text pills below. */}
-              {(searchProfileLevelBadge ||
-                searchProfileVipLogo ||
-                searchProfile?.decorationBadgeUrl ||
-                searchProfile?.verified) && (
-                <View style={styles.searchProfileBadgeRow}>
-                  {searchProfileLevelBadge && (
-                    <Image
-                      source={searchProfileLevelBadge}
-                      style={styles.searchProfileLevelBadge}
-                      resizeMode="contain"
-                    />
-                  )}
-                  {searchProfileVipLogo && (
-                    <Image
-                      source={{ uri: searchProfileVipLogo }}
-                      style={styles.searchProfileVipLogo}
-                      resizeMode="contain"
-                    />
-                  )}
-                  {searchProfile?.decorationBadgeUrl && (
-                    <Image
-                      source={{ uri: searchProfile.decorationBadgeUrl }}
-                      style={styles.searchProfileDecorationBadge}
-                      resizeMode="contain"
-                    />
-                  )}
-                  {!searchProfile?.decorationBadgeUrl && searchProfile?.verified && (
-                    <Image
-                      source={VERIFIED_BADGE}
-                      style={styles.searchProfileDecorationBadge}
-                      resizeMode="contain"
-                    />
-                  )}
-                </View>
-              )}
 
               <View style={styles.searchProfileMetaRow}>
                 {searchProfile?.level != null && (
@@ -4992,10 +4811,10 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   searchProfileVip: { color: "#ffd700", fontSize: 13, fontWeight: "800" },
-  searchProfileBadgeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  searchProfileLevelBadge: { height: 20, width: 20 * BADGE_ASPECT.level },
-  searchProfileVipLogo: { width: 20, height: 20 },
-  searchProfileDecorationBadge: { height: 20, width: 20 * BADGE_ASPECT.verified },
+  searchProfileDecorationBadge: {
+    height: 16,
+    width: 16 * (438 / 179),
+  },
   searchProfileMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   searchProfileBadge: {
     backgroundColor: "rgba(124,77,255,0.3)",
@@ -5224,21 +5043,48 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
+  // Background orbs (same as login)
+  // Background orbs (same as login)
+  orbPink: {
+    position: "absolute",
+    width: 300,
+    height: 300,
+    top: -80,
+    left: -80,
+    borderRadius: 150,
+    backgroundColor: "rgba(255,0,128,0.18)",
+    // backgroundColor: "rgba(253, 131, 74, 0.88)",
+    // shadowColor: "#ff0080",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 80,
+  },
+  orbPurple: {
+    position: "absolute",
+    width: 350,
+    height: 350,
+    bottom: -120,
+    right: -120,
+    borderRadius: 175,
+    backgroundColor: "rgba(138,43,226,0.22)",
+    // backgroundColor: "rgba(43, 226, 141, 0.22)",
+    shadowColor: "#8a2be2",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 80,
+  },
+
   // Header glass card
   headerCard: {
     marginTop: vs(20),
     marginHorizontal: H_PAD,
     marginBottom: vs(14),
-    backgroundColor: "rgba(255, 255, 255, 0.27)", // Light theme glass effect
     borderRadius: s(22),
+    backgroundColor: "transparent",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 1)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
-    elevation: 3,
-
+    borderColor: "rgba(203, 199, 199, 0.96)",
+    elevation: 0,
+    shadowColor: "transparent",
     paddingHorizontal: s(14),
     paddingVertical: vs(10),
     gap: vs(10),
@@ -5246,7 +5092,7 @@ const styles = StyleSheet.create({
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(6),
+    gap: s(5),
   },
   avatarWrapper: {
     position: "relative",
@@ -5261,39 +5107,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
-  onlineDot: {
-    position: "absolute",
-    bottom: 1,
-    right: 1,
-    width: s(12),
-    height: s(12),
-    borderRadius: s(6),
-    backgroundColor: "#00e676",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
-  headerAvatarCol: {
-    alignItems: "center",
-  },
-  headerBadgeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    marginTop: vs(2),
-  },
-  headerLevelBadge: {
-    height: s(13),
-    width: s(13) * BADGE_ASPECT.level,
-  },
-  headerVipBadge: {
-    width: s(13),
-    height: s(13),
-  },
-  headerDecorationBadge: {
-    height: s(13),
-    width: s(13) * BADGE_ASPECT.verified,
-  },
   headerTitleCol: {
     flex: 1,
     minWidth: 0,
@@ -5305,10 +5118,10 @@ const styles = StyleSheet.create({
     lineHeight: ms(14),
   },
   appName: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#2C1A4D",
-    lineHeight: 20,
+    fontSize: 20,
+    fontWeight: "bold",
+    fontFamily: "serif",
+    color: "black",
     letterSpacing: -0.5,
   },
   appNameWrapper: {
@@ -5430,7 +5243,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   activeNumber: {
-    color: "#4eff91",
+    color: "white",
     fontSize: ms(15),
     fontWeight: "800",
     lineHeight: ms(19),
@@ -5498,12 +5311,12 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: CARD_GAP,
     paddingHorizontal: H_PAD,
-    marginBottom: 14,
+    marginBottom: 25,
     justifyContent: "center",
   },
   actionCard: {
     width: CARD_SIZE,
-    height: CARD_SIZE * 1.15,
+    height: CARD_SIZE * 1.12,
     borderRadius: 20,
     overflow: "hidden",
   },
@@ -5545,23 +5358,23 @@ const styles = StyleSheet.create({
   },
 
   // Icon row
-  iconContainer: { marginBottom: 14 },
+  iconContainer: { marginBottom: 20 },
   iconScroll: {
-    paddingHorizontal: 33,
+    paddingHorizontal: 15,
     gap: 14,
   },
   iconItem: {
     alignItems: "center",
-    width: s(76),
+    width: s(72),
   },
   iconBox: {
-    width: s(68),
-    height: s(68),
+    width: s(64),
+    height: s(64),
     borderRadius: s(18),
     alignItems: "center",
     justifyContent: "center",
   },
-  iconImg: { width: s(44), height: s(44) },
+  iconImg: { width: s(40), height: s(40) },
   iconLabel: {
     color: "rgba(0, 0,  0, 0.9)",
     fontSize: ms(11),
@@ -5574,16 +5387,15 @@ const styles = StyleSheet.create({
   tabsBar: {
     borderBottomWidth: 1,
     borderBottomColor: "rgba(0,0,0,0.1)",
-    marginBottom: 12,
+    marginHorizontal: 20,
   },
   tabsScroll: {
-    paddingHorizontal: H_PAD,
-    gap: 22,
-    paddingBottom: 8,
+    gap: 20,
+
   },
   tabItem: {
     alignItems: "center",
-    paddingBottom: 2,
+    // paddingBottom: 2,
   },
   tabText: {
     color: "rgba(0,0,0,0.45)",
@@ -5597,10 +5409,10 @@ const styles = StyleSheet.create({
   },
   tabUnderline: {
     width: "100%",
-    height: 3,
+    height: 2.5,
     backgroundColor: "#7c4dff",
     borderRadius: 3,
-    marginTop: 6,
+    marginTop: 8,
   },
 
   // Active now panel (unused legacy — kept for reference)
@@ -5627,7 +5439,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: H_PAD,
   },
   postCard: {
-    backgroundColor: "rgba(194, 194, 194, 0.09)",
+    backgroundColor: "rgba(194, 26, 26, 0.09)",
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
@@ -5802,28 +5614,29 @@ const styles = StyleSheet.create({
 
   // Recommend users
   recommendSection: {
-    paddingHorizontal: H_PAD,
+    // paddingHorizontal: H_PAD,
     marginBottom: 16,
-    marginTop: 4,
+    marginTop: 10,
   },
   recommendTitle: {
     color: "black",
     fontSize: ms(16),
     fontWeight: "700",
-    marginBottom: vs(14),
+    marginBottom: vs(12),
+    paddingHorizontal: 20,
   },
   recommendScroll: {
-    gap: 16,
-    paddingRight: 8,
+    gap: 15,
+    paddingHorizontal: 10,
   },
   recommendItem: {
     alignItems: "center",
     width: s(76),
   },
   recommendAvatarWrap: {
-    width: s(72),
-    height: s(72),
-    borderRadius: s(36),
+    width: s(60),
+    height: s(60),
+    borderRadius: s(34),
     marginBottom: vs(8),
   },
   recommendAvatar: {
@@ -5846,25 +5659,22 @@ const styles = StyleSheet.create({
     fontSize: ms(12),
     textAlign: "center",
     fontWeight: "500",
+    flexShrink: 1,
   },
-  recommendBadgeRow: {
+  recommendNameRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
-    marginTop: 2,
+    gap: 2,
+    maxWidth: s(76),
   },
   recommendLevelBadge: {
-    height: s(12),
-    width: s(12) * BADGE_ASPECT.level,
+    height: 10,
+    width: 10 * (142 / 149),
   },
   recommendVipBadge: {
-    width: s(12),
-    height: s(12),
-  },
-  recommendDecorationBadge: {
-    height: s(12),
-    width: s(12) * BADGE_ASPECT.verified,
+    height: 10,
+    width: 10,
   },
 
   // Banner Slider
@@ -6237,26 +6047,21 @@ const styles = StyleSheet.create({
   resultTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    marginBottom: 2,
+    gap: 5,
   },
   resultTitle: {
     color: "white",
     fontSize: 14,
     fontWeight: "700",
-    flexShrink: 1,
+    marginBottom: 2,
   },
   resultLevelBadge: {
-    height: 14,
-    width: 14 * BADGE_ASPECT.level,
+    height: 13,
+    width: 13 * (142 / 149),
   },
   resultVipBadge: {
-    width: 14,
-    height: 14,
-  },
-  resultVerifiedBadge: {
-    height: 14,
-    width: 14 * BADGE_ASPECT.verified,
+    height: 13,
+    width: 13,
   },
   resultSubtitle: {
     color: "rgba(255,255,255,0.5)",

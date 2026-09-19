@@ -98,6 +98,29 @@ export const patchMyProfile = async (updates = {}) => {
   return response.data;
 };
 
+// GET /api/app/users/me/country -> { countryName, countryCode }
+export const getMyCountry = async () => {
+  const { headers } = await buildAuthedConfig("get-country");
+
+  const response = await API.get("/api/app/users/me/country", { headers });
+
+  return response.data;
+};
+
+// PATCH /api/app/users/me/country  { countryName, countryCode }
+export const patchMyCountry = async ({ countryName, countryCode } = {}) => {
+  const { headers } = await buildAuthedConfig("patch-country");
+
+  const body = {
+    ...(countryName ? { countryName: String(countryName).trim() } : {}),
+    ...(countryCode ? { countryCode: String(countryCode).trim() } : {}),
+  };
+
+  const response = await API.patch("/api/app/users/me/country", body, { headers });
+
+  return response.data;
+};
+
 const parseResponseBody = async (response) => {
   const text = await response.text();
   if (!text) return null;

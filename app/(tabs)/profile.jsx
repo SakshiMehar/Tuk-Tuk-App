@@ -1,79 +1,80 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
+import * as ImagePicker from "expo-image-picker";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  View,
-  Text,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
   Image,
-  TouchableOpacity,
+  Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   StatusBar,
-  Dimensions,
-  Modal,
+  StyleSheet,
+  Text,
   TextInput,
-  Alert,
-  ActivityIndicator,
+  TouchableOpacity,
+  View,
+  Linking,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import * as ImagePicker from "expo-image-picker";
-import { FontAwesome, FontAwesome5, Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getUser, updateUser } from "../../src/store/authStore";
-import { refreshTokenCache } from "../../src/api/axios";
-import { loadMyProfile, saveMyProfile } from "../../src/services/meProfileService";
-import { loadProfileStats } from "../../src/services/profileStatsService";
-import {
-  loadDailyTasks,
-  tasksTotalReward,
-  claimedTasksDiamondTotal,
-  claimRewardTask,
-} from "../../src/services/rewardTaskService";
 import AppBackground from "../../Components/AppBackground";
-import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
+import BackpackPanel from "../../Components/BackpackPanel";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
-import WalletRechargeSection from "../../Components/WalletRechargeSection";
+import FamilyChatModal from "../../Components/FamilyChatModal";
 import GetRewardsPanel from "../../Components/GetRewardsPanel";
 import MonthlyCardPanel from "../../Components/MonthlyCardPanel";
-import TukTukPassPanel from "../../Components/TukTukPassPanel";
-import VipCenterPanel from "../../Components/VipCenterPanel";
-import UserLevelPanel from "../../Components/UserLevelPanel";
-import RoomPremiumPanel from "../../Components/RoomPremiumPanel";
-import BackpackPanel from "../../Components/BackpackPanel";
 import PremiumPanel from "../../Components/PremiumPanel";
+import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
+import RoomPremiumPanel from "../../Components/RoomPremiumPanel";
+import TukTukPassPanel from "../../Components/TukTukPassPanel";
+import UserLevelPanel from "../../Components/UserLevelPanel";
+import VipCenterPanel from "../../Components/VipCenterPanel";
+import WalletRechargeSection from "../../Components/WalletRechargeSection";
+import { refreshTokenCache } from "../../src/api/axios";
+import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
+import { APP_BG, APP_CARD, APP_CARD_BORDER, APP_PURPLE, APP_TEXT, APP_TEXT_DIM, APP_TEXT_MUTED, DIAMOND_ICON_URL } from "../../src/constants/theme";
+import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
 import {
   avatarMap,
+  DEFAULT_AVATAR_ID,
   getAvatarOptionsForGender,
   getAvatarSource,
-  DEFAULT_AVATAR_ID,
 } from "../../src/data/avatarOptions";
-import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
-import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
-import { syncUserLevelForSession } from "../../src/services/userLevelService";
-import { loadMyVipAssets } from "../../src/services/vipService";
-import { fetchUserDecorations } from "../../src/services/decorationsService";
-import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
-import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
-import { DECORATION_FRAME_LAYOUT } from "../../src/constants/decorations";
-import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
-import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
-import { openUserChat } from "../../src/utils/chatNavigation";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
-import { refreshWalletBalance } from "../../src/store/walletStore";
-import { submitFeedback } from "../../src/services/userSettingsService";
-import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
-import { resolveImageSource } from "../../src/utils/videoSource";
+import { fetchUserDecorations } from "../../src/services/decorationsService";
 import {
-  loadFamilyLists,
   createFamilyGroup,
   joinFamilyGroup,
   loadFamilyDetail,
+  loadFamilyLists,
 } from "../../src/services/familyService";
-import FamilyChatModal from "../../Components/FamilyChatModal";
-import { s, ms } from "../../src/utils/responsive";
-import { APP_BG, APP_TEXT, APP_TEXT_MUTED, APP_TEXT_DIM, APP_CARD, APP_CARD_BORDER, APP_PURPLE, DIAMOND_ICON_URL } from "../../src/constants/theme";
+import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
+import { loadMyProfile, saveMyProfile } from "../../src/services/meProfileService";
+import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
+import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
+import { loadProfileStats } from "../../src/services/profileStatsService";
+import {
+  claimedTasksDiamondTotal,
+  claimRewardTask,
+  loadDailyTasks,
+  tasksTotalReward,
+} from "../../src/services/rewardTaskService";
+import { useMyCountryFlag } from "../../src/services/userCountryService";
+import { syncUserLevelForSession } from "../../src/services/userLevelService";
+import { submitFeedback } from "../../src/services/userSettingsService";
+import { loadMyVipAssets } from "../../src/services/vipService";
+import { getUser, updateUser } from "../../src/store/authStore";
+import { refreshWalletBalance } from "../../src/store/walletStore";
+import { openUserChat } from "../../src/utils/chatNavigation";
+import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
+import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
+import { ms, s } from "../../src/utils/responsive";
+import { resolveImageSource } from "../../src/utils/videoSource";
 
 const screen = Dimensions.get("window");
 
@@ -174,34 +175,37 @@ function ProfileBadge({ source, aspectRatio, style }) {
 }
 const menuPages = [
   [
-    { icon: "gift",         label: "Get Rewards",  badge: true  },
-    { icon: "tasks",        label: "Task",         badge: true  },
-    { icon: "id-card",      label: "Monthly Card", badge: true,  comingSoon: true },
-    { icon: "store",        label: "Store",        badge: true  },
-    { icon: "users",        label: "Relationship", badge: true  },
-    { icon: "wallet",       label: "Wallet",       badge: false },
-    { icon: "medal",        label: "Premium",      badge: true  },
-    { icon: "bookmark",     label: "Saved",        badge: false },
+    { icon: "gift", label: "Get Rewards", badge: true },
+    { icon: "tasks", label: "Task", badge: true },
+    { icon: "id-card", label: "Monthly Card", badge: true, comingSoon: true },
+    { icon: "store", label: "Store", badge: true },
+    { icon: "users", label: "Relationship", badge: true },
+    { icon: "wallet", label: "Wallet", badge: false },
+    { icon: "medal", label: "Premium", badge: true },
+    { icon: "bookmark", label: "Saved", badge: false },
   ],
   [
-    { icon: "gem",          label: "VIP",          badge: false },
-    { icon: "ticket-alt",   label: "Coupon",       badge: false },
-    { icon: "star",         label: "Honor Level",  badge: false },
-    { icon: "home",         label: "Family",       badge: false },
-    { icon: "heart",        label: "Matchmaker",   badge: true  },
-    { icon: "briefcase",    label: "Backpack",     badge: false },
-    { icon: "crown",        label: "Room Premium", badge: true  },
-    { icon: "id-badge",     label: "TukTuk Pass",   badge: true  },
+    { icon: "gem", label: "VIP", badge: false },
+    { icon: "ticket-alt", label: "Coupon", badge: false },
+    { icon: "star", label: "Honor Level", badge: false },
+    { icon: "home", label: "Family", badge: false },
+    { icon: "heart", label: "Matchmaker", badge: true },
+    { icon: "briefcase", label: "Backpack", badge: false },
+    { icon: "crown", label: "Room Premium", badge: true },
+    { icon: "id-badge", label: "TukTuk Pass", badge: true },
   ],
   [
-    { icon: "level-up-alt", label: "Level",        badge: true  },
-    { icon: "instagram",    label: "Instagram",    badge: false },
-    { icon: "share-alt",    label: "Share",        badge: false },
-    { icon: "headset",      label: "Help",         badge: true  },
-    { icon: "shield",       label: "Room Badge",   badge: true  },
-    { icon: "certificate",  label: "Badge",        badge: true  },
-    { icon: "house-user",   label: "Room Title",   badge: false },
-    { icon: "comment-dots", label: "Feedback",     badge: false },
+    { icon: "level-up-alt", label: "Level", badge: true },
+    { icon: "instagram", label: "Instagram", badge: false },
+    { icon: "facebook", label: "Facebook", badge: false },
+    { icon: "share-alt", label: "Share", badge: false },
+    { icon: "headset", label: "Help", badge: true },
+    { icon: "shield", label: "Room Badge", badge: true },
+    { icon: "certificate", label: "Badge", badge: true },
+    { icon: "house-user", label: "Room Title", badge: false },
+  ],
+  [
+    { icon: "comment-dots", label: "Feedback", badge: false },
   ],
 ];
 
@@ -1112,6 +1116,7 @@ export default function Profile() {
   const [editVisible, setEditVisible] = useState(false);
   const [editName, setEditName] = useState("");
   const [userGender, setUserGender] = useState("");
+  const countryFlag = useMyCountryFlag();
   const [profileSaving, setProfileSaving] = useState(false);
   const [userId, setUserId] = useState(null);
   const [newUserFrameSource, setNewUserFrameSource] = useState(null);
@@ -1422,6 +1427,7 @@ export default function Profile() {
   }, [activeMenu]);
 
   const [claimingTask, setClaimingTask] = useState(null);
+  const [claimedTaskRewardModal, setClaimedTaskRewardModal] = useState(null);
 
   const handleClaimTask = async (task) => {
     if (task.claimed || !task.completed || claimingTask) return;
@@ -1433,10 +1439,7 @@ export default function Profile() {
       setDailyTasks(tasks);
       await refreshWalletBalance();
 
-      Alert.alert(
-        "Reward claimed!",
-        `You earned ${task.reward}💎 for "${task.label}".`
-      );
+      setClaimedTaskRewardModal(task);
     } catch (err) {
 
       Alert.alert(
@@ -1547,14 +1550,14 @@ export default function Profile() {
                     avatarStyle={styles.savedAvatar}
                     {...(u.vipProfileFrameUrl
                       ? {
-                          frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                          frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                          frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                          frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                          frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                          innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
-                          avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                        }
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
                       : {})}
                   />
                 ) : (
@@ -1613,27 +1616,27 @@ export default function Profile() {
             style={styles.mmHeroBox}
           >
             <Text style={{ fontSize: 40 }}>💎</Text>
-            <Text style={styles.mmHeroTitle}>{claimedDiamonds}💎 earned</Text>
-            <Text style={styles.mmHeroSub}>
+            <Text style={[styles.mmHeroTitle, { color: "#1e293b" }]}>{claimedDiamonds}💎 earned</Text>
+            <Text style={[styles.mmHeroSub, { color: "#475569" }]}>
               Finish tasks to earn up to {totalReward}💎
             </Text>
           </LinearGradient>
 
-          <View style={styles.mmProgressCard}>
+          <View style={[styles.mmProgressCard, { backgroundColor: "#f8fafc" }]}>
             <View style={styles.mmProgressLabelRow}>
-              <Text style={styles.mmProgressTitle}>Tasks Completed</Text>
+              <Text style={[styles.mmProgressTitle, { color: "#334155" }]}>Tasks Completed</Text>
               <Text style={styles.mmProgressVal}>{claimedCount} / {totalCount}</Text>
             </View>
-            <View style={styles.mmProgressBar}>
+            <View style={[styles.mmProgressBar, { backgroundColor: "#e2e8f0" }]}>
               <View style={[styles.mmProgressFill, { width: `${progressPct}%` }]} />
             </View>
           </View>
 
-          <Text style={styles.mmSectionLabel}>Reward Tasks</Text>
+          <Text style={[styles.mmSectionLabel, { color: "#1e293b" }]}>Reward Tasks</Text>
           {tasksLoading && dailyTasks.length === 0 ? (
             <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
           ) : dailyTasks.length === 0 ? (
-            <Text style={styles.mmInfoText}>No tasks available right now.</Text>
+            <Text style={[styles.mmInfoText, { color: "#64748b" }]}>No tasks available right now.</Text>
           ) : (
             dailyTasks.map((t) => {
               const claimed = t.claimed;
@@ -1641,15 +1644,19 @@ export default function Profile() {
               const canClaim = t.completed && !claimed;
               const showProgress = t.targetCount > 1;
               return (
-                <View key={t.taskType} style={styles.mmTaskRow}>
-                  <Text style={{ fontSize: 18, marginRight: 10 }}>{t.emoji}</Text>
+                <View key={t.taskType} style={[styles.mmTaskRow]}>
+                  <Image
+                    source={{ uri: t.iconUrl }}
+                    style={{ width: 36, height: 36, marginRight: 10 }}
+                    resizeMode="contain"
+                  />
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone]}>
+                    <Text style={[styles.mmTaskText, claimed && styles.mmTaskTextDone, { color: "#1e293b" }]}>
                       {t.label}
                     </Text>
                     <Text style={styles.mmTaskReward}>+{t.reward}💎</Text>
                     {showProgress ? (
-                      <Text style={styles.mmTaskProgress}>
+                      <Text style={[styles.mmTaskProgress, { color: "#64748b" }]}>
                         {t.progressCount}/{t.targetCount}
                       </Text>
                     ) : null}
@@ -1671,7 +1678,7 @@ export default function Profile() {
                         !canClaim && !claimed && styles.mmClaimBtnTextDisabled,
                       ]}
                     >
-                      {claimed ? "Claimed" : claiming ? "..." : canClaim ? "Claim" : "In progress"}
+                      {claimed ? "✓ Claimed" : claiming ? "..." : canClaim ? "Claim" : "In progress"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1871,7 +1878,17 @@ export default function Profile() {
           </View>
           <Text style={styles.mmEmptyTitle}>Connect {label}</Text>
           <Text style={styles.mmEmptySub}>Link your {label} account to share your Tuk-Tuk profile and grow your audience.</Text>
-          <TouchableOpacity style={styles.mmPrimaryBtn} activeOpacity={0.8}>
+          <TouchableOpacity 
+            style={styles.mmPrimaryBtn} 
+            activeOpacity={0.8}
+            onPress={() => {
+              if (isIG) {
+                Linking.openURL("https://www.instagram.com/tuktukvoicechat?stkn=MXNtczAzNmtqOHZ0Mw==").catch(err => console.error("An error occurred", err));
+              } else {
+                Linking.openURL("https://www.facebook.com/share/1C3PpngDWc/").catch(err => console.error("An error occurred", err));
+              }
+            }}
+          >
             <LinearGradient colors={isIG ? ["#f09433", "#e1306c"] : ["#1877F2", "#3b5998"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmPrimaryBtnGrad}>
               <Ionicons name={isIG ? "logo-instagram" : "logo-facebook"} size={16} color="white" />
               <Text style={[styles.mmPrimaryBtnText, { marginLeft: 8 }]}>Connect {label}</Text>
@@ -2193,10 +2210,10 @@ export default function Profile() {
                 wrapperStyle={styles.profilePicFrameWrap}
                 {...(decorations.frameUrl
                   ? {
-                      frameResizeMode: "contain",
-                    }
+                    frameResizeMode: "contain",
+                  }
                   : vipAssets.profileFrame
-                  ? {
+                    ? {
                       frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                       frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                       frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX - 2,
@@ -2205,7 +2222,7 @@ export default function Profile() {
                       innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
                       avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                     }
-                  : {})}
+                    : {})}
               />
             </View>
 
@@ -2214,14 +2231,19 @@ export default function Profile() {
 
               {/* Row 1: Username + Edit */}
               <View style={styles.nameRow}>
-                <Text
-                  style={styles.userName}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                >
-                  {name}
-                </Text>
+                <View style={styles.userNameWithFlag}>
+                  <Text
+                    style={styles.userName}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {name}
+                  </Text>
+                  {!!countryFlag && (
+                    <Text style={styles.profileCountryFlag}>{countryFlag}</Text>
+                  )}
+                </View>
                 <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={handleOpenEditProfile}>
                   <LinearGradient
                     colors={["#a78bfa", "#7c4dff"]}
@@ -2267,6 +2289,7 @@ export default function Profile() {
                 {decorations.badgeUrl && (
                   <ProfileBadge source={{ uri: decorations.badgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
                 )}
+                <ProfileBadge source={VERIFIED_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
               </View>
 
             </View>
@@ -2278,30 +2301,30 @@ export default function Profile() {
               <ActivityIndicator color="#a78bfa" style={{ paddingVertical: 8 }} />
             ) : (
               <>
-            <TouchableOpacity
-              style={styles.statItem}
-              activeOpacity={0.75}
-              onPress={() => setConnectionsListType("following")}
-            >
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{following.toLocaleString()}</Text>
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Following</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.statItem}
-              activeOpacity={0.75}
-              onPress={() => setConnectionsListType("followers")}
-            >
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{followers.toLocaleString()}</Text>
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Followers</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.statItem, styles.statItemLast]}
-              activeOpacity={0.75}
-              onPress={() => setConnectionsListType("visitors")}
-            >
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{visitorCount.toLocaleString()}</Text>
-              <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Visitor</Text>
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.statItem}
+                  activeOpacity={0.75}
+                  onPress={() => setConnectionsListType("following")}
+                >
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{following.toLocaleString()}</Text>
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Following</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.statItem}
+                  activeOpacity={0.75}
+                  onPress={() => setConnectionsListType("followers")}
+                >
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{followers.toLocaleString()}</Text>
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Followers</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.statItem, styles.statItemLast]}
+                  activeOpacity={0.75}
+                  onPress={() => setConnectionsListType("visitors")}
+                >
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statValue}>{visitorCount.toLocaleString()}</Text>
+                  <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling={false} style={styles.statLabel}>Visitor</Text>
+                </TouchableOpacity>
               </>
             )}
           </View>
@@ -2434,10 +2457,10 @@ export default function Profile() {
                         wrapperStyle={styles.momentPostAuthorAvatarWrap}
                         {...(decorations.frameUrl
                           ? {
-                              frameResizeMode: "contain",
-                            }
+                            frameResizeMode: "contain",
+                          }
                           : vipAssets.profileFrame
-                          ? {
+                            ? {
                               frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                               frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                               frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
@@ -2446,7 +2469,7 @@ export default function Profile() {
                               innerRingRatio: VIP_PROFILE_FRAME_LAYOUT.innerRingRatio,
                               avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                             }
-                          : {})}
+                            : {})}
                       />
                       <View style={styles.momentPostAuthorInfo}>
                         <Text style={styles.momentPostTitle}>{name}</Text>
@@ -2622,7 +2645,11 @@ export default function Profile() {
       {/* ── MENU DETAIL MODAL (full screen) ── */}
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
         <View style={[styles.mmPanel, { paddingBottom: insets.bottom }]}>
-          <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+          {activeMenu?.label === "Task" ? (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: "#ffffff" }]} />
+          ) : (
+            <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
+          )}
           {/* Header — Premium, TukTuk Pass, and Backpack render their own custom headers */}
           {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && activeMenu?.label !== "Backpack" && (
             <>
@@ -2630,12 +2657,16 @@ export default function Profile() {
                 <View style={styles.mmHeaderIcon}>
                   <FontAwesome5 name={activeMenu?.icon} size={18} color="#a78bfa" solid />
                 </View>
-                <Text style={styles.mmHeaderTitle}>{activeMenu?.label}</Text>
-                <TouchableOpacity style={styles.mmCloseBtn} onPress={() => setActiveMenu(null)} activeOpacity={0.8}>
-                  <Ionicons name="close" size={20} color="white" />
+                <Text style={[styles.mmHeaderTitle, activeMenu?.label === "Task" && { color: "#1e293b" }]}>{activeMenu?.label}</Text>
+                <TouchableOpacity 
+                  style={[styles.mmCloseBtn, activeMenu?.label === "Task" && { backgroundColor: "rgba(0,0,0,0.05)" }]} 
+                  onPress={() => setActiveMenu(null)} 
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="close" size={20} color={activeMenu?.label === "Task" ? "#1e293b" : "#ffffff"} />
                 </TouchableOpacity>
               </View>
-              <View style={styles.mmDivider} />
+              <View style={[styles.mmDivider, activeMenu?.label === "Task" && { backgroundColor: "#f1f5f9" }]} />
             </>
           )}
           {/* Dynamic content */}
@@ -2651,6 +2682,44 @@ export default function Profile() {
           loadConnectionStats();
         }}
       />
+
+      {/* ── TASK REWARD CLAIMED MODAL ── */}
+      <Modal
+        visible={Boolean(claimedTaskRewardModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClaimedTaskRewardModal(null)}
+      >
+        <View style={styles.taskRewardModalOverlay}>
+          <View style={styles.taskRewardModalContainer}>
+            <Image
+              source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/Rechargebonus/Popupheader/Diamondpop.png" }}
+              style={styles.taskRewardModalImg}
+              resizeMode="contain"
+            />
+            <Text style={styles.taskRewardModalTitle}>Reward claimed!</Text>
+            <Text style={styles.taskRewardModalSub}>
+              You earned <Text style={{ fontWeight: 'bold', color: '#fff' }}>{claimedTaskRewardModal?.reward} 💎</Text> for "{claimedTaskRewardModal?.label}".
+            </Text>
+
+            <View style={styles.taskRewardModalCard}>
+              <LinearGradient colors={["#4a1cff", "#8e2de2"]} style={styles.taskRewardModalCardIconBg}>
+                <Image source={{ uri: DIAMOND_ICON_URL }} style={styles.taskRewardModalCardIcon} resizeMode="contain" />
+              </LinearGradient>
+              <View style={styles.taskRewardModalCardText}>
+                <Text style={styles.taskRewardModalCardVal}>+{claimedTaskRewardModal?.reward}</Text>
+                <Text style={styles.taskRewardModalCardLabel}>Diamonds</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity activeOpacity={0.8} onPress={() => setClaimedTaskRewardModal(null)} style={{ width: '100%' }}>
+              <LinearGradient colors={["#e052ff", "#4a1cff"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.taskRewardModalBtn}>
+                <Text style={styles.taskRewardModalBtnText}>OK</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <DiamondRechargeModal
         visible={diamondRechargeVisible}
@@ -2975,12 +3044,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  userNameWithFlag: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
   userName: {
     fontSize: ms(18),
     fontWeight: "800",
     color: APP_TEXT,
-    flex: 1,
-    marginRight: 8,
+    flexShrink: 1,
   },
   editBtn: {
     borderRadius: 16,
@@ -3046,6 +3121,10 @@ const styles = StyleSheet.create({
     color: "#ff4aaa",
     fontSize: 13,
     fontWeight: "900",
+  },
+  profileCountryFlag: {
+    fontSize: 15,
+    marginLeft: 6,
   },
   profileLevelWrap: {
     flexDirection: "row",
@@ -3748,7 +3827,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
+    borderBottomColor: "#e2e8f0",
     gap: 12,
   },
   mmTaskCheck: {
@@ -3772,7 +3851,6 @@ const styles = StyleSheet.create({
   },
   mmTaskTextDone: {
     color: "rgba(255,255,255,0.35)",
-    textDecorationLine: "line-through",
   },
   mmTaskReward: {
     color: "#a78bfa",
@@ -3792,10 +3870,10 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   mmClaimBtnDone: {
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#f1f5f9",
   },
   mmClaimBtnDisabled: {
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(124, 77, 255, 0.15)",
   },
   mmClaimBtnText: {
     color: "white",
@@ -3803,10 +3881,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   mmClaimBtnTextDone: {
-    color: "rgba(255,255,255,0.4)",
+    color: "#64748b",
   },
   mmClaimBtnTextDisabled: {
-    color: "rgba(255,255,255,0.35)",
+    color: "#7c4dff",
   },
   mmEmptyCenter: {
     flex: 1,
@@ -4342,5 +4420,86 @@ const styles = StyleSheet.create({
     textAlign: "center",
     width: "100%",
     paddingHorizontal: 2,
+  },
+  taskRewardModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  taskRewardModalContainer: {
+    width: "85%",
+    backgroundColor: "#1e1b38",
+    borderRadius: 24,
+    paddingStart: 24,
+    paddingEnd: 24,
+    paddingBottom: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  taskRewardModalImg: {
+    width: "100%",
+    height: 100,
+    alignSelf: "center",
+  },
+  taskRewardModalTitle: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "bold",
+    marginBottom: 8,
+    marginTop: 20,
+  },
+  taskRewardModalSub: {
+    color: "#a3a3c2",
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  taskRewardModalCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16,
+    padding: 12,
+    width: "100%",
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  taskRewardModalCardIconBg: {
+    width: 45,
+    height: 45,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  taskRewardModalCardIcon: {
+    width: 28,
+    height: 28,
+  },
+  taskRewardModalCardText: {
+    flex: 1,
+  },
+  taskRewardModalCardVal: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  taskRewardModalCardLabel: {
+    color: "#a3a3c2",
+    fontSize: 12,
+  },
+  taskRewardModalBtn: {
+    width: "100%",
+    borderRadius: 100,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  taskRewardModalBtnText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });

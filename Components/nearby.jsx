@@ -16,6 +16,7 @@ import Toast from "./Toast";
 import { loadNearbyWithLocation, loadUserDetail } from "../src/services/nearbyService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { saveFavoriteUser } from "../src/services/favoritesService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import {
   followUser,
@@ -237,6 +238,17 @@ function ProfileModal({
                     <Image
                       source={{ uri: vipLogo }}
                       style={styles.profileModalVipLogo}
+                      resizeMode="contain"
+                    />
+                  )}
+                  {/* This modal only ever shows one user at a time (loaded on
+                      tap via handleOpenProfile below), so fetching the
+                      decoration badge here is a single request, not the
+                      N+1 risk a dozens-of-cards grid would have. */}
+                  {user.badgeUrl && (
+                    <Image
+                      source={{ uri: user.badgeUrl }}
+                      style={styles.profileModalDecorationBadge}
                       resizeMode="contain"
                     />
                   )}
@@ -654,11 +666,21 @@ export default function Nearby() {
     setDetailLoading(true);
     setDetailFollowing(false);
     try {
-      const [profile, status] = await Promise.all([
+      // A single fetchUserDecorations call for the one profile being opened
+      // — unlike the FlatList grid below, only one profile modal is ever
+      // open at a time, so this doesn't carry the N+1 risk a per-card fetch
+      // across dozens of visible grid cards would.
+      const [profile, status, decorations] = await Promise.all([
         loadUserDetail(user.id),
         loadRelationshipStatus(user.id).catch(() => ({ following: false })),
+        fetchUserDecorations(user.id).catch(() => ({ badgeUrl: null, frameUrl: null })),
       ]);
-      setDetailUser((current) => ({ ...current, ...profile, id: user.id }));
+      setDetailUser((current) => ({
+        ...current,
+        ...profile,
+        badgeUrl: decorations?.badgeUrl ?? null,
+        id: user.id,
+      }));
       setDetailFollowing(Boolean(status?.following));
     } catch (err) {
       showToast(err?.message || "Failed to load profile.");
@@ -834,6 +856,12 @@ export default function Nearby() {
           const isLiked = liked.has(item.id);
           const itemVipTier = resolveVipTierFromAssetUrl(item.vipProfileFrameUrl);
           const itemVipLogo = itemVipTier != null ? VIP_LOGO_BY_TIER[itemVipTier] : null;
+          // Decoration/verified badge intentionally skipped in this grid:
+          // dozens of cards can be visible/rendered at once here, so firing
+          // fetchUserDecorations per card would risk an N+1 request storm
+          // (same reasoning ChatTab.jsx uses to skip it on the Friends/
+          // Followers/Following lists). Level/VIP above are cheap because
+          // they piggyback on fields loadNearbyWithLocation already fetched.
           return (
             <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={() => handleOpenProfile(item)}>
               <LinearGradient colors={item.bgColors} style={styles.cardBg}>
@@ -1025,6 +1053,7 @@ const styles = StyleSheet.create({
   profileModalName: { color: "white", fontSize: 21, fontWeight: "900" },
   profileModalVipLogo: { width: 18, height: 18 },
   profileModalLevelBadge: { height: 18, width: 18 * (142 / 149) },
+  profileModalDecorationBadge: { height: 18, width: 18 * (438 / 179) },
   onlineDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#00e676", borderWidth: 2, borderColor: "#0d0618" },
   distanceRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   distanceText: { color: "#a78bfa", fontSize: 13, fontWeight: "600" },

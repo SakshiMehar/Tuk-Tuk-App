@@ -1,34 +1,34 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import {
-  View,
-  Text,
-  Image,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  Share,
-  Animated,
-  Easing,
-  Modal,
-} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import MaskedView from "@react-native-masked-view/masked-view";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
-import MaskedView from "@react-native-masked-view/masked-view";
-import Svg, { Polygon } from "react-native-svg";
-import { Ionicons } from "@expo/vector-icons";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  loadInviteFriendsSummary,
-  loadInviteFriendsConfig,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  Image,
+  Modal,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import Svg, { Polygon } from "react-native-svg";
+import {
   loadInviteFriendsActivity,
+  loadInviteFriendsConfig,
   loadInviteFriendsRecord,
+  loadInviteFriendsSummary,
   shareInviteFriendsActivity,
   withdrawInviteFriendsEarnings,
 } from "../src/services/inviteFriendsService";
 import { refreshWalletBalance } from "../src/store/walletStore";
 
-const INVITE_FRIENDS_HERO_BG = require("../assets/Treasure/getrewardbackground.png");
+const INVITE_FRIENDS_HERO_BG = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Treasure/getrewardbackground.png" };
 const INVITE_RULES = [
   {
     icon: "people",
@@ -397,296 +397,296 @@ export default function GetRewardsPanel({ active }) {
 
   return (
     <View style={{ flex: 1 }}>
-    <ScrollView showsVerticalScrollIndicator={false}>
-      <View style={[styles.invHeroContainer, { aspectRatio: INVITE_FRIENDS_HERO_ASPECT_RATIO }]}>
-        <Image
-          source={INVITE_FRIENDS_HERO_BG}
-          style={styles.invHeroImage}
-          resizeMode="cover"
-        />
-      </View>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={[styles.invHeroContainer, { aspectRatio: INVITE_FRIENDS_HERO_ASPECT_RATIO }]}>
+          <Image
+            source={INVITE_FRIENDS_HERO_BG}
+            style={styles.invHeroImage}
+            resizeMode="cover"
+          />
+        </View>
 
-      <View style={styles.mmScroll}>
+        <View style={styles.mmScroll}>
 
-      {activityItem ? (
-        <View style={styles.invTicker}>
-          <Ionicons name="volume-high" size={14} color="#e879f9" />
+          {activityItem ? (
+            <View style={styles.invTicker}>
+              <Ionicons name="volume-high" size={14} color="#e879f9" />
+              <Animated.View
+                style={{
+                  flex: 1,
+                  transform: [
+                    {
+                      translateX: inviteTickerNudge.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [8, -8],
+                      }),
+                    },
+                  ],
+                }}
+              >
+                <ShimmerText style={styles.invTickerText} numberOfLines={1}>
+                  Go and invite your friends
+                </ShimmerText>
+              </Animated.View>
+            </View>
+          ) : null}
+
+          <LinearGradient
+            colors={["rgba(124,77,255,0.22)", "rgba(59,26,120,0.4)"]}
+            style={styles.invRulesCard}
+          >
+            <SectionRibbon title="Invite Rules" style={styles.sectionRibbon} />
+
+            {INVITE_RULES.map((rule, index) => (
+              <TouchableOpacity
+                key={rule.text}
+                style={[styles.invRuleRow, index === INVITE_RULES.length - 1 && { marginBottom: 0 }]}
+                activeOpacity={0.8}
+                onPress={() => setRuleDetailIndex(index)}
+              >
+                <LinearGradient colors={["#7c4dff", "#e879f9"]} style={styles.invRuleIconBadge}>
+                  <Ionicons name={rule.icon} size={15} color="white" />
+                </LinearGradient>
+                <Text style={styles.invRuleText}>{rule.text}</Text>
+                <Ionicons name="chevron-forward" size={16} color="#e879f9" />
+              </TouchableOpacity>
+            ))}
+          </LinearGradient>
+
           <Animated.View
-            style={{
-              flex: 1,
-              transform: [
+            style={[
+              styles.mmPrimaryBtnGlowWrap,
+              { alignSelf: "center", width: "75%" },
+              {
+                transform: [
+                  {
+                    scale: shareInviteBtnPulse.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.06],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.shareInviteBtnAura,
                 {
-                  translateX: inviteTickerNudge.interpolate({
+                  opacity: shareInviteBtnPulse.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [8, -8],
+                    outputRange: [0.15, 0.9],
                   }),
                 },
-              ],
-            }}
-          >
-            <ShimmerText style={styles.invTickerText} numberOfLines={1}>
-              Go and invite your friends
-            </ShimmerText>
-          </Animated.View>
-        </View>
-      ) : null}
-
-      <LinearGradient
-        colors={["rgba(124,77,255,0.22)", "rgba(59,26,120,0.4)"]}
-        style={styles.invRulesCard}
-      >
-        <SectionRibbon title="Invite Rules" style={styles.sectionRibbon} />
-
-        {INVITE_RULES.map((rule, index) => (
-          <TouchableOpacity
-            key={rule.text}
-            style={[styles.invRuleRow, index === INVITE_RULES.length - 1 && { marginBottom: 0 }]}
-            activeOpacity={0.8}
-            onPress={() => setRuleDetailIndex(index)}
-          >
-            <LinearGradient colors={["#7c4dff", "#e879f9"]} style={styles.invRuleIconBadge}>
-              <Ionicons name={rule.icon} size={15} color="white" />
-            </LinearGradient>
-            <Text style={styles.invRuleText}>{rule.text}</Text>
-            <Ionicons name="chevron-forward" size={16} color="#e879f9" />
-          </TouchableOpacity>
-        ))}
-      </LinearGradient>
-
-      <Animated.View
-        style={[
-          styles.mmPrimaryBtnGlowWrap,
-          { alignSelf: "center", width: "75%" },
-          {
-            transform: [
-              {
-                scale: shareInviteBtnPulse.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [1, 1.06],
-                }),
-              },
-            ],
-          },
-        ]}
-      >
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.shareInviteBtnAura,
-            {
-              opacity: shareInviteBtnPulse.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0.15, 0.9],
-              }),
-            },
-          ]}
-        />
-        <TouchableOpacity style={styles.mmPrimaryBtnInner} activeOpacity={0.8} onPress={handleShareInviteFriends} disabled={inviteSharing}>
-          <LinearGradient colors={["#7c4dff", "#e879f9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.mmPrimaryBtnGrad, styles.shareInviteBtnGradCompact]}>
-            <Text style={[styles.mmPrimaryBtnText, styles.shareInviteBtnTextCompact]}>
-              {inviteSharing ? "Sharing..." : "Share and get diamonds"}
-            </Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </Animated.View>
-
-      {inviteSummary?.inviteCode ? (
-        <TouchableOpacity style={styles.invCodeRow} activeOpacity={0.8} onPress={handleCopyInviteCode}>
-          <Text style={styles.invCodeText}>My invite code: {inviteSummary.inviteCode}</Text>
-          <Ionicons name="copy-outline" size={16} color="#a78bfa" />
-        </TouchableOpacity>
-      ) : null}
-
-      {(inviteConfig?.tiers ?? []).map((tier) => (
-        <LinearGradient
-          key={tier.id}
-          colors={["rgba(124,77,255,0.22)", "rgba(59,26,120,0.4)"]}
-          style={styles.invTierCard}
-        >
-          <SectionRibbon title={tier.title} style={styles.sectionRibbon} />
-          <GlowBar style={{ marginTop: 14 }}>
-            <Text style={styles.invTierTotal}>💎 {tier.totalReward}</Text>
-          </GlowBar>
-          <View style={styles.invMilestoneRow}>
-            {tier.milestones.map((m) => (
-              <LinearGradient
-                key={m.id}
-                colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]}
-                style={styles.invMilestoneCell}
-              >
-                <Text style={styles.invMilestoneAmount}>💎 {m.amount}</Text>
-                <Text style={styles.invMilestoneDesc}>{m.description}</Text>
+              ]}
+            />
+            <TouchableOpacity style={styles.mmPrimaryBtnInner} activeOpacity={0.8} onPress={handleShareInviteFriends} disabled={inviteSharing}>
+              <LinearGradient colors={["#7c4dff", "#e879f9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.mmPrimaryBtnGrad, styles.shareInviteBtnGradCompact]}>
+                <Text style={[styles.mmPrimaryBtnText, styles.shareInviteBtnTextCompact]}>
+                  {inviteSharing ? "Sharing..." : "Share and get diamonds"}
+                </Text>
               </LinearGradient>
-            ))}
-          </View>
-        </LinearGradient>
-      ))}
-
-      {inviteSummary?.limitedTask ? (
-        <LinearGradient
-          colors={["rgba(124,77,255,0.22)", "rgba(59,26,120,0.4)"]}
-          style={styles.invLimitedTaskCard}
-        >
-          <SectionRibbon title="Limit Time Task" style={styles.sectionRibbon} />
-          <View style={styles.invLimitedTaskRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.invLimitedTaskLabel}>
-                {inviteSummary.limitedTask.label} ({inviteSummary.limitedTask.progressCount}/{inviteSummary.limitedTask.targetCount})
-              </Text>
-              {inviteSummary.limitedTask.durationLabel ? (
-                <Text style={styles.invLimitedTaskDuration}>{inviteSummary.limitedTask.durationLabel}</Text>
-              ) : null}
-            </View>
-            <Animated.View
-              style={
-                inviteSummary.limitedTask.completed
-                  ? undefined
-                  : {
-                      transform: [
-                        {
-                          translateX: inviteGoBtnNudge.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [7, -7],
-                          }),
-                        },
-                      ],
-                    }
-              }
-            >
-              <TouchableOpacity
-                activeOpacity={0.8}
-                disabled={inviteSummary.limitedTask.completed || inviteSharing}
-                onPress={handleShareInviteFriends}
-              >
-                <LinearGradient colors={["#7c4dff", "#e879f9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.invGoBtn}>
-                  <Text style={styles.invGoBtnText}>{inviteSummary.limitedTask.completed ? "Done" : "Go"}</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </Animated.View>
-          </View>
-        </LinearGradient>
-      ) : null}
-
-      <LinearGradient
-        colors={["rgba(124,77,255,0.22)", "rgba(59,26,120,0.4)"]}
-        style={styles.invRecordCard}
-      >
-        <SectionRibbon title="Invitation Record" style={styles.sectionRibbon} />
-
-        <GlowBar style={{ marginTop: 14 }}>
-          <Text style={styles.invRecordCount}>{inviteSummary?.successfulInvitations ?? 0}</Text>
-        </GlowBar>
-        <Text style={styles.invRecordCountLabel}>Successful invitation</Text>
-
-        <View style={styles.invStatRow}>
-          <LinearGradient colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]} style={styles.invStatBox}>
-            <Text style={styles.invStatValue}>💎 {inviteSummary?.rewardsReceived ?? 0}</Text>
-            <Text style={styles.invStatLabel}>Rewards Received</Text>
-          </LinearGradient>
-          <LinearGradient colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]} style={styles.invStatBox}>
-            <Text style={styles.invStatValue}>💎 {inviteSummary?.unclaimedEarnings ?? 0}</Text>
-            <Text style={styles.invStatLabel}>Unclaimed earnings</Text>
-          </LinearGradient>
-        </View>
-
-        <TouchableOpacity
-          activeOpacity={0.8}
-          disabled={!canWithdraw || inviteWithdrawing}
-          onPress={handleWithdrawInviteDiamonds}
-        >
-          <LinearGradient
-            colors={canWithdraw ? ["#7c4dff", "#e879f9"] : ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.08)"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.invWithdrawBtn}
-          >
-            <Text style={[styles.invWithdrawBtnText, !canWithdraw && styles.invWithdrawBtnTextDisabled]}>
-              {inviteWithdrawing ? "Withdrawing..." : "Withdraw Diamonds"}
-            </Text>
-          </LinearGradient>
-        </TouchableOpacity>
-
-        <View style={styles.invTabRow}>
-          {RECORD_TABS.map((t) => (
-            <TouchableOpacity
-              key={t.key}
-              style={styles.invTabItem}
-              activeOpacity={0.8}
-              onPress={() => setInviteRecordTab(t.key)}
-            >
-              <Text style={[styles.invTabText, inviteRecordTab === t.key && styles.invTabTextActive]}>
-                {t.label}
-              </Text>
             </TouchableOpacity>
-          ))}
-          <TouchableOpacity onPress={() => loadInviteRecordTab(inviteRecordTab)}>
-            <Ionicons name="refresh" size={18} color="#a78bfa" />
-          </TouchableOpacity>
-        </View>
+          </Animated.View>
 
-        {inviteRecordLoading ? (
-          <ActivityIndicator color="#a78bfa" style={{ marginVertical: 16 }} />
-        ) : inviteRecordItems.length === 0 ? (
-          <Text style={styles.mmInfoText}>Nothing here yet.</Text>
-        ) : (
-          inviteRecordItems.map((entry) => (
-            <View key={entry.id} style={styles.invRecordRow}>
-              <Text style={styles.invRecordName}>{entry.name}</Text>
-              <Text style={styles.invRecordAmount}>💎 {entry.diamonds}</Text>
-            </View>
-          ))
-        )}
-      </LinearGradient>
-      </View>
-    </ScrollView>
-
-    <TouchableOpacity
-      style={styles.floatingFaqPill}
-      activeOpacity={0.8}
-      onPress={() => Alert.alert("FAQ", "Track invited friends, rewards received, and diamonds you can still withdraw.")}
-    >
-      <Text style={styles.invFaqPillText}>? FAQ</Text>
-    </TouchableOpacity>
-
-    <Modal
-      visible={activeRuleDetail !== null}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setRuleDetailIndex(null)}
-    >
-      <View style={styles.ruleModalOverlay}>
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          activeOpacity={1}
-          onPress={() => setRuleDetailIndex(null)}
-        />
-        <LinearGradient colors={["#1a0a2e", "#2d1b4e", "#1a0a2e"]} style={styles.ruleModalCard}>
-          <LinearGradient colors={["#7c4dff", "#e879f9"]} style={styles.ruleModalIconBadge}>
-            <Ionicons name={activeRuleDetail?.icon ?? "help-circle"} size={22} color="white" />
-          </LinearGradient>
-          <Text style={styles.ruleModalTitle}>{activeRuleDetail?.text}</Text>
-          <View style={styles.ruleModalDivider} />
-          {(activeRuleDetail?.detailLines ?? []).map((line, i) => (
-            <View key={line} style={styles.ruleModalLineRow}>
-              {activeRuleDetail.detailLines.length > 1 ? (
-                <Text style={styles.ruleModalLineNumber}>{i + 1}.</Text>
-              ) : null}
-              <Text style={styles.ruleModalLineText}>{line}</Text>
-            </View>
-          ))}
-          {activeRuleDetail?.detailFooter ? (
-            <Text style={styles.ruleModalFooter}>{activeRuleDetail.detailFooter}</Text>
+          {inviteSummary?.inviteCode ? (
+            <TouchableOpacity style={styles.invCodeRow} activeOpacity={0.8} onPress={handleCopyInviteCode}>
+              <Text style={styles.invCodeText}>My invite code: {inviteSummary.inviteCode}</Text>
+              <Ionicons name="copy-outline" size={16} color="#a78bfa" />
+            </TouchableOpacity>
           ) : null}
-          <TouchableOpacity
-            style={styles.ruleModalCloseBtn}
-            activeOpacity={0.85}
-            onPress={() => setRuleDetailIndex(null)}
+
+          {(inviteConfig?.tiers ?? []).map((tier) => (
+            <LinearGradient
+              key={tier.id}
+              colors={["rgba(124,77,255,0.22)", "rgba(59,26,120,0.4)"]}
+              style={styles.invTierCard}
+            >
+              <SectionRibbon title={tier.title} style={styles.sectionRibbon} />
+              <GlowBar style={{ marginTop: 14 }}>
+                <Text style={styles.invTierTotal}>💎 {tier.totalReward}</Text>
+              </GlowBar>
+              <View style={styles.invMilestoneRow}>
+                {tier.milestones.map((m) => (
+                  <LinearGradient
+                    key={m.id}
+                    colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]}
+                    style={styles.invMilestoneCell}
+                  >
+                    <Text style={styles.invMilestoneAmount}>💎 {m.amount}</Text>
+                    <Text style={styles.invMilestoneDesc}>{m.description}</Text>
+                  </LinearGradient>
+                ))}
+              </View>
+            </LinearGradient>
+          ))}
+
+          {inviteSummary?.limitedTask ? (
+            <LinearGradient
+              colors={["rgba(124,77,255,0.22)", "rgba(59,26,120,0.4)"]}
+              style={styles.invLimitedTaskCard}
+            >
+              <SectionRibbon title="Limit Time Task" style={styles.sectionRibbon} />
+              <View style={styles.invLimitedTaskRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.invLimitedTaskLabel}>
+                    {inviteSummary.limitedTask.label} ({inviteSummary.limitedTask.progressCount}/{inviteSummary.limitedTask.targetCount})
+                  </Text>
+                  {inviteSummary.limitedTask.durationLabel ? (
+                    <Text style={styles.invLimitedTaskDuration}>{inviteSummary.limitedTask.durationLabel}</Text>
+                  ) : null}
+                </View>
+                <Animated.View
+                  style={
+                    inviteSummary.limitedTask.completed
+                      ? undefined
+                      : {
+                        transform: [
+                          {
+                            translateX: inviteGoBtnNudge.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [7, -7],
+                            }),
+                          },
+                        ],
+                      }
+                  }
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    disabled={inviteSummary.limitedTask.completed || inviteSharing}
+                    onPress={handleShareInviteFriends}
+                  >
+                    <LinearGradient colors={["#7c4dff", "#e879f9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.invGoBtn}>
+                      <Text style={styles.invGoBtnText}>{inviteSummary.limitedTask.completed ? "Done" : "Go"}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animated.View>
+              </View>
+            </LinearGradient>
+          ) : null}
+
+          <LinearGradient
+            colors={["rgba(124,77,255,0.22)", "rgba(59,26,120,0.4)"]}
+            style={styles.invRecordCard}
           >
-            <Text style={styles.ruleModalCloseBtnText}>Got it</Text>
-          </TouchableOpacity>
-        </LinearGradient>
-      </View>
-    </Modal>
+            <SectionRibbon title="Invitation Record" style={styles.sectionRibbon} />
+
+            <GlowBar style={{ marginTop: 14 }}>
+              <Text style={styles.invRecordCount}>{inviteSummary?.successfulInvitations ?? 0}</Text>
+            </GlowBar>
+            <Text style={styles.invRecordCountLabel}>Successful invitation</Text>
+
+            <View style={styles.invStatRow}>
+              <LinearGradient colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]} style={styles.invStatBox}>
+                <Text style={styles.invStatValue}>💎 {inviteSummary?.rewardsReceived ?? 0}</Text>
+                <Text style={styles.invStatLabel}>Rewards Received</Text>
+              </LinearGradient>
+              <LinearGradient colors={["rgba(124,77,255,0.28)", "rgba(59,26,120,0.5)"]} style={styles.invStatBox}>
+                <Text style={styles.invStatValue}>💎 {inviteSummary?.unclaimedEarnings ?? 0}</Text>
+                <Text style={styles.invStatLabel}>Unclaimed earnings</Text>
+              </LinearGradient>
+            </View>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              disabled={!canWithdraw || inviteWithdrawing}
+              onPress={handleWithdrawInviteDiamonds}
+            >
+              <LinearGradient
+                colors={canWithdraw ? ["#7c4dff", "#e879f9"] : ["rgba(255,255,255,0.08)", "rgba(255,255,255,0.08)"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.invWithdrawBtn}
+              >
+                <Text style={[styles.invWithdrawBtnText, !canWithdraw && styles.invWithdrawBtnTextDisabled]}>
+                  {inviteWithdrawing ? "Withdrawing..." : "Withdraw Diamonds"}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <View style={styles.invTabRow}>
+              {RECORD_TABS.map((t) => (
+                <TouchableOpacity
+                  key={t.key}
+                  style={styles.invTabItem}
+                  activeOpacity={0.8}
+                  onPress={() => setInviteRecordTab(t.key)}
+                >
+                  <Text style={[styles.invTabText, inviteRecordTab === t.key && styles.invTabTextActive]}>
+                    {t.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity onPress={() => loadInviteRecordTab(inviteRecordTab)}>
+                <Ionicons name="refresh" size={18} color="#a78bfa" />
+              </TouchableOpacity>
+            </View>
+
+            {inviteRecordLoading ? (
+              <ActivityIndicator color="#a78bfa" style={{ marginVertical: 16 }} />
+            ) : inviteRecordItems.length === 0 ? (
+              <Text style={styles.mmInfoText}>Nothing here yet.</Text>
+            ) : (
+              inviteRecordItems.map((entry) => (
+                <View key={entry.id} style={styles.invRecordRow}>
+                  <Text style={styles.invRecordName}>{entry.name}</Text>
+                  <Text style={styles.invRecordAmount}>💎 {entry.diamonds}</Text>
+                </View>
+              ))
+            )}
+          </LinearGradient>
+        </View>
+      </ScrollView>
+
+      <TouchableOpacity
+        style={styles.floatingFaqPill}
+        activeOpacity={0.8}
+        onPress={() => Alert.alert("FAQ", "Track invited friends, rewards received, and diamonds you can still withdraw.")}
+      >
+        <Text style={styles.invFaqPillText}>? FAQ</Text>
+      </TouchableOpacity>
+
+      <Modal
+        visible={activeRuleDetail !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRuleDetailIndex(null)}
+      >
+        <View style={styles.ruleModalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setRuleDetailIndex(null)}
+          />
+          <LinearGradient colors={["#1a0a2e", "#2d1b4e", "#1a0a2e"]} style={styles.ruleModalCard}>
+            <LinearGradient colors={["#7c4dff", "#e879f9"]} style={styles.ruleModalIconBadge}>
+              <Ionicons name={activeRuleDetail?.icon ?? "help-circle"} size={22} color="white" />
+            </LinearGradient>
+            <Text style={styles.ruleModalTitle}>{activeRuleDetail?.text}</Text>
+            <View style={styles.ruleModalDivider} />
+            {(activeRuleDetail?.detailLines ?? []).map((line, i) => (
+              <View key={line} style={styles.ruleModalLineRow}>
+                {activeRuleDetail.detailLines.length > 1 ? (
+                  <Text style={styles.ruleModalLineNumber}>{i + 1}.</Text>
+                ) : null}
+                <Text style={styles.ruleModalLineText}>{line}</Text>
+              </View>
+            ))}
+            {activeRuleDetail?.detailFooter ? (
+              <Text style={styles.ruleModalFooter}>{activeRuleDetail.detailFooter}</Text>
+            ) : null}
+            <TouchableOpacity
+              style={styles.ruleModalCloseBtn}
+              activeOpacity={0.85}
+              onPress={() => setRuleDetailIndex(null)}
+            >
+              <Text style={styles.ruleModalCloseBtnText}>Got it</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+      </Modal>
     </View>
   );
 }

@@ -115,55 +115,15 @@ export const joinRandomParty = async (body = {}) => {
   return response.data;
 };
 
-export const createRoom = async (body = {}) => {
-  const path = "/api/v1/tuktuk/rooms/create";
-  logRequest("POST", path, body);
-  try {
-    const response = await API.post(path, body, await authRequestConfig());
-    logResponse("POST", path, response.data);
-    return response.data;
-  } catch (error) {
-    logError("POST", path, error);
-    throw error;
-  }
-};
-
-/** POST /api/v1/tuktuk/rooms/{roomId}/create — user-scoped room create (room id = user id) */
-export const createRoomForUser = async (roomId, body = {}) => {
-  const path = `/api/v1/tuktuk/rooms/${roomId}/create`;
-  logRequest("POST", path, body);
-  try {
-    const response = await API.post(path, body, await authRequestConfig());
-    logResponse("POST", path, response.data);
-    return response.data;
-  } catch (error) {
-    logError("POST", path, error);
-    throw error;
-  }
-};
-
 /**
- * PATCH /api/v1/tuktuk/rooms/{roomId} — update room fields. Used here for
- * setting the room's profile/cover photo after creation. NOTE: the multipart
- * field name for the image ("image") is a best guess, matching this app's
- * uploadMyProfilePic convention — adjust if the backend expects something
- * else (e.g. "icon", matching the family-cover endpoint instead).
+ * Sends `fields` as multipart/form-data with a real file part for the image.
+ * Uses `fetch` (not axios) and never sets Content-Type manually — RN adds
+ * the correct `multipart/form-data; boundary=...` header itself from the
+ * FormData body. The backend now accepts the image under any non-empty file
+ * field name (image, profileImage, photo, roomImage, ...); "image" is kept
+ * here for consistency across this file's endpoints.
  */
-export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fields } = {}) => {
-  const path = `/api/v1/tuktuk/rooms/${roomId}`;
-
-  if (!imageUri) {
-    logRequest("PATCH", path, fields);
-    try {
-      const response = await API.patch(path, fields, await authRequestConfig());
-      logResponse("PATCH", path, response.data);
-      return response.data;
-    } catch (error) {
-      logError("PATCH", path, error);
-      throw error;
-    }
-  }
-
+const sendRoomMultipart = async (method, path, fields, { imageUri, mimeType, fileName }) => {
   await refreshTokenCache();
   const token = await getBearerToken();
   if (!token) throw new Error("Please log in again to continue.");
@@ -182,27 +142,88 @@ export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fiel
     Authorization: `Bearer ${token}`,
   };
 
-  logRequest("PATCH", path, { image: fileName ?? imageUri, ...fields });
+  logRequest(method, path, { image: fileName ?? imageUri, ...fields });
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
-      method: "PATCH",
+      method,
       headers,
       body: form,
     });
     const data = await parseResponseBody(response);
     if (!response.ok) {
-      const message = data?.message ?? data?.error ?? `Room update failed (${response.status})`;
+      const message = data?.message ?? data?.error ?? `Request failed (${response.status})`;
       const err = new Error(message);
       err.status = response.status;
       err.responseData = data;
       throw err;
     }
-    logResponse("PATCH", path, data);
+    logResponse(method, path, data);
     return data;
   } catch (error) {
-    logError("PATCH", path, error);
+    logError(method, path, error);
     throw error;
   }
+};
+
+export const createRoom = async (body = {}) => {
+  const { imageUri, mimeType, fileName, ...fields } = body;
+  const path = "/api/v1/tuktuk/rooms/create";
+
+  if (!imageUri) {
+    logRequest("POST", path, fields);
+    try {
+      const response = await API.post(path, fields, await authRequestConfig());
+      logResponse("POST", path, response.data);
+      return response.data;
+    } catch (error) {
+      logError("POST", path, error);
+      throw error;
+    }
+  }
+
+  return sendRoomMultipart("POST", path, fields, { imageUri, mimeType, fileName });
+};
+
+/** POST /api/v1/tuktuk/rooms/{roomId}/create — user-scoped room create (room id = user id) */
+export const createRoomForUser = async (roomId, body = {}) => {
+  const { imageUri, mimeType, fileName, ...fields } = body;
+  const path = `/api/v1/tuktuk/rooms/${roomId}/create`;
+
+  if (!imageUri) {
+    logRequest("POST", path, fields);
+    try {
+      const response = await API.post(path, fields, await authRequestConfig());
+      logResponse("POST", path, response.data);
+      return response.data;
+    } catch (error) {
+      logError("POST", path, error);
+      throw error;
+    }
+  }
+
+  return sendRoomMultipart("POST", path, fields, { imageUri, mimeType, fileName });
+};
+
+/**
+ * PATCH /api/v1/tuktuk/rooms/{roomId} — update room fields. Used here for
+ * setting the room's profile/cover photo after creation.
+ */
+export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fields } = {}) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}`;
+
+  if (!imageUri) {
+    logRequest("PATCH", path, fields);
+    try {
+      const response = await API.patch(path, fields, await authRequestConfig());
+      logResponse("PATCH", path, response.data);
+      return response.data;
+    } catch (error) {
+      logError("PATCH", path, error);
+      throw error;
+    }
+  }
+
+  return sendRoomMultipart("PATCH", path, fields, { imageUri, mimeType, fileName });
 };
 
 /** GET /api/v1/tuktuk/rooms/{roomId}/announcement — fetch the room's pinned announcement */
