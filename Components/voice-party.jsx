@@ -1,6 +1,5 @@
 import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
-import * as DocumentPicker from "expo-document-picker";
 import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -3094,6 +3093,21 @@ export default function VoiceParty() {
       }
 
       try {
+        let DocumentPicker = null;
+        try {
+          DocumentPicker = require("expo-document-picker");
+        } catch (e) {
+          console.warn("[voice-party] expo-document-picker unavailable:", e?.message ?? e);
+        }
+
+        if (!DocumentPicker || typeof DocumentPicker.getDocumentAsync !== "function") {
+          Alert.alert(
+            "Music Feature Unavailable",
+            "Audio file picker is not available on this build.",
+          );
+          return;
+        }
+
         const result = await DocumentPicker.getDocumentAsync({
           type: "audio/*",
           copyToCacheDirectory: false,
@@ -10174,6 +10188,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
   },
+  activeUsersOverlay: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
   activeUsersBox: {
     backgroundColor: "#1e0e36",
     borderRadius: 20,
@@ -10374,21 +10397,46 @@ const styles = StyleSheet.create({
   activeUserActionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 6,
   },
   seatStatusBadge: {
-    backgroundColor: "rgba(167, 139, 250, 0.28)",
+    backgroundColor: "rgba(167, 139, 250, 0.2)",
     borderWidth: 1,
     borderColor: "#a78bfa",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-    shadowColor: "#a78bfa",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 2,
-    marginTop: 20
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  seatStatusText: {
+    color: "#e9d5ff",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  audienceStatusBadge: {
+    backgroundColor: "rgba(167, 139, 250, 0.12)",
+    borderColor: "rgba(167, 139, 250, 0.35)",
+  },
+  audienceStatusText: {
+    color: "#c4b5fd",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  leaveSeatBtn: {
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  leaveSeatBtnText: {
+    color: "#fca5a5",
+    fontSize: 11,
+    fontWeight: "700",
   },
   rewardModalGiftImg: {
     width: "80%",
