@@ -1,30 +1,27 @@
-import React from "react";
+import * as Clipboard from "expo-clipboard";
+import { LinearGradient } from "expo-linear-gradient";
 import {
-  View,
-  Text,
-  Image,
-  TouchableOpacity,
-  Modal,
-  StyleSheet,
+  AlertCircle,
+  Gift,
+  Home,
+  MessageCircle,
+  UserCheck,
+  UserPlus
+} from "lucide-react-native";
+import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Image,
+  Modal,
   Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import * as Clipboard from "expo-clipboard";
-import {
-  AlertCircle,
-  UserPlus,
-  UserCheck,
-  MessageCircle,
-  Gift,
-  Sparkles,
-  Shield,
-  Crown,
-  Home,
-} from "lucide-react-native";
-import { s, vs, ms, scale, verticalScale } from "react-native-size-matters";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ms, s, vs } from "react-native-size-matters";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { resolveImageSource } from "../src/utils/videoSource";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
@@ -53,6 +50,7 @@ export default function RoomUserProfilePopup({
   onSendGift,
   onReport,
 }) {
+  const insets = useSafeAreaInsets();
   if (!visible) return null;
 
   const displayName = user?.name ?? user?.displayName ?? user?.username ?? "User";
@@ -115,7 +113,14 @@ export default function RoomUserProfilePopup({
           onPress={onClose}
         />
 
-        <View style={styles.sheetContainer}>
+        <View
+          style={[
+            styles.sheetContainer,
+            {
+              paddingBottom: Math.max(insets.bottom, vs(16)) + vs(8),
+            },
+          ]}
+        >
           {/* Centered Overlapping Avatar: Half outer and half inside modal at top center */}
           <View style={styles.avatarOverlapContainer}>
             <View style={styles.avatarGlowWrapper}>
@@ -131,14 +136,14 @@ export default function RoomUserProfilePopup({
                 imageComponent={Image}
                 {...(frameLayout
                   ? {
-                      frameScale: frameLayout.frameScale,
-                      frameResizeMode: frameLayout.frameResizeMode,
-                      frameOffsetX: frameLayout.frameOffsetX,
-                      frameOffsetY: frameLayout.frameOffsetY,
-                      frameBleed: frameLayout.frameBleed,
-                      avatarBoost: frameLayout.avatarBoost,
-                      avatarOffsetY: frameLayout.avatarOffsetY,
-                    }
+                    frameScale: frameLayout.frameScale,
+                    frameResizeMode: frameLayout.frameResizeMode,
+                    frameOffsetX: frameLayout.frameOffsetX,
+                    frameOffsetY: frameLayout.frameOffsetY,
+                    frameBleed: frameLayout.frameBleed,
+                    avatarBoost: frameLayout.avatarBoost,
+                    avatarOffsetY: frameLayout.avatarOffsetY,
+                  }
                   : {})}
               />
             </View>
@@ -396,7 +401,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: s(28),
     borderTopRightRadius: s(28),
-    paddingTop: vs(52),
+    paddingTop: vs(68),
     paddingBottom: Platform.OS === "ios" ? vs(20) : vs(12),
     paddingHorizontal: s(16),
     alignItems: "center",
@@ -409,7 +414,7 @@ const styles = StyleSheet.create({
   },
   avatarOverlapContainer: {
     position: "absolute",
-    top: -vs(38),
+    top: -vs(48),
     alignSelf: "center",
     zIndex: 20,
   },
@@ -467,7 +472,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: vs(4),
+    marginTop: vs(2),
     maxWidth: W - s(48),
     gap: s(4),
   },
@@ -478,7 +483,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   userIdRow: {
-    marginTop: vs(2),
+    marginTop: vs(1),
     paddingHorizontal: s(8),
     paddingVertical: vs(2),
   },
@@ -665,8 +670,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: s(8),
-    marginTop: vs(14),
-    marginBottom: vs(16),
+    marginTop: vs(12),
     width: "100%",
   },
   actionButtonWrapper: {
