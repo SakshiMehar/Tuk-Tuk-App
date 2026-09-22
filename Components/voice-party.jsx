@@ -150,6 +150,8 @@ import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
 import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureBoxModal from "./TreasureBoxModal";
+import TreasureWinnersModal from "./TreasureWinnersModal";
+import TreasureAnimationModal from "./TreasureAnimationModal";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
@@ -1632,9 +1634,12 @@ export default function VoiceParty() {
   const [localSessionUser, setLocalSessionUser] = useState(null);
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
-  const { treasureState, selectChest } = useTreasureBoxProgress(
+  const { treasureState, selectChest, updateTreasureState } = useTreasureBoxProgress(
     !roomLoading && Boolean(roomId),
   );
+  const [treasureUnlockEvent, setTreasureUnlockEvent] = useState(null);
+  const [pendingTreasureEvent, setPendingTreasureEvent] = useState(null);
+  const [showTreasureAnimation, setShowTreasureAnimation] = useState(false);
   const { diamonds: walletDiamonds } = useWalletBalance();
 
   useEffect(() => {
@@ -2484,6 +2489,51 @@ export default function VoiceParty() {
         }
       }
     });
+
+    const unsubTreasure = wsService.onRoomTreasure(String(roomId), async (payload) => {
+      try {
+        const event = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        
+        if (event?.type === 'TREASURE_PROGRESS') {
+          updateTreasureState({
+            currentAmount: event.currentAmount,
+            currentTarget: event.currentTarget,
+            remainingAmount: event.remainingAmount,
+            completedRound: event.completedRound,
+            status: event.status,
+          });
+        } else if (event?.type === 'TREASURE_UNLOCKED') {
+          console.log('[VoiceParty] TREASURE_UNLOCKED event received:', JSON.stringify(event, null, 2));
+          console.log('[VoiceParty] Current myUserId:', myUserId);
+          
+          const myReward = event.rewards?.find(r => String(r.userId) === String(myUserId));
+          
+          if (myReward) {
+            // Delay showing the animation by 5 seconds
+            setTimeout(() => {
+              setPendingTreasureEvent({ ...event, myReward });
+              setShowTreasureAnimation(true);
+            }, 5000);
+            
+            if (myReward.rewardType === 'TOP_RANK_REWARD') {
+              // Refresh backpack in background
+              loadGiftInventory().then(setBackpackGifts).catch(() => {});
+            }
+            if (myReward.rewardType === 'PARTICIPATION_REWARD' || myReward.rewardAmount) {
+              // Refresh wallet in background
+              refreshWalletBalance().catch(() => {});
+            }
+          }
+          
+          if (event.nextTarget) {
+            updateTreasureState({ currentTarget: event.nextTarget, currentAmount: 0 });
+          }
+        }
+      } catch (err) {
+        console.error('[VoiceParty] Error handling treasure event:', err);
+      }
+    });
+
     const unsubSpeaking = wsService.onRoomSpeaking(
       String(roomId),
       (payload) => {
@@ -2864,6 +2914,7 @@ export default function VoiceParty() {
       unsubChatSummary();
       unsubUi();
       unsubSpeaking();
+      unsubTreasure();
       unsubGiftAnimation();
       unsubNotifications();
       unsubReconnect();
@@ -3669,6 +3720,7 @@ export default function VoiceParty() {
 
       setSelectedGift(null);
       setGiftQty(1);
+      setShowBackpack(false);
     } catch (err) {
       Alert.alert("Send failed", err?.message || "Could not send gift.");
     }
@@ -4999,6 +5051,23 @@ export default function VoiceParty() {
         onClose={() => setShowTreasureBox(false)}
         treasureState={treasureState}
         onSelectChest={selectChest}
+      />
+
+      <TreasureAnimationModal
+        visible={showTreasureAnimation}
+        onAnimationComplete={() => {
+          setShowTreasureAnimation(false);
+          if (pendingTreasureEvent) {
+            setTreasureUnlockEvent(pendingTreasureEvent);
+            setPendingTreasureEvent(null);
+          }
+        }}
+      />
+
+      <TreasureWinnersModal
+        visible={Boolean(treasureUnlockEvent)}
+        onClose={() => setTreasureUnlockEvent(null)}
+        eventData={treasureUnlockEvent}
       />
 
       <RoomUserProfilePopup

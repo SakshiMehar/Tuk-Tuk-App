@@ -147,7 +147,8 @@ export type RoomTopic =
   | 'gift-animation'
   | 'closed'
   | 'moderation'
-  | 'notifications';
+  | 'notifications'
+  | 'treasure';
 
 export type FamilyTopic = 'chat' | 'chat-summary';
 
@@ -162,6 +163,7 @@ const ROOM_TOPICS: RoomTopic[] = [
   'closed',
   'moderation',
   'notifications',
+  'treasure',
 ];
 
 const FAMILY_TOPICS: FamilyTopic[] = ['chat', 'chat-summary'];
@@ -547,6 +549,10 @@ class WebSocketService {
 
   onRoomNotifications(roomId: string, handler: Handler<RoomNotificationPayload>): () => void {
     return this._onRoomTopic(roomId, 'notifications', handler as Handler<unknown>);
+  }
+
+  onRoomTreasure(roomId: string, handler: (payload: any) => void): () => void {
+    return this._onRoomTopic(roomId, 'treasure', handler);
   }
 
   onLiveRooms(handler: Handler<unknown>): () => void {
