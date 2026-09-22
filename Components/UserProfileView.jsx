@@ -42,7 +42,7 @@ import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
 import { loadPublicProfile, toggleFollowUser } from "../src/services/publicProfileService";
 import { fetchVipProfileFrameForUser } from "../src/services/vipService";
 import { fetchUserDecorations } from "../src/services/decorationsService";
-import { blockUser } from "../src/services/relationshipService";
+import { blockUser, loadFollowing, isSameUser } from "../src/services/relationshipService";
 import { reportUser } from "../src/api/postApi";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
@@ -99,16 +99,20 @@ export default function UserProfileView({ user, onBack }) {
     setLoading(true);
     setLoadFailed(false);
     try {
-      const [{ profile: loaded, status, posts: loadedPosts }, frameUrl, userDecorations] = await Promise.all([
+      const [{ profile: loaded, status, posts: loadedPosts }, frameUrl, userDecorations, followingList] = await Promise.all([
         loadPublicProfile(userId),
         fetchVipProfileFrameForUser(userId),
         fetchUserDecorations(userId),
+        loadFollowing().catch(() => []),
       ]);
       setProfile(loaded);
       setPosts(Array.isArray(loadedPosts) ? loadedPosts : []);
       setVipProfileFrameUrl(frameUrl);
       setDecorations(userDecorations);
-      setIsFollowing(Boolean(status?.following));
+      const followsFromList =
+        Array.isArray(followingList) &&
+        followingList.some((u) => isSameUser(u?.userId ?? u?.id, userId));
+      setIsFollowing(Boolean(status?.following) || followsFromList);
       if (!loaded) setLoadFailed(true);
     } catch {
       setLoadFailed(true);

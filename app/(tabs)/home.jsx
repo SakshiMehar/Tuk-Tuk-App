@@ -3,7 +3,7 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ChevronRight } from "lucide-react-native";
+import { ChevronRight, ThumbsUp } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -1771,14 +1771,16 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
             </TouchableOpacity>
           </View>
 
-          {/* Like heart */}
+          {/* Like thumbs-up */}
           <TouchableOpacity
             style={cs.heartBtn}
             onPress={() => toggleCommentLike(item.id)}
           >
-            <Text style={[cs.heartIcon, isLikedC && cs.heartIconLiked]}>
-              {isLikedC ? "❤️" : "🤍"}
-            </Text>
+            <ThumbsUp
+              size={16}
+              color={isLikedC ? "#ff4ea3" : "rgba(0,0,0,0.55)"}
+              fill={isLikedC ? "#ff4ea3" : "transparent"}
+            />
           </TouchableOpacity>
         </View>
       );
@@ -2109,7 +2111,7 @@ const resolveNotifIcon = (icon, type) => {
   const str = String(type || "").toLowerCase();
   if (str.includes("message") || str.includes("chat") || str.includes("direct_message")) return "💬";
   if (str.includes("gift")) return "🎁";
-  if (str.includes("like") || str.includes("heart")) return "❤️";
+  if (str.includes("like") || str.includes("heart")) return "👍";
   if (str.includes("follow") || str.includes("friend")) return "👤";
   if (str.includes("party") || str.includes("room") || str.includes("voice")) return "🎉";
   if (icon && typeof icon === "string" && icon.trim().length > 0 && icon !== "🔔" && icon.length <= 4) return icon;
@@ -2425,7 +2427,7 @@ const PostCard = memo(
           <View style={styles.postFooter}>
             <View style={styles.postFooterLeft}>
               {(post.likeCount ?? 0) > 0 && (
-                <Text style={styles.postLikeCount}>❤️ {post.likeCount}</Text>
+                <Text style={styles.postLikeCount}>👍 {post.likeCount}</Text>
               )}
             </View>
             <View style={styles.postFooterRight}>
@@ -2437,9 +2439,11 @@ const PostCard = memo(
                 onPress={() => onLikeToggle?.(post.id)}
                 activeOpacity={0.75}
               >
-                <Text style={styles.postActionEmoji}>
-                  {isLiked ? "❤️" : "🤍"}
-                </Text>
+                <ThumbsUp
+                  size={14}
+                  color={isLiked ? "#ff4ea3" : "rgba(0,0,0,0.55)"}
+                  fill={isLiked ? "#ff4ea3" : "transparent"}
+                />
                 <Text
                   style={[
                     styles.postActionLabel,

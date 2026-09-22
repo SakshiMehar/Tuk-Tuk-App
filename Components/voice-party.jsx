@@ -134,6 +134,7 @@ import {
   blockUser,
   followUser,
   isSameUser,
+  loadFollowing,
   loadRelationshipStatus,
   unfollowUser,
 } from "../src/services/relationshipService";
@@ -150,6 +151,7 @@ import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import PkBattleModal from "./PkBattleModal";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
@@ -1585,6 +1587,7 @@ export default function VoiceParty() {
     { claimed: false, rewardImg: null },
   ]);
   const [showTreasureBox, setShowTreasureBox] = useState(false);
+  const [showPkBattle, setShowPkBattle] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
@@ -4176,10 +4179,14 @@ export default function VoiceParty() {
 
     try {
       if (!isSameUser(userId, myUserId)) {
-        const status = await loadRelationshipStatus(userId).catch(() => ({
-          following: false,
-        }));
-        setProfilePopupFollowing(Boolean(status?.following));
+        const [status, followingList] = await Promise.all([
+          loadRelationshipStatus(userId).catch(() => ({ following: false })),
+          loadFollowing().catch(() => []),
+        ]);
+        const followsFromList =
+          Array.isArray(followingList) &&
+          followingList.some((u) => isSameUser(u?.userId ?? u?.id, userId));
+        setProfilePopupFollowing(Boolean(status?.following) || followsFromList);
       }
 
       // Fetch dynamic profile: GET /api/app/users/user/profile/:userId
@@ -4575,13 +4582,23 @@ export default function VoiceParty() {
         </Text>
         <Text style={styles.bpSendChev}> ▼</Text>
       </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.bpSendQtyBtn}
-        activeOpacity={0.8}
-        onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-      >
-        <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-      </TouchableOpacity>
+      <View style={styles.bpSendQtyStepper}>
+        <TouchableOpacity
+          style={styles.bpSendQtyStepBtn}
+          activeOpacity={0.8}
+          onPress={() => setGiftQty((q) => (q > 1 ? q - 1 : 1))}
+        >
+          <Text style={styles.bpSendQtyStepText}>−</Text>
+        </TouchableOpacity>
+        <Text style={styles.bpSendQtyValue}>{giftQty}</Text>
+        <TouchableOpacity
+          style={styles.bpSendQtyStepBtn}
+          activeOpacity={0.8}
+          onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 99))}
+        >
+          <Text style={styles.bpSendQtyStepText}>+</Text>
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity
         style={styles.bpSendBtn}
         activeOpacity={0.8}
@@ -4847,7 +4864,7 @@ export default function VoiceParty() {
             style={styles.backpackBox}
             onStartShouldSetResponder={() => true}
           >
-            <View style={{ height: H * 0.82 }}>
+            <View style={{ height: H * 0.58 }}>
               {/* Handle */}
               <View style={styles.shareHandle} />
 
@@ -5231,13 +5248,23 @@ export default function VoiceParty() {
                       </Text>
                       <Text style={styles.bpSendChev}> ▼</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.bpSendQtyBtn}
-                      activeOpacity={0.8}
-                      onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-                    >
-                      <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-                    </TouchableOpacity>
+                    <View style={styles.bpSendQtyStepper}>
+                      <TouchableOpacity
+                        style={styles.bpSendQtyStepBtn}
+                        activeOpacity={0.8}
+                        onPress={() => setGiftQty((q) => (q > 1 ? q - 1 : 1))}
+                      >
+                        <Text style={styles.bpSendQtyStepText}>−</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.bpSendQtyValue}>{giftQty}</Text>
+                      <TouchableOpacity
+                        style={styles.bpSendQtyStepBtn}
+                        activeOpacity={0.8}
+                        onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 99))}
+                      >
+                        <Text style={styles.bpSendQtyStepText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
                     <TouchableOpacity
                       style={styles.bpSendBtn}
                       activeOpacity={0.8}
@@ -5550,6 +5577,20 @@ export default function VoiceParty() {
         onSelectChest={selectChest}
       />
 
+      <PkBattleModal
+        visible={showPkBattle}
+        onClose={() => setShowPkBattle(false)}
+        gifts={displayPkGifts}
+        onConfirm={({ mode, gift, durationMinutes, jackpotMode }) => {
+          const modeLabel =
+            mode === "team" ? "Team gift PK" : mode === "vote" ? "Vote PK" : "Personal gift PK";
+          Alert.alert(
+            "PK battle",
+            `Starting a ${modeLabel} for ${durationMinutes} min with ${gift.emoji} ${gift.name}${jackpotMode ? " (Jackpot mode on)" : ""}. Matchmaking against opponents is coming soon.`,
+          );
+        }}
+      />
+
       <RoomUserProfilePopup
         visible={Boolean(profilePopupUser || profilePopupLoading)}
         user={profilePopupUser}
@@ -5855,15 +5896,14 @@ export default function VoiceParty() {
                 <Text style={styles.playCenterLabel}>Lucky bag</Text>
               </TouchableOpacity>
 
-              {/* PK — opens the Backpack's PK gifts tab */}
+              {/* PK — opens the PK battle setup sheet */}
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
                 onPress={() => {
                   setShowPlayCenter(false);
                   setTimeout(() => {
-                    setBackpackMainTab("PK");
-                    setShowBackpack(true);
+                    setShowPkBattle(true);
                   }, 400);
                 }}
               >
@@ -5899,7 +5939,7 @@ export default function VoiceParty() {
                 onPress={() => setShowPowerMenu(false)}
               >
                 <View style={styles.playCenterIconWrap}>
-                  <Minimize2 size={28} color="#a78bfa" />
+                  <Minimize2 size={20} color="#a78bfa" />
                 </View>
                 <Text style={styles.playCenterLabel}>Keep</Text>
               </TouchableOpacity>
@@ -5916,7 +5956,7 @@ export default function VoiceParty() {
                 <View
                   style={[styles.playCenterIconWrap, styles.powerExitIconWrap]}
                 >
-                  <Power size={28} color="#ff6b6b" />
+                  <Power size={20} color="#ff6b6b" />
                 </View>
                 <Text style={[styles.playCenterLabel, { color: "#ff6b6b" }]}>
                   Exit
@@ -8533,12 +8573,12 @@ const styles = StyleSheet.create({
   // ── Power modal ──
   powerBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minWidth: 220,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minWidth: 170,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -8589,12 +8629,12 @@ const styles = StyleSheet.create({
   },
   playCenterBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minWidth: 220,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minWidth: 170,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -8603,32 +8643,32 @@ const styles = StyleSheet.create({
   },
   playCenterTitle: {
     color: "white",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
-    marginBottom: 16,
+    marginBottom: 10,
   },
   playCenterRow: {
     flexDirection: "row",
-    gap: 24,
+    gap: 16,
   },
   playCenterItem: {
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   playCenterIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: "rgba(124,77,255,0.2)",
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
-  playCenterEmoji: { fontSize: 28 },
+  playCenterEmoji: { fontSize: 20 },
   playCenterLabel: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "600",
   },
   powerExitIconWrap: {
@@ -9177,6 +9217,38 @@ const styles = StyleSheet.create({
     borderColor: "rgba(167,139,250,0.25)",
   },
   bpSendQtyText: { color: "#3D1A80", fontSize: 13, fontWeight: "700" },
+  bpSendQtyStepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(124,77,255,0.15)",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.25)",
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  bpSendQtyStepBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(124,77,255,0.3)",
+  },
+  bpSendQtyStepText: {
+    color: "#3D1A80",
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  bpSendQtyValue: {
+    color: "#3D1A80",
+    fontSize: 13,
+    fontWeight: "700",
+    minWidth: 18,
+    textAlign: "center",
+  },
   bpSendBtn: {
     backgroundColor: "#7c4dff",
     borderRadius: 20,
