@@ -5,6 +5,7 @@ import {
   setTermsAccepted,
   getUser,
   updateUser,
+  getRefreshToken,
   getPendingInviteCode,
   clearPendingInviteCode,
 } from "../store/authStore";
@@ -93,12 +94,13 @@ const applyPendingInviteCodeIfAny = async () => {
 /** Call backend auth endpoint, persist JWT + user. */
 export const establishSessionFromApi = async (apiCall, credential) => {
   const data = await apiCall(credential);
-  const { token, user } = normalizeAuthResponse(data);
+  const { token, accessToken, refreshToken, user } = normalizeAuthResponse(data);
+  const activeAccessToken = accessToken ?? token;
 
-  if (!token) {
+  if (!activeAccessToken) {
     throw new Error("Authentication succeeded but no token was returned.");
   }
-  await saveSession(token, user);
+  await saveSession({ accessToken: activeAccessToken, refreshToken }, user);
   await refreshTokenCache();
   await hydrateSessionUserFromProfile();
   await applyNewUserFrameForLogin(data);
@@ -111,5 +113,5 @@ export const establishSessionFromApi = async (apiCall, credential) => {
     // WebSocket optional on login — reconnect when chat/party opens
   }
   const sessionUser = (await getUser()) ?? user;
-  return { token, user: sessionUser };
+  return { token: activeAccessToken, accessToken: activeAccessToken, refreshToken, user: sessionUser };
 };

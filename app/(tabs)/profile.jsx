@@ -66,6 +66,7 @@ import {
   loadDailyTasks,
   tasksTotalReward,
 } from "../../src/services/rewardTaskService";
+import { useMyCountryFlag } from "../../src/services/userCountryService";
 import { syncUserLevelForSession } from "../../src/services/userLevelService";
 import { submitFeedback } from "../../src/services/userSettingsService";
 import { loadMyVipAssets } from "../../src/services/vipService";
@@ -196,7 +197,7 @@ const menuPages = [
     { icon: "id-badge", label: "TukTuk Pass", badge: true },
   ],
   [
-    { icon: "level-up-alt", label: "Level", badge: true, comingSoon: true },
+    { icon: "level-up-alt", label: "Level", badge: true },
     { icon: "instagram", label: "Instagram", badge: false },
     { icon: "facebook", label: "Facebook", badge: false },
     { icon: "share-alt", label: "Share", badge: false },
@@ -1117,6 +1118,7 @@ export default function Profile() {
   const [editVisible, setEditVisible] = useState(false);
   const [editName, setEditName] = useState("");
   const [userGender, setUserGender] = useState("");
+  const countryFlag = useMyCountryFlag();
   const [profileSaving, setProfileSaving] = useState(false);
   const [userId, setUserId] = useState(null);
   const [newUserFrameSource, setNewUserFrameSource] = useState(null);
@@ -2189,14 +2191,19 @@ export default function Profile() {
 
               {/* Row 1: Username + Edit */}
               <View style={styles.nameRow}>
-                <Text
-                  style={styles.userName}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                >
-                  {name}
-                </Text>
+                <View style={styles.userNameWithFlag}>
+                  <Text
+                    style={styles.userName}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {name}
+                  </Text>
+                  {!!countryFlag && (
+                    <Text style={styles.profileCountryFlag}>{countryFlag}</Text>
+                  )}
+                </View>
                 <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={handleOpenEditProfile}>
                   <LinearGradient
                     colors={["#a78bfa", "#7c4dff"]}
@@ -2242,6 +2249,7 @@ export default function Profile() {
                 {decorations.badgeUrl && (
                   <ProfileBadge source={{ uri: decorations.badgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
                 )}
+                <ProfileBadge source={VERIFIED_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
               </View>
 
             </View>
@@ -2997,12 +3005,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  userNameWithFlag: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
   userName: {
     fontSize: ms(18),
     fontWeight: "800",
     color: APP_TEXT,
-    flex: 1,
-    marginRight: 8,
+    flexShrink: 1,
   },
   editBtn: {
     borderRadius: 16,
@@ -3068,6 +3082,10 @@ const styles = StyleSheet.create({
     color: "#ff4aaa",
     fontSize: 13,
     fontWeight: "900",
+  },
+  profileCountryFlag: {
+    fontSize: 15,
+    marginLeft: 6,
   },
   profileLevelWrap: {
     flexDirection: "row",

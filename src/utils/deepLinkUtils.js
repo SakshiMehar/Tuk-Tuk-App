@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getRoomShareUrl } from "../config/env";
 
 const PENDING_DEEP_LINK_KEY = "@pending_deep_link";
 
@@ -37,6 +38,70 @@ export const extractRoomIdFromUrl = (url) => {
   }
 
   return null;
+};
+
+/**
+ * Generates a standardized room invitation message string.
+ */
+export const createRoomInviteMessage = ({ roomId, roomTitle }) => {
+  const safeId = String(roomId ?? "").trim();
+  const safeTitle = String(roomTitle ?? "Voice Party Room").trim();
+  const shareUrl = getRoomShareUrl(safeId);
+  return `[VOICE_ROOM_INVITE:roomId=${safeId},title=${encodeURIComponent(safeTitle)}]\n🎙️ Join my Voice Party Room: "${safeTitle}"!\n${shareUrl}`;
+};
+
+/**
+ * Parses a message string to check if it's a room invitation.
+ * Returns { isRoomInvite: true, roomId, roomTitle, roomUrl } or { isRoomInvite: false }
+ */
+export const parseRoomInviteMessage = (text) => {
+  if (!text || typeof text !== "string") return { isRoomInvite: false };
+  const trimmed = text.trim();
+
+  // 1. Structured tag format: [VOICE_ROOM_INVITE:roomId=123,title=...]
+  const structuredMatch = trimmed.match(
+    /\[VOICE_ROOM_INVITE:roomId=([a-zA-Z0-9_-]+)(?:,title=([^\]]+))?\]/i,
+  );
+  if (structuredMatch && structuredMatch[1]) {
+    const roomId = structuredMatch[1];
+    let roomTitle = "Voice Party Room";
+    if (structuredMatch[2]) {
+      try {
+        roomTitle = decodeURIComponent(structuredMatch[2]);
+      } catch {
+        roomTitle = structuredMatch[2];
+      }
+    }
+    const roomUrl = getRoomShareUrl(roomId);
+    return {
+      isRoomInvite: true,
+      roomId,
+      roomTitle,
+      roomUrl,
+    };
+  }
+
+  // 2. Fallback: check if the text contains a voice room share link and invitation context
+  const roomId = extractRoomIdFromUrl(trimmed);
+  if (
+    roomId &&
+    (/voice party|join my room|join (?:the )?room|room invite|tuktuk\.live\/room/i.test(
+      trimmed,
+    ) ||
+      trimmed.startsWith("https://tuktuk.live/room/") ||
+      trimmed.startsWith("http://tuktuk.live/room/"))
+  ) {
+    const titleMatch = trimmed.match(/["“]([^"”]+)["”]/);
+    const roomTitle = titleMatch ? titleMatch[1] : "Voice Party Room";
+    return {
+      isRoomInvite: true,
+      roomId,
+      roomTitle,
+      roomUrl: getRoomShareUrl(roomId),
+    };
+  }
+
+  return { isRoomInvite: false };
 };
 
 /** Stores pending deep link URL before login / auth */

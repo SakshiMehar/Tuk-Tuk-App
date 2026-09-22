@@ -52,7 +52,11 @@ import {
   unlikePost,
 } from "../../src/api/postApi";
 import { patchMyProfile } from "../../src/api/profileApi";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
+} from "../../src/constants/vip";
 import {
   getAvatarSource,
   isBundledAvatarId,
@@ -64,6 +68,7 @@ import {
 import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
 import * as homeService from "../../src/services/homeService";
+import { fetchUserDecorations } from "../../src/services/decorationsService";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import {
   fetchNotificationsData,
@@ -87,6 +92,7 @@ import {
 } from "../../src/store/walletStore";
 import { openUserChat } from "../../src/utils/chatNavigation";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
+import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
 import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
 import { navigateFromNotification } from "../../src/utils/notificationNavigation";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
@@ -95,6 +101,13 @@ import { ms, s, vs } from "../../src/utils/responsive";
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import { resolveImageSource } from "../../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
+
+// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
+// appears (UserProfileView, ChatTab) — derives the logo URL for a card that
+// already carries a vipProfileFrameUrl, with no extra network call.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
+);
 
 const H_PAD = 20;
 const CARD_GAP = 10;
@@ -2455,6 +2468,9 @@ PostCard.displayName = "PostCard";
 
 const RecommendedUserItem = memo(({ user }) => {
   const router = useRouter();
+  const recommendVipTier = resolveVipTierFromAssetUrl(user.vipProfileFrameUrl);
+  const recommendVipLogo =
+    recommendVipTier != null ? VIP_LOGO_BY_TIER[recommendVipTier] : null;
   return (
     <TouchableOpacity
       style={styles.recommendItem}
@@ -2497,9 +2513,28 @@ const RecommendedUserItem = memo(({ user }) => {
           </View>
         )}
       </View>
-      <Text style={styles.recommendName} numberOfLines={1}>
-        {user.name}
-      </Text>
+      <View style={styles.recommendNameRow}>
+        <Text style={styles.recommendName} numberOfLines={1}>
+          {user.name}
+        </Text>
+        {user.level != null && (
+          <Image
+            source={resolveLocalLevelBadge(user.level)}
+            style={styles.recommendLevelBadge}
+            contentFit="contain"
+          />
+        )}
+        {recommendVipLogo && (
+          <Image
+            source={{ uri: recommendVipLogo }}
+            style={styles.recommendVipBadge}
+            contentFit="contain"
+          />
+        )}
+        {/* Decoration badge intentionally skipped here: this horizontal list
+            can show many recommended users, so firing fetchUserDecorations
+            per card would risk an N+1 request storm. */}
+      </View>
     </TouchableOpacity>
   );
 });
@@ -3375,6 +3410,15 @@ export default function Home() {
       isOnline: Boolean(result.subtitle && result.subtitle.includes("Online")),
     });
     setSearchProfileLoading(true);
+    // A single opened profile (not a list), so one fetchUserDecorations call
+    // here is fine — same reasoning UserProfileView uses for its badge row.
+    fetchUserDecorations(result.userId)
+      .then(({ badgeUrl }) => {
+        setSearchProfile((prev) =>
+          prev?.userId === result.userId ? { ...prev, decorationBadgeUrl: badgeUrl } : prev,
+        );
+      })
+      .catch(() => { });
     try {
       const detail = await homeService.getUserDetailById(result.userId);
       setSearchProfile((prev) => ({
@@ -3959,7 +4003,14 @@ export default function Home() {
               {searchResults.length > 0 ? (
                 <View style={styles.searchResultsSection}>
                   <Text style={styles.searchSuggestLabel}>Search Results</Text>
-                  {searchResults.map((result) => (
+                  {searchResults.map((result) => {
+                    const resultVipTier =
+                      result.type === "user"
+                        ? resolveVipTierFromAssetUrl(result.vipProfileFrameUrl)
+                        : null;
+                    const resultVipLogo =
+                      resultVipTier != null ? VIP_LOGO_BY_TIER[resultVipTier] : null;
+                    return (
                     <TouchableOpacity
                       key={result.id}
                       style={styles.searchResultItem}
@@ -4021,7 +4072,27 @@ export default function Home() {
                         </LinearGradient>
                       )}
                       <View style={styles.resultTextCol}>
-                        <Text style={styles.resultTitle}>{result.title}</Text>
+                        <View style={styles.resultTitleRow}>
+                          <Text style={styles.resultTitle}>{result.title}</Text>
+                          {result.type === "user" && result.level != null && (
+                            <Image
+                              source={resolveLocalLevelBadge(result.level)}
+                              style={styles.resultLevelBadge}
+                              contentFit="contain"
+                            />
+                          )}
+                          {resultVipLogo && (
+                            <Image
+                              source={{ uri: resultVipLogo }}
+                              style={styles.resultVipBadge}
+                              contentFit="contain"
+                            />
+                          )}
+                          {/* Decoration badge intentionally skipped here: search
+                              results can be a long, unbounded list, so firing
+                              fetchUserDecorations per row would risk an N+1
+                              request storm. */}
+                        </View>
                         {result.subtitle && (
                           <Text style={styles.resultSubtitle}>
                             {result.subtitle}
@@ -4030,7 +4101,8 @@ export default function Home() {
                       </View>
                       <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
                     </TouchableOpacity>
-                  ))}
+                    );
+                  })}
                 </View>
               ) : searchQuery.length === 0 ? (
                 <>
@@ -4613,6 +4685,13 @@ export default function Home() {
                 {searchProfile?.vip && (
                   <Text style={styles.searchProfileVip}>👑 VIP</Text>
                 )}
+                {searchProfile?.decorationBadgeUrl && (
+                  <Image
+                    source={{ uri: searchProfile.decorationBadgeUrl }}
+                    style={styles.searchProfileDecorationBadge}
+                    contentFit="contain"
+                  />
+                )}
               </View>
 
               <View style={styles.searchProfileMetaRow}>
@@ -4732,6 +4811,10 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   searchProfileVip: { color: "#ffd700", fontSize: 13, fontWeight: "800" },
+  searchProfileDecorationBadge: {
+    height: 16,
+    width: 16 * (438 / 179),
+  },
   searchProfileMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   searchProfileBadge: {
     backgroundColor: "rgba(124,77,255,0.3)",
@@ -5024,7 +5107,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
-
   headerTitleCol: {
     flex: 1,
     minWidth: 0,
@@ -5577,6 +5659,22 @@ const styles = StyleSheet.create({
     fontSize: ms(12),
     textAlign: "center",
     fontWeight: "500",
+    flexShrink: 1,
+  },
+  recommendNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    maxWidth: s(76),
+  },
+  recommendLevelBadge: {
+    height: 10,
+    width: 10 * (142 / 149),
+  },
+  recommendVipBadge: {
+    height: 10,
+    width: 10,
   },
 
   // Banner Slider
@@ -5946,11 +6044,24 @@ const styles = StyleSheet.create({
   resultTextCol: {
     flex: 1,
   },
+  resultTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
   resultTitle: {
     color: "white",
     fontSize: 14,
     fontWeight: "700",
     marginBottom: 2,
+  },
+  resultLevelBadge: {
+    height: 13,
+    width: 13 * (142 / 149),
+  },
+  resultVipBadge: {
+    height: 13,
+    width: 13,
   },
   resultSubtitle: {
     color: "rgba(255,255,255,0.5)",

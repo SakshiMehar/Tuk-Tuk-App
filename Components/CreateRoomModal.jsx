@@ -155,6 +155,9 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
         name: trimmedName,
         announcement: trimmedAnnouncement,
         body: trimmedAnnouncement,
+        // Send the picked room photo as multipart on the create call itself
+        // (backend now accepts the image directly at creation time).
+        imageUri: roomPhotoUri,
         ...(user?.profilePicUrl || user?.avatarUrl
           ? {
               userProfileImageUrl: user.profilePicUrl ?? user.avatarUrl,
@@ -375,7 +378,13 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
         visible={showPhotoRequired}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowPhotoRequired(false)}
+        onRequestClose={() => {
+          // The photo requirement can't be dismissed — only an actual
+          // upload closes this popup — but the other two (room name /
+          // announcement) are just a nag, so the Android back button
+          // still dismisses those.
+          if (validationType !== "photo") setShowPhotoRequired(false);
+        }}
       >
         <View style={styles.popupOverlay}>
           <View style={styles.photoRequiredCard}>
@@ -401,30 +410,24 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
             </Text>
 
             {validationType === "photo" ? (
-              <>
-                <TouchableOpacity
-                  style={styles.popupUploadBtn}
-                  onPress={handlePickRoomPhoto}
-                  activeOpacity={0.85}
+              // No dismiss option here on purpose — uploading a photo is the
+              // only way to close this popup, so a room can't be created
+              // without one.
+              <TouchableOpacity
+                style={styles.popupUploadBtn}
+                onPress={handlePickRoomPhoto}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={GRADIENT_ACCENT}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.popupUploadGradient}
                 >
-                  <LinearGradient
-                    colors={GRADIENT_ACCENT}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.popupUploadGradient}
-                  >
-                    <Upload size={16} color="#FFFFFF" />
-                    <Text style={styles.popupUploadText}>Upload Photo</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={() => setShowPhotoRequired(false)}
-                  style={styles.popupCancel}
-                >
-                  <Text style={styles.popupCancelText}>Maybe Later</Text>
-                </TouchableOpacity>
-              </>
+                  <Upload size={16} color="#FFFFFF" />
+                  <Text style={styles.popupUploadText}>Upload Photo</Text>
+                </LinearGradient>
+              </TouchableOpacity>
             ) : (
               <TouchableOpacity
                 style={styles.popupUploadBtn}

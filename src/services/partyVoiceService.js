@@ -207,6 +207,8 @@ export const reconnectAsListener = async (roomId) => {
   return joinAsListener(roomId);
 };
 
+export const getActiveRoomId = () => activeRoomId;
+
 export const teardownVoice = async () => {
   activeRoomId = null;
   activeIsSpeaker = false;

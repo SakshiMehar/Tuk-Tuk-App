@@ -4,6 +4,9 @@ import {
   getPartyGiftCatalog,
   getGiftInventory,
   sendGiftInRoom,
+  getListenRewardStatus,
+  claimListenReward,
+  recordListenRewardProgress,
 } from "../api/giftApi";
 import { sendDiamondRoomGift } from "../api/partyApi";
 
@@ -401,3 +404,26 @@ export const GIFT_CATALOG_CATEGORIES = {
   special: "special",
   vip: "vip",
 };
+
+/** Load daily listen rewards status (progress, thresholds, claim states) */
+export const loadListenRewardStatus = async () => {
+  const data = await getListenRewardStatus();
+  return data;
+};
+
+/** Claim an unlocked listen reward tier */
+export const claimRewardToBackpack = async ({ tier, roomId }) => {
+  const data = await claimListenReward({ tier, roomId });
+  return data;
+};
+
+/** Synchronize incremental listening time for rewards */
+export const syncListenRewardProgress = async ({ roomId, deltaSeconds }) => {
+  const data = await recordListenRewardProgress({
+    roomId,
+    deltaSeconds,
+  });
+  return data;
+};
+
+

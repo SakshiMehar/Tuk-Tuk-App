@@ -1,10 +1,12 @@
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { AlignJustify, Check, ChevronDown, Plus, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  BackHandler,
   Image,
   ScrollView,
   StatusBar,
@@ -22,6 +24,8 @@ import {
 } from "../src/constants/vip";
 import { getAvatarSource, isBundledAvatarId } from "../src/data/avatarOptions";
 import { loadConversations } from "../src/services/chatService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import { useMyCountryFlag } from "../src/services/userCountryService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { loadFamilyDetail, loadFamilyLists } from "../src/services/familyService";
 import { getRecommendedUsers } from "../src/services/homeService";
@@ -35,6 +39,7 @@ import { wsService } from "../src/services/websocket";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { openUserProfile } from "../src/utils/profileNavigation";
 import { getAppUserId } from "../src/utils/sessionUser";
+import { createRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import AppBackground from "./AppBackground";
 import ComingSoonModal from "./ComingSoonModal";
 import FamilyChatModal from "./FamilyChatModal";
@@ -135,8 +140,19 @@ const CONTACT_MENU_ITEMS = [
 
 export default function ChatTab() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const fromRoom = params?.fromRoom ?? null;
+  const shareRoomId = params?.shareRoomId ?? null;
+  const shareRoomTitle = params?.shareRoomTitle ?? "Voice Party Room";
+  const [shareDismissed, setShareDismissed] = useState(false);
+  const [sendingInviteId, setSendingInviteId] = useState(null);
+  const isShareMode = Boolean(shareRoomId && !shareDismissed);
   const scrollRef = useRef(null);
   useScrollToTop(scrollRef);
+  // Only the signed-in user's own country is ever fetched (GET /me/country) —
+  // there's no per-user country lookup for other people, so this same flag is
+  // what's shown next to every username row below, not a per-row value.
+  const myCountryFlag = useMyCountryFlag();
   const [activeTopTab, setActiveTopTab] = useState("Chats");
   const [searchText, setSearchText] = useState("");
   const [showBanner, setShowBanner] = useState(true);
@@ -156,6 +172,54 @@ export default function ChatTab() {
   const [familyGroups, setFamilyGroups] = useState([]);
   const [familyGroupsLoading, setFamilyGroupsLoading] = useState(false);
   const [chatFamily, setChatFamily] = useState(null);
+  // userId -> decoration badgeUrl, shared by the Chatlist rows and the
+  // "Recommend user in the room" rows below — both lists are small (a
+  // handful of visible rows), so one fetchUserDecorations call per visible
+  // user id is fine (same size reasoning as the rest of this file already
+  // uses for level/VIP). Cached by id via the ref so re-renders/refetches
+  // don't re-request a user we've already resolved.
+  const [decorationsByUserId, setDecorationsByUserId] = useState({});
+  const decorationFetchedIds = useRef(new Set());
+
+  const fetchDecorationsForUsers = useCallback((users) => {
+    (users ?? []).forEach((u) => {
+      const uid = u?.userId != null ? String(u.userId) : u?.id != null ? String(u.id) : null;
+      if (!uid || decorationFetchedIds.current.has(uid)) return;
+      decorationFetchedIds.current.add(uid);
+      fetchUserDecorations(uid)
+        .then(({ badgeUrl }) => {
+          if (badgeUrl) {
+            setDecorationsByUserId((prev) => ({ ...prev, [uid]: badgeUrl }));
+          }
+        })
+        .catch(() => { });
+    });
+  }, []);
+
+  const handleReturnToRoom = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else if (fromRoom) {
+      router.push({
+        pathname: "/voice-party",
+        params: { roomId: String(fromRoom) },
+      });
+    }
+  }, [router, fromRoom]);
+
+  useEffect(() => {
+    if (!fromRoom) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (contactsPage) {
+        setContactsPage(null);
+        setContactSearch("");
+        return true;
+      }
+      handleReturnToRoom();
+      return true;
+    });
+    return () => sub.remove();
+  }, [fromRoom, contactsPage, handleReturnToRoom]);
 
   const fetchChats = useCallback(() => {
     setChatsLoading(true);
@@ -163,11 +227,12 @@ export default function ChatTab() {
     loadConversations()
       .then((list) => {
         setConversations(list);
+        fetchDecorationsForUsers(list);
 
       })
       .catch(() => setConversations([]))
       .finally(() => setChatsLoading(false));
-  }, []);
+  }, [fetchDecorationsForUsers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,12 +240,13 @@ export default function ChatTab() {
       .then((users) => {
         if (!cancelled) {
           setRecommendedUsers(users);
+          fetchDecorationsForUsers(users);
 
         }
       })
       .catch(() => { });
     return () => { cancelled = true; };
-  }, []);
+  }, [fetchDecorationsForUsers]);
 
   useFocusEffect(
     useCallback(() => {
@@ -197,6 +263,61 @@ export default function ChatTab() {
   }, [fetchChats]);
 
   const handleOpenUserChat = (user) => {
+    if (isShareMode) {
+      const targetId = String(user?.userId ?? user?.id ?? "");
+      const targetName = user?.name ?? user?.username ?? "User";
+      if (!targetId) return;
+
+      Alert.alert(
+        "Send Room Invitation",
+        `Send room invitation to ${targetName}?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Send Invitation",
+            onPress: async () => {
+              if (sendingInviteId) return;
+              setSendingInviteId(targetId);
+              try {
+                await wsService.connect();
+                const inviteMsg = createRoomInviteMessage({
+                  roomId: shareRoomId,
+                  roomTitle: shareRoomTitle,
+                });
+                wsService.sendMessage(targetId, inviteMsg);
+                Alert.alert(
+                  "Invitation Sent! 🎉",
+                  `Room invitation was sent to ${targetName}.`,
+                  [
+                    {
+                      text: "Return to Room",
+                      onPress: handleReturnToRoom,
+                    },
+                    {
+                      text: "Open Chat",
+                      onPress: () => {
+                        openUserChat(router, user);
+                      },
+                    },
+                  ],
+                  { cancelable: false },
+                );
+              } catch (err) {
+                Alert.alert(
+                  "Send failed",
+                  err?.message || "Could not send room invitation.",
+                );
+              } finally {
+                setSendingInviteId(null);
+              }
+            },
+          },
+        ],
+        { cancelable: true },
+      );
+      return;
+    }
+
     openUserChat(router, user);
   };
 
@@ -354,6 +475,8 @@ export default function ChatTab() {
     return list.map((item, idx) => {
       const rowVipTier = resolveVipTierFromAssetUrl(item.vipProfileFrameUrl);
       const rowVipLogo = rowVipTier != null ? VIP_LOGO_BY_TIER[rowVipTier] : null;
+      const rowDecorationBadge =
+        item.userId != null ? decorationsByUserId[String(item.userId)] : null;
       return (
       <TouchableOpacity
         key={String(item.userId ?? item.id ?? idx)}
@@ -409,17 +532,20 @@ export default function ChatTab() {
           <View style={styles.chatTopRow}>
             <View style={styles.chatNameRow}>
               <Text style={styles.chatName} numberOfLines={1}>{item.name}</Text>
-              {item.level != null && (
-                <Image
-                  source={resolveLocalLevelBadge(item.level)}
-                  style={styles.chatLevelBadge}
-                  resizeMode="contain"
-                />
+              {!!myCountryFlag && (
+                <Text style={styles.chatCountryFlag}>{myCountryFlag}</Text>
               )}
               {rowVipLogo && (
                 <Image
                   source={{ uri: rowVipLogo }}
                   style={styles.chatVipBadge}
+                  resizeMode="contain"
+                />
+              )}
+              {rowDecorationBadge && (
+                <Image
+                  source={{ uri: rowDecorationBadge }}
+                  style={styles.chatDecorationBadge}
                   resizeMode="contain"
                 />
               )}
@@ -487,6 +613,17 @@ export default function ChatTab() {
           <>
             {/* Chats / Contacts tabs */}
             <View style={styles.headerTabs}>
+              {fromRoom ? (
+                <TouchableOpacity
+                  style={styles.roomReturnBtn}
+                  activeOpacity={0.75}
+                  onPress={handleReturnToRoom}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Text style={styles.roomReturnArrow}>‹</Text>
+                  <Text style={styles.roomReturnLabel}>Room</Text>
+                </TouchableOpacity>
+              ) : null}
               {["Chats", "Contacts"].map((tab) => (
                 <TouchableOpacity
                   key={tab}
@@ -534,6 +671,36 @@ export default function ChatTab() {
           </>
         )}
       </LinearGradient>
+
+      {/* ── ROOM SHARE MODE BANNER ── */}
+      {isShareMode && (
+        <View style={styles.shareBannerContainer}>
+          <LinearGradient
+            colors={["#7c3aed", "#4f46e5"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.shareBannerGrad}
+          >
+            <View style={styles.shareBannerIconWrap}>
+              <Text style={styles.shareBannerEmoji}>🎙️</Text>
+            </View>
+            <View style={styles.shareBannerTextCol}>
+              <Text style={styles.shareBannerTitle}>Invite to Voice Room</Text>
+              <Text style={styles.shareBannerSub} numberOfLines={1}>
+                Tap any friend to send an invite to "{shareRoomTitle}"
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.shareBannerCloseBtn}
+              activeOpacity={0.75}
+              onPress={() => setShareDismissed(true)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <X size={16} color="white" />
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+      )}
 
       <ScrollView ref={scrollRef} style={styles.body} showsVerticalScrollIndicator={false}>
 
@@ -661,6 +828,12 @@ export default function ChatTab() {
                     contactsPage === "followers" &&
                     !followingIdSet.has(userId) &&
                     !isSameUser(userId, myUserId);
+                  const contactVipTier = resolveVipTierFromAssetUrl(user.vipProfileFrameUrl);
+                  const contactVipLogo = contactVipTier != null ? VIP_LOGO_BY_TIER[contactVipTier] : null;
+                  // Decoration/verified badge intentionally skipped here: Friends/
+                  // Followers/Following can be long, unbounded lists, so firing
+                  // fetchUserDecorations per row would risk an N+1 request storm
+                  // (unlike the small Chatlist/Recommend rows above).
 
                   return (
                   <TouchableOpacity
@@ -710,6 +883,13 @@ export default function ChatTab() {
                               <Image
                                 source={resolveLocalLevelBadge(user.level)}
                                 style={styles.contactLevelBadge}
+                                resizeMode="contain"
+                              />
+                            )}
+                            {contactVipLogo && (
+                              <Image
+                                source={{ uri: contactVipLogo }}
+                                style={styles.chatVipBadge}
                                 resizeMode="contain"
                               />
                             )}
@@ -849,6 +1029,8 @@ export default function ChatTab() {
               {recommendedUsers.map((user) => {
                 const recommendVipTier = resolveVipTierFromAssetUrl(user.vipProfileFrameUrl);
                 const recommendVipLogo = recommendVipTier != null ? VIP_LOGO_BY_TIER[recommendVipTier] : null;
+                const recommendDecorationBadge =
+                  user.userId != null ? decorationsByUserId[String(user.userId)] : null;
                 return (
                 <TouchableOpacity
                   key={user.id}
@@ -899,6 +1081,13 @@ export default function ChatTab() {
                       <Image
                         source={{ uri: recommendVipLogo }}
                         style={styles.recommendVipBadge}
+                        resizeMode="contain"
+                      />
+                    )}
+                    {recommendDecorationBadge && (
+                      <Image
+                        source={{ uri: recommendDecorationBadge }}
+                        style={styles.recommendDecorationBadge}
                         resizeMode="contain"
                       />
                     )}
@@ -982,8 +1171,31 @@ const styles = StyleSheet.create({
   },
   headerTabs: {
     flexDirection: "row",
-    gap: 20,
+    gap: 16,
     alignItems: "center",
+  },
+  roomReturnBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(124, 77, 255, 0.14)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    marginRight: 4,
+    gap: 2,
+    borderWidth: 1,
+    borderColor: "rgba(124, 77, 255, 0.3)",
+  },
+  roomReturnArrow: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#7c4dff",
+    lineHeight: 20,
+  },
+  roomReturnLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#7c4dff",
   },
   headerTabBtn: {
     alignItems: "center",
@@ -1242,6 +1454,10 @@ const styles = StyleSheet.create({
     height: 10,
     width: 10,
   },
+  recommendDecorationBadge: {
+    height: 10,
+    width: 10 * (438 / 179),
+  },
   recommendVerifiedBadge: {
     width: 10,
     height: 10,
@@ -1389,9 +1605,16 @@ const styles = StyleSheet.create({
     height: 16,
     width: 16 * (142 / 149),
   },
+  chatCountryFlag: {
+    fontSize: 14,
+  },
   chatVipBadge: {
     width: 16,
     height: 16,
+  },
+  chatDecorationBadge: {
+    height: 16,
+    width: 16 * (438 / 179),
   },
   verifiedBadge: {
     width: 16,
@@ -1603,4 +1826,58 @@ const styles = StyleSheet.create({
   },
   emptyContactsEmoji: { fontSize: 36 },
   emptyContactsText: { color: "rgba(26,26,46,0.35)", fontSize: 14, fontWeight: "500" },
+
+  // Share mode banner
+  shareBannerContainer: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    borderRadius: 14,
+    overflow: "hidden",
+    shadowColor: "#7c3aed",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  shareBannerGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  shareBannerIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareBannerEmoji: {
+    fontSize: 18,
+  },
+  shareBannerTextCol: {
+    flex: 1,
+  },
+  shareBannerTitle: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  shareBannerSub: {
+    color: "rgba(255, 255, 255, 0.85)",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  shareBannerCloseBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

@@ -103,6 +103,19 @@ export const getUserById = async (userId) => {
   return response.data;
 };
 
+/** GET /api/app/users/user/profile/{userId} — fetch full dynamic user profile */
+export const getUserProfile = async (userId) => {
+  const id = encodeURIComponent(String(userId));
+  const response = await API.get(
+    `/api/app/users/user/profile/${id}`,
+    await authRequestConfig()
+  );
+  console.log(`[userApi] GET /api/app/users/user/profile/${id} -> RAW`, JSON.stringify(response.data));
+  return response.data;
+};
+
+export const getUserProfileByUserId = getUserProfile;
+
 export const getUserProfileDetails = async (targetUserId) => {
   const id = String(targetUserId);
 

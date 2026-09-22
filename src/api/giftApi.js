@@ -240,3 +240,56 @@ export const getGiftsSent = async () => {
     throw error;
   }
 };
+
+/** GET /api/app/rewards/listen/status — daily listening progress and reward tier status */
+export const getListenRewardStatus = async () => {
+  const path = "/api/app/rewards/listen/status";
+  logRequest("GET", path);
+  try {
+    const { headers } = await buildAuthedConfig("rewards/listen/status");
+    const response = await API.get(path, { headers });
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/app/rewards/listen/claim — claim unlocked daily listen reward tier */
+export const claimListenReward = async ({ tier, roomId }) => {
+  const path = "/api/app/rewards/listen/claim";
+  const body = {
+    tier: Number(tier),
+    ...(roomId ? { roomId: String(roomId) } : {}),
+  };
+  logRequest("POST", path, body);
+  try {
+    const { headers } = await buildAuthedConfig("rewards/listen/claim");
+    const response = await API.post(path, body, { headers });
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/app/rewards/listen/progress — record incremental listening progress */
+export const recordListenRewardProgress = async ({ roomId, deltaSeconds }) => {
+  const path = "/api/app/rewards/listen/progress";
+  const body = {
+    roomId: String(roomId),
+    deltaSeconds: Number(deltaSeconds),
+  };
+  try {
+    const { headers } = await buildAuthedConfig("rewards/listen/progress");
+    const response = await API.post(path, body, { headers });
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+

@@ -73,34 +73,56 @@ const parseRoomsResponse = (data) => {
     data?.recently ??
     data?.following ??
     data?.managed ??
+    data?.follows ??
     []
   );
 };
 
-export const normalizeRoom = (room) => ({
-  ...room,
-  id: firstValue(room?.roomId, room?.id, room?._id),
-  name: firstText(room?.name, room?.title, room?.roomName) ?? "Voice Room",
-  title: firstText(room?.title, room?.name, room?.roomName) ?? "Voice Room",
-  roomTypeLabel:
-    firstText(room?.roomTypeLabel, room?.roomType, room?.type) ?? null,
-  body: firstText(room?.body, room?.description, room?.subtitle) ?? "",
-  thumbnail: firstText(
-    room?.profileImageUrl,
-    room?.thumbnail,
-    room?.coverImage,
-    room?.imageUrl,
-    room?.avatarUrl,
-  ),
-  participantCount:
-    room?.userCount ?? room?.onlineCount ?? room?.participantCount ?? 0,
-  hasChat: room?.hasChat !== false,
-  verified: room?.status === "LIVE" || Boolean(room?.verified),
-  category: normalizeCategory(room),
-  hostId: firstValue(room?.creatorId, room?.hostId, room?.ownerId),
-  badges: Array.isArray(room?.badges) ? room.badges : [],
-  statusIcons: Array.isArray(room?.statusIcons) ? room.statusIcons : [],
-});
+export const normalizeRoom = (rawRoom) => {
+  const room = rawRoom?.room ?? rawRoom?.data ?? rawRoom ?? {};
+  return {
+    ...rawRoom,
+    ...room,
+    id: firstValue(room?.roomId, room?.id, rawRoom?.roomId, rawRoom?.id, rawRoom?._id),
+    name:
+      firstText(room?.name, room?.title, room?.roomName, rawRoom?.name, rawRoom?.roomName) ??
+      "Voice Room",
+    title:
+      firstText(room?.title, room?.name, room?.roomName, rawRoom?.title, rawRoom?.name) ??
+      "Voice Room",
+    roomTypeLabel:
+      firstText(
+        room?.roomTypeLabel,
+        room?.roomType,
+        room?.type,
+        rawRoom?.roomTypeLabel,
+        rawRoom?.roomType,
+      ) ?? null,
+    body: firstText(room?.body, room?.description, room?.subtitle, rawRoom?.body) ?? "",
+    thumbnail: firstText(
+      room?.profileImageUrl,
+      room?.thumbnail,
+      room?.coverImage,
+      room?.imageUrl,
+      room?.avatarUrl,
+      rawRoom?.profileImageUrl,
+      rawRoom?.thumbnail,
+      rawRoom?.avatarUrl,
+    ),
+    participantCount:
+      room?.userCount ?? room?.onlineCount ?? room?.participantCount ?? rawRoom?.userCount ?? 0,
+    hasChat: room?.hasChat !== false,
+    verified: room?.status === "LIVE" || Boolean(room?.verified),
+    category: normalizeCategory(room),
+    hostId: firstValue(room?.creatorId, room?.hostId, room?.ownerId, rawRoom?.creatorId, rawRoom?.hostId),
+    badges: Array.isArray(room?.badges) ? room.badges : Array.isArray(rawRoom?.badges) ? rawRoom.badges : [],
+    statusIcons: Array.isArray(room?.statusIcons)
+      ? room.statusIcons
+      : Array.isArray(rawRoom?.statusIcons)
+        ? rawRoom.statusIcons
+        : [],
+  };
+};
 
 const normalizeSeatUser = (seatValue) => {
   if (!seatValue || seatValue === "EMPTY") return null;
@@ -465,6 +487,13 @@ export const createPartyRoom = async (payload = {}) => {
     ...(roomAnnouncement ? { body: roomAnnouncement } : {}),
     ...(rest.category ? { category: rest.category } : {}),
     ...(rest.roomType ? { roomType: rest.roomType } : {}),
+    // A locally-picked room photo (rest.imageUri, a file:// uri) is sent as
+    // multipart/form-data directly on the create call — createRoom /
+    // createRoomForUser in partyApi.js switch to FormData whenever this is
+    // present, matching the backend's create-time image upload contract.
+    ...(rest.imageUri
+      ? { imageUri: rest.imageUri, mimeType: rest.mimeType, fileName: rest.fileName }
+      : {}),
   };
 
   if (personalRoom) {
