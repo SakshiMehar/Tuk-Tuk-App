@@ -1,7 +1,9 @@
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { ChevronRight, HelpCircle } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -9,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "../src/constants/colors";
 
 const TABS = [
@@ -16,6 +19,35 @@ const TABS = [
   { id: "personal", label: "Personal gift\nPK" },
   { id: "team", label: "Team gift pk" },
 ];
+
+const TEAMS = [
+  {
+    id: "yellow",
+    label: "Yellow team",
+    colors: [Colors.accentGold, "#f59e0b"],
+    glow: "rgba(251,191,36,0.5)",
+  },
+  {
+    id: "blue",
+    label: "Blue team",
+    colors: [Colors.accentCyan, Colors.primary],
+    glow: "rgba(0,224,255,0.5)",
+  },
+];
+
+/** Small glossy circles scattered over a team's gradient half — the
+ *  "bubble" texture from the reference design, recolored to sit on our
+ *  own gradients instead of the reference's dotted pattern. */
+function TeamBubbles() {
+  return (
+    <>
+      <View style={[styles.teamBubble, { width: 34, height: 34, top: -12, left: -8 }]} />
+      <View style={[styles.teamBubble, { width: 14, height: 14, top: 10, right: 18, opacity: 0.22 }]} />
+      <View style={[styles.teamBubble, { width: 20, height: 20, bottom: -8, right: -6 }]} />
+      <View style={[styles.teamBubble, { width: 9, height: 9, bottom: 10, left: 28, opacity: 0.28 }]} />
+    </>
+  );
+}
 
 const DURATIONS = [1, 3, 5, 10, 30];
 
@@ -27,39 +59,88 @@ const SLOT_COUNT = 10;
  *  Center "PK" button. `gifts` is the PK gift catalog (voice-party.jsx's
  *  displayPkGifts) so the picker reuses the same inventory the Backpack's
  *  PK tab already shows. */
-export default function PkBattleModal({ visible, onClose, gifts = [], onConfirm }) {
+export default function PkBattleModal({
+  visible,
+  onClose,
+  gifts = [],
+  roomUsers = [],
+  submitting = false,
+  onConfirm,
+}) {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("personal");
+  const [selectedTeam, setSelectedTeam] = useState("yellow");
   const [selectedGift, setSelectedGift] = useState(null);
   const [showGiftPicker, setShowGiftPicker] = useState(false);
   const [durationMinutes, setDurationMinutes] = useState(1);
   const [jackpotMode, setJackpotMode] = useState(false);
+  const [opponentId, setOpponentId] = useState(null);
+  const [teamMemberIds, setTeamMemberIds] = useState([]);
+
+  const isVote = activeTab === "vote";
+  const isTeam = activeTab === "team";
+  const isPersonal = activeTab === "personal";
 
   useEffect(() => {
     if (!visible) {
       setShowGiftPicker(false);
+      setOpponentId(null);
+      setTeamMemberIds([]);
     }
   }, [visible]);
 
   if (!visible) return null;
 
-  const handleSlotPress = () => {
-    Alert.alert("Invite opponent", "Inviting a PK opponent is coming soon.");
+  const handleSlotPress = (user) => {
+    if (!user) {
+      Alert.alert("No one here", "This seat is empty right now.");
+      return;
+    }
+    const id = String(user.id);
+    if (id === opponentId) {
+      setOpponentId(null);
+      return;
+    }
+    if (teamMemberIds.includes(id)) {
+      setTeamMemberIds((prev) => prev.filter((x) => x !== id));
+      return;
+    }
+    if (!opponentId) {
+      setOpponentId(id);
+      return;
+    }
+    if (isTeam) {
+      setTeamMemberIds((prev) => [...prev, id]);
+    } else {
+      setOpponentId(id);
+    }
   };
 
   const handleConfirm = () => {
-    if (!selectedGift) {
+    if (!opponentId) {
+      Alert.alert("Select an opponent", "Pick who you want to challenge.");
+      return;
+    }
+    if (!isVote && !selectedGift) {
       Alert.alert("Select a gift", "Pick a gift before starting the PK.");
       return;
     }
-    onConfirm?.({ mode: activeTab, gift: selectedGift, durationMinutes, jackpotMode });
-    onClose?.();
+    onConfirm?.({
+      mode: activeTab,
+      team: isTeam ? selectedTeam : null,
+      opponentId,
+      teamMemberIds: isTeam ? teamMemberIds : [],
+      gift: isVote ? null : selectedGift,
+      durationMinutes,
+      jackpotMode: isPersonal ? jackpotMode : false,
+    });
   };
 
   return (
     <View style={styles.overlay}>
       <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
 
-      <View style={styles.sheet}>
+      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         <View style={styles.grabber} />
 
         {/* Tabs */}
@@ -91,89 +172,186 @@ export default function PkBattleModal({ visible, onClose, gifts = [], onConfirm 
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} style={styles.body}>
+          {/* Team switcher (Team gift PK only) */}
+          {isTeam && (
+            <View style={styles.teamRow}>
+              <View
+                style={[
+                  styles.teamCardShadow,
+                  { shadowColor: TEAMS.find((t) => t.id === selectedTeam)?.glow },
+                ]}
+              >
+                <View style={styles.teamCard}>
+                  {TEAMS.map((team) => {
+                    const active = team.id === selectedTeam;
+                    return (
+                      <TouchableOpacity
+                        key={team.id}
+                        activeOpacity={0.88}
+                        style={styles.teamHalf}
+                        onPress={() => setSelectedTeam(team.id)}
+                      >
+                        {active ? (
+                          <LinearGradient
+                            colors={team.colors}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.teamHalfBg}
+                          >
+                            <TeamBubbles />
+                            <Text style={styles.teamHalfTextActive}>{team.label}</Text>
+                          </LinearGradient>
+                        ) : (
+                          <View style={styles.teamHalfBgInactive}>
+                            <Text style={styles.teamHalfText}>{team.label}</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                  <View style={styles.teamVsBadge}>
+                    <Text style={styles.teamVsText}>VS</Text>
+                  </View>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.teamHelpBtn}
+                activeOpacity={0.8}
+                onPress={() =>
+                  Alert.alert(
+                    "How it works",
+                    "Each team's PK score is based on the total value of gifts their supporters send during the battle.",
+                  )
+                }
+              >
+                <HelpCircle size={15} color={Colors.textSlateMuted} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Calculation hint */}
           <View style={styles.hintRow}>
-            <Text style={styles.hintText}>Calculated by the gifts received</Text>
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() =>
-                Alert.alert(
-                  "How it works",
-                  "Each side's PK score is based on the total value of gifts their supporters send during the battle.",
-                )
-              }
-            >
-              <HelpCircle size={15} color={Colors.textSlateMuted} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Opponent slots */}
-          <View style={styles.slotGrid}>
-            {Array.from({ length: SLOT_COUNT }).map((_, i) => (
-              <TouchableOpacity
-                key={i}
-                style={styles.slotItem}
-                activeOpacity={0.75}
-                onPress={handleSlotPress}
-              >
-                <View style={styles.slotCircle}>
-                  <Text style={styles.slotEmptyText}>Empty</Text>
-                </View>
-                <Text style={styles.slotNumber}>{i + 1}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Gift selector */}
-          <Text style={styles.sectionLabel}>Select a gift</Text>
-          <TouchableOpacity
-            style={styles.giftRow}
-            activeOpacity={0.8}
-            onPress={() => setShowGiftPicker((v) => !v)}
-          >
-            <View style={styles.giftIconWrap}>
-              {selectedGift ? (
-                <Text style={styles.giftIconEmoji}>{selectedGift.emoji}</Text>
-              ) : (
-                <Text style={styles.giftIconEmoji}>🎁</Text>
-              )}
-            </View>
-            <Text style={styles.giftRowText} numberOfLines={1}>
-              {selectedGift ? selectedGift.name : "Choose a gift"}
+            <Text style={styles.hintText}>
+              {isVote ? "Each person can vote once a time" : "Calculated by the gifts received"}
             </Text>
-            <ChevronRight
-              size={18}
-              color={Colors.textSlateMuted}
-              style={showGiftPicker ? styles.giftChevronOpen : null}
-            />
-          </TouchableOpacity>
+            {isPersonal && (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() =>
+                  Alert.alert(
+                    "How it works",
+                    "Each side's PK score is based on the total value of gifts their supporters send during the battle.",
+                  )
+                }
+              >
+                <HelpCircle size={15} color={Colors.textSlateMuted} />
+              </TouchableOpacity>
+            )}
+          </View>
 
-          {showGiftPicker && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.giftPickerScroll}
-              contentContainerStyle={styles.giftPickerContent}
-            >
-              {gifts.map((gift) => {
-                const selected = selectedGift?.id === gift.id;
-                return (
-                  <TouchableOpacity
-                    key={gift.id}
-                    style={[styles.giftPickerItem, selected && styles.giftPickerItemActive]}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      setSelectedGift(gift);
-                      setShowGiftPicker(false);
-                    }}
+          {/* Opponent / teammate slots — seated room members only */}
+          <Text style={styles.sectionLabel}>
+            {isTeam ? "Choose an opponent + teammates" : "Choose an opponent"}
+          </Text>
+          <View style={styles.slotGrid}>
+            {Array.from({ length: SLOT_COUNT }).map((_, i) => {
+              const user = roomUsers[i] ?? null;
+              const id = user ? String(user.id) : null;
+              const isOpponent = id != null && id === opponentId;
+              const isTeammate = id != null && teamMemberIds.includes(id);
+              return (
+                <TouchableOpacity
+                  key={id ?? i}
+                  style={styles.slotItem}
+                  activeOpacity={0.75}
+                  onPress={() => handleSlotPress(user)}
+                  disabled={!user}
+                >
+                  <View
+                    style={[
+                      styles.slotCircle,
+                      isOpponent && styles.slotCircleOpponent,
+                      isTeammate && styles.slotCircleTeammate,
+                    ]}
                   >
-                    <Text style={styles.giftPickerEmoji}>{gift.emoji}</Text>
-                    <Text style={styles.giftPickerName} numberOfLines={1}>{gift.name}</Text>
-                    <Text style={styles.giftPickerPrice}>💎 {gift.price}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+                    {user ? (
+                      user.avatar ? (
+                        <Image source={{ uri: user.avatar }} style={styles.slotAvatarImg} contentFit="cover" />
+                      ) : (
+                        <Text style={styles.slotInitial}>{(user.name || "?").charAt(0).toUpperCase()}</Text>
+                      )
+                    ) : (
+                      <Text style={styles.slotEmptyText}>Empty</Text>
+                    )}
+                    {isOpponent && (
+                      <View style={styles.slotBadgeOpponent}>
+                        <Text style={styles.slotBadgeText}>VS</Text>
+                      </View>
+                    )}
+                    {isTeammate && <View style={styles.slotBadgeTeammate} />}
+                  </View>
+                  <Text style={styles.slotNumber} numberOfLines={1}>
+                    {user ? user.name : i + 1}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Gift selector (not shown for Vote PK — votes don't cost a gift) */}
+          {!isVote && (
+            <>
+              <Text style={styles.sectionLabel}>Select a gift</Text>
+              <TouchableOpacity
+                style={styles.giftRow}
+                activeOpacity={0.8}
+                onPress={() => setShowGiftPicker((v) => !v)}
+              >
+                <View style={styles.giftIconWrap}>
+                  {selectedGift ? (
+                    <Text style={styles.giftIconEmoji}>{selectedGift.emoji}</Text>
+                  ) : (
+                    <Text style={styles.giftIconEmoji}>🎁</Text>
+                  )}
+                </View>
+                <Text style={styles.giftRowText} numberOfLines={1}>
+                  {selectedGift ? selectedGift.name : "Choose a gift"}
+                </Text>
+                <ChevronRight
+                  size={18}
+                  color={Colors.textSlateMuted}
+                  style={showGiftPicker ? styles.giftChevronOpen : null}
+                />
+              </TouchableOpacity>
+
+              {showGiftPicker && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.giftPickerScroll}
+                  contentContainerStyle={styles.giftPickerContent}
+                >
+                  {gifts.map((gift) => {
+                    const selected = selectedGift?.id === gift.id;
+                    return (
+                      <TouchableOpacity
+                        key={gift.id}
+                        style={[styles.giftPickerItem, selected && styles.giftPickerItemActive]}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setSelectedGift(gift);
+                          setShowGiftPicker(false);
+                        }}
+                      >
+                        <Text style={styles.giftPickerEmoji}>{gift.emoji}</Text>
+                        <Text style={styles.giftPickerName} numberOfLines={1}>{gift.name}</Text>
+                        <Text style={styles.giftPickerPrice}>💎 {gift.price}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </>
           )}
 
           {/* Duration selector */}
@@ -207,30 +385,48 @@ export default function PkBattleModal({ visible, onClose, gifts = [], onConfirm 
           </View>
 
           {/* Confirm */}
-          <TouchableOpacity activeOpacity={0.85} onPress={handleConfirm} style={styles.confirmWrap}>
-            <LinearGradient
-              colors={selectedGift ? [Colors.primary, Colors.secondary] : [Colors.borderLight, Colors.borderLight]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.confirmBtn}
-            >
-              <Text style={[styles.confirmText, !selectedGift && styles.confirmTextDisabled]}>
-                Confirm
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
+          {(() => {
+            const ready = Boolean(opponentId) && (isVote || Boolean(selectedGift));
+            return (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={handleConfirm}
+                disabled={submitting}
+                style={styles.confirmWrap}
+              >
+                <LinearGradient
+                  colors={
+                    ready ? [Colors.primary, Colors.secondary] : [Colors.borderLight, Colors.borderLight]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.confirmBtn}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text style={[styles.confirmText, !ready && styles.confirmTextDisabled]}>
+                      Confirm
+                    </Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            );
+          })()}
 
-          {/* Jackpot mode */}
-          <View style={styles.jackpotRow}>
-            <Text style={styles.jackpotLabel}>Jackpot mode</Text>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => setJackpotMode((v) => !v)}
-              style={[styles.toggleTrack, jackpotMode && styles.toggleTrackActive]}
-            >
-              <View style={[styles.toggleThumb, jackpotMode && styles.toggleThumbActive]} />
-            </TouchableOpacity>
-          </View>
+          {/* Jackpot mode (Personal gift PK only) */}
+          {isPersonal && (
+            <View style={styles.jackpotRow}>
+              <Text style={styles.jackpotLabel}>Jackpot mode</Text>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => setJackpotMode((v) => !v)}
+                style={[styles.toggleTrack, jackpotMode && styles.toggleTrackActive]}
+              >
+                <View style={[styles.toggleThumb, jackpotMode && styles.toggleThumbActive]} />
+              </TouchableOpacity>
+            </View>
+          )}
         </ScrollView>
       </View>
     </View>
@@ -300,6 +496,97 @@ const styles = StyleSheet.create({
 
   body: { paddingBottom: 12 },
 
+  // Team switcher (Team gift PK)
+  teamRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 16,
+  },
+  teamCardShadow: {
+    flex: 1,
+    borderRadius: 18,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.55,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  teamCard: {
+    flexDirection: "row",
+    borderRadius: 18,
+    overflow: "hidden",
+    position: "relative",
+  },
+  teamHalf: { flex: 1 },
+  teamHalfBg: {
+    paddingVertical: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    position: "relative",
+  },
+  teamHalfBgInactive: {
+    paddingVertical: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.bgSlateLight,
+  },
+  teamHalfText: {
+    color: Colors.textSlateMuted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  teamHalfTextActive: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    textShadowColor: "rgba(0,0,0,0.25)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  teamBubble: {
+    position: "absolute",
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    opacity: 0.16,
+  },
+  teamVsBadge: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginTop: -16,
+    marginLeft: -16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.error,
+    borderWidth: 2,
+    borderColor: Colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: Colors.error,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+    elevation: 6,
+  },
+  teamVsText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  teamHelpBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.bgSlateLight,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+
   // Hint row
   hintRow: {
     flexDirection: "row",
@@ -333,6 +620,53 @@ const styles = StyleSheet.create({
     borderColor: Colors.borderLight,
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
+    overflow: "visible",
+  },
+  slotCircleOpponent: {
+    borderWidth: 2,
+    borderColor: Colors.error,
+  },
+  slotCircleTeammate: {
+    borderWidth: 2,
+    borderColor: Colors.primary,
+  },
+  slotAvatarImg: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+  },
+  slotInitial: {
+    color: Colors.primary,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  slotBadgeOpponent: {
+    position: "absolute",
+    bottom: -4,
+    alignSelf: "center",
+    backgroundColor: Colors.error,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderWidth: 1.5,
+    borderColor: Colors.white,
+  },
+  slotBadgeText: {
+    color: "white",
+    fontSize: 8,
+    fontWeight: "800",
+  },
+  slotBadgeTeammate: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: Colors.primary,
+    borderWidth: 2,
+    borderColor: Colors.white,
   },
   slotEmptyText: {
     color: Colors.grayPlaceholder,
@@ -343,6 +677,8 @@ const styles = StyleSheet.create({
     color: Colors.textSlateMuted,
     fontSize: 11,
     fontWeight: "600",
+    maxWidth: 60,
+    textAlign: "center",
   },
 
   // Section label

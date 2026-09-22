@@ -58,6 +58,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { refreshTokenCache } from "../src/api/axios";
 import {
   followRoom,
@@ -139,6 +140,13 @@ import {
   unfollowUser,
 } from "../src/services/relationshipService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
+import {
+  getPkBattleRole,
+  loadActivePkBattle,
+  normalizePkBattle,
+  respondPkBattle,
+  startPkBattle,
+} from "../src/services/pkBattleService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
@@ -152,6 +160,7 @@ import { getAppUserId } from "../src/utils/sessionUser";
 import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import PkBattleModal from "./PkBattleModal";
+import PkLiveBanner from "./PkLiveBanner";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
@@ -1295,6 +1304,7 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
 
 export default function VoiceParty() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const roomIdParam = params.roomId ?? params.id ?? null;
   const isRandomParty = params.party === "true";
@@ -1558,6 +1568,22 @@ export default function VoiceParty() {
   );
 
   const seatedUsersCount = (seats || []).filter((s) => s?.user).length;
+  // Everyone else currently seated — the pool a PK challenge can be started
+  // against (opponentHostId) or teammates recruited from (teamAMemberIds).
+  const pkOpponentCandidates = useMemo(
+    () =>
+      (seats || [])
+        .filter(
+          (seat) =>
+            seat?.user && seat.user.id != null && !isSameUser(seat.user.id, myUserId),
+        )
+        .map((seat) => ({
+          id: String(seat.user.id),
+          name: seat.user.name || seat.user.username || "User",
+          avatar: seat.user.avatar || null,
+        })),
+    [seats, myUserId],
+  );
   const exitedRef = useRef(false);
   const onMicRef = useRef(false);
   const mySeatNumberRef = useRef(null);
@@ -1588,6 +1614,8 @@ export default function VoiceParty() {
   ]);
   const [showTreasureBox, setShowTreasureBox] = useState(false);
   const [showPkBattle, setShowPkBattle] = useState(false);
+  const [activePkBattle, setActivePkBattle] = useState(null);
+  const [pkBattleActionLoading, setPkBattleActionLoading] = useState(false);
   const [showBackpack, setShowBackpack] = useState(false);
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
@@ -2619,6 +2647,12 @@ export default function VoiceParty() {
         console.error("[VoiceParty] WS connection error:", err?.message || err);
       });
 
+    loadActivePkBattle(activeRoomId)
+      .then(setActivePkBattle)
+      .catch(() => {
+        // Non-critical — the room's `pk` topic will push the current card.
+      });
+
     const appendChatMessage = (payload) => {
       setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -2825,6 +2859,10 @@ export default function VoiceParty() {
         );
       },
     );
+    const unsubPk = wsService.onRoomPk(String(roomId), (payload) => {
+      setActivePkBattle(normalizePkBattle(payload));
+    });
+
     const unsubNotifications = wsService.onRoomNotifications(
       String(roomId),
       (payload) => {
@@ -3065,6 +3103,11 @@ export default function VoiceParty() {
         .catch(() => {
           // Non-critical — a later reconnect or user action will re-sync.
         });
+      loadActivePkBattle(String(roomId))
+        .then(setActivePkBattle)
+        .catch(() => {
+          // Non-critical — the room's `pk` topic will push the next update.
+        });
     });
     return () => {
       unsubChat();
@@ -3072,6 +3115,7 @@ export default function VoiceParty() {
       unsubUi();
       unsubSpeaking();
       unsubGiftAnimation();
+      unsubPk();
       unsubNotifications();
       unsubReconnect();
       if (!isNavigatingToInboxRef.current) {
@@ -3949,6 +3993,53 @@ export default function VoiceParty() {
     } finally {
       buyingGiftRef.current = false;
       setCatalogLoading(false);
+    }
+  };
+
+  const toNumericId = (id) => {
+    const n = Number(id);
+    return Number.isFinite(n) ? n : id;
+  };
+
+  const handlePkConfirm = async ({ mode, opponentId, teamMemberIds, durationMinutes }) => {
+    if (!isHostSelf) {
+      Alert.alert("Not allowed", "Only the room host can start a PK battle.");
+      return;
+    }
+    if (pkBattleActionLoading) return;
+    setPkBattleActionLoading(true);
+    try {
+      const battle = await startPkBattle({
+        roomId,
+        opponentHostId: toNumericId(opponentId),
+        durationMinutes,
+        teamAMemberIds:
+          mode === "team" && teamMemberIds?.length
+            ? teamMemberIds.map(toNumericId)
+            : [],
+      });
+      setActivePkBattle(battle);
+      setShowPkBattle(false);
+    } catch (err) {
+      Alert.alert("Couldn't start PK", err?.message || "Please try again.");
+    } finally {
+      setPkBattleActionLoading(false);
+    }
+  };
+
+  const handlePkRespond = async (accepted) => {
+    if (!activePkBattle?.id || pkBattleActionLoading) return;
+    setPkBattleActionLoading(true);
+    try {
+      const battle = await respondPkBattle(activePkBattle.id, accepted);
+      setActivePkBattle(battle);
+    } catch (err) {
+      Alert.alert(
+        accepted ? "Couldn't accept" : "Couldn't reject",
+        err?.message || "Please try again.",
+      );
+    } finally {
+      setPkBattleActionLoading(false);
     }
   };
 
@@ -5581,14 +5672,23 @@ export default function VoiceParty() {
         visible={showPkBattle}
         onClose={() => setShowPkBattle(false)}
         gifts={displayPkGifts}
-        onConfirm={({ mode, gift, durationMinutes, jackpotMode }) => {
-          const modeLabel =
-            mode === "team" ? "Team gift PK" : mode === "vote" ? "Vote PK" : "Personal gift PK";
-          Alert.alert(
-            "PK battle",
-            `Starting a ${modeLabel} for ${durationMinutes} min with ${gift.emoji} ${gift.name}${jackpotMode ? " (Jackpot mode on)" : ""}. Matchmaking against opponents is coming soon.`,
-          );
+        roomUsers={pkOpponentCandidates}
+        submitting={pkBattleActionLoading}
+        onConfirm={handlePkConfirm}
+      />
+
+      <PkLiveBanner
+        battle={activePkBattle}
+        role={getPkBattleRole(activePkBattle, myUserId)}
+        actionLoading={pkBattleActionLoading}
+        topOffset={insets.top + 64}
+        resolveUser={(id) => {
+          const seat = (seats || []).find((s) => s?.user && isSameUser(s.user.id, id));
+          return seat ? { name: seat.user.name, avatar: seat.user.avatar } : null;
         }}
+        onAccept={() => handlePkRespond(true)}
+        onReject={() => handlePkRespond(false)}
+        onDismiss={() => setActivePkBattle(null)}
       />
 
       <RoomUserProfilePopup
@@ -6434,7 +6534,7 @@ export default function VoiceParty() {
                 <View style={styles.micPermPhoneBar2} />
                 {/* Mic icon inside the card */}
                 <View style={styles.micPermMicCircle}>
-                  <Mic size={22} color="#7c4dff" strokeWidth={2} />
+                  <Mic size={17} color="#7c4dff" strokeWidth={2} />
                 </View>
                 <View style={styles.micPermPhoneBar3} />
               </View>
@@ -9962,9 +10062,9 @@ const styles = StyleSheet.create({
 
   // ── Mic permission warning card ──
   micPermCard: {
-    width: "82%",
+    width: "68%",
     backgroundColor: "#12082b",
-    borderRadius: 22,
+    borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.3)",
@@ -9972,7 +10072,7 @@ const styles = StyleSheet.create({
   // Top illustrated gradient section
   micPermIllustration: {
     width: "100%",
-    height: 170,
+    height: 130,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -9980,50 +10080,50 @@ const styles = StyleSheet.create({
   // Decorative background blobs
   micPermBlob1: {
     position: "absolute",
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "rgba(124,77,255,0.25)",
-    top: -20,
-    left: -30,
-  },
-  micPermBlob2: {
-    position: "absolute",
     width: 90,
     height: 90,
     borderRadius: 45,
+    backgroundColor: "rgba(124,77,255,0.25)",
+    top: -15,
+    left: -22,
+  },
+  micPermBlob2: {
+    position: "absolute",
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: "rgba(168,85,247,0.2)",
-    bottom: -10,
-    right: -10,
+    bottom: -8,
+    right: -8,
   },
   // Phone-shaped card in the illustration
   micPermPhoneCard: {
-    width: 110,
+    width: 88,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1.5,
     borderColor: "rgba(168,85,247,0.5)",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
     alignItems: "flex-start",
-    gap: 7,
+    gap: 5,
   },
   micPermPhoneBar1: {
     width: "80%",
-    height: 7,
-    borderRadius: 4,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.6)",
   },
   micPermPhoneBar2: {
     width: "55%",
-    height: 7,
-    borderRadius: 4,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   micPermMicCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: "rgba(124,77,255,0.25)",
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.5)",
@@ -10034,47 +10134,47 @@ const styles = StyleSheet.create({
   },
   micPermPhoneBar3: {
     width: "65%",
-    height: 7,
-    borderRadius: 4,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   // Small floating badge bottom-right of illustration
   micPermBadge: {
     position: "absolute",
-    bottom: 22,
-    right: 36,
+    bottom: 16,
+    right: 26,
     backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 8,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.4)",
-    padding: 7,
+    padding: 5,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
   },
   micPermBadgeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
     backgroundColor: "#a855f7",
   },
   micPermBadgeLine: {
-    width: 24,
-    height: 5,
-    borderRadius: 3,
+    width: 18,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: "rgba(168,85,247,0.5)",
   },
   // Text body section
   micPermBody: {
-    paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   micPermMsg: {
     color: "rgba(255,255,255,0.75)",
-    fontSize: 14,
+    fontSize: 12.5,
     textAlign: "center",
-    lineHeight: 21,
+    lineHeight: 18,
   },
   // Button row
   micPermBtnRow: {
@@ -10085,12 +10185,12 @@ const styles = StyleSheet.create({
   },
   micPermCancelBtn: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 12,
     alignItems: "center",
   },
   micPermCancelText: {
     color: "rgba(255,255,255,0.35)",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
   },
   micPermBtnDivider: {
@@ -10099,12 +10199,12 @@ const styles = StyleSheet.create({
   },
   micPermOkBtn: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 12,
     alignItems: "center",
   },
   micPermOkText: {
     color: "#a855f7",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
   },
 

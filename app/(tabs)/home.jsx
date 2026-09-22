@@ -2628,7 +2628,6 @@ const HomeHeader = memo(
     onTabPress,
     onSearchOpen,
     onNotifOpen,
-    onGiftsOpen,
     onRechargeOpen,
     onNearbyPress,
     onComingSoon,
@@ -2732,22 +2731,6 @@ const HomeHeader = memo(
                   <Text style={styles.diamondPlusText}>+</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                style={styles.headerIconBtn}
-                activeOpacity={0.8}
-                onPress={onGiftsOpen}
-              >
-                <RNImage
-                  source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box1.png" }}
-                  style={{ width: 32, height: 32 }}
-                  resizeMode="contain"
-                />
-                <View
-                  style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}
-                >
-                  <Text style={styles.headerIconBadgeText}>!</Text>
-                </View>
-              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.headerIconBtn}
                 activeOpacity={0.8}
@@ -3888,7 +3871,6 @@ export default function Home() {
         onTabPress={handleTabPress}
         onSearchOpen={openSearch}
         onNotifOpen={openNotif}
-        onGiftsOpen={openGifts}
         onRechargeOpen={() => setDiamondRechargeVisible(true)}
         onNearbyPress={handleNearbyPress}
         onComingSoon={setComingSoonFeature}
@@ -3908,7 +3890,6 @@ export default function Home() {
       handleTabPress,
       openSearch,
       openNotif,
-      openGifts,
       handleNearbyPress,
       router,
     ],
