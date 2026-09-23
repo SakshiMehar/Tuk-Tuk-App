@@ -9,7 +9,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  ArrowLeft, MapPin, Heart, X, Star,
+  ArrowLeft, MapPin, ThumbsUp, X, Star,
   MessageCircle, MoreVertical, ChevronRight, Search, UserPlus,
 } from "lucide-react-native";
 import Toast from "./Toast";
@@ -22,6 +22,8 @@ import {
   followUser,
   unfollowUser,
   loadRelationshipStatus,
+  loadFollowing,
+  isSameUser,
 } from "../src/services/relationshipService";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import {
@@ -135,7 +137,7 @@ function MatchOverlay({ user, onClose, onMessage }) {
           <Text style={styles.matchAvatarEmoji}>{user.emoji}</Text>
         </View>
         <View style={styles.matchHeartBadge}>
-          <Heart size={16} color="white" fill="white" />
+          <ThumbsUp size={16} color="white" fill="white" />
         </View>
         <Text style={styles.matchTitle}>It&apos;s a Match! 🎉</Text>
         <Text style={styles.matchName}>{user.name}</Text>
@@ -670,10 +672,11 @@ export default function Nearby() {
       // — unlike the FlatList grid below, only one profile modal is ever
       // open at a time, so this doesn't carry the N+1 risk a per-card fetch
       // across dozens of visible grid cards would.
-      const [profile, status, decorations] = await Promise.all([
+      const [profile, status, decorations, followingList] = await Promise.all([
         loadUserDetail(user.id),
         loadRelationshipStatus(user.id).catch(() => ({ following: false })),
         fetchUserDecorations(user.id).catch(() => ({ badgeUrl: null, frameUrl: null })),
+        loadFollowing().catch(() => []),
       ]);
       setDetailUser((current) => ({
         ...current,
@@ -681,7 +684,10 @@ export default function Nearby() {
         badgeUrl: decorations?.badgeUrl ?? null,
         id: user.id,
       }));
-      setDetailFollowing(Boolean(status?.following));
+      const followsFromList =
+        Array.isArray(followingList) &&
+        followingList.some((u) => isSameUser(u?.userId ?? u?.id, user.id));
+      setDetailFollowing(Boolean(status?.following) || followsFromList);
     } catch (err) {
       showToast(err?.message || "Failed to load profile.");
     } finally {
@@ -896,7 +902,7 @@ export default function Nearby() {
               )}
               {isLiked && (
                 <View style={styles.likedBadge}>
-                  <Heart size={14} color="white" fill="white" />
+                  <ThumbsUp size={14} color="white" fill="white" />
                 </View>
               )}
               <View style={styles.cardInfo}>
@@ -935,7 +941,7 @@ export default function Nearby() {
                   onPress={() => handleLike(item)}
                   activeOpacity={0.8}
                 >
-                  <Heart size={14} color={isLiked ? "white" : "#ff4ea3"} fill={isLiked ? "white" : "none"} />
+                  <ThumbsUp size={14} color={isLiked ? "white" : "#ff4ea3"} fill={isLiked ? "white" : "none"} />
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>

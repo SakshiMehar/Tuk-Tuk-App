@@ -1841,7 +1841,7 @@ export default function Profile() {
               <Ionicons name="close" size={30} color="#f87171" />
             </TouchableOpacity>
             <TouchableOpacity style={[styles.mmMatchBtn, { backgroundColor: "#7c4dff" }]} activeOpacity={0.8}>
-              <Ionicons name="heart" size={30} color="white" />
+              <Ionicons name="thumbs-up" size={30} color="white" />
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -2510,7 +2510,7 @@ export default function Profile() {
                   ) : null}
 
                   {(post.likeCount ?? 0) > 0 && (
-                    <Text style={styles.momentPostMeta}>❤️ {post.likeCount}</Text>
+                    <Text style={styles.momentPostMeta}>👍 {post.likeCount}</Text>
                   )}
                 </View>
               ))

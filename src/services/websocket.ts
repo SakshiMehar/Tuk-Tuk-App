@@ -139,6 +139,25 @@ export interface RoomNotificationPayload {
   [key: string]: unknown;
 }
 
+export interface RoomPkPayload {
+  id?: number | string;
+  battleId?: number | string;
+  roomId?: string;
+  status?: 'PENDING' | 'LIVE' | 'FINISHED' | 'CANCELLED' | 'REJECTED' | string;
+  hostAId?: number | string;
+  hostBId?: number | string;
+  opponentHostId?: number | string;
+  teamAMemberIds?: (number | string)[];
+  teamBMemberIds?: (number | string)[];
+  teamAScore?: number;
+  teamBScore?: number;
+  durationSeconds?: number;
+  startedAt?: string;
+  endsAt?: string;
+  winner?: 'A' | 'B' | 'DRAW' | string;
+  [key: string]: unknown;
+}
+
 export type RoomTopic =
   | 'chat'
   | 'chat-summary'
@@ -147,7 +166,8 @@ export type RoomTopic =
   | 'gift-animation'
   | 'closed'
   | 'moderation'
-  | 'notifications';
+  | 'notifications'
+  | 'pk';
 
 export type FamilyTopic = 'chat' | 'chat-summary';
 
@@ -162,6 +182,7 @@ const ROOM_TOPICS: RoomTopic[] = [
   'closed',
   'moderation',
   'notifications',
+  'pk',
 ];
 
 const FAMILY_TOPICS: FamilyTopic[] = ['chat', 'chat-summary'];
@@ -543,6 +564,12 @@ class WebSocketService {
 
   onRoomNotifications(roomId: string, handler: Handler<RoomNotificationPayload>): () => void {
     return this._onRoomTopic(roomId, 'notifications', handler as Handler<unknown>);
+  }
+
+  // Live PK-battle card for the room — pushed on create/accept/reject/score
+  // change/finish. Payload is the same shape GET .../pk-battles/{id} returns.
+  onRoomPk(roomId: string, handler: Handler<RoomPkPayload>): () => void {
+    return this._onRoomTopic(roomId, 'pk', handler as Handler<unknown>);
   }
 
   onLiveRooms(handler: Handler<unknown>): () => void {

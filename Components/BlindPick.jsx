@@ -15,7 +15,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import { useRouter } from "expo-router";
-import { Shuffle, Heart, X, MessageCircle, Zap, Star } from "lucide-react-native";
+import { Shuffle, ThumbsUp, X, MessageCircle, Zap, Star } from "lucide-react-native";
 import {
   getNextBlindMatch,
   sendBlindMatchAction,
@@ -733,7 +733,7 @@ export default function BlindPick() {
               disabled={actionBusy}
               activeOpacity={0.8}
             >
-              <Heart size={24} color="#ff3f72" fill="#ff3f72" />
+              <ThumbsUp size={24} color="#ff3f72" fill="#ff3f72" />
             </TouchableOpacity>
           </View>
 

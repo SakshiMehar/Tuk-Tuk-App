@@ -98,6 +98,9 @@ API.interceptors.request.use(
     const token = await getBearerToken();
     _s.token = token;
 
+    // TEMP DEBUG — remove before committing.
+    console.log("[axios] LOGIN TOKEN:", token);
+
     if (token) {
       const auth = `Bearer ${token}`;
       if (!config.headers) config.headers = {};
