@@ -162,6 +162,7 @@ import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import PkAcceptTeamModal from "./PkAcceptTeamModal";
 import PkBattleModal from "./PkBattleModal";
 import PkLiveBanner from "./PkLiveBanner";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
@@ -1617,8 +1618,16 @@ export default function VoiceParty() {
   ]);
   const [showTreasureBox, setShowTreasureBox] = useState(false);
   const [showPkBattle, setShowPkBattle] = useState(false);
+  const [showPkTeamAccept, setShowPkTeamAccept] = useState(false);
   const [activePkBattle, setActivePkBattle] = useState(null);
   const [pkBattleActionLoading, setPkBattleActionLoading] = useState(false);
+  // Synchronous reentrancy guard — `pkBattleActionLoading` state only takes
+  // effect on the next render, so a real double-tap (two touch events before
+  // React re-renders) can slip two requests through the state check alone.
+  // The double request is what actually produces the "conflicts with
+  // existing data" 409: the first create/respond succeeds, the second hits
+  // the battle the first just made.
+  const pkBattleActionInFlightRef = useRef(false);
   const [showBackpack, setShowBackpack] = useState(false);
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
@@ -3990,7 +3999,8 @@ export default function VoiceParty() {
       Alert.alert("Not allowed", "Only the room host can start a PK battle.");
       return;
     }
-    if (pkBattleActionLoading) return;
+    if (pkBattleActionInFlightRef.current) return;
+    pkBattleActionInFlightRef.current = true;
     setPkBattleActionLoading(true);
     try {
       const battle = await startPkBattle({
@@ -4005,24 +4015,50 @@ export default function VoiceParty() {
       setActivePkBattle(battle);
       setShowPkBattle(false);
     } catch (err) {
-      Alert.alert("Couldn't start PK", err?.message || "Please try again.");
+      if (err?.status === 409) {
+        // A battle for this room already exists server-side (most often
+        // one this same request duplicated) — pull the real one and show
+        // it instead of leaving the user stuck on a bare error.
+        setShowPkBattle(false);
+        loadActivePkBattle(String(roomId))
+          .then((fresh) => {
+            if (fresh) {
+              setActivePkBattle(fresh);
+            } else {
+              Alert.alert("Couldn't start PK", err?.message || "Please try again.");
+            }
+          })
+          .catch(() => Alert.alert("Couldn't start PK", err?.message || "Please try again."));
+      } else {
+        Alert.alert("Couldn't start PK", err?.message || "Please try again.");
+      }
     } finally {
+      pkBattleActionInFlightRef.current = false;
       setPkBattleActionLoading(false);
     }
   };
 
-  const handlePkRespond = async (accepted) => {
-    if (!activePkBattle?.id || pkBattleActionLoading) return;
+  const handlePkRespond = async (accepted, teamMemberIds) => {
+    if (!activePkBattle?.id || pkBattleActionInFlightRef.current) return;
+    pkBattleActionInFlightRef.current = true;
     setPkBattleActionLoading(true);
     try {
-      const battle = await respondPkBattle(activePkBattle.id, accepted);
+      const battle = await respondPkBattle(
+        activePkBattle.id,
+        accepted,
+        Array.isArray(teamMemberIds) && teamMemberIds.length
+          ? teamMemberIds.map(toNumericId)
+          : undefined,
+      );
       setActivePkBattle(battle);
+      setShowPkTeamAccept(false);
     } catch (err) {
       Alert.alert(
         accepted ? "Couldn't accept" : "Couldn't reject",
         err?.message || "Please try again.",
       );
     } finally {
+      pkBattleActionInFlightRef.current = false;
       setPkBattleActionLoading(false);
     }
   };
@@ -5660,6 +5696,17 @@ export default function VoiceParty() {
         onConfirm={handlePkConfirm}
       />
 
+      <PkAcceptTeamModal
+        visible={showPkTeamAccept}
+        onClose={() => setShowPkTeamAccept(false)}
+        hostAName={activePkBattle?.hostAName}
+        roomUsers={pkOpponentCandidates.filter(
+          (u) => !isSameUser(u.id, activePkBattle?.hostAId),
+        )}
+        submitting={pkBattleActionLoading}
+        onConfirm={(teamMemberIds) => handlePkRespond(true, teamMemberIds)}
+      />
+
       <PkLiveBanner
         battle={activePkBattle}
         role={getPkBattleRole(activePkBattle, myUserId)}
@@ -5669,7 +5716,13 @@ export default function VoiceParty() {
           const seat = (seats || []).find((s) => s?.user && isSameUser(s.user.id, id));
           return seat ? { name: seat.user.name, avatar: seat.user.avatar } : null;
         }}
-        onAccept={() => handlePkRespond(true)}
+        onAccept={() => {
+          if (activePkBattle?.teamAMemberIds?.length) {
+            setShowPkTeamAccept(true);
+          } else {
+            handlePkRespond(true);
+          }
+        }}
         onReject={() => handlePkRespond(false)}
         onDismiss={() => setActivePkBattle(null)}
       />
@@ -5983,9 +6036,18 @@ export default function VoiceParty() {
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
-                onPress={() => {
+                onPress={async () => {
                   setShowPlayCenter(false);
-                  if (isPkBattlePending(activePkBattle) || isPkBattleLive(activePkBattle)) {
+                  // Re-check with the server instead of trusting local state —
+                  // the initial room-join fetch may still be in flight, or a
+                  // websocket drop could have left `activePkBattle` stale,
+                  // and either way opening the sheet on stale info just gets
+                  // rejected by the backend with a 409 on Confirm.
+                  const fresh = await loadActivePkBattle(String(roomId)).catch(
+                    () => activePkBattle,
+                  );
+                  setActivePkBattle(fresh);
+                  if (isPkBattlePending(fresh) || isPkBattleLive(fresh)) {
                     Alert.alert(
                       "PK battle in progress",
                       "This room already has an active PK battle. Wait for it to finish before starting a new one.",

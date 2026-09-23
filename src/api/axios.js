@@ -148,9 +148,17 @@ API.interceptors.response.use(
       status === 404 &&
       /\/api\/app\/invite-friends\//i.test(requestUrl);
 
+    // Suppress 404 "no active PK battle" — this is the normal, expected
+    // response for a room with no ongoing battle; calling code already
+    // treats it as null, not an error.
+    const isNoActivePkBattle =
+      status === 404 &&
+      /\/api\/app\/pk-battles\/room\/[^/]+\/active/i.test(requestUrl);
+
     const shouldSuppressLog =
       isSeatOccupied ||
       isPendingInviteFriendsApi ||
+      isNoActivePkBattle ||
       (status === 401 && _s.handlingUnauth);
 
     if (!shouldSuppressLog) {
