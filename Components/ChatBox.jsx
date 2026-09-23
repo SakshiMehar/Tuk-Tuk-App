@@ -39,6 +39,7 @@ import {
   View,
 } from "react-native";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { uploadChatMedia } from "../src/api/chatApi";
 import Colors from "../src/constants/colors";
 import { getAvatarSource, isBundledAvatarId } from "../src/data/avatarOptions";
 import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
@@ -84,6 +85,11 @@ const AudioPlayer = ({ uri, durationMs, fromMe }) => {
   const [sound, setSound] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
+  const [actualDuration, setActualDuration] = useState(durationMs || 0);
+
+  useEffect(() => {
+    setActualDuration(durationMs || 0);
+  }, [durationMs]);
 
   useEffect(() => {
     return () => {
@@ -95,11 +101,14 @@ const AudioPlayer = ({ uri, durationMs, fromMe }) => {
 
   const loadSound = async () => {
     try {
-      const { sound: newSound } = await Audio.Sound.createAsync(
+      const { sound: newSound, status } = await Audio.Sound.createAsync(
         { uri },
         { progressUpdateIntervalMillis: 100 },
         onPlaybackStatusUpdate
       );
+      if (status.isLoaded && status.durationMillis) {
+        setActualDuration(status.durationMillis);
+      }
       setSound(newSound);
       return newSound;
     } catch (error) {
@@ -112,6 +121,9 @@ const AudioPlayer = ({ uri, durationMs, fromMe }) => {
     if (status.isLoaded) {
       setPosition(status.positionMillis);
       setIsPlaying(status.isPlaying);
+      if (status.durationMillis && actualDuration === 0) {
+        setActualDuration(status.durationMillis);
+      }
       if (status.didJustFinish) {
         setIsPlaying(false);
         setPosition(0);
@@ -131,7 +143,8 @@ const AudioPlayer = ({ uri, durationMs, fromMe }) => {
       if (isPlaying) {
         await currentSound.pauseAsync();
       } else {
-        if (position >= durationMs) {
+        const status = await currentSound.getStatusAsync();
+        if (status.isLoaded && (status.positionMillis >= status.durationMillis - 100 || status.didJustFinish)) {
           await currentSound.setPositionAsync(0);
         }
         await currentSound.playAsync();
@@ -148,24 +161,37 @@ const AudioPlayer = ({ uri, durationMs, fromMe }) => {
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
   };
 
-  const progressPercent = durationMs > 0 ? (position / durationMs) * 100 : 0;
+  const progressPercent = actualDuration > 0 ? (position / actualDuration) * 100 : 0;
+  const waveBars = [30, 60, 40, 80, 50, 100, 70, 40, 80, 50, 30, 90, 60, 40, 70, 40, 80, 50, 30, 60];
 
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", width: W * 0.5, gap: 8 }}>
-      <TouchableOpacity onPress={togglePlayPause} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: fromMe ? Colors.whiteAlpha20 : Colors.primaryAlpha15, alignItems: "center", justifyContent: "center" }}>
+    <View style={{ flexDirection: "row", alignItems: "center", width: W * 0.6, gap: 12 }}>
+      <TouchableOpacity onPress={togglePlayPause} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: fromMe ? Colors.whiteAlpha20 : Colors.primaryAlpha15, alignItems: "center", justifyContent: "center" }}>
         {isPlaying ? (
-          <Pause size={18} color={fromMe ? "white" : Colors.secondary} />
+          <Pause size={20} color={fromMe ? "white" : Colors.secondary} />
         ) : (
-          <Play size={18} color={fromMe ? "white" : Colors.secondary} style={{ marginLeft: 3 }} />
+          <Play size={20} color={fromMe ? "white" : Colors.secondary} style={{ marginLeft: 3 }} />
         )}
       </TouchableOpacity>
-      <View style={{ flex: 1 }}>
-        <View style={{ height: 4, backgroundColor: fromMe ? Colors.whiteAlpha30 : Colors.borderPrimaryAlpha20, borderRadius: 2, overflow: "hidden" }}>
-          <View style={{ width: `${progressPercent}%`, height: "100%", backgroundColor: fromMe ? "white" : Colors.primary }} />
+      <View style={{ flex: 1, gap: 6 }}>
+        {/* Fake Waveform */}
+        <View style={{ height: 24, flexDirection: "row", alignItems: "center", gap: 3 }}>
+          {waveBars.map((h, i) => (
+            <View key={`bg-${i}`} style={{ width: 3, height: `${h}%`, backgroundColor: fromMe ? Colors.whiteAlpha30 : Colors.borderPrimaryAlpha, borderRadius: 2 }} />
+          ))}
+          {/* Active Played Waveform Overlay */}
+          <View style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${progressPercent}%`, overflow: "hidden", flexDirection: "row", alignItems: "center", gap: 3 }}>
+            {waveBars.map((h, i) => (
+              <View key={`fg-${i}`} style={{ width: 3, height: `${h}%`, backgroundColor: fromMe ? "white" : Colors.primary, borderRadius: 2 }} />
+            ))}
+          </View>
         </View>
-        <Text style={{ color: fromMe ? Colors.whiteAlpha80 : Colors.whiteAlpha50, fontSize: 11, marginTop: 4 }}>
-          {formatDuration(position)} / {formatDuration(durationMs)}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={{ color: fromMe ? Colors.whiteAlpha80 : Colors.grayPlaceholder, fontSize: 11, fontWeight: "500" }}>
+            {formatDuration(position)} / {formatDuration(actualDuration)}
+          </Text>
+          <Mic size={12} color={fromMe ? Colors.whiteAlpha80 : Colors.grayPlaceholder} />
+        </View>
       </View>
     </View>
   );
@@ -177,6 +203,7 @@ export default function ChatBox({ user = {}, onBack }) {
     name = "User",
     avatar = null,
     lastMsg = "",
+    level = null,
   } = user;
   const router = useRouter();
   const handleAvatarPress = () => {
@@ -359,8 +386,8 @@ export default function ChatBox({ user = {}, onBack }) {
   const mapApiMessage = (m, currentUserId) => ({
     id: String(m.messageId ?? m.id ?? Date.now()),
     text: m.content ?? m.message ?? m.text ?? "",
-    image: m.imageUrl ?? m.image ?? null,
-    audio: m.audioUrl ?? m.audio ?? null,
+    image: m.imageUrl ?? m.image ?? m.media?.find(media => (media.type === 'IMAGE' || media.mediaType === 'IMAGE'))?.url ?? m.media?.find(media => (media.type === 'IMAGE' || media.mediaType === 'IMAGE'))?.mediaUrl ?? null,
+    audio: m.audioUrl ?? m.audio ?? m.media?.find(media => (media.type === 'AUDIO' || media.mediaType === 'AUDIO'))?.url ?? m.media?.find(media => (media.type === 'AUDIO' || media.mediaType === 'AUDIO'))?.mediaUrl ?? null,
     audioDuration: m.audioDuration ?? 0,
     fromMe: String(m.senderId) === String(currentUserId),
     time: m.timestamp || m.createdAt ? new Date(m.timestamp || m.createdAt) : new Date(),
@@ -481,9 +508,11 @@ export default function ChatBox({ user = {}, onBack }) {
       if (!isThisChat) return;
 
       const text = payload?.content ?? payload?.message ?? "";
-      const image = payload?.image ?? null;
-      const audio = payload?.audio ?? null;
+      const image = payload?.image ?? payload?.media?.find(m => (m.type === 'IMAGE' || m.mediaType === 'IMAGE'))?.url ?? payload?.media?.find(m => (m.type === 'IMAGE' || m.mediaType === 'IMAGE'))?.mediaUrl ?? null;
+      const audio = payload?.audio ?? payload?.audioUrl ?? payload?.media?.find(m => (m.type === 'AUDIO' || m.mediaType === 'AUDIO'))?.url ?? payload?.media?.find(m => (m.type === 'AUDIO' || m.mediaType === 'AUDIO'))?.mediaUrl ?? null;
       const audioDuration = payload?.audioDuration ?? 0;
+      
+      console.log("[ChatBox] onMessage parsed image:", image, "audio:", audio);
 
       // Check if this is a call signal embedded in the message
       if (text && text.startsWith("__CALL_SIGNAL__|")) {
@@ -512,10 +541,14 @@ export default function ChatBox({ user = {}, onBack }) {
         if (prev.some((m) => String(m.id) === id)) return prev;
 
         // If the server echoes our own message back, replace the optimistic
-        // pending entry (same text, fromMe) rather than adding a duplicate.
-        const filtered = fromMe
-          ? prev.filter((m) => !(m._pending && m.text === text && (m.image === image || m._base64 === image) && (m.audio === audio || m._base64 === audio)))
-          : prev;
+        // pending entry. For media messages, ignore text if image/audio match.
+        const isMatch = (m) => m._pending && fromMe && (
+          (image && m.image === image) || 
+          (audio && m.audio === audio) || 
+          (!image && !audio && m.text === text)
+        );
+
+        const filtered = prev.filter((m) => !isMatch(m));
 
         return [
           ...filtered,
@@ -577,29 +610,36 @@ export default function ChatBox({ user = {}, onBack }) {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
-        const base64Image = `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`;
-        sendImageMessage(base64Image, asset.uri);
+        sendImageMessage(asset.uri);
       }
     } catch (error) {
       Alert.alert("Error", "Could not pick image.");
     }
   };
 
-  const sendImageMessage = (base64Image, localUri) => {
+  const sendImageMessage = async (localUri) => {
     if (!userId) return;
 
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setMessages((prev) => [
       ...prev,
-      { id: tempId, text: "", image: localUri || base64Image, audio: null, fromMe: true, time: new Date(), _pending: true, _base64: base64Image },
+      { id: tempId, text: "", image: localUri, audio: null, fromMe: true, time: new Date(), _pending: true },
     ]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
 
     try {
-      wsService.sendMessage(String(userId), "", base64Image);
+      const response = await uploadChatMedia(localUri, 'image/jpeg');
+      const imageUrl = response?.media?.find(m => m.type === 'IMAGE')?.url || response?.media?.[0]?.url || response?.url;
+      
+      if (imageUrl) {
+        wsService.sendMessage(String(userId), "", response);
+        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, image: imageUrl, _pending: true } : m));
+      } else {
+        throw new Error("Invalid response format from server");
+      }
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      Alert.alert("Send failed", err?.message || "WebSocket not connected.");
+      Alert.alert("Send failed", err?.message || "Could not upload image.");
     }
   };
 
@@ -647,35 +687,35 @@ export default function ChatBox({ user = {}, onBack }) {
         return;
       }
 
-      // Convert local URI to Base64
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onloadend = () => {
-        const base64Audio = reader.result;
-        sendAudioMessage(base64Audio, uri, durationMs);
-      };
+      sendAudioMessage(uri, durationMs);
     } catch (err) {
       console.error("Failed to stop recording", err);
     }
   };
 
-  const sendAudioMessage = (base64Audio, localUri, durationMs) => {
+  const sendAudioMessage = async (localUri, durationMs) => {
     if (!userId) return;
 
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setMessages((prev) => [
       ...prev,
-      { id: tempId, text: "", image: null, audio: localUri || base64Audio, audioDuration: durationMs, fromMe: true, time: new Date(), _pending: true, _base64: base64Audio },
+      { id: tempId, text: "", image: null, audio: localUri, audioDuration: durationMs, fromMe: true, time: new Date(), _pending: true },
     ]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
 
     try {
-      wsService.sendMessage(String(userId), "", undefined, base64Audio, durationMs);
+      const response = await uploadChatMedia(localUri, 'audio/m4a');
+      const audioUrl = response?.media?.find(m => m.type === 'AUDIO')?.url || response?.media?.[0]?.url || response?.url;
+      
+      if (audioUrl) {
+        wsService.sendMessage(String(userId), "", { ...response, audioDuration: durationMs });
+        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, audio: audioUrl, _pending: true } : m));
+      } else {
+        throw new Error("Invalid response format from server");
+      }
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      Alert.alert("Send failed", err?.message || "WebSocket not connected.");
+      Alert.alert("Send failed", err?.message || "Could not upload audio.");
     }
   };
 
@@ -992,7 +1032,7 @@ export default function ChatBox({ user = {}, onBack }) {
                                 </LinearGradient>
                               </TouchableOpacity>
                             </View>
-                          ) : msg.text ? (
+                          ) : msg.text && !( (msg.image || msg.audio) && (msg.text === "📷 Image" || msg.text === "🎵 Audio" || msg.text === " ") ) ? (
                             <Text style={styles.msgTextMe}>{msg.text}</Text>
                           ) : null}
 
@@ -1088,7 +1128,7 @@ export default function ChatBox({ user = {}, onBack }) {
                                   </LinearGradient>
                                 </TouchableOpacity>
                               </View>
-                            ) : msg.text ? (
+                            ) : msg.text && !( (msg.image || msg.audio) && (msg.text === "📷 Image" || msg.text === "🎵 Audio" || msg.text === " ") ) ? (
                               <Text style={styles.msgTextThem}>{msg.text}</Text>
                             ) : null}
 

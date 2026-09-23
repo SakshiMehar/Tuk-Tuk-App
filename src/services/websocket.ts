@@ -324,7 +324,7 @@ class WebSocketService {
       
       const sub = this.client.subscribe(destination, (frame: IMessage) => {
         const payload: ChatMessage = JSON.parse(frame.body);
-        console.log("[WS] Received user chat payload:", { ...payload, image: payload.image ? `${payload.image.substring(0, 50)}...` : null });
+        console.log("[WS] Received user chat payload raw:", frame.body);
         this.messageHandlers.forEach((h) => h(payload));
       });
       this.subscriptions.set(key, sub);
@@ -607,18 +607,55 @@ class WebSocketService {
 
   // ── 1:1 chat publish ─────────────────────────────────────────────────────
 
-  sendMessage(recipientId: string, content: string, imageBase64?: string, audioBase64?: string, audioDuration?: number): void {
+  sendMessage(
+    recipientId: string,
+    content: string,
+    mediaPayload?: any
+  ): void {
     this._assertConnected();
     const destination = `/app/users/${recipientId}/chat`;
-    const payload: any = { message: content };
-    if (imageBase64) {
-      payload.image = imageBase64;
+    
+    // Explicitly construct payload with all keys present to prevent backend validation errors
+    let formattedMedia = [];
+    let extractedAudioUrl = mediaPayload?.audioUrl ?? null;
+    let extractedAudioDuration = mediaPayload?.audioDuration ?? null;
+
+    if (mediaPayload?.media && Array.isArray(mediaPayload.media)) {
+      mediaPayload.media.forEach((m: any, idx: number) => {
+        if (m.type === 'AUDIO') {
+          extractedAudioUrl = m.url;
+        } else {
+          formattedMedia.push({
+            url: m.url,
+            type: m.type,
+            sortOrder: m.sortOrder ?? (formattedMedia.length + 1)
+          });
+        }
+      });
+    } else if (mediaPayload?.url && mediaPayload?.type) {
+       if (mediaPayload.type === 'AUDIO') {
+         extractedAudioUrl = mediaPayload.url;
+       } else {
+         formattedMedia.push({
+           url: mediaPayload.url,
+           type: mediaPayload.type,
+           sortOrder: 1
+         });
+       }
     }
-    if (audioBase64) {
-      payload.audio = audioBase64;
-      payload.audioDuration = audioDuration;
+
+    const payload: any = {
+      message: content || (formattedMedia.length > 0 ? "📷 Image" : (extractedAudioUrl ? "🎵 Audio" : " ")),
+      media: formattedMedia
+    };
+    if (extractedAudioUrl) {
+      payload.audioUrl = extractedAudioUrl;
     }
-    console.log(`[WS] Sending chat to ${recipientId}:`, { ...payload, image: payload.image ? `${payload.image.substring(0, 50)}...` : null, audio: payload.audio ? `${payload.audio.substring(0, 50)}...` : null });
+    if (extractedAudioDuration != null) {
+      payload.audioDuration = extractedAudioDuration;
+    }
+
+    console.log(`[WS] Sending chat to ${recipientId}:`, payload);
     const body = JSON.stringify(payload);
     this.client!.publish({ destination, body });
   }
