@@ -59,6 +59,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { refreshTokenCache } from "../src/api/axios";
 import {
   followRoom,
@@ -1267,6 +1268,7 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
 
 export default function VoiceParty() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const roomIdParam = params.roomId ?? params.id ?? null;
   const isRandomParty = params.party === "true";
@@ -2564,6 +2566,19 @@ export default function VoiceParty() {
         console.error("[VoiceParty] WS connection error:", err?.message || err);
       });
 
+    // Pull whatever PK card already exists for this room on entry — the
+    // `pk` topic below only pushes *changes*, so a battle created before
+    // this client joined (or missed while briefly disconnected) needs an
+    // explicit fetch, not just a subscription.
+    loadActivePkBattle(activeRoomId)
+      .then((battle) => {
+        console.log("[VoiceParty][PK] initial active battle ->", battle);
+        setActivePkBattle(battle);
+      })
+      .catch(() => {
+        // Non-critical — the `pk` topic or the fallback poll will catch it.
+      });
+
     const appendChatMessage = (payload) => {
       setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -2770,6 +2785,14 @@ export default function VoiceParty() {
         );
       },
     );
+    // The room's live PK card — pushed on create/accept/reject/score
+    // change/finish. This is what lets the challenged opponent (and
+    // everyone else in the room) see the battle without polling.
+    const unsubPk = wsService.onRoomPk(String(roomId), (payload) => {
+      console.log("[VoiceParty][PK] WS push ->", payload);
+      setActivePkBattle(normalizePkBattle(payload));
+    });
+
     const unsubNotifications = wsService.onRoomNotifications(
       String(roomId),
       (payload) => {
@@ -3012,6 +3035,11 @@ export default function VoiceParty() {
         .catch(() => {
           // Non-critical — a later reconnect or user action will re-sync.
         });
+      loadActivePkBattle(String(roomId))
+        .then(setActivePkBattle)
+        .catch(() => {
+          // Non-critical — the `pk` topic or the fallback poll will catch it.
+        });
     });
     return () => {
       unsubChat();
@@ -3019,6 +3047,7 @@ export default function VoiceParty() {
       unsubUi();
       unsubSpeaking();
       unsubGiftAnimation();
+      unsubPk();
       unsubNotifications();
       unsubReconnect();
       if (!isNavigatingToInboxRef.current) {
@@ -3312,6 +3341,31 @@ export default function VoiceParty() {
     const interval = setInterval(ping, 25_000);
     return () => clearInterval(interval);
   }, [roomId]);
+
+  // Belt-and-braces poll for the room's PK card — the `pk` WS topic should
+  // push every create/accept/reject/score/finish, but if the backend only
+  // wires up the *later* events (not the initial create), the challenged
+  // opponent would otherwise never learn a battle exists until they leave
+  // and re-enter the room. Cheap enough to just poll while one might be
+  // pending/live; stops once we know there's nothing to wait on.
+  useEffect(() => {
+    if (!roomId) return undefined;
+    if (activePkBattle && activePkBattle.status !== "PENDING" && activePkBattle.status !== "LIVE") {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      loadActivePkBattle(String(roomId))
+        .then((battle) => {
+          console.log("[VoiceParty][PK] poll active battle ->", battle);
+          setActivePkBattle(battle);
+        })
+        .catch(() => {
+          // Non-critical — next tick or the WS push will catch it.
+        });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [roomId, activePkBattle]);
 
   // Listen Rewards progress sync & UTC midnight reset check — every 30 s
   useEffect(() => {
@@ -3811,6 +3865,17 @@ export default function VoiceParty() {
       return true;
     });
   }, [seats, onlineUsers, myUserId]);
+
+  // PK battle opponent/teammate slots are seated members only (no audience).
+  const pkOpponentCandidates = useMemo(() => {
+    return (seats || [])
+      .filter((s) => s?.user && s.user.id != null && !isSameUser(s.user.id, myUserId))
+      .map((s) => ({
+        id: String(s.user.id),
+        name: s.user.name ?? s.user.username ?? "User",
+        avatar: s.user.avatar ?? s.user.avatarUrl ?? null,
+      }));
+  }, [seats, myUserId]);
 
   const handleTagUser = (member) => {
     setTaggedUser(member);
@@ -5974,7 +6039,7 @@ export default function VoiceParty() {
                 <Text style={styles.playCenterLabel}>Lucky bag</Text>
               </TouchableOpacity>
 
-              {/* PK — opens the Backpack's PK gifts tab */}
+              {/* PK — opens the PK battle setup sheet */}
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
@@ -5997,8 +6062,7 @@ export default function VoiceParty() {
                     return;
                   }
                   setTimeout(() => {
-                    setBackpackMainTab("PK");
-                    setShowBackpack(true);
+                    setShowPkBattle(true);
                   }, 400);
                 }}
               >
