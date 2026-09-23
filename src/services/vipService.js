@@ -49,23 +49,36 @@ export const loadMyVipXp = async () => {
 /** Resolves the VIP cosmetic set for the current user. `totalXp` can be passed
  *  in if the caller already fetched it (e.g. via syncUserLevelForSession) to
  *  avoid a duplicate gamification request; otherwise it's fetched here.
- *  Below tier 1's threshold, every asset is null and `unlocked` is false —
- *  that's the gate callers should check before rendering any VIP frame/logo.
- *  Above it, the tier is picked from VIP_TIER_THRESHOLDS by the user's actual
- *  XP (not hardcoded to tier 1) — the API result (once confirmed) still takes
- *  priority per asset, this tier's assets are only the fallback. */
+ *  The local XP-threshold guess is only used to pick *fallback* asset URLs —
+ *  the real `/api/app/vip/me/*` endpoints are always queried regardless of
+ *  what the guess says, because the gamification XP endpoint it depends on
+ *  is known to be flaky (see gamificationService.loadGamificationLevel's
+ *  "shape hasn't been confirmed" note). Gating the real VIP calls behind a
+ *  successful XP fetch previously meant a single failed/zeroed XP response
+ *  could hide a real VIP's badge entirely, even though the VIP endpoints
+ *  themselves would have returned their assets just fine. `unlocked` is only
+ *  false when neither the XP guess nor any real endpoint found anything. */
 export const loadMyVipAssets = async (totalXp) => {
   const xp = totalXp ?? (await loadMyVipXp());
   const tierEntry = resolveVipTierForXp(xp);
-  if (!tierEntry) return NO_VIP_ASSETS;
+  const fallback = tierEntry?.assets ?? {};
 
-  const fallback = tierEntry.assets;
   const [profileFrame, entryFrame, chatFrame, logo] = await Promise.all([
-    fetchVipAsset(getMyVipProfileFrame, fallback.profileFrame),
-    fetchVipAsset(getMyVipEntryFrame, fallback.entryFrame),
-    fetchVipAsset(getMyVipChatFrame, fallback.chatFrame),
-    fetchVipAsset(getMyVipLogo, fallback.logo),
+    fetchVipAsset(getMyVipProfileFrame, fallback.profileFrame ?? null),
+    fetchVipAsset(getMyVipEntryFrame, fallback.entryFrame ?? null),
+    fetchVipAsset(getMyVipChatFrame, fallback.chatFrame ?? null),
+    fetchVipAsset(getMyVipLogo, fallback.logo ?? null),
   ]);
+
+  if (!profileFrame && !entryFrame && !chatFrame && !logo) {
+    console.log(
+      "[vipService] No VIP assets resolved — xp:", xp,
+      "tierEntry:", tierEntry?.tier ?? null,
+      "(check /api/app/vip/me/logo etc. responses if this user should be VIP)",
+    );
+    return NO_VIP_ASSETS;
+  }
+
   // Prefer the tier baked into the actual returned asset URLs over the
   // XP-threshold guess — the real API result can legitimately be a
   // different tier than what our local thresholds compute (e.g. thresholds
@@ -73,7 +86,9 @@ export const loadMyVipAssets = async (totalXp) => {
   const tier =
     resolveVipTierFromAssetUrl(chatFrame) ??
     resolveVipTierFromAssetUrl(profileFrame) ??
-    tierEntry.tier;
+    resolveVipTierFromAssetUrl(logo) ??
+    tierEntry?.tier ??
+    null;
 
   return { unlocked: true, tier, profileFrame, entryFrame, chatFrame, logo };
 };

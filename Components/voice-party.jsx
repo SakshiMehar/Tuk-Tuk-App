@@ -4480,7 +4480,7 @@ export default function VoiceParty() {
       }
 
       if (micGranted) {
-        handleTakeSeat(seat.id);
+        setSeatActionSheet({ seatId: seat.id });
       } else {
         setMicPermWarning(seat.id);
       }
@@ -6098,7 +6098,7 @@ export default function VoiceParty() {
                 onPress={() => setShowPowerMenu(false)}
               >
                 <View style={styles.playCenterIconWrap}>
-                  <Minimize2 size={28} color="#a78bfa" />
+                  <Minimize2 size={20} color="#a78bfa" />
                 </View>
                 <Text style={styles.playCenterLabel}>Keep</Text>
               </TouchableOpacity>
@@ -6115,7 +6115,7 @@ export default function VoiceParty() {
                 <View
                   style={[styles.playCenterIconWrap, styles.powerExitIconWrap]}
                 >
-                  <Power size={28} color="#ff6b6b" />
+                  <Power size={20} color="#ff6b6b" />
                 </View>
                 <Text style={[styles.playCenterLabel, { color: "#ff6b6b" }]}>
                   Exit
@@ -6505,7 +6505,9 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── SEAT ACTION POPUP (centered) ── */}
+      {/* ── SEAT ACTION POPUP (centered) — same illustrated card as the
+          mic-permission warning, so every "confirm before joining a mic"
+          prompt in the room looks consistent. ── */}
       <Modal
         visible={Boolean(seatActionSheet)}
         transparent
@@ -6517,53 +6519,70 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setSeatActionSheet(null)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.seatActionCard}>
-            {/* Header */}
-            <View style={styles.seatActionHeader}>
-              <Text style={styles.seatActionHeaderEmoji}>🎙️</Text>
-              <Text style={styles.seatActionHeaderTitle}>
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            {/* ── Illustrated header area ── */}
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              {/* Decorative glow blobs */}
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              {/* Main illustration — mic inside a phone-shaped card */}
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                <View style={styles.micPermMicCircle}>
+                  <Mic size={16} color="#7c4dff" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+
+              {/* Small floating badge */}
+              <View style={styles.micPermBadge}>
+                <View style={styles.micPermBadgeDot} />
+                <View style={styles.micPermBadgeLine} />
+              </View>
+            </LinearGradient>
+
+            {/* ── Body text ── */}
+            <View style={styles.micPermBody}>
+              <Text style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}>
                 Seat {seatActionSheet?.seatId}
               </Text>
-              <Text style={styles.seatActionHeaderSub}>
-                What would you like to do?
+              <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
+                Do you want to claim this seat and join the mic?
               </Text>
             </View>
 
-            {/* Divider */}
-            <View style={styles.seatActionDivider} />
+            {/* ── Buttons ── */}
+            <View style={styles.micPermBtnRow}>
+              <TouchableOpacity
+                style={styles.micPermCancelBtn}
+                activeOpacity={0.7}
+                onPress={() => setSeatActionSheet(null)}
+              >
+                <Text style={styles.micPermCancelText}>Cancel</Text>
+              </TouchableOpacity>
 
-            {/* Take a Seat */}
-            <TouchableOpacity
-              style={styles.seatActionBtn}
-              activeOpacity={0.8}
-              disabled={seatActionLoading}
-              onPress={() => handleTakeSeat(seatActionSheet?.seatId)}
-            >
-              <LinearGradient
-                colors={["#7c4dff", "#a855f7"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.seatActionBtnGradient}
+              <View style={styles.micPermBtnDivider} />
+
+              <TouchableOpacity
+                style={styles.micPermOkBtn}
+                activeOpacity={0.7}
+                disabled={seatActionLoading}
+                onPress={() => handleTakeSeat(seatActionSheet?.seatId)}
               >
                 {seatActionLoading ? (
-                  <ActivityIndicator color="white" />
+                  <ActivityIndicator color="#a855f7" size="small" />
                 ) : (
-                  <>
-                    <Text style={styles.seatActionBtnIcon}>🎤</Text>
-                    <Text style={styles.seatActionBtnText}>Claim seat</Text>
-                  </>
+                  <Text style={styles.micPermOkText}>Claim seat</Text>
                 )}
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Cancel */}
-            <TouchableOpacity
-              style={styles.seatActionCancelBtn}
-              activeOpacity={0.8}
-              onPress={() => setSeatActionSheet(null)}
-            >
-              <Text style={styles.seatActionCancelText}>Cancel</Text>
-            </TouchableOpacity>
+              </TouchableOpacity>
+            </View>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -6598,7 +6617,7 @@ export default function VoiceParty() {
                 <View style={styles.micPermPhoneBar2} />
                 {/* Mic icon inside the card */}
                 <View style={styles.micPermMicCircle}>
-                  <Mic size={22} color="#7c4dff" strokeWidth={2} />
+                  <Mic size={16} color="#7c4dff" strokeWidth={2} />
                 </View>
                 <View style={styles.micPermPhoneBar3} />
               </View>
@@ -8752,12 +8771,12 @@ const styles = StyleSheet.create({
   // ── Power modal ──
   powerBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minWidth: 220,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minWidth: 170,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -8808,12 +8827,12 @@ const styles = StyleSheet.create({
   },
   playCenterBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minWidth: 220,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minWidth: 170,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -8822,32 +8841,32 @@ const styles = StyleSheet.create({
   },
   playCenterTitle: {
     color: "white",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
-    marginBottom: 16,
+    marginBottom: 10,
   },
   playCenterRow: {
     flexDirection: "row",
-    gap: 24,
+    gap: 16,
   },
   playCenterItem: {
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   playCenterIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: "rgba(124,77,255,0.2)",
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
-  playCenterEmoji: { fontSize: 28 },
+  playCenterEmoji: { fontSize: 20 },
   playCenterLabel: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "600",
   },
   powerExitIconWrap: {
@@ -10029,84 +10048,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 34,
   },
-  seatActionCard: {
-    width: "64%",
-    maxWidth: 245,
-    backgroundColor: "#1e1035",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 10,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
-    shadowColor: "#7c4dff",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  seatActionHeader: {
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  seatActionHeaderEmoji: {
-    fontSize: 24,
-    marginBottom: 4,
-  },
   seatActionHeaderTitle: {
     color: "white",
     fontSize: 15,
     fontWeight: "700",
     marginBottom: 1,
   },
-  seatActionHeaderSub: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 11,
-  },
-  seatActionDivider: {
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    marginBottom: 8,
-  },
-  seatActionBtn: {
-    alignSelf: "center",
-    width: "65%",
-    maxWidth: 135,
-    borderRadius: 8,
-    overflow: "hidden",
-    marginBottom: 3,
-  },
-  seatActionBtnGradient: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    gap: 4,
-  },
-  seatActionBtnIcon: { fontSize: 12 },
-  seatActionBtnText: {
-    color: "white",
-    fontSize: 11.5,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  seatActionCancelBtn: {
-    marginTop: 1,
-    paddingVertical: 4,
-    alignItems: "center",
-  },
-  seatActionCancelText: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 11,
-    fontWeight: "600",
-  },
 
   // ── Mic permission warning card ──
   micPermCard: {
-    width: "82%",
+    width: "68%",
     backgroundColor: "#12082b",
-    borderRadius: 22,
+    borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.3)",
@@ -10114,7 +10067,7 @@ const styles = StyleSheet.create({
   // Top illustrated gradient section
   micPermIllustration: {
     width: "100%",
-    height: 170,
+    height: 120,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -10122,50 +10075,50 @@ const styles = StyleSheet.create({
   // Decorative background blobs
   micPermBlob1: {
     position: "absolute",
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 85,
+    height: 85,
+    borderRadius: 43,
     backgroundColor: "rgba(124,77,255,0.25)",
-    top: -20,
-    left: -30,
+    top: -14,
+    left: -21,
   },
   micPermBlob2: {
     position: "absolute",
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: "rgba(168,85,247,0.2)",
-    bottom: -10,
-    right: -10,
+    bottom: -7,
+    right: -7,
   },
   // Phone-shaped card in the illustration
   micPermPhoneCard: {
-    width: 110,
+    width: 78,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1.5,
     borderColor: "rgba(168,85,247,0.5)",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     alignItems: "flex-start",
-    gap: 7,
+    gap: 5,
   },
   micPermPhoneBar1: {
     width: "80%",
-    height: 7,
-    borderRadius: 4,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.6)",
   },
   micPermPhoneBar2: {
     width: "55%",
-    height: 7,
-    borderRadius: 4,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   micPermMicCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: "rgba(124,77,255,0.25)",
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.5)",
@@ -10176,47 +10129,47 @@ const styles = StyleSheet.create({
   },
   micPermPhoneBar3: {
     width: "65%",
-    height: 7,
-    borderRadius: 4,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   // Small floating badge bottom-right of illustration
   micPermBadge: {
     position: "absolute",
-    bottom: 22,
-    right: 36,
+    bottom: 16,
+    right: 26,
     backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.4)",
-    padding: 7,
+    padding: 5,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
   },
   micPermBadgeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: "#a855f7",
   },
   micPermBadgeLine: {
-    width: 24,
-    height: 5,
-    borderRadius: 3,
+    width: 18,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: "rgba(168,85,247,0.5)",
   },
   // Text body section
   micPermBody: {
-    paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   micPermMsg: {
     color: "rgba(255,255,255,0.75)",
-    fontSize: 14,
+    fontSize: 12,
     textAlign: "center",
-    lineHeight: 21,
+    lineHeight: 17,
   },
   // Button row
   micPermBtnRow: {
@@ -10227,12 +10180,12 @@ const styles = StyleSheet.create({
   },
   micPermCancelBtn: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 11,
     alignItems: "center",
   },
   micPermCancelText: {
     color: "rgba(255,255,255,0.35)",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "600",
   },
   micPermBtnDivider: {
@@ -10241,12 +10194,12 @@ const styles = StyleSheet.create({
   },
   micPermOkBtn: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 11,
     alignItems: "center",
   },
   micPermOkText: {
     color: "#a855f7",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "700",
   },
 
