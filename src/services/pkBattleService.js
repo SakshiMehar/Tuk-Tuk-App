@@ -80,7 +80,10 @@ export const loadPkBattle = async (battleId) => normalizePkBattle(await getPkBat
 export const isPkBattlePending = (battle) => battle?.status === "PENDING";
 export const isPkBattleLive = (battle) => battle?.status === "LIVE";
 export const isPkBattleOver = (battle) =>
-  battle?.status === "FINISHED" || battle?.status === "CANCELLED" || battle?.status === "REJECTED";
+  battle?.status === "COMPLETED" ||
+  battle?.status === "DRAW" ||
+  battle?.status === "CANCELLED" ||
+  battle?.status === "REJECTED";
 
 /** Where does `myUserId` stand relative to this battle? Drives which UI
  *  (accept/reject prompt vs. waiting banner vs. live scoreboard) to show. */

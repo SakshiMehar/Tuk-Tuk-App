@@ -86,7 +86,6 @@ export default function RootLayout() {
       },
       onNotificationTap: ({ data }) => {
         if (data) {
-          console.log("[_layout] Push notification tapped -> navigating:", data);
           navigateFromNotification(router, data);
         }
       },
@@ -113,7 +112,6 @@ export default function RootLayout() {
       lastProcessedLink = url;
       lastProcessedTimestamp = now;
 
-      console.log("[_layout] Incoming deep link URL:", url);
       const roomId = extractRoomIdFromUrl(url);
       if (roomId) {
         getToken()
@@ -121,7 +119,6 @@ export default function RootLayout() {
             if (token) {
               const currentActiveRoomId = getActiveRoomId?.();
               if (String(currentActiveRoomId) === String(roomId)) {
-                console.log("[_layout] User already in room", roomId);
                 return;
               }
               router.push({

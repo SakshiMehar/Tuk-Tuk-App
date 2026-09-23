@@ -229,7 +229,6 @@ class WebSocketService {
       return;
     }
 
-    console.log(`[WS] Initializing connection to: ${API_BASE_URL}/ws-tuktuk`);
     this.connectPromise = new Promise<void>((resolve, reject) => {
       this.client = new Client({
         webSocketFactory: () => new SockJS(`${API_BASE_URL}/ws-tuktuk`) as unknown as WebSocket,
@@ -241,12 +240,10 @@ class WebSocketService {
         heartbeatOutgoing: 10000,
         debug: () => {},
         onConnect: () => {
-          console.log('[WS] ✅ Connected to STOMP server successfully!');
           this._onConnect();
           resolve();
         },
         onDisconnect: () => {
-          console.log('[WS] ⚠️ Disconnected from STOMP server.');
           this._onDisconnect();
         },
         onStompError: (frame) => {
@@ -257,7 +254,6 @@ class WebSocketService {
           console.error('[WS] ❌ WebSocket socket error event:', event);
         },
         onWebSocketClose: (event) => {
-          console.log('[WS] 🔌 WebSocket closed event:', event);
         },
       });
 
@@ -343,7 +339,6 @@ class WebSocketService {
       
       const sub = this.client.subscribe(destination, (frame: IMessage) => {
         const payload: ChatMessage = JSON.parse(frame.body);
-        console.log("[WS] Received user chat payload:", { ...payload, image: payload.image ? `${payload.image.substring(0, 50)}...` : null });
         this.messageHandlers.forEach((h) => h(payload));
       });
       this.subscriptions.set(key, sub);
@@ -385,11 +380,9 @@ class WebSocketService {
       const destination = `/topic/room/${roomId}/${topic}`;
       const handlers = this._getRoomHandlerSet(roomId, topic);
 
-      console.log(`[WS] Subscribed: ${destination}`);
       const sub = this.client!.subscribe(destination, (frame: IMessage) => {
         try {
           const payload = JSON.parse(frame.body);
-          console.log(`[WS] Received on ${destination}:`, payload);
           handlers.forEach((h) => h(payload));
         } catch (err) {
           console.error(`[WS] Error parsing payload from ${destination}:`, err);
@@ -405,7 +398,6 @@ class WebSocketService {
       const destination = `/topic/room/${roomId}/${topic}`;
       this.subscriptions.get(key)?.unsubscribe();
       this.subscriptions.delete(key);
-      console.log(`[WS] Unsubscribed: ${destination}`);
     });
     this.roomHandlers.delete(roomId);
   }
@@ -639,7 +631,6 @@ class WebSocketService {
       payload.audio = audioBase64;
       payload.audioDuration = audioDuration;
     }
-    console.log(`[WS] Sending chat to ${recipientId}:`, { ...payload, image: payload.image ? `${payload.image.substring(0, 50)}...` : null, audio: payload.audio ? `${payload.audio.substring(0, 50)}...` : null });
     const body = JSON.stringify(payload);
     this.client!.publish({ destination, body });
   }
@@ -652,7 +643,6 @@ class WebSocketService {
     const payload: any = { 
       message: signalString
     };
-    console.log(`[WS] Sending call signal to ${recipientId}:`, payload);
     const body = JSON.stringify(payload);
     this.client!.publish({ destination, body });
   }

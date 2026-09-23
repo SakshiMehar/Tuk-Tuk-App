@@ -65,7 +65,6 @@ export const registerForPushNotifications = async ({ force = false } = {}) => {
 
       if (!deviceToken) return null;
       currentDeviceToken = deviceToken;
-      console.log("[FCM] token:", deviceToken);
 
       // Only register with backend if user has an active, valid login session
       const authToken = await getBearerToken();
@@ -77,23 +76,10 @@ export const registerForPushNotifications = async ({ force = false } = {}) => {
       const registrationKey = `${userId || "unknown"}_${deviceToken}`;
 
       if (!force && lastRegisteredKey === registrationKey) {
-        console.log("[pushNotificationService] Device token already registered for this user — skipping duplicate POST.", {
-          userId: userId ?? "unknown",
-          tokenExists: true,
-          tokenLength: deviceToken.length,
-          platform: (Platform.OS || "android").toUpperCase(),
-        });
         return deviceToken;
       }
 
       registrationAttemptCount += 1;
-      console.log(`[pushNotificationService] Triggering registration (attempt #${registrationAttemptCount})`, {
-        userId: userId ?? "unknown",
-        tokenExists: true,
-        tokenLength: deviceToken.length,
-        platform: (Platform.OS || "android").toUpperCase(),
-        attempt: registrationAttemptCount,
-      });
 
       // Register the device token with the backend.
       try {
@@ -175,7 +161,6 @@ export const initPushNotificationListeners = ({
 
   const unsubscribeOnTokenRefresh = onTokenRefresh(messagingInstance, async (token) => {
     currentDeviceToken = token;
-    console.log("[FCM] token (refreshed):", token);
 
     // When Firebase generates a new token, update backend only if logged in and changed
     try {
@@ -200,7 +185,6 @@ export const initPushNotificationListeners = ({
       ...(remoteMessage?.notification ?? {}),
       ...(remoteMessage?.data ?? {}),
     };
-    console.log("[pushNotificationService] onNotificationOpenedApp payload:", payload);
     if (Object.keys(payload).length > 0) {
       onNotificationTap?.({ data: payload, isInitial: false });
     }
@@ -213,7 +197,6 @@ export const initPushNotificationListeners = ({
         ...(remoteMessage?.notification ?? {}),
         ...(remoteMessage?.data ?? {}),
       };
-      console.log("[pushNotificationService] getInitialNotification payload:", payload);
       if (Object.keys(payload).length > 0) {
         setPendingNotification(payload);
         onNotificationTap?.({ data: payload, isInitial: true });

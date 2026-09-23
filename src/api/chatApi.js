@@ -12,10 +12,6 @@ export const getUserMessages = async (userId) => {
     await authRequestConfig()
   );
 
-  console.log("[CHAT API] Status:", response.status);
-  console.log("[CHAT API] Response:", response.data);
-
-
   return response.data;
 };
 

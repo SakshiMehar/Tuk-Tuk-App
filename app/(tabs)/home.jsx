@@ -3741,7 +3741,6 @@ export default function Home() {
   const handleNotificationPress = useCallback(
     async (notif) => {
       if (!notif) return;
-      console.log("[home] Notification item tapped:", JSON.stringify(notif, null, 2));
 
       if (unreadNotifications.includes(notif.id)) {
         setUnreadNotifications((prev) => prev.filter((id) => id !== notif.id));
@@ -3754,7 +3753,6 @@ export default function Home() {
       setTimeout(async () => {
         try {
           const success = await navigateFromNotification(router, notif);
-          console.log("[home] navigateFromNotification outcome:", success);
         } catch (navErr) {
           console.error("[home] Navigation error on notification tap:", navErr);
         }

@@ -275,12 +275,6 @@ export const normalizeChatMessage = (msg, index = 0) => {
     msg?.data?.senderAvatar,
   );
 
-  // Temporary diagnostic — confirms whether the backend sends any sender-avatar
-  // field on chat socket payloads at all (unlike seat/participant payloads, which
-  // do). Remove once confirmed.
-  // console.log("[partyService] chat msg RAW ->", JSON.stringify(msg));
-  // console.log("[partyService] chat msg avatar resolved ->", rawAvatar);
-
   // Backend embeds this directly on the message/sender only when that
   // sender's own XP clears the VIP threshold — absent/null otherwise.
   const rawVipProfileFrame = firstText(

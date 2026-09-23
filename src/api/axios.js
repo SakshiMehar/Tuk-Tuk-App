@@ -98,9 +98,6 @@ API.interceptors.request.use(
     const token = await getBearerToken();
     _s.token = token;
 
-    // TEMP DEBUG — remove before committing.
-    console.log("[axios] LOGIN TOKEN:", token);
-
     if (token) {
       const auth = `Bearer ${token}`;
       if (!config.headers) config.headers = {};
@@ -151,9 +148,17 @@ API.interceptors.response.use(
       status === 404 &&
       /\/api\/app\/invite-friends\//i.test(requestUrl);
 
+    // Suppress 404 "no active PK battle" — this is the normal, expected
+    // response for a room with no ongoing battle; calling code already
+    // treats it as null, not an error.
+    const isNoActivePkBattle =
+      status === 404 &&
+      /\/api\/app\/pk-battles\/room\/[^/]+\/active/i.test(requestUrl);
+
     const shouldSuppressLog =
       isSeatOccupied ||
       isPendingInviteFriendsApi ||
+      isNoActivePkBattle ||
       (status === 401 && _s.handlingUnauth);
 
     if (!shouldSuppressLog) {
@@ -182,7 +187,6 @@ API.interceptors.response.use(
             if (!rToken) {
               throw new Error("No refresh token available");
             }
-            console.log("[axios] refresh started");
 
             const res = await axios.post(
               `${API_BASE_URL}/api/auth/refresh-token`,
@@ -212,10 +216,8 @@ API.interceptors.response.use(
               _s.refreshToken = String(newRefreshToken);
             }
             _s.handlingUnauth = false;
-            console.log("[axios] refresh succeeded");
             return String(newAccessToken);
           } catch (refreshErr) {
-            console.log("[axios] refresh failed");
             _s.token = null;
             _s.refreshToken = null;
             await AsyncStorage.multiRemove([

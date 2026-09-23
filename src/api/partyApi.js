@@ -25,11 +25,9 @@ import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axi
 const LOG_TAG = "[PartyAPI]";
 
 const logRequest = (method, path, payload) => {
-  console.log(`${LOG_TAG} → ${method} ${path}`, payload ?? "");
 };
 
 const logResponse = (method, path, data) => {
-  console.log(`${LOG_TAG} ← ${method} ${path}`, data);
 };
 
 const logError = (method, path, error) => {

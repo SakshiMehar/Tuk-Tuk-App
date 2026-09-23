@@ -92,7 +92,6 @@ const applyPendingInviteCodeIfAny = async () => {
   try {
     await redeemInviteCode(code);
   } catch (err) {
-    console.log("[authSessionService] invite code redeem failed:", err?.message ?? err);
   } finally {
     await clearPendingInviteCode();
   }

@@ -94,7 +94,6 @@ export const syncUserLevelForSession = async () => {
   try {
     await loadGamificationLevel();
   } catch (err) {
-    console.log("[userLevelService] GET /api/app/gamification/me/level failed ->", err?.message || err);
   }
 
   // The gamification profile is the authoritative level/XP source now — prefer it,

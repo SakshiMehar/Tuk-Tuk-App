@@ -7,14 +7,20 @@ import API, {
 const LOG_TAG = "[PkBattleAPI]";
 
 const logRequest = (method, path, payload) => {
-  console.log(`${LOG_TAG} → ${method} ${path}`, payload ?? "");
 };
 
 const logResponse = (method, path, data) => {
-  console.log(`${LOG_TAG} ← ${method} ${path}`, data);
 };
 
 const logError = (method, path, error) => {
+  // A 404 on the room's "active battle" endpoint just means there is no
+  // ongoing battle right now — expected, not an error worth logging.
+  const isNoActivePkBattle =
+    method === "GET" &&
+    /\/api\/app\/pk-battles\/room\/[^/]+\/active$/.test(path) &&
+    (error?.status ?? error?.response?.status) === 404;
+  if (isNoActivePkBattle) return;
+
   console.error(
     `${LOG_TAG} ✗ ${method} ${path}`,
     error?.response?.data ?? error?.message ?? error

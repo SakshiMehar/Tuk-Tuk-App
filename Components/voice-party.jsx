@@ -7,6 +7,7 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import {
   AlertCircle,
   Ban,
+  BadgeCheck,
   Crown,
   LayoutGrid,
   MessageCircle,
@@ -138,6 +139,15 @@ import {
 } from "../src/services/relationshipService";
 import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
+import {
+  getPkBattleRole,
+  isPkBattleLive,
+  isPkBattlePending,
+  loadActivePkBattle,
+  normalizePkBattle,
+  respondPkBattle,
+  startPkBattle,
+} from "../src/services/pkBattleService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
@@ -150,6 +160,9 @@ import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import PkAcceptTeamModal from "./PkAcceptTeamModal";
+import PkBattleModal from "./PkBattleModal";
+import PkLiveBanner from "./PkLiveBanner";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
@@ -1522,9 +1535,20 @@ export default function VoiceParty() {
     { claimed: false, rewardImg: null },
     { claimed: false, rewardImg: null },
   ]);
-  const [showTreasureBox, setShowTreasureBox] = useState(false);
   const [showDiamondRecharge, setShowDiamondRecharge] = useState(false);
   const [rechargeInitialTab, setRechargeInitialTab] = useState("diamonds");
+  const [showTreasureBox, setShowTreasureBox] = useState(false);
+  const [showPkBattle, setShowPkBattle] = useState(false);
+  const [showPkTeamAccept, setShowPkTeamAccept] = useState(false);
+  const [activePkBattle, setActivePkBattle] = useState(null);
+  const [pkBattleActionLoading, setPkBattleActionLoading] = useState(false);
+  // Synchronous reentrancy guard — `pkBattleActionLoading` state only takes
+  // effect on the next render, so a real double-tap (two touch events before
+  // React re-renders) can slip two requests through the state check alone.
+  // The double request is what actually produces the "conflicts with
+  // existing data" 409: the first create/respond succeeds, the second hits
+  // the battle the first just made.
+  const pkBattleActionInFlightRef = useRef(false);
   const [showBackpack, setShowBackpack] = useState(false);
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
@@ -1710,10 +1734,6 @@ export default function VoiceParty() {
       fetchedUiAssetIdsRef.current.add(userId);
       getUserUiAssets(userId)
         .then((response) => {
-          console.log(
-            `[VoiceParty] ui-assets userId=${userId}:`,
-            JSON.stringify(response),
-          );
           const showFrame = Boolean(
             response?.showNewUserFrame ??
             response?.hasNewUserFrame ??
@@ -2261,14 +2281,7 @@ export default function VoiceParty() {
         try {
           loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
           if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
-          console.log(
-            "[VoiceParty] myVipAssets loaded, xp used:",
-            levelData?.xp?.totalXp,
-            "-> ",
-            JSON.stringify(loadedVip),
-          );
         } catch (e) {
-          console.log("[VoiceParty] loadMyVipAssets threw:", e?.message ?? e);
         }
         let session;
         if (isRandomParty) {
@@ -2301,9 +2314,6 @@ export default function VoiceParty() {
           }),
         );
         setOnlineUsers(session.onlineUsers);
-        console.log(
-          `[joinRoom onlineCount] room ${roomId}: onlineCount=${session.onlineCount}, onlineUsers.length=${session.onlineUsers?.length}`
-        );
         setOnlineCount(session.onlineCount);
 
         // Show entry toast banner immediately upon entering the room
@@ -2545,11 +2555,9 @@ export default function VoiceParty() {
     if (!roomId) return undefined;
     const activeRoomId = String(roomId);
 
-    console.log(`[VoiceParty] Initializing WebSocket subscriptions for room: ${activeRoomId}`);
     wsService
       .connect()
       .then(() => {
-        console.log(`[VoiceParty] WS connected, joining room: ${activeRoomId}`);
         wsService.joinRoom(activeRoomId);
       })
       .catch((err) => {
@@ -2767,7 +2775,6 @@ export default function VoiceParty() {
       (payload) => {
         if (!payload) return;
         const eventType = String(payload.eventType || payload.type || "").toUpperCase();
-        console.log(`[VoiceParty Notification] 🔔 Event: ${eventType}`, payload);
         const uId = payload.userId != null ? String(payload.userId) : null;
         const uName = payload.userName || payload.senderName || payload.name || "User";
         const uAvatar =
@@ -3061,7 +3068,6 @@ export default function VoiceParty() {
               await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
               setIsMicMuted(false);
             } catch (e) {
-              console.log("Failed to unmute mic:", e);
             }
           }
 
@@ -3340,7 +3346,6 @@ export default function VoiceParty() {
         if (cancelled) return;
         if (typeof count === "number") setOnlineCount(count);
       } catch (error) {
-        console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
       }
     };
 
@@ -3899,6 +3904,80 @@ export default function VoiceParty() {
     } finally {
       buyingGiftRef.current = false;
       setCatalogLoading(false);
+    }
+  };
+
+  const toNumericId = (id) => {
+    const n = Number(id);
+    return Number.isFinite(n) ? n : id;
+  };
+
+  const handlePkConfirm = async ({ mode, opponentId, teamMemberIds, durationMinutes }) => {
+    if (!isHostSelf) {
+      Alert.alert("Not allowed", "Only the room host can start a PK battle.");
+      return;
+    }
+    if (pkBattleActionInFlightRef.current) return;
+    pkBattleActionInFlightRef.current = true;
+    setPkBattleActionLoading(true);
+    try {
+      const battle = await startPkBattle({
+        roomId,
+        opponentHostId: toNumericId(opponentId),
+        durationMinutes,
+        teamAMemberIds:
+          mode === "team" && teamMemberIds?.length
+            ? teamMemberIds.map(toNumericId)
+            : [],
+      });
+      setActivePkBattle(battle);
+      setShowPkBattle(false);
+    } catch (err) {
+      if (err?.status === 409) {
+        // A battle for this room already exists server-side (most often
+        // one this same request duplicated) — pull the real one and show
+        // it instead of leaving the user stuck on a bare error.
+        setShowPkBattle(false);
+        loadActivePkBattle(String(roomId))
+          .then((fresh) => {
+            if (fresh) {
+              setActivePkBattle(fresh);
+            } else {
+              Alert.alert("Couldn't start PK", err?.message || "Please try again.");
+            }
+          })
+          .catch(() => Alert.alert("Couldn't start PK", err?.message || "Please try again."));
+      } else {
+        Alert.alert("Couldn't start PK", err?.message || "Please try again.");
+      }
+    } finally {
+      pkBattleActionInFlightRef.current = false;
+      setPkBattleActionLoading(false);
+    }
+  };
+
+  const handlePkRespond = async (accepted, teamMemberIds) => {
+    if (!activePkBattle?.id || pkBattleActionInFlightRef.current) return;
+    pkBattleActionInFlightRef.current = true;
+    setPkBattleActionLoading(true);
+    try {
+      const battle = await respondPkBattle(
+        activePkBattle.id,
+        accepted,
+        Array.isArray(teamMemberIds) && teamMemberIds.length
+          ? teamMemberIds.map(toNumericId)
+          : undefined,
+      );
+      setActivePkBattle(battle);
+      setShowPkTeamAccept(false);
+    } catch (err) {
+      Alert.alert(
+        accepted ? "Couldn't accept" : "Couldn't reject",
+        err?.message || "Please try again.",
+      );
+    } finally {
+      pkBattleActionInFlightRef.current = false;
+      setPkBattleActionLoading(false);
     }
   };
 
@@ -5546,6 +5625,45 @@ export default function VoiceParty() {
         onSelectChest={selectChest}
       />
 
+      <PkBattleModal
+        visible={showPkBattle}
+        onClose={() => setShowPkBattle(false)}
+        roomUsers={pkOpponentCandidates}
+        submitting={pkBattleActionLoading}
+        onConfirm={handlePkConfirm}
+      />
+
+      <PkAcceptTeamModal
+        visible={showPkTeamAccept}
+        onClose={() => setShowPkTeamAccept(false)}
+        hostAName={activePkBattle?.hostAName}
+        roomUsers={pkOpponentCandidates.filter(
+          (u) => !isSameUser(u.id, activePkBattle?.hostAId),
+        )}
+        submitting={pkBattleActionLoading}
+        onConfirm={(teamMemberIds) => handlePkRespond(true, teamMemberIds)}
+      />
+
+      <PkLiveBanner
+        battle={activePkBattle}
+        role={getPkBattleRole(activePkBattle, myUserId)}
+        actionLoading={pkBattleActionLoading}
+        topOffset={insets.top + 64}
+        resolveUser={(id) => {
+          const seat = (seats || []).find((s) => s?.user && isSameUser(s.user.id, id));
+          return seat ? { name: seat.user.name, avatar: seat.user.avatar } : null;
+        }}
+        onAccept={() => {
+          if (activePkBattle?.teamAMemberIds?.length) {
+            setShowPkTeamAccept(true);
+          } else {
+            handlePkRespond(true);
+          }
+        }}
+        onReject={() => handlePkRespond(false)}
+        onDismiss={() => setActivePkBattle(null)}
+      />
+
       <RoomUserProfilePopup
         visible={Boolean(profilePopupUser || profilePopupLoading)}
         user={profilePopupUser}
@@ -5860,8 +5978,24 @@ export default function VoiceParty() {
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
-                onPress={() => {
+                onPress={async () => {
                   setShowPlayCenter(false);
+                  // Re-check with the server instead of trusting local state —
+                  // the initial room-join fetch may still be in flight, or a
+                  // websocket drop could have left `activePkBattle` stale,
+                  // and either way opening the sheet on stale info just gets
+                  // rejected by the backend with a 409 on Confirm.
+                  const fresh = await loadActivePkBattle(String(roomId)).catch(
+                    () => activePkBattle,
+                  );
+                  setActivePkBattle(fresh);
+                  if (isPkBattlePending(fresh) || isPkBattleLive(fresh)) {
+                    Alert.alert(
+                      "PK battle in progress",
+                      "This room already has an active PK battle. Wait for it to finish before starting a new one.",
+                    );
+                    return;
+                  }
                   setTimeout(() => {
                     setBackpackMainTab("PK");
                     setShowBackpack(true);
@@ -6753,9 +6887,7 @@ export default function VoiceParty() {
             <TouchableOpacity
               style={styles.headerBtn}
               onPress={() => {
-                getClaimedSeats(String(roomId))
-                  .then((data) => console.log("[claimed-seat]", data))
-                  .catch((err) => console.log("[claimed-seat] failed", err));
+                getClaimedSeats(String(roomId)).catch(() => {});
                 setShowActiveUsersModal(true);
               }}
             >
@@ -7166,6 +7298,11 @@ export default function VoiceParty() {
                             source={resolveLocalLevelBadge(msg.level)}
                             style={styles.lvBadgeImg}
                             resizeMode="contain"
+                          />
+                          <BadgeCheck
+                            size={14}
+                            color="#3897f0"
+                            strokeWidth={2.2}
                           />
                           {senderVipLogo && (
                             <Image
