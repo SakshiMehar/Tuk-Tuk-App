@@ -58,7 +58,6 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { refreshTokenCache } from "../src/api/axios";
 import {
   followRoom,
@@ -134,19 +133,11 @@ import {
   blockUser,
   followUser,
   isSameUser,
-  loadFollowing,
   loadRelationshipStatus,
   unfollowUser,
 } from "../src/services/relationshipService";
 import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
-import {
-  getPkBattleRole,
-  loadActivePkBattle,
-  normalizePkBattle,
-  respondPkBattle,
-  startPkBattle,
-} from "../src/services/pkBattleService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
@@ -159,8 +150,6 @@ import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
-import PkBattleModal from "./PkBattleModal";
-import PkLiveBanner from "./PkLiveBanner";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
@@ -722,7 +711,7 @@ const RoomActivityEventBanner = ({ event, onDismiss, onClap }) => {
           runOnJS(onDismiss)();
         }
       });
-    }, 3600);
+    }, 2000);
 
     return () => clearTimeout(timer);
   }, [event, SW, onDismiss, opacity, translateX]);
@@ -991,14 +980,11 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
 const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
   const { W: SW } = useResponsive();
 
-  const translateX = useSharedValue(-SW);
+  const translateX = useSharedValue(-SW * 0.9);
   const opacity = useSharedValue(0);
   const scaleAnim = useSharedValue(0.2);
   const pulseScale = useSharedValue(1);
   const badgeScale = useSharedValue(0);
-  const floatAnim = useSharedValue(0);
-  const rotateAnim = useSharedValue(0);
-  const glowPulse = useSharedValue(1);
 
   const visual = useMemo(
     () => resolveGiftVisual(gift, catalog),
@@ -1017,86 +1003,49 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
 
   useEffect(() => {
     // 1. Entrance slide & pop
-    opacity.value = withTiming(1, { duration: 250 });
-    translateX.value = withSpring(0, { damping: 14, stiffness: 120 });
+    opacity.value = withTiming(1, { duration: 220 });
+    translateX.value = withSpring(0, { damping: 14, stiffness: 140 });
     scaleAnim.value = withSequence(
-      withDelay(80, withSpring(1.45, { damping: 6, stiffness: 180 })),
-      withSpring(1.0, { damping: 11, stiffness: 120 }),
+      withDelay(60, withSpring(1.25, { damping: 7, stiffness: 180 })),
+      withSpring(1.0, { damping: 12, stiffness: 140 }),
     );
 
     // 2. Dynamic Big & Small pulsing scale animation
     pulseScale.value = withDelay(
-      300,
-      withRepeat(
-        withSequence(
-          withTiming(1.35, { duration: 380 }),
-          withTiming(0.88, { duration: 380 }),
-          withTiming(1.22, { duration: 320 }),
-          withTiming(1.0, { duration: 320 }),
-        ),
-        -1,
-        true,
-      ),
-    );
-
-    // 3. Floating bobbing & sway
-    floatAnim.value = withDelay(
-      250,
-      withRepeat(
-        withSequence(
-          withTiming(-5, { duration: 500 }),
-          withTiming(5, { duration: 500 }),
-        ),
-        -1,
-        true,
-      ),
-    );
-
-    rotateAnim.value = withDelay(
-      250,
-      withRepeat(
-        withSequence(
-          withTiming(-12, { duration: 480 }),
-          withTiming(12, { duration: 480 }),
-        ),
-        -1,
-        true,
-      ),
-    );
-
-    // 4. Glow aura pulse
-    glowPulse.value = withDelay(
       200,
       withRepeat(
         withSequence(
-          withTiming(1.2, { duration: 400 }),
-          withTiming(0.95, { duration: 400 }),
+          withTiming(1.2, { duration: 300 }),
+          withTiming(0.92, { duration: 300 }),
+          withTiming(1.1, { duration: 250 }),
+          withTiming(1.0, { duration: 250 }),
         ),
         -1,
         true,
       ),
     );
 
-    // 5. Multiplier badge pop
+    // 3. Multiplier badge pop
     badgeScale.value = withDelay(
-      220,
+      180,
       withSequence(
-        withSpring(1.4, { damping: 6, stiffness: 190 }),
+        withSpring(1.3, { damping: 6, stiffness: 190 }),
         withSpring(1.0, { damping: 12, stiffness: 120 }),
       ),
     );
 
+    // 4. Display for 2 seconds then smoothly slide out and fade
     const timer = setTimeout(() => {
-      opacity.value = withTiming(0, { duration: 380 });
-      translateX.value = withTiming(SW * 0.45, { duration: 380 }, (finished) => {
+      opacity.value = withTiming(0, { duration: 240 });
+      translateX.value = withTiming(-SW * 0.9, { duration: 240 }, (finished) => {
         if (finished && onComplete) {
           runOnJS(onComplete)();
         }
       });
-    }, 3600);
+    }, 2000);
 
     return () => clearTimeout(timer);
-  }, [SW, badgeScale, floatAnim, glowPulse, onComplete, opacity, pulseScale, rotateAnim, scaleAnim, translateX]);
+  }, [SW, badgeScale, onComplete, opacity, pulseScale, scaleAnim, translateX]);
 
   const bannerAnimStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -1106,14 +1055,7 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
   const giftEmojiAnimStyle = useAnimatedStyle(() => ({
     transform: [
       { scale: scaleAnim.value * pulseScale.value },
-      { translateY: floatAnim.value },
-      { rotate: `${rotateAnim.value}deg` },
     ],
-  }));
-
-  const glowAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: glowPulse.value }],
-    opacity: 0.75,
   }));
 
   const badgeAnimStyle = useAnimatedStyle(() => ({
@@ -1131,9 +1073,9 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
     >
       <LinearGradient
         colors={[
-          "rgba(48, 14, 98, 0.97)",
-          "rgba(82, 24, 148, 0.95)",
-          "rgba(124, 58, 237, 0.92)",
+          "rgba(26, 12, 54, 0.96)",
+          "rgba(48, 18, 92, 0.92)",
+          "rgba(76, 29, 149, 0.90)",
         ]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
@@ -1160,7 +1102,7 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
             </View>
           )}
           <View style={styles.giftBannerSparkleBadge}>
-            <Text style={{ fontSize: ms(11) }}>⭐</Text>
+            <Text style={{ fontSize: 9, lineHeight: 10 }}>⭐</Text>
           </View>
         </View>
 
@@ -1170,21 +1112,27 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
             {senderName}
           </Text>
           <Text style={styles.giftBannerActionText} numberOfLines={1}>
-            sent {visual.name} {receiverText}
+            sent {visual.name || "gift"} {receiverText}
           </Text>
         </View>
 
-        {/* Right: Pop Animated Gift Emoji with Big/Small Pulse inside circle */}
+        {/* Right: Pop Animated Gift Visual with Multiplier Badge */}
         <View style={styles.giftBannerVisualWrap}>
-          <Animated.View
-            style={[styles.giftBannerGlowBackdrop, glowAnimStyle]}
-          />
+          <View style={styles.giftBannerGlowBackdrop} />
           <Animated.View
             style={[styles.giftBannerImageContainer, giftEmojiAnimStyle]}
           >
-            <Text style={styles.giftBannerEmojiMain}>
-              {displayEmoji}
-            </Text>
+            {visual.image ? (
+              <Image
+                source={visual.image}
+                style={styles.giftBannerImage}
+                resizeMode="contain"
+              />
+            ) : (
+              <Text style={styles.giftBannerEmojiMain}>
+                {displayEmoji}
+              </Text>
+            )}
           </Animated.View>
 
           {/* Multiplier Badge */}
@@ -1306,7 +1254,6 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
 
 export default function VoiceParty() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const roomIdParam = params.roomId ?? params.id ?? null;
   const isRandomParty = params.party === "true";
@@ -1547,22 +1494,6 @@ export default function VoiceParty() {
   );
 
   const seatedUsersCount = (seats || []).filter((s) => s?.user).length;
-  // Everyone else currently seated — the pool a PK challenge can be started
-  // against (opponentHostId) or teammates recruited from (teamAMemberIds).
-  const pkOpponentCandidates = useMemo(
-    () =>
-      (seats || [])
-        .filter(
-          (seat) =>
-            seat?.user && seat.user.id != null && !isSameUser(seat.user.id, myUserId),
-        )
-        .map((seat) => ({
-          id: String(seat.user.id),
-          name: seat.user.name || seat.user.username || "User",
-          avatar: seat.user.avatar || null,
-        })),
-    [seats, myUserId],
-  );
   const exitedRef = useRef(false);
   const onMicRef = useRef(false);
   const mySeatNumberRef = useRef(null);
@@ -1592,6 +1523,8 @@ export default function VoiceParty() {
     { claimed: false, rewardImg: null },
   ]);
   const [showTreasureBox, setShowTreasureBox] = useState(false);
+  const [showDiamondRecharge, setShowDiamondRecharge] = useState(false);
+  const [rechargeInitialTab, setRechargeInitialTab] = useState("diamonds");
   const [showBackpack, setShowBackpack] = useState(false);
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
@@ -2623,12 +2556,6 @@ export default function VoiceParty() {
         console.error("[VoiceParty] WS connection error:", err?.message || err);
       });
 
-    loadActivePkBattle(activeRoomId)
-      .then(setActivePkBattle)
-      .catch(() => {
-        // Non-critical — the room's `pk` topic will push the current card.
-      });
-
     const appendChatMessage = (payload) => {
       setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -2835,10 +2762,6 @@ export default function VoiceParty() {
         );
       },
     );
-    const unsubPk = wsService.onRoomPk(String(roomId), (payload) => {
-      setActivePkBattle(normalizePkBattle(payload));
-    });
-
     const unsubNotifications = wsService.onRoomNotifications(
       String(roomId),
       (payload) => {
@@ -2868,11 +2791,14 @@ export default function VoiceParty() {
                 profilePicUrl: uAvatar,
               };
 
-              enqueueActivityEvent({
-                id: `ws-enter-${uId}-${Date.now()}`,
-                type: "enter",
-                user: joinedUser,
-              });
+              // Only enqueue toast if not self (self entry toast is triggered on room enter)
+              if (String(uId) !== String(myUserId)) {
+                enqueueActivityEvent({
+                  id: `ws-enter-${uId}-${Date.now()}`,
+                  type: "enter",
+                  user: joinedUser,
+                });
+              }
 
               setOnlineUsers((prev) => {
                 const exists = prev.some((u) => String(u?.id ?? u?.userId) === uId);
@@ -3079,11 +3005,6 @@ export default function VoiceParty() {
         .catch(() => {
           // Non-critical — a later reconnect or user action will re-sync.
         });
-      loadActivePkBattle(String(roomId))
-        .then(setActivePkBattle)
-        .catch(() => {
-          // Non-critical — the room's `pk` topic will push the next update.
-        });
     });
     return () => {
       unsubChat();
@@ -3091,7 +3012,6 @@ export default function VoiceParty() {
       unsubUi();
       unsubSpeaking();
       unsubGiftAnimation();
-      unsubPk();
       unsubNotifications();
       unsubReconnect();
       if (!isNavigatingToInboxRef.current) {
@@ -3982,53 +3902,6 @@ export default function VoiceParty() {
     }
   };
 
-  const toNumericId = (id) => {
-    const n = Number(id);
-    return Number.isFinite(n) ? n : id;
-  };
-
-  const handlePkConfirm = async ({ mode, opponentId, teamMemberIds, durationMinutes }) => {
-    if (!isHostSelf) {
-      Alert.alert("Not allowed", "Only the room host can start a PK battle.");
-      return;
-    }
-    if (pkBattleActionLoading) return;
-    setPkBattleActionLoading(true);
-    try {
-      const battle = await startPkBattle({
-        roomId,
-        opponentHostId: toNumericId(opponentId),
-        durationMinutes,
-        teamAMemberIds:
-          mode === "team" && teamMemberIds?.length
-            ? teamMemberIds.map(toNumericId)
-            : [],
-      });
-      setActivePkBattle(battle);
-      setShowPkBattle(false);
-    } catch (err) {
-      Alert.alert("Couldn't start PK", err?.message || "Please try again.");
-    } finally {
-      setPkBattleActionLoading(false);
-    }
-  };
-
-  const handlePkRespond = async (accepted) => {
-    if (!activePkBattle?.id || pkBattleActionLoading) return;
-    setPkBattleActionLoading(true);
-    try {
-      const battle = await respondPkBattle(activePkBattle.id, accepted);
-      setActivePkBattle(battle);
-    } catch (err) {
-      Alert.alert(
-        accepted ? "Couldn't accept" : "Couldn't reject",
-        err?.message || "Please try again.",
-      );
-    } finally {
-      setPkBattleActionLoading(false);
-    }
-  };
-
   const handleSendBackpackGift = async () => {
     if (!selectedGift) {
       Alert.alert("Select a gift", "Choose a gift from your backpack first.");
@@ -4142,6 +4015,9 @@ export default function VoiceParty() {
 
       setSelectedGift(null);
       setGiftQty(1);
+      setShowBackpack(false);
+      setShowGiftPanel(false);
+      setShowGiftReceiverPicker(false);
     } catch (err) {
       Alert.alert("Send failed", err?.message || "Could not send gift.");
     }
@@ -4288,14 +4164,10 @@ export default function VoiceParty() {
 
     try {
       if (!isSameUser(userId, myUserId)) {
-        const [status, followingList] = await Promise.all([
-          loadRelationshipStatus(userId).catch(() => ({ following: false })),
-          loadFollowing().catch(() => []),
-        ]);
-        const followsFromList =
-          Array.isArray(followingList) &&
-          followingList.some((u) => isSameUser(u?.userId ?? u?.id, userId));
-        setProfilePopupFollowing(Boolean(status?.following) || followsFromList);
+        const status = await loadRelationshipStatus(userId).catch(() => ({
+          following: false,
+        }));
+        setProfilePopupFollowing(Boolean(status?.following));
       }
 
       // Fetch dynamic profile: GET /api/app/users/user/profile/:userId
@@ -4691,23 +4563,13 @@ export default function VoiceParty() {
         </Text>
         <Text style={styles.bpSendChev}> ▼</Text>
       </TouchableOpacity>
-      <View style={styles.bpSendQtyStepper}>
-        <TouchableOpacity
-          style={styles.bpSendQtyStepBtn}
-          activeOpacity={0.8}
-          onPress={() => setGiftQty((q) => (q > 1 ? q - 1 : 1))}
-        >
-          <Text style={styles.bpSendQtyStepText}>−</Text>
-        </TouchableOpacity>
-        <Text style={styles.bpSendQtyValue}>{giftQty}</Text>
-        <TouchableOpacity
-          style={styles.bpSendQtyStepBtn}
-          activeOpacity={0.8}
-          onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 99))}
-        >
-          <Text style={styles.bpSendQtyStepText}>+</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity
+        style={styles.bpSendQtyBtn}
+        activeOpacity={0.8}
+        onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
+      >
+        <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
+      </TouchableOpacity>
       <TouchableOpacity
         style={styles.bpSendBtn}
         activeOpacity={0.8}
@@ -4973,7 +4835,7 @@ export default function VoiceParty() {
             style={styles.backpackBox}
             onStartShouldSetResponder={() => true}
           >
-            <View style={{ height: H * 0.58 }}>
+            <View style={{ height: H * 0.82 }}>
               {/* Handle */}
               <View style={styles.shareHandle} />
 
@@ -5365,23 +5227,13 @@ export default function VoiceParty() {
                       </Text>
                       <Text style={styles.bpSendChev}> ▼</Text>
                     </TouchableOpacity>
-                    <View style={styles.bpSendQtyStepper}>
-                      <TouchableOpacity
-                        style={styles.bpSendQtyStepBtn}
-                        activeOpacity={0.8}
-                        onPress={() => setGiftQty((q) => (q > 1 ? q - 1 : 1))}
-                      >
-                        <Text style={styles.bpSendQtyStepText}>−</Text>
-                      </TouchableOpacity>
-                      <Text style={styles.bpSendQtyValue}>{giftQty}</Text>
-                      <TouchableOpacity
-                        style={styles.bpSendQtyStepBtn}
-                        activeOpacity={0.8}
-                        onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 99))}
-                      >
-                        <Text style={styles.bpSendQtyStepText}>+</Text>
-                      </TouchableOpacity>
-                    </View>
+                    <TouchableOpacity
+                      style={styles.bpSendQtyBtn}
+                      activeOpacity={0.8}
+                      onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
+                    >
+                      <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.bpSendBtn}
                       activeOpacity={0.8}
@@ -5694,29 +5546,6 @@ export default function VoiceParty() {
         onSelectChest={selectChest}
       />
 
-      <PkBattleModal
-        visible={showPkBattle}
-        onClose={() => setShowPkBattle(false)}
-        gifts={displayPkGifts}
-        roomUsers={pkOpponentCandidates}
-        submitting={pkBattleActionLoading}
-        onConfirm={handlePkConfirm}
-      />
-
-      <PkLiveBanner
-        battle={activePkBattle}
-        role={getPkBattleRole(activePkBattle, myUserId)}
-        actionLoading={pkBattleActionLoading}
-        topOffset={insets.top + 64}
-        resolveUser={(id) => {
-          const seat = (seats || []).find((s) => s?.user && isSameUser(s.user.id, id));
-          return seat ? { name: seat.user.name, avatar: seat.user.avatar } : null;
-        }}
-        onAccept={() => handlePkRespond(true)}
-        onReject={() => handlePkRespond(false)}
-        onDismiss={() => setActivePkBattle(null)}
-      />
-
       <RoomUserProfilePopup
         visible={Boolean(profilePopupUser || profilePopupLoading)}
         user={profilePopupUser}
@@ -6027,14 +5856,15 @@ export default function VoiceParty() {
                 <Text style={styles.playCenterLabel}>Lucky bag</Text>
               </TouchableOpacity>
 
-              {/* PK — opens the PK battle setup sheet */}
+              {/* PK — opens the Backpack's PK gifts tab */}
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
                 onPress={() => {
                   setShowPlayCenter(false);
                   setTimeout(() => {
-                    setShowPkBattle(true);
+                    setBackpackMainTab("PK");
+                    setShowBackpack(true);
                   }, 400);
                 }}
               >
@@ -6070,7 +5900,7 @@ export default function VoiceParty() {
                 onPress={() => setShowPowerMenu(false)}
               >
                 <View style={styles.playCenterIconWrap}>
-                  <Minimize2 size={20} color="#a78bfa" />
+                  <Minimize2 size={28} color="#a78bfa" />
                 </View>
                 <Text style={styles.playCenterLabel}>Keep</Text>
               </TouchableOpacity>
@@ -6087,7 +5917,7 @@ export default function VoiceParty() {
                 <View
                   style={[styles.playCenterIconWrap, styles.powerExitIconWrap]}
                 >
-                  <Power size={20} color="#ff6b6b" />
+                  <Power size={28} color="#ff6b6b" />
                 </View>
                 <Text style={[styles.playCenterLabel, { color: "#ff6b6b" }]}>
                   Exit
@@ -6570,7 +6400,7 @@ export default function VoiceParty() {
                 <View style={styles.micPermPhoneBar2} />
                 {/* Mic icon inside the card */}
                 <View style={styles.micPermMicCircle}>
-                  <Mic size={17} color="#7c4dff" strokeWidth={2} />
+                  <Mic size={22} color="#7c4dff" strokeWidth={2} />
                 </View>
                 <View style={styles.micPermPhoneBar3} />
               </View>
@@ -7022,11 +6852,11 @@ export default function VoiceParty() {
               pointerEvents="none"
               style={{
                 position: "absolute",
-                bottom: vs(185),
-                left: s(16),
-                right: s(16),
+                bottom: vs(155),
+                left: s(14),
                 zIndex: 10000,
                 elevation: 100,
+                maxWidth: W * 0.78,
               }}
             >
               {activeGiftDisplays.map((item) => (
@@ -7477,7 +7307,7 @@ export default function VoiceParty() {
             </View>
           </View>
         </ScrollView>
-        {(voiceListenStatus !== "idle" || voiceDiagnostics?.joined) && (
+        {/* {(voiceListenStatus !== "idle" || voiceDiagnostics?.joined) && (
           <Text style={styles.voiceDebugText} numberOfLines={2}>
             Audio: {voiceListenStatus}
             {voiceDiagnostics?.joined ? " · connected" : ""}
@@ -7488,7 +7318,7 @@ export default function VoiceParty() {
                 : ""}
             {isSpeakerMuted ? " · speaker off" : ""}
           </Text>
-        )}
+        )} */}
 
         {/* ── BOTTOM DOCK: buttons above chat input ── */}
         <View
@@ -8721,12 +8551,12 @@ const styles = StyleSheet.create({
   // ── Power modal ──
   powerBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    minWidth: 170,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    minWidth: 220,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -8777,12 +8607,12 @@ const styles = StyleSheet.create({
   },
   playCenterBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    minWidth: 170,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    minWidth: 220,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -8791,32 +8621,32 @@ const styles = StyleSheet.create({
   },
   playCenterTitle: {
     color: "white",
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "700",
-    marginBottom: 10,
+    marginBottom: 16,
   },
   playCenterRow: {
     flexDirection: "row",
-    gap: 16,
+    gap: 24,
   },
   playCenterItem: {
     alignItems: "center",
-    gap: 6,
+    gap: 8,
   },
   playCenterIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: "rgba(124,77,255,0.2)",
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
-  playCenterEmoji: { fontSize: 20 },
+  playCenterEmoji: { fontSize: 28 },
   playCenterLabel: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "600",
   },
   powerExitIconWrap: {
@@ -9369,38 +9199,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(167,139,250,0.25)",
   },
   bpSendQtyText: { color: "#3D1A80", fontSize: 13, fontWeight: "700" },
-  bpSendQtyStepper: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(124,77,255,0.15)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    gap: 4,
-  },
-  bpSendQtyStepBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(124,77,255,0.3)",
-  },
-  bpSendQtyStepText: {
-    color: "#3D1A80",
-    fontSize: 15,
-    fontWeight: "800",
-    lineHeight: 16,
-  },
-  bpSendQtyValue: {
-    color: "#3D1A80",
-    fontSize: 13,
-    fontWeight: "700",
-    minWidth: 18,
-    textAlign: "center",
-  },
   bpSendBtn: {
     backgroundColor: "#7c4dff",
     borderRadius: 20,
@@ -9858,37 +9656,36 @@ const styles = StyleSheet.create({
   },
   // ── Floating Gift Banner Display ──
   giftBannerCard: {
-    width: "100%",
-    maxWidth: s(340),
-    alignSelf: "center",
-    borderRadius: s(28),
+    maxWidth: W * 0.78,
+    borderRadius: 24,
     borderWidth: 1.5,
-    borderColor: "rgba(255, 215, 0, 0.85)",
-    shadowColor: "#a855f7",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.75,
-    shadowRadius: 14,
-    elevation: 14,
+    borderColor: "rgba(255, 215, 0, 0.9)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.45,
+    shadowRadius: 6,
+    elevation: 8,
     overflow: "visible",
-    marginBottom: vs(8),
+    marginBottom: vs(6),
   },
   giftBannerGradient: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: vs(7),
-    paddingLeft: s(10),
-    paddingRight: s(12),
-    borderRadius: s(26),
+    paddingVertical: 5,
+    paddingLeft: 6,
+    paddingRight: 8,
+    borderRadius: 24,
+    backgroundColor: "rgba(22, 10, 46, 0.92)",
   },
   giftBannerAvatarWrap: {
     position: "relative",
-    marginRight: s(10),
+    marginRight: 8,
   },
   giftBannerAvatar: {
-    width: s(44),
-    height: s(44),
-    borderRadius: s(22),
-    borderWidth: 2,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
     borderColor: "#FFD700",
   },
   giftBannerAvatarFallback: {
@@ -9898,106 +9695,98 @@ const styles = StyleSheet.create({
   },
   giftBannerAvatarInitial: {
     color: "#ffffff",
-    fontWeight: "900",
-    fontSize: ms(16),
+    fontWeight: "800",
+    fontSize: 13,
   },
   giftBannerSparkleBadge: {
     position: "absolute",
     bottom: -2,
-    right: -3,
+    right: -2,
     backgroundColor: "#FFD700",
-    borderRadius: s(8),
-    paddingHorizontal: s(2),
+    borderRadius: 6,
+    width: 13,
+    height: 13,
+    alignItems: "center",
+    justifyContent: "center",
   },
   giftBannerTextCol: {
-    flex: 1,
     justifyContent: "center",
-    paddingRight: s(6),
+    marginRight: 8,
+    maxWidth: W * 0.42,
   },
   giftBannerSenderName: {
     color: "#FFE500",
-    fontWeight: "900",
-    fontSize: ms(14.5),
-    letterSpacing: 0.3,
-    textShadowColor: "rgba(0,0,0,0.6)",
-    textShadowOffset: { width: 0, height: 1.5 },
-    textShadowRadius: 3,
+    fontWeight: "800",
+    fontSize: 12,
+    letterSpacing: 0.2,
   },
   giftBannerActionText: {
     color: "#FFFFFF",
-    fontSize: ms(11.5),
-    fontWeight: "700",
-    marginTop: vs(2),
-    textShadowColor: "rgba(0,0,0,0.5)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    fontSize: 10.5,
+    fontWeight: "600",
+    marginTop: 1,
   },
   giftBannerVisualWrap: {
+    marginLeft: "auto",
     position: "relative",
-    width: s(72),
-    height: s(72),
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
   },
   giftBannerGlowBackdrop: {
     position: "absolute",
-    width: s(64),
-    height: s(64),
-    borderRadius: s(32),
-    backgroundColor: "rgba(255, 215, 0, 0.22)",
-    borderWidth: 1.5,
-    borderColor: "rgba(255, 215, 0, 0.55)",
-    shadowColor: "#FFD700",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255, 215, 0, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 215, 0, 0.45)",
   },
   giftBannerImageContainer: {
-    width: s(68),
-    height: s(68),
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
   },
   giftBannerImage: {
-    width: s(64),
-    height: s(64),
+    width: 26,
+    height: 26,
+    borderRadius: 13,
   },
   giftBannerEmojiMain: {
-    fontSize: ms(36),
+    fontSize: 18,
     textAlign: "center",
     includeFontPadding: false,
     alignSelf: "center",
   },
   giftBannerEmojiBig: {
-    fontSize: ms(42),
+    fontSize: 22,
     textAlign: "center",
     includeFontPadding: false,
   },
   giftBannerMultiplierBadge: {
     position: "absolute",
-    top: -vs(5),
-    right: -s(6),
-    borderRadius: s(12),
+    top: -4,
+    right: -4,
+    borderRadius: 8,
     overflow: "hidden",
-    elevation: 8,
+    elevation: 6,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.5,
-    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
   },
   giftBannerMultiplierGrad: {
-    paddingHorizontal: s(7),
-    paddingVertical: vs(2.5),
-    borderRadius: s(12),
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 8,
   },
   giftBannerMultiplierText: {
     color: "#ffffff",
     fontWeight: "900",
-    fontSize: ms(13),
+    fontSize: 9.5,
     fontStyle: "italic",
-    textShadowColor: "rgba(0,0,0,0.7)",
-    textShadowOffset: { width: 0, height: 1.5 },
-    textShadowRadius: 3,
   },
 
   // ── Floating Gift Rise (Bottom to Top) ──
@@ -10114,9 +9903,9 @@ const styles = StyleSheet.create({
 
   // ── Mic permission warning card ──
   micPermCard: {
-    width: "68%",
+    width: "82%",
     backgroundColor: "#12082b",
-    borderRadius: 18,
+    borderRadius: 22,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.3)",
@@ -10124,7 +9913,7 @@ const styles = StyleSheet.create({
   // Top illustrated gradient section
   micPermIllustration: {
     width: "100%",
-    height: 130,
+    height: 170,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -10132,50 +9921,50 @@ const styles = StyleSheet.create({
   // Decorative background blobs
   micPermBlob1: {
     position: "absolute",
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: "rgba(124,77,255,0.25)",
-    top: -15,
-    left: -22,
+    top: -20,
+    left: -30,
   },
   micPermBlob2: {
     position: "absolute",
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     backgroundColor: "rgba(168,85,247,0.2)",
-    bottom: -8,
-    right: -8,
+    bottom: -10,
+    right: -10,
   },
   // Phone-shaped card in the illustration
   micPermPhoneCard: {
-    width: 88,
+    width: 110,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1.5,
     borderColor: "rgba(168,85,247,0.5)",
-    paddingHorizontal: 11,
-    paddingVertical: 9,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     alignItems: "flex-start",
-    gap: 5,
+    gap: 7,
   },
   micPermPhoneBar1: {
     width: "80%",
-    height: 6,
-    borderRadius: 3,
+    height: 7,
+    borderRadius: 4,
     backgroundColor: "rgba(168,85,247,0.6)",
   },
   micPermPhoneBar2: {
     width: "55%",
-    height: 6,
-    borderRadius: 3,
+    height: 7,
+    borderRadius: 4,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   micPermMicCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "rgba(124,77,255,0.25)",
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.5)",
@@ -10186,47 +9975,47 @@ const styles = StyleSheet.create({
   },
   micPermPhoneBar3: {
     width: "65%",
-    height: 6,
-    borderRadius: 3,
+    height: 7,
+    borderRadius: 4,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   // Small floating badge bottom-right of illustration
   micPermBadge: {
     position: "absolute",
-    bottom: 16,
-    right: 26,
+    bottom: 22,
+    right: 36,
     backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 7,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.4)",
-    padding: 5,
+    padding: 7,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 5,
   },
   micPermBadgeDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: "#a855f7",
   },
   micPermBadgeLine: {
-    width: 18,
-    height: 4,
-    borderRadius: 2,
+    width: 24,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.5)",
   },
   // Text body section
   micPermBody: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 20,
   },
   micPermMsg: {
     color: "rgba(255,255,255,0.75)",
-    fontSize: 12.5,
+    fontSize: 14,
     textAlign: "center",
-    lineHeight: 18,
+    lineHeight: 21,
   },
   // Button row
   micPermBtnRow: {
@@ -10237,12 +10026,12 @@ const styles = StyleSheet.create({
   },
   micPermCancelBtn: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 16,
     alignItems: "center",
   },
   micPermCancelText: {
     color: "rgba(255,255,255,0.35)",
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "600",
   },
   micPermBtnDivider: {
@@ -10251,12 +10040,12 @@ const styles = StyleSheet.create({
   },
   micPermOkBtn: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 16,
     alignItems: "center",
   },
   micPermOkText: {
     color: "#a855f7",
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
   },
 
@@ -10592,9 +10381,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#1a0a2e",
   },
   activeUserInfo: {
     flex: 1,
@@ -10897,3 +10683,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+
+

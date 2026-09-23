@@ -24,6 +24,7 @@ import { loadDiamondStockPackages } from "../src/services/diamondStockService";
 import { getDiamondStockManager } from "../src/api/rechargeApi";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { getUser } from "../src/store/authStore";
+import { loadMyProfile } from "../src/services/meProfileService";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
@@ -34,6 +35,10 @@ import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import WalletDetailsModal from "./WalletDetailsModal";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+const BADGE_HEIGHT = 16;
+const LEVEL_BADGE_ASPECT = 142 / 149;
+const DECORATION_BADGE_ASPECT = 438 / 179;
 
 const REWARD_GEMS_IMAGE = {
   uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Treasure/reward-gems.png",
@@ -153,28 +158,38 @@ export default function DiamondRechargeModal({
     }
   }, [visible, initialTab]);
 
-  // Load user profile and level data
+  // Load user profile, level, badges and XP progress dynamically
   const loadUserData = useCallback(async () => {
     try {
-      const [storedUser, levelResult] = await Promise.all([
-        getUser(),
-        syncUserLevelForSession(),
+      const [storedUser, profileData, levelResult] = await Promise.all([
+        getUser().catch(() => null),
+        loadMyProfile().catch(() => null),
+        syncUserLevelForSession().catch(() => null),
       ]);
-      setUser(storedUser);
-      setLevel(levelResult?.level ?? 1);
+
+      const mergedUser = {
+        ...(storedUser || {}),
+        ...(profileData || {}),
+      };
+
+      setUser(mergedUser);
+      const resolvedLevel = levelResult?.level ?? mergedUser?.level ?? 1;
+      setLevel(resolvedLevel);
       setGamificationXp(levelResult?.xp ?? null);
 
-      const vipAssets = await loadMyVipAssets(levelResult?.xp?.totalXp).catch(() => null);
+      const totalXp = levelResult?.xp?.totalXp ?? levelResult?.xp?.currentLevelXp ?? 0;
+      const vipAssets = await loadMyVipAssets(totalXp).catch(() => null);
       setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
       setVipLogo(vipAssets?.unlocked ? vipAssets.logo : null);
 
-      const myUserId = storedUser?.id ?? storedUser?.userId;
+      const myUserId = mergedUser?.id ?? mergedUser?.userId ?? (await getAppUserId().catch(() => null));
       if (myUserId) {
+        setUserId(myUserId);
         const decorations = await fetchUserDecorations(myUserId).catch(() => null);
         setDecorationBadgeUrl(decorations?.badgeUrl ?? null);
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("Could not load user data for recharge modal:", err);
     }
   }, []);
 
@@ -221,14 +236,13 @@ export default function DiamondRechargeModal({
     setAgentError(null);
     try {
       const [agentData, resolvedUserId] = await Promise.all([
-        loadOfflineRechargeAgent(),
-        getAppUserId(),
+        loadOfflineRechargeAgent().catch(() => null),
+        getAppUserId().catch(() => null),
       ]);
-      setAgent(agentData);
-      setUserId(resolvedUserId);
+      if (agentData) setAgent(agentData);
+      if (resolvedUserId) setUserId(resolvedUserId);
     } catch (err) {
-      setAgent(null);
-      setAgentError(err?.message || "Could not load recharge agent.");
+      // ignore
     } finally {
       setAgentLoading(false);
     }
@@ -372,13 +386,14 @@ export default function DiamondRechargeModal({
     );
   };
 
+  // Dynamic user fields
   const avatarSource = resolveProfileAvatarSource(user);
-  const username = user?.name || "sakku";
+  const username = user?.name || user?.nickname || user?.displayName || user?.username || "User";
 
-  const resolvedXpTarget = VIP_XP_THRESHOLD || 1000;
+  const resolvedXpTarget = gamificationXp?.nextLevelRequiredXp || VIP_XP_THRESHOLD || 1000;
   const resolvedXpCurrent = Math.max(
     0,
-    Math.min(gamificationXp?.totalXp ?? 0, resolvedXpTarget)
+    Math.min(gamificationXp?.currentLevelXp ?? gamificationXp?.totalXp ?? 0, resolvedXpTarget)
   );
   const progress =
     resolvedXpTarget > 0
@@ -498,13 +513,13 @@ export default function DiamondRechargeModal({
           ]}
           showsVerticalScrollIndicator={false}
         >
-          {/* USER INFO & LEVEL PROGRESS CARD */}
+          {/* DYNAMIC USER INFO & LEVEL PROGRESS CARD */}
           <View style={styles.userCard}>
             <View style={styles.avatarWrap}>
               <ProfileAvatarWithFrame
                 avatarSource={avatarSource}
                 frameSource={vipProfileFrame}
-                size={50}
+                size={52}
                 avatarStyle={styles.avatar}
                 placeholderInitial={username[0]?.toUpperCase() ?? "U"}
                 {...(vipProfileFrame
@@ -522,9 +537,29 @@ export default function DiamondRechargeModal({
             </View>
 
             <View style={styles.userInfoCol}>
-              <Text style={styles.userName} numberOfLines={1}>
-                {username}
-              </Text>
+              <View style={styles.userHeaderRow}>
+                <Text style={styles.userName} numberOfLines={1}>
+                  {username}
+                </Text>
+                <View style={styles.userBadgesRow}>
+                  <Image
+                    source={resolveLocalLevelBadge(level)}
+                    style={styles.levelBadge}
+                    resizeMode="contain"
+                  />
+                  {vipLogo && (
+                    <Image source={{ uri: vipLogo }} style={styles.vipBadge} resizeMode="contain" />
+                  )}
+                  {decorationBadgeUrl && (
+                    <Image
+                      source={{ uri: decorationBadgeUrl }}
+                      style={styles.decorationBadge}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
+              </View>
+
               <Text style={styles.xpText}>
                 {resolvedXpCurrent.toLocaleString("en-IN")}/
                 {resolvedXpTarget.toLocaleString("en-IN")}
@@ -546,8 +581,8 @@ export default function DiamondRechargeModal({
           {activeTab === "diamonds" && (
             <>
               {/* DIAMOND CARNIVAL BANNER */}
-              <View style={styles.bannerWrap}>
-                <LinearGradient
+              {/* <View style={styles.bannerWrap}> */}
+                {/* <LinearGradient
                   colors={["#581c87", "#831843", "#3b0764"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
@@ -564,15 +599,15 @@ export default function DiamondRechargeModal({
                     <Text style={styles.carnivalChestIcon}>💎 🎁 💎</Text>
                     <Text style={styles.carnivalSparkle}>✨ 💎 ✨</Text>
                   </View>
-                </LinearGradient>
+                </LinearGradient> */}
 
                 {/* Banner Carousel Indicator Dots */}
-                <View style={styles.carouselDotsRow}>
+                {/* <View style={styles.carouselDotsRow}>
                   <View style={[styles.dot, styles.dotActive]} />
                   <View style={styles.dot} />
                   <View style={styles.dot} />
-                </View>
-              </View>
+                </View> */}
+              {/* </View> */}
 
               {/* CONTACT US LINK */}
               <TouchableOpacity
@@ -1100,23 +1135,46 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   avatarWrap: {
-    width: 50,
-    height: 50,
+    width: 52,
+    height: 52,
   },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: "#374151",
   },
   userInfoCol: {
     flex: 1,
     gap: 4,
   },
+  userHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
   userName: {
     color: "#ffffff",
     fontSize: 15,
     fontWeight: "700",
+    flexShrink: 1,
+  },
+  userBadgesRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  levelBadge: {
+    height: BADGE_HEIGHT,
+    width: BADGE_HEIGHT * LEVEL_BADGE_ASPECT,
+  },
+  vipBadge: {
+    height: BADGE_HEIGHT,
+    width: BADGE_HEIGHT,
+  },
+  decorationBadge: {
+    height: BADGE_HEIGHT,
+    width: BADGE_HEIGHT * DECORATION_BADGE_ASPECT,
   },
   xpText: {
     color: "rgba(255, 255, 255, 0.55)",
