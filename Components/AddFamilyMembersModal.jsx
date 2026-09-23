@@ -80,7 +80,6 @@ export default function AddFamilyMembersModal({ visible, family, onClose, onAdde
     setAdding(true);
     try {
       const result = await addMembersToFamilyGroup(family.id, userIds);
-      console.log("[AddFamilyMembersModal] addFamilyMembers result", result);
       Alert.alert("Members added", `Added ${userIds.length} member${userIds.length === 1 ? "" : "s"} to ${family.name}.`);
       setSelectedIds(new Set());
       onAdded?.(result);

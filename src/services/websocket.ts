@@ -139,6 +139,25 @@ export interface RoomNotificationPayload {
   [key: string]: unknown;
 }
 
+export interface RoomPkPayload {
+  id?: number | string;
+  battleId?: number | string;
+  roomId?: string;
+  status?: 'PENDING' | 'LIVE' | 'FINISHED' | 'CANCELLED' | 'REJECTED' | string;
+  hostAId?: number | string;
+  hostBId?: number | string;
+  opponentHostId?: number | string;
+  teamAMemberIds?: (number | string)[];
+  teamBMemberIds?: (number | string)[];
+  teamAScore?: number;
+  teamBScore?: number;
+  durationSeconds?: number;
+  startedAt?: string;
+  endsAt?: string;
+  winner?: 'A' | 'B' | 'DRAW' | string;
+  [key: string]: unknown;
+}
+
 export type RoomTopic =
   | 'chat'
   | 'chat-summary'
@@ -148,7 +167,8 @@ export type RoomTopic =
   | 'closed'
   | 'moderation'
   | 'notifications'
-  | 'treasure';
+  | 'treasure'
+  | 'pk';
 
 export type FamilyTopic = 'chat' | 'chat-summary';
 
@@ -164,6 +184,7 @@ const ROOM_TOPICS: RoomTopic[] = [
   'moderation',
   'notifications',
   'treasure',
+  'pk',
 ];
 
 const FAMILY_TOPICS: FamilyTopic[] = ['chat', 'chat-summary'];
@@ -210,7 +231,6 @@ class WebSocketService {
       return;
     }
 
-    console.log(`[WS] Initializing connection to: ${API_BASE_URL}/ws-tuktuk`);
     this.connectPromise = new Promise<void>((resolve, reject) => {
       this.client = new Client({
         webSocketFactory: () => new SockJS(`${API_BASE_URL}/ws-tuktuk`) as unknown as WebSocket,
@@ -222,12 +242,10 @@ class WebSocketService {
         heartbeatOutgoing: 10000,
         debug: () => {},
         onConnect: () => {
-          console.log('[WS] ✅ Connected to STOMP server successfully!');
           this._onConnect();
           resolve();
         },
         onDisconnect: () => {
-          console.log('[WS] ⚠️ Disconnected from STOMP server.');
           this._onDisconnect();
         },
         onStompError: (frame) => {
@@ -238,7 +256,6 @@ class WebSocketService {
           console.error('[WS] ❌ WebSocket socket error event:', event);
         },
         onWebSocketClose: (event) => {
-          console.log('[WS] 🔌 WebSocket closed event:', event);
         },
       });
 
@@ -366,11 +383,9 @@ class WebSocketService {
       const destination = `/topic/room/${roomId}/${topic}`;
       const handlers = this._getRoomHandlerSet(roomId, topic);
 
-      console.log(`[WS] Subscribed: ${destination}`);
       const sub = this.client!.subscribe(destination, (frame: IMessage) => {
         try {
           const payload = JSON.parse(frame.body);
-          console.log(`[WS] Received on ${destination}:`, payload);
           handlers.forEach((h) => h(payload));
         } catch (err) {
           console.error(`[WS] Error parsing payload from ${destination}:`, err);
@@ -386,7 +401,6 @@ class WebSocketService {
       const destination = `/topic/room/${roomId}/${topic}`;
       this.subscriptions.get(key)?.unsubscribe();
       this.subscriptions.delete(key);
-      console.log(`[WS] Unsubscribed: ${destination}`);
     });
     this.roomHandlers.delete(roomId);
   }
@@ -551,6 +565,12 @@ class WebSocketService {
     return this._onRoomTopic(roomId, 'treasure', handler);
   }
 
+  // Live PK-battle card for the room — pushed on create/accept/reject/score
+  // change/finish. Payload is the same shape GET .../pk-battles/{id} returns.
+  onRoomPk(roomId: string, handler: Handler<any>): () => void {
+    return this._onRoomTopic(roomId, 'pk', handler as Handler<unknown>);
+  }
+
   onLiveRooms(handler: Handler<unknown>): () => void {
     this.liveRoomsHandlers.add(handler);
     return () => this.liveRoomsHandlers.delete(handler);
@@ -668,7 +688,6 @@ class WebSocketService {
     const payload: any = { 
       message: signalString
     };
-    console.log(`[WS] Sending call signal to ${recipientId}:`, payload);
     const body = JSON.stringify(payload);
     this.client!.publish({ destination, body });
   }

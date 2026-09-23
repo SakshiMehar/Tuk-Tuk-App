@@ -13,8 +13,8 @@ const TASK_EMOJIS = {
   POST_10: "📝",
   SEND_GIFT_OVER_300: "🎁",
   SEND_GIFT_300: "🎁",
-  LIKE_A_POST: "❤️",
-  LIKE_POST: "❤️",
+  LIKE_A_POST: "👍",
+  LIKE_POST: "👍",
   RECEIVE_100_GIFT: "💝",
   RECEIVE_GIFT_100: "💝",
 };

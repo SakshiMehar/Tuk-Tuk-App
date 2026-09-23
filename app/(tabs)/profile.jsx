@@ -298,7 +298,6 @@ function FamilyContent() {
   const handleJoinFamily = useCallback(async (family) => {
     try {
       const result = await joinFamilyGroup(family.id);
-      console.log("[FamilyContent] joinFamily result", result);
       Alert.alert("Joined", `You've joined ${family.name}.`);
       refreshFamilies();
     } catch (error) {
@@ -310,7 +309,6 @@ function FamilyContent() {
   const handleOpenFamily = useCallback(async (family) => {
     try {
       const detail = await loadFamilyDetail(family.id);
-      console.log("[FamilyContent] family detail", detail);
       setChatFamily(detail);
     } catch (error) {
       console.error("[FamilyContent] getFamilyDetail failed", error);
@@ -329,7 +327,6 @@ function FamilyContent() {
         announcement: familyAnnouncement.trim(),
         coverUri: familyCover,
       });
-      console.log("[FamilyContent] createFamily result", created);
       setShowCreateForm(false);
       setFamilyTab("New family");
       setFamilyName("");
@@ -1332,7 +1329,6 @@ export default function Profile() {
       Promise.allSettled([getGiftsReceived(), getGiftsSent()]).then(([receivedRes, sentRes]) => {
         if (receivedRes.status === "fulfilled") {
           const data = receivedRes.value;
-          console.log("[Gift] Received response:", JSON.stringify(data, null, 2));
           const list = Array.isArray(data) ? data : (data?.data ?? data?.gifts ?? data?.list ?? []);
           setGiftsReceived(list);
           setGiftEarnedCount(list.length);
@@ -1341,7 +1337,6 @@ export default function Profile() {
         }
         if (sentRes.status === "fulfilled") {
           const data = sentRes.value;
-          console.log("[Gift] Sent response:", JSON.stringify(data, null, 2));
           const list = Array.isArray(data) ? data : (data?.data ?? data?.gifts ?? data?.list ?? []);
           setGiftsSent(list);
         } else {
@@ -1823,7 +1818,7 @@ export default function Profile() {
               <Ionicons name="close" size={30} color="#f87171" />
             </TouchableOpacity>
             <TouchableOpacity style={[styles.mmMatchBtn, { backgroundColor: "#7c4dff" }]} activeOpacity={0.8}>
-              <Ionicons name="heart" size={30} color="white" />
+              <Ionicons name="thumbs-up" size={30} color="white" />
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -2470,7 +2465,7 @@ export default function Profile() {
                   ) : null}
 
                   {(post.likeCount ?? 0) > 0 && (
-                    <Text style={styles.momentPostMeta}>❤️ {post.likeCount}</Text>
+                    <Text style={styles.momentPostMeta}>👍 {post.likeCount}</Text>
                   )}
                 </View>
               ))

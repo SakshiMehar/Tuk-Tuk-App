@@ -43,7 +43,6 @@ export const getNotifications = async ({
     },
   });
 
-  console.log("[notificationApi] GET /api/notifications -> RAW", JSON.stringify(response.data, null, 2));
   return response.data;
 };
 
@@ -54,7 +53,6 @@ export const getUnreadNotificationCount = async () => {
   const config = await buildAuthConfig();
 
   const response = await API.get("/api/notifications/unread-count", config);
-  console.log("[notificationApi] GET /api/notifications/unread-count -> RAW", JSON.stringify(response.data, null, 2));
   return response.data;
 };
 
@@ -118,13 +116,6 @@ export const registerDeviceToken = async (
       body,
       config
     );
-    console.log("[notificationApi] POST /api/app/users/me/device-token -> SUCCESS", {
-      userId: numericUserId ?? "none",
-      tokenExists: Boolean(deviceToken),
-      tokenLength: deviceToken.length,
-      platform: normalizedPlatform,
-      status: response.status,
-    });
     return response.data;
   } catch (error) {
     const status = error?.response?.status;
@@ -171,13 +162,6 @@ export const unregisterDeviceToken = async (
     const response = await API.delete("/api/app/users/me/device-token", {
       ...config,
       data: body,
-    });
-    console.log("[notificationApi] DELETE /api/app/users/me/device-token -> SUCCESS", {
-      userId: numericUserId ?? "none",
-      tokenExists: Boolean(deviceToken),
-      tokenLength: deviceToken ? deviceToken.length : 0,
-      platform: normalizedPlatform,
-      status: response.status,
     });
     return response.data;
   } catch (error) {

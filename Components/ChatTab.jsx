@@ -554,7 +554,7 @@ export default function ChatTab() {
                   <Check size={9} color="white" strokeWidth={3} />
                 </View>
               )}
-              {item.liked && <Text style={styles.heartIcon}>🤍</Text>}
+              {item.liked && <Text style={styles.heartIcon}>👍</Text>}
             </View>
             <Text style={styles.chatTime}>{item.time}</Text>
           </View>

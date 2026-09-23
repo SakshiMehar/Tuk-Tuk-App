@@ -7,11 +7,9 @@ import API, {
 const LOG_TAG = "[GiftAPI]";
 
 const logRequest = (method, path, payload) => {
-  console.log(`${LOG_TAG} → ${method} ${path}`, payload ?? "");
 };
 
 const logResponse = (method, path, data) => {
-  console.log(`${LOG_TAG} ← ${method} ${path}`, data);
 };
 
 const logError = (method, path, error) => {
@@ -92,9 +90,12 @@ export const buyGift = async ({ giftCode, giftId, quantity = 1 }) => {
   const numericGiftId = Number(giftId);
   const body = { quantity: qty };
 
+  // Send both when available — the confirmed-working request shape includes
+  // giftId AND giftCode together; giftId alone was returning "Gift not found".
   if (Number.isFinite(numericGiftId) && numericGiftId > 0) {
     body.giftId = numericGiftId;
-  } else if (giftCode) {
+  }
+  if (giftCode) {
     body.giftCode = String(giftCode);
   }
 
@@ -103,8 +104,8 @@ export const buyGift = async ({ giftCode, giftId, quantity = 1 }) => {
   }
   logRequest("POST", path, body);
   try {
-    const { token, headers } = await buildAuthedConfig("gifts/buy");
-    const response = await API.post(path, { ...body, token }, { headers });
+    const { headers } = await buildAuthedConfig("gifts/buy");
+    const response = await API.post(path, body, { headers });
     logResponse("POST", path, response.data);
     return response.data;
   } catch (error) {
