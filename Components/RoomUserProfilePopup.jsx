@@ -1,3 +1,4 @@
+import React, { useEffect, useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -24,9 +25,46 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ms, s, vs } from "react-native-size-matters";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { resolveImageSource } from "../src/utils/videoSource";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import { fetchVipProfileFrameForUser } from "../src/services/vipService";
+import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
 const { width: W } = Dimensions.get("window");
+
+const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
+const VERIFIED_BADGE = require("../assets/Batches/verified-batch.png");
+
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
+);
+
+const PROFILE_BADGE_HEIGHT = s(32);
+const PROFILE_BADGE_ASPECT = {
+  level: 142 / 149,
+  newStar: 456 / 174,
+  verified: 438 / 179,
+  vip: 1,
+};
+
+const AVATAR_SIZE = s(74);
+
+function ProfileBadge({ source, aspectRatio = 1, style }) {
+  if (!source) return null;
+  const imageSource = typeof source === "string" ? resolveImageSource(source) : source;
+  if (!imageSource) return null;
+  return (
+    <Image
+      source={imageSource}
+      style={[
+        { height: PROFILE_BADGE_HEIGHT, width: PROFILE_BADGE_HEIGHT * aspectRatio },
+        style,
+      ]}
+      resizeMode="contain"
+    />
+  );
+}
 
 export default function RoomUserProfilePopup({
   visible,
@@ -37,6 +75,7 @@ export default function RoomUserProfilePopup({
   frameLayout = null,
   logoSource = null,
   badgeSource = null,
+  levelBadgeSource = null,
   loading = false,
   isFollowing = false,
   followLoading = false,
@@ -51,7 +90,8 @@ export default function RoomUserProfilePopup({
   onReport,
 }) {
   const insets = useSafeAreaInsets();
-  if (!visible) return null;
+  const [fetchedBadgeUrl, setFetchedBadgeUrl] = useState(null);
+  const [fetchedVipFrameUrl, setFetchedVipFrameUrl] = useState(null);
 
   const displayName = user?.name ?? user?.displayName ?? user?.username ?? "User";
   const username = user?.username ?? user?.handle ?? displayName;
@@ -65,13 +105,80 @@ export default function RoomUserProfilePopup({
     : "Male";
   const genderIcon = isFemale ? "♀" : "♂";
   const userLevel = level ?? user?.level ?? user?.userLevel ?? 1;
-  const starScore = user?.starScore ?? user?.ranking ?? 22;
-  const charmScore = user?.charmScore ?? user?.wealthScore ?? 11;
-  const vipTitle = user?.vipTitle ?? user?.title ?? "Amber";
   const isUserOwner = Boolean(isOwner || user?.isOwner || role?.toLowerCase() === "owner");
   const displayRole = role ?? (isUserOwner ? "Owner" : user?.role ?? "Owner");
   const flagUrl = user?.flagUrl ?? null;
   const countryName = user?.countryName ?? null;
+
+  // Auto-fetch badges & VIP frame for other users if not already provided
+  useEffect(() => {
+    let active = true;
+    if (!visible || !userId || userId === "—") {
+      setFetchedBadgeUrl(null);
+      setFetchedVipFrameUrl(null);
+      return;
+    }
+
+    if (!badgeSource && !user?.badgeUrl && !user?.decorationBadgeUrl) {
+      fetchUserDecorations(userId)
+        .then((res) => {
+          if (active && res?.badgeUrl) {
+            setFetchedBadgeUrl(res.badgeUrl);
+          }
+        })
+        .catch(() => {});
+    }
+
+    if (!logoSource && !user?.vipLogo && !user?.vipProfileFrameUrl && !frameSource) {
+      fetchVipProfileFrameForUser(userId)
+        .then((url) => {
+          if (active && url) {
+            setFetchedVipFrameUrl(url);
+          }
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [
+    visible,
+    userId,
+    badgeSource,
+    logoSource,
+    user?.badgeUrl,
+    user?.decorationBadgeUrl,
+    user?.vipLogo,
+    user?.vipProfileFrameUrl,
+    frameSource,
+  ]);
+
+  const frameUrlString =
+    typeof frameSource === "string" ? frameSource : frameSource?.uri ?? null;
+  const resolvedVipLogo =
+    logoSource ??
+    user?.vipLogo ??
+    (user?.vipTier ? VIP_LOGO_BY_TIER[Number(user.vipTier)] : null) ??
+    (user?.vip ? VIP_LOGO_BY_TIER[Number(user.vip)] : null) ??
+    (user?.vipLevel ? VIP_LOGO_BY_TIER[Number(user.vipLevel)] : null) ??
+    (frameUrlString ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(frameUrlString)] : null) ??
+    (user?.vipProfileFrameUrl ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(user.vipProfileFrameUrl)] : null) ??
+    (fetchedVipFrameUrl ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(fetchedVipFrameUrl)] : null) ??
+    null;
+
+  const resolvedBadgeSource =
+    badgeSource ??
+    user?.badgeUrl ??
+    user?.decorationBadgeUrl ??
+    fetchedBadgeUrl ??
+    null;
+
+  const hasNewStar = Boolean(
+    user?.hasNewUserFrame ||
+    user?.newUserFrameUrl ||
+    user?.newUserFrameSource
+  );
 
   const resolvedAvatarSource =
     avatarSource ??
@@ -128,7 +235,7 @@ export default function RoomUserProfilePopup({
                 user={user}
                 avatarSource={resolvedAvatarSource}
                 frameSource={frameSource}
-                size={s(74)}
+                size={AVATAR_SIZE}
                 avatarStyle={styles.avatarImage}
                 placeholderStyle={styles.avatarFallback}
                 initialStyle={styles.avatarInitial}
@@ -237,73 +344,36 @@ export default function RoomUserProfilePopup({
                     ) : null}
                   </View>
                 )}
-
-                {/* Star / Rank Pill */}
-                {/* <LinearGradient
-                  colors={["#C084FC", "#9333EA"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.gradientPill}
-                >
-                  <Text style={styles.pillIconPrefix}>⭐</Text>
-                  <Text style={styles.gradientPillText}>{starScore}</Text>
-                </LinearGradient> */}
-
-                {/* Charm / Wealth Pill */}
-                {/* <LinearGradient
-                  colors={["#F59E0B", "#B45309"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.gradientPill}
-                >
-                  <Text style={styles.pillIconPrefix}>🍂</Text>
-                  <Text style={styles.gradientPillText}>{charmScore}</Text>
-                </LinearGradient> */}
               </View>
 
-              {/* Row 2: Title / VIP Tier Banner */}
-              {/* <View style={styles.vipTitleWrap}>
-                <LinearGradient
-                  colors={["#4C1D95", "#7C3AED", "#9333EA", "#D946EF"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.vipTitleGradient}
-                >
-                  <View style={styles.vipTitleIconCircle}>
-                    <Sparkles size={11} color="#FDE047" fill="#FDE047" />
-                  </View>
-                  <Text style={styles.vipTitleText}>{vipTitle}</Text>
-                  <Sparkles size={10} color="#FDE047" />
-                </LinearGradient>
-              </View> */}
-
-              {/* Row 3: Medals & Achievement Badges */}
-              <View style={styles.medalsRow}>
-                {/* Medal 1: Purple Gem Crest */}
-                {/* <LinearGradient
-                  colors={["#A855F7", "#6B21A8"]}
-                  style={styles.medalCircle}
-                >
-                  <View style={styles.medalInnerCircle}>
-                    <Crown size={12} color="#FDE047" fill="#FDE047" />
-                  </View>
-                </LinearGradient> */}
-
-                {/* Medal 2: Green Shield */}
-                {/* <LinearGradient
-                  colors={["#34D399", "#059669"]}
-                  style={styles.medalShield}
-                >
-                  <Text style={styles.medalShieldText}>2</Text>
-                </LinearGradient> */}
-
-                {/* Medal 3: Cyan Hexagon / Diamond */}
-                {/* <LinearGradient
-                  colors={["#22D3EE", "#0891B2"]}
-                  style={styles.medalHexagon}
-                >
-                  <Shield size={12} color="#FFFFFF" fill="#FFFFFF" />
-                </LinearGradient> */}
+              {/* Row 2: User Badges (Level badge + New Star badge + VIP Logo + Decoration Badge + Verified badge) */}
+              <View style={styles.userBadgesRow}>
+                <ProfileBadge
+                  source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel ?? 1)}
+                  aspectRatio={PROFILE_BADGE_ASPECT.level}
+                />
+                {hasNewStar && (
+                  <ProfileBadge
+                    source={NEW_START_BADGE}
+                    aspectRatio={PROFILE_BADGE_ASPECT.newStar}
+                  />
+                )}
+                {resolvedVipLogo && (
+                  <ProfileBadge
+                    source={resolvedVipLogo}
+                    aspectRatio={PROFILE_BADGE_ASPECT.vip}
+                  />
+                )}
+                {resolvedBadgeSource && (
+                  <ProfileBadge
+                    source={resolvedBadgeSource}
+                    aspectRatio={PROFILE_BADGE_ASPECT.verified}
+                  />
+                )}
+                <ProfileBadge
+                  source={VERIFIED_BADGE}
+                  aspectRatio={PROFILE_BADGE_ASPECT.verified}
+                />
               </View>
 
               {/* Bottom Actions Row: Follow, Chat, Send Gifts */}
@@ -401,7 +471,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: s(28),
     borderTopRightRadius: s(28),
-    paddingTop: vs(68),
+    paddingTop: AVATAR_SIZE / 2 + vs(16),
     paddingBottom: Platform.OS === "ios" ? vs(20) : vs(12),
     paddingHorizontal: s(16),
     alignItems: "center",
@@ -414,7 +484,7 @@ const styles = StyleSheet.create({
   },
   avatarOverlapContainer: {
     position: "absolute",
-    top: -vs(48),
+    top: -(AVATAR_SIZE / 2),
     alignSelf: "center",
     zIndex: 20,
   },
@@ -423,16 +493,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarImage: {
-    width: s(74),
-    height: s(74),
-    borderRadius: s(37),
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
     borderWidth: 2,
     borderColor: "#FBBF24",
   },
   avatarFallback: {
-    width: s(74),
-    height: s(74),
-    borderRadius: s(37),
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
     backgroundColor: "#8B5CF6",
     alignItems: "center",
     justifyContent: "center",
@@ -472,7 +542,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: vs(2),
+    marginTop: 0,
     maxWidth: W - s(48),
     gap: s(4),
   },
@@ -583,87 +653,14 @@ const styles = StyleSheet.create({
     paddingVertical: vs(3),
     borderRadius: s(12),
   },
-  pillIconPrefix: {
-    fontSize: ms(10),
-  },
-  gradientPillText: {
-    color: "#FFFFFF",
-    fontSize: ms(11),
-    fontWeight: "800",
-  },
-  vipTitleWrap: {
-    marginTop: vs(8),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  vipTitleGradient: {
+  userBadgesRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
     gap: s(6),
-    paddingHorizontal: s(16),
-    paddingVertical: vs(4),
-    borderRadius: s(14),
-  },
-  vipTitleIconCircle: {
-    width: s(18),
-    height: s(18),
-    borderRadius: s(9),
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  vipTitleText: {
-    color: "#FFFFFF",
-    fontSize: ms(13),
-    fontWeight: "800",
-    fontStyle: "italic",
-    letterSpacing: 0.3,
-  },
-  medalsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: s(14),
-  },
-  medalCircle: {
-    width: s(26),
-    height: s(26),
-    borderRadius: s(13),
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#E9D5FF",
-  },
-  medalInnerCircle: {
-    width: s(18),
-    height: s(18),
-    borderRadius: s(9),
-    backgroundColor: "rgba(255,255,255,0.25)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  medalShield: {
-    width: s(24),
-    height: vs(26),
-    borderRadius: s(6),
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#A7F3D0",
-  },
-  medalShieldText: {
-    color: "#FFFFFF",
-    fontSize: ms(12),
-    fontWeight: "900",
-  },
-  medalHexagon: {
-    width: s(26),
-    height: s(26),
-    borderRadius: s(13),
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#A5F3FC",
+    marginTop: vs(8),
+    marginBottom: vs(2),
   },
   bottomButtonsRow: {
     flexDirection: "row",

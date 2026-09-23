@@ -71,6 +71,7 @@ import {
 } from "../src/api/partyApi";
 import { reportUser } from "../src/api/postApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { getUserProfile } from "../src/api/userApi";
 import { getRoomShareUrl } from "../src/config/env";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
 import {
@@ -111,7 +112,6 @@ import {
 } from "../src/services/giftCatalogService";
 import { loadUserDetail } from "../src/services/nearbyService";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
-import { useMyCountryFlag } from "../src/services/userCountryService";
 import {
   createLocalChatMessage,
   enterRandomPartySession,
@@ -128,7 +128,6 @@ import {
   upsertChatMessage,
 } from "../src/services/partyService";
 import * as partyVoice from "../src/services/partyVoiceService";
-import { getUserProfile } from "../src/api/userApi";
 import { loadPublicProfile } from "../src/services/publicProfileService";
 import {
   blockUser,
@@ -137,6 +136,7 @@ import {
   loadRelationshipStatus,
   unfollowUser,
 } from "../src/services/relationshipService";
+import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
@@ -155,6 +155,7 @@ import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
 import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureBoxModal from "./TreasureBoxModal";
+import DiamondRechargeModal from "./DiamondRechargeModal";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
@@ -166,6 +167,7 @@ Dimensions.addEventListener("change", ({ window }) => {
 
 const TREASURE_BOX_GIF = require("../assets/Gift/tresurebox.gif");
 const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
+const VERIFIED_BADGE = require("../assets/Batches/verified-batch.png");
 const ROOM_HEADER_BG = require("../assets/images/roomHeaderBg.png");
 
 // Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
@@ -602,7 +604,7 @@ const UserEntryBanner = ({ user, countryFlag = null, onComplete }) => {
   // Precise middle banner text region between ring and VIP crest
   const textLeft = Math.round(BANNER_W * layout.textLeftFrac);
   const textWidth = Math.round(BANNER_W * layout.textWidthFrac);
-  const textTop = Math.round(BANNER_H * layout.textTopFrac) - 2;
+  const textTop = Math.round(BANNER_H * layout.textTopFrac);
   const textHeight = Math.round(BANNER_H * layout.textHeightFrac);
 
   return (
@@ -1315,6 +1317,7 @@ export default function VoiceParty() {
   const [currentActivityEvent, setCurrentActivityEvent] = useState(null);
   const activityEventQueueRef = useRef([]);
   const isProcessingActivityRef = useRef(false);
+  const recentActivityEventsMapRef = useRef(new Map());
 
   const processNextActivityEvent = useCallback(() => {
     if (isProcessingActivityRef.current || activityEventQueueRef.current.length === 0) return;
@@ -1327,6 +1330,26 @@ export default function VoiceParty() {
   const enqueueActivityEvent = useCallback(
     (event) => {
       if (!event || !event.user) return;
+      const uId = String(event.user.id ?? event.user.userId ?? "");
+      if (!uId) return;
+
+      // Deduplicate events for the same user and type within 4s
+      const dedupKey = `${event.type}-${uId}`;
+      const now = Date.now();
+      const lastTime = recentActivityEventsMapRef.current.get(dedupKey);
+      if (lastTime && now - lastTime < 4000) {
+        return;
+      }
+      recentActivityEventsMapRef.current.set(dedupKey, now);
+
+      if (recentActivityEventsMapRef.current.size > 50) {
+        for (const [k, t] of recentActivityEventsMapRef.current.entries()) {
+          if (now - t > 10000) {
+            recentActivityEventsMapRef.current.delete(k);
+          }
+        }
+      }
+
       activityEventQueueRef.current.push(event);
       processNextActivityEvent();
     },
@@ -1371,50 +1394,6 @@ export default function VoiceParty() {
       return () => clearTimeout(timer);
     }
   }, [roomLoading, roomId]);
-
-  // Track Real-Time Joins (Enter) & Exits (Leave)
-  useEffect(() => {
-    if (!onlineUsers || !Array.isArray(onlineUsers)) return;
-
-    if (!hasInitializedPresenceRef.current) {
-      prevOnlineUsersRef.current = onlineUsers;
-      hasInitializedPresenceRef.current = true;
-      return;
-    }
-
-    const prevUsersMap = new Map(
-      (prevOnlineUsersRef.current || []).map((u) => [String(u?.id ?? u?.userId), u])
-    );
-    const currUsersMap = new Map(
-      onlineUsers.map((u) => [String(u?.id ?? u?.userId), u])
-    );
-
-    // 1. Detect Joins (Entered the room)
-    onlineUsers.forEach((u) => {
-      const uId = String(u?.id ?? u?.userId);
-      if (uId && !prevUsersMap.has(uId)) {
-        enqueueActivityEvent({
-          id: `enter-${uId}-${Date.now()}`,
-          type: "enter",
-          user: u,
-        });
-      }
-    });
-
-    // 2. Detect Exits (Left the room)
-    (prevOnlineUsersRef.current || []).forEach((u) => {
-      const uId = String(u?.id ?? u?.userId);
-      if (uId && !currUsersMap.has(uId)) {
-        enqueueActivityEvent({
-          id: `exit-${uId}-${Date.now()}`,
-          type: "exit",
-          user: u,
-        });
-      }
-    });
-
-    prevOnlineUsersRef.current = onlineUsers;
-  }, [onlineUsers, enqueueActivityEvent]);
 
   // Track Real-Time Seated Events
   useEffect(() => {
@@ -1585,6 +1564,8 @@ export default function VoiceParty() {
     { claimed: false, rewardImg: null },
   ]);
   const [showTreasureBox, setShowTreasureBox] = useState(false);
+  const [showDiamondRecharge, setShowDiamondRecharge] = useState(false);
+  const [rechargeInitialTab, setRechargeInitialTab] = useState("diamonds");
   const [showBackpack, setShowBackpack] = useState(false);
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
@@ -2514,7 +2495,7 @@ export default function VoiceParty() {
       if (activeRoomId && !exitedRef.current) {
         exitedRef.current = true;
         const cleanup = async () => {
-          await flushListenRewardProgress(activeRoomId).catch(() => {});
+          await flushListenRewardProgress(activeRoomId).catch(() => { });
           await partyVoice.teardownVoice().catch(() => { });
           await exitRoomSession(String(activeRoomId)).catch(() => { });
         };
@@ -3898,6 +3879,16 @@ export default function VoiceParty() {
       Alert.alert(
         "Not enough diamonds",
         `You need 💎 ${formatGiftPrice(price)} but only have 💎 ${formatGiftPrice(walletDiamonds)}. Recharge to continue.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Recharge",
+            onPress: () => {
+              setRechargeInitialTab("diamonds");
+              setShowDiamondRecharge(true);
+            },
+          },
+        ]
       );
       return;
     }
@@ -3966,6 +3957,16 @@ export default function VoiceParty() {
       Alert.alert(
         "Not enough diamonds",
         `You need 💎 ${formatGiftPrice(totalCost)} but only have 💎 ${formatGiftPrice(walletDiamonds)}.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Recharge",
+            onPress: () => {
+              setRechargeInitialTab("diamonds");
+              setShowDiamondRecharge(true);
+            },
+          },
+        ]
       );
       return;
     }
@@ -4061,7 +4062,16 @@ export default function VoiceParty() {
   // catalog entry for the same gift code before showing the emoji placeholder.
   const resolveBackpackGiftImage = useCallback(
     (gift) => {
-      if (gift?.imageUrl) return gift.imageUrl;
+      const direct =
+        gift?.imageUrl ||
+        gift?.icon ||
+        gift?.image ||
+        gift?.iconUrl ||
+        gift?.img ||
+        gift?.thumbnailUrl;
+      if (direct && typeof direct === "string" && direct.trim().length > 0) {
+        return direct.trim();
+      }
       const catalogGifts = [
         ...giftCatalog.gift,
         ...giftCatalog.random,
@@ -4070,8 +4080,21 @@ export default function VoiceParty() {
         ...giftCatalog.pk,
         ...giftCatalog.special,
         ...giftCatalog.vip,
+        ...Object.values(giftCatalog.activityByEvent || {}).flat(),
       ];
-      return catalogGifts.find((item) => giftsMatch(item, gift))?.imageUrl ?? null;
+      const found = catalogGifts.find((item) => giftsMatch(item, gift));
+      const foundUrl =
+        found?.imageUrl ??
+        found?.icon ??
+        found?.image ??
+        found?.iconUrl ??
+        found?.img ??
+        found?.thumbnailUrl ??
+        null;
+      if (foundUrl && typeof foundUrl === "string" && foundUrl.trim().length > 0) {
+        return foundUrl.trim();
+      }
+      return null;
     },
     [giftCatalog],
   );
@@ -4856,6 +4879,10 @@ export default function VoiceParty() {
                 <TouchableOpacity
                   style={styles.bpCurrencyItem}
                   activeOpacity={0.8}
+                  onPress={() => {
+                    setRechargeInitialTab("diamonds");
+                    setShowDiamondRecharge(true);
+                  }}
                 >
                   <Text style={styles.bpDiamondIcon}>💎</Text>
                   <Text style={styles.bpCurrencyVal}>
@@ -4866,6 +4893,10 @@ export default function VoiceParty() {
                 <TouchableOpacity
                   style={styles.bpCurrencyItem}
                   activeOpacity={0.8}
+                  onPress={() => {
+                    setRechargeInitialTab("golds");
+                    setShowDiamondRecharge(true);
+                  }}
                 >
                   <Text style={styles.bpCoinIcon}>🪙</Text>
                   <Text style={styles.bpCurrencyVal}>0</Text>
@@ -5525,7 +5556,7 @@ export default function VoiceParty() {
                         style={[
                           styles.giftCardBtnText,
                           (isReady || isClaimed) &&
-                            styles.giftCardBtnTextActive,
+                          styles.giftCardBtnTextActive,
                         ]}
                       >
                         {isClaimed
@@ -5575,7 +5606,12 @@ export default function VoiceParty() {
         logoSource={
           isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.logo
-            : null
+            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
+              ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl)]
+              : null
+        }
+        badgeSource={
+          userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ?? null
         }
         loading={profilePopupLoading}
         isFollowing={profilePopupFollowing}
@@ -6167,6 +6203,11 @@ export default function VoiceParty() {
                               resizeMode="contain"
                             />
                           )}
+                          <Image
+                            source={VERIFIED_BADGE}
+                            style={styles.activeUserVerifiedBadge}
+                            resizeMode="contain"
+                          />
                         </View>
                         <Text style={styles.activeUserStatus}>
                           {uId != null && String(uId) === String(hostId)
@@ -6548,6 +6589,14 @@ export default function VoiceParty() {
         targetLabel="this room"
         onClose={() => setShowReportModal(false)}
         onSubmit={handleReportRoomSubmit}
+      />
+
+      {/* ── DIAMOND RECHARGE MODAL ── */}
+      <DiamondRechargeModal
+        visible={showDiamondRecharge}
+        onClose={() => setShowDiamondRecharge(false)}
+        currentDiamonds={walletDiamonds}
+        initialTab={rechargeInitialTab}
       />
 
       {roomLoading && (
@@ -7167,6 +7216,11 @@ export default function VoiceParty() {
                               resizeMode="contain"
                             />
                           )}
+                          <Image
+                            source={VERIFIED_BADGE}
+                            style={styles.chatVerifiedBadge}
+                            resizeMode="contain"
+                          />
                           {msg.userId != null &&
                             (userFrameData[String(msg.userId)]
                               ?.hasNewUserFrame ??
@@ -7582,15 +7636,15 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
-    marginRight: 6,
+    marginRight: s(6),
   },
   ownerSection: {
     position: "relative",
-    height: 48,
+    height: vs(66),
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 0,
-    paddingRight: 4,
+    paddingRight: s(4),
     overflow: "visible",
   },
   ownerSectionBg: {
@@ -7601,20 +7655,19 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: "100%",
     height: "100%",
-    borderRadius: 14,
   },
   ownerAvatarSpot: {
-    width: 40,
-    height: 40,
+    width: s(48),
+    height: vs(48),
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-    marginLeft: 14,
+    marginLeft: s(10),
   },
   ownerAvatarCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: s(32),
+    height: s(32),
+    borderRadius: s(16),
   },
   ownerAvatarPlaceholder: {
     backgroundColor: "rgba(124, 77, 255, 0.45)",
@@ -7623,43 +7676,43 @@ const styles = StyleSheet.create({
   },
   ownerInitial: {
     color: "white",
-    fontSize: 12,
+    fontSize: ms(15),
     fontWeight: "800",
   },
   ownerTextCol: {
-    gap: 1.5,
+    gap: vs(2.5),
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
-    marginLeft: 6,
+    marginLeft: s(6),
     justifyContent: "center",
   },
   ownerNameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: s(4),
     minWidth: 0,
   },
   ownerName: {
     color: "#ffffff",
-    fontSize: 12,
+    fontSize: ms(13),
     fontWeight: "800",
     letterSpacing: 0.1,
     flexShrink: 1,
   },
   ownerCountryFlag: {
-    fontSize: 12,
+    fontSize: ms(12.5),
   },
   ownerId: {
     color: "#c4b5fd",
-    fontSize: 9,
+    fontSize: ms(10),
     fontWeight: "700",
     letterSpacing: 0.1,
   },
   capsulePlusBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: s(24),
+    height: s(24),
+    borderRadius: s(12),
     borderColor: '#ffffff',
     borderWidth: 1,
     backgroundColor: "#7c4dff",
@@ -7671,8 +7724,8 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
     flexShrink: 0,
-    marginLeft: 4,
-    marginRight: 24,
+    marginLeft: s(4),
+    marginRight: s(24),
   },
   capsulePlusBtnFollowing: {
     backgroundColor: "rgba(124, 77, 255, 0.45)",
@@ -7924,38 +7977,38 @@ const styles = StyleSheet.create({
   },
   seatName: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 10,
+    fontSize: ms(10),
     textAlign: "center",
     maxWidth: SEAT_SIZE,
   },
   chatArea: {
     flex: 1,
     flexDirection: "row",
-    paddingLeft: 12,
+    paddingLeft: s(12),
     paddingRight: 0,
-    gap: 8,
+    gap: s(8),
     minHeight: 0,
   },
   chatLeft: { flex: 1, minHeight: 0 },
   chatScroll: { flex: 1 },
   chatScrollContent: {
-    gap: 8,
-    paddingTop: 4,
-    paddingBottom: 12,
+    gap: vs(8),
+    paddingTop: vs(4),
+    paddingBottom: vs(12),
   },
   systemMsg: {
     backgroundColor: "rgba(0,0,0,0.35)",
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    borderRadius: s(12),
+    paddingHorizontal: s(10),
+    paddingVertical: vs(5),
     alignSelf: "flex-start",
   },
-  systemMsgText: { color: "rgba(255,255,255,0.7)", fontSize: 12 },
-  chatMsg: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
+  systemMsgText: { color: "rgba(255,255,255,0.7)", fontSize: ms(12) },
+  chatMsg: { flexDirection: "row", alignItems: "flex-start", gap: s(6) },
   chatAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: s(32),
+    height: s(32),
+    borderRadius: s(16),
     borderWidth: 1.5,
     borderColor: "#7c4dff",
   },
@@ -7966,8 +8019,8 @@ const styles = StyleSheet.create({
   },
   chatBubble: {
     backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 12,
-    padding: 8,
+    borderRadius: s(12),
+    padding: s(8),
     flex: 1,
     overflow: "hidden",
   },
@@ -7977,75 +8030,75 @@ const styles = StyleSheet.create({
   // chatBubble's default "hidden") lets the frame's crown/gem art bleed
   // above/below the bubble instead of being clipped — see vipChatFrameStyle.
   chatBubbleVipPadding: {
-    paddingHorizontal: 10,
-    paddingVertical: 12,
+    paddingHorizontal: s(10),
+    paddingVertical: vs(12),
     overflow: "visible",
   },
   chatMeta: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 3,
+    gap: s(6),
+    marginBottom: vs(3),
     flexWrap: "wrap",
   },
-  chatUser: { color: "#b44dff", fontSize: 12, fontWeight: "700" },
-  chatUserFlag: { fontSize: 12 },
+  chatUser: { color: "#b44dff", fontSize: ms(12), fontWeight: "700" },
+  chatUserFlag: { fontSize: ms(12) },
   // Same level-badge image (and aspect ratio) shown on the Profile tab —
   // 142/149 measured from the actual asset files, see levelBadge.js.
-  lvBadgeImg: { height: 18, width: 18 * (142 / 149) },
-  chatVipBadge: { width: 18, height: 18 },
-  chatVerifiedBadge: { width: 18 * (438 / 179), height: 18 },
-  newStartBadge: { width: 52, height: 24, marginLeft: 2 },
-  chatCoin: { fontSize: 11, color: "#ffd700" },
-  chatDiamond: { fontSize: 11, color: "#4dc8ff" },
-  chatText: { color: "white", fontSize: 13 },
+  lvBadgeImg: { height: vs(18), width: vs(18) * (142 / 149) },
+  chatVipBadge: { width: vs(18), height: vs(18) },
+  chatVerifiedBadge: { width: vs(18) * (438 / 179), height: vs(18) },
+  newStartBadge: { width: s(52), height: vs(24), marginLeft: s(2) },
+  chatCoin: { fontSize: ms(11), color: "#ffd700" },
+  chatDiamond: { fontSize: ms(11), color: "#4dc8ff" },
+  chatText: { color: "white", fontSize: ms(13) },
   chatGiftText: { color: "#f9a8d4", fontWeight: "700" },
   chatRight: {
     // width: 60,
     alignItems: "center",
-    gap: 10,
+    gap: vs(10),
     justifyContent: "flex-end",
-    marginRight: -6,
+    marginRight: -s(6),
   },
   luckyStarBox: {
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 10,
-    padding: 6,
-    width: 58,
+    borderRadius: s(10),
+    padding: s(6),
+    width: s(58),
   },
-  luckyStarEmoji: { fontSize: 22 },
+  luckyStarEmoji: { fontSize: ms(22) },
   luckyStarLabel: {
     color: "#ffd700",
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
     letterSpacing: 0.5,
   },
   luckyProgress: {
     backgroundColor: "#8b0000",
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    marginTop: 2,
+    borderRadius: s(4),
+    paddingHorizontal: s(4),
+    paddingVertical: vs(2),
+    marginTop: vs(2),
   },
-  luckyProgressText: { color: "white", fontSize: 9, fontWeight: "700" },
+  luckyProgressText: { color: "white", fontSize: ms(9), fontWeight: "700" },
   rightIconBtn: {
-    width: 33,
-    height: 33,
-    borderRadius: 16.5,
+    width: s(33),
+    height: s(33),
+    borderRadius: s(16.5),
     backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
   },
   treasureBoxBtn: {
-    width: 70,
-    height: 70,
+    width: s(70),
+    height: s(70),
     alignItems: "center",
     justifyContent: "center",
   },
   treasureBoxImage: {
-    width: 68,
-    height: 68,
+    width: s(68),
+    height: s(68),
   },
   // Crop wrappers below: each S3 icon is a 1280x720 canvas with its glyph
   // confined to a small centered region (huge transparent margin baked in), so
@@ -8056,130 +8109,130 @@ const styles = StyleSheet.create({
   giftPanelCropWrap: {
     // gift+box2.png bbox (337,72)-(841,648) in a 1280x720 source, scaled so the
     // glyph's own height fills 29px (matching the other right-panel icons).
-    width: 25.38,
-    height: 29,
+    width: s(25.38),
+    height: s(29),
     overflow: "hidden",
     position: "relative",
   },
   giftPanelCropImage: {
     position: "absolute",
-    width: 64.44,
-    height: 36.25,
-    left: -16.97,
-    top: -3.62,
+    width: s(64.44),
+    height: s(36.25),
+    left: -s(16.97),
+    top: -s(3.62),
   },
   rechargeBonusCropWrap: {
     // gift+box1.png bbox (371,73)-(909,646), glyph height scaled to 32px.
-    width: 30.05,
-    height: 32,
+    width: s(30.05),
+    height: s(32),
     overflow: "hidden",
     position: "relative",
-    marginTop: -1,
+    marginTop: -vs(1),
   },
   rechargeBonusCropImage: {
     position: "absolute",
-    width: 71.48,
-    height: 40.21,
-    left: -20.72,
-    top: -4.08,
+    width: s(71.48),
+    height: s(40.21),
+    left: -s(20.72),
+    top: -s(4.08),
   },
   micCropWrap: {
     // mic.png bbox (502,83)-(773,606), glyph height scaled to 34px.
-    width: 17.62,
-    height: 34,
+    width: s(17.62),
+    height: s(34),
     overflow: "hidden",
     position: "relative",
   },
   micCropImage: {
     position: "absolute",
-    width: 83.21,
-    height: 46.81,
-    left: -32.63,
-    top: -5.4,
+    width: s(83.21),
+    height: s(46.81),
+    left: -s(32.63),
+    top: -s(5.4),
   },
   chatIconBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: s(30),
+    height: s(30),
+    borderRadius: s(15),
     backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
   },
   chatCropWrap: {
     // chat.png bbox (447,166)-(748,477), glyph height scaled to 26px.
-    width: 25.16,
-    height: 26,
+    width: s(25.16),
+    height: s(26),
     overflow: "hidden",
     position: "relative",
   },
   chatCropImage: {
     position: "absolute",
-    width: 107.01,
-    height: 60.19,
-    left: -37.37,
-    top: -13.88,
+    width: s(107.01),
+    height: s(60.19),
+    left: -s(37.37),
+    top: -s(13.88),
   },
   rightBannerBtn: {
-    width: 44,
-    height: 60,
-    borderRadius: 10,
+    width: s(44),
+    height: vs(60),
+    borderRadius: s(10),
     backgroundColor: " rgba(61, 52, 88, 0.7)",
     alignItems: "center",
     justifyContent: "center",
   },
-  rightBannerText: { fontSize: 26 },
+  rightBannerText: { fontSize: ms(26) },
   chatBadge: {
     position: "absolute",
-    top: -4,
-    right: -4,
+    top: -vs(4),
+    right: -s(4),
     backgroundColor: "#4dc8ff",
-    borderRadius: 8,
-    minWidth: 18,
-    height: 18,
+    borderRadius: s(8),
+    minWidth: s(18),
+    height: vs(18),
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 3,
+    paddingHorizontal: s(3),
   },
-  chatBadgeText: { color: "white", fontSize: 9, fontWeight: "800" },
+  chatBadgeText: { color: "white", fontSize: ms(9), fontWeight: "800" },
   giftBadge: {
     position: "absolute",
-    bottom: -4,
-    right: -4,
+    bottom: -vs(4),
+    right: -s(4),
     backgroundColor: "#ff4ea3",
-    borderRadius: 6,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    borderRadius: s(6),
+    paddingHorizontal: s(4),
+    paddingVertical: vs(1),
   },
-  giftBadgeText: { color: "white", fontSize: 10, fontWeight: "700" },
+  giftBadgeText: { color: "white", fontSize: ms(10), fontWeight: "700" },
   takeMicBtn: {
     alignItems: "center",
     backgroundColor: "transparent",
-    borderRadius: 22,
+    borderRadius: s(22),
     paddingVertical: 0,
-    paddingHorizontal: 6,
-    width: 38,
+    paddingHorizontal: s(6),
+    width: s(38),
   },
   takeMicText: {
     color: "white",
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: "700",
     textAlign: "center",
-    marginTop: 2,
+    marginTop: vs(2),
   },
   micMuteBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: s(36),
+    height: s(36),
+    borderRadius: s(18),
     backgroundColor: "rgba(0,0,0,0.35)",
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 6,
+    marginLeft: s(6),
   },
   voiceDebugText: {
     color: "rgba(255,255,255,0.55)",
-    fontSize: 10,
-    paddingHorizontal: 12,
-    paddingBottom: 4,
+    fontSize: ms(10),
+    paddingHorizontal: s(12),
+    paddingBottom: vs(4),
   },
   bottomDock: {
     borderTopWidth: 1,
@@ -8190,71 +8243,71 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingTop: 6,
-    paddingBottom: 6,
+    paddingHorizontal: s(12),
+    paddingTop: vs(6),
+    paddingBottom: vs(6),
   },
   bottomIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: s(40),
+    height: s(40),
+    borderRadius: s(20),
     backgroundColor: "rgba(255,255,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
-  giftRow: { flex: 1, flexDirection: "row", gap: 8, justifyContent: "center" },
+  giftRow: { flex: 1, flexDirection: "row", gap: s(8), justifyContent: "center" },
   giftShortcut: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: s(40),
+    height: s(40),
+    borderRadius: s(20),
     backgroundColor: "rgba(255,255,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
   giftShortcutHighlight: {
-    width: 36,
-    height: 36,
+    width: s(36),
+    height: s(36),
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: -6,
+    marginBottom: -vs(6),
   },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingBottom: Platform.OS === "android" ? 0 : 5,
-    paddingTop: 6,
-    gap: 8,
+    paddingHorizontal: s(10),
+    paddingBottom: Platform.OS === "android" ? 0 : vs(5),
+    paddingTop: vs(6),
+    gap: s(8),
     borderBottomWidth: Platform.OS === "android" ? 0 : 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
   input: {
     flex: 1,
-    height: Platform.OS === "android" ? 46 : 34,
+    height: Platform.OS === "android" ? vs(46) : vs(34),
     backgroundColor: "transparent",
     borderRadius: 0,
-    paddingHorizontal: 6,
+    paddingHorizontal: s(6),
     paddingVertical: 0,
-    paddingBottom: Platform.OS === "android" ? 12 : 0,
+    paddingBottom: Platform.OS === "android" ? vs(12) : 0,
     color: "white",
-    fontSize: 14,
+    fontSize: ms(14),
     borderWidth: 0,
   },
   sendBtn: {
     backgroundColor: "#7c4dff",
-    borderRadius: 18,
-    height: 36,
-    paddingHorizontal: 14,
+    borderRadius: s(18),
+    height: vs(36),
+    paddingHorizontal: s(14),
     justifyContent: "center",
     alignItems: "center",
   },
-  sendBtnText: { color: "white", fontWeight: "700", fontSize: 13 },
+  sendBtnText: { color: "white", fontWeight: "700", fontSize: ms(13) },
 
   // Tag / @mention styles
   tagBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: s(34),
+    height: s(34),
+    borderRadius: s(17),
     backgroundColor: "rgba(124,77,255,0.25)",
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.6)",
@@ -8263,94 +8316,94 @@ const styles = StyleSheet.create({
   },
   tagBtnText: {
     color: "#b39dff",
-    fontSize: 17,
+    fontSize: ms(17),
     fontWeight: "800",
-    lineHeight: 20,
+    lineHeight: vs(20),
   },
   inputWrapper: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 18,
+    borderRadius: s(18),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
-    height: Platform.OS === "android" ? 46 : 36,
-    paddingHorizontal: 8,
+    height: Platform.OS === "android" ? vs(46) : vs(36),
+    paddingHorizontal: s(8),
     overflow: "hidden",
   },
   tagChip: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(124,77,255,0.4)",
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginRight: 4,
-    maxWidth: 110,
+    borderRadius: s(12),
+    paddingHorizontal: s(8),
+    paddingVertical: vs(3),
+    marginRight: s(4),
+    maxWidth: s(110),
   },
   tagChipText: {
     color: "#d8c8ff",
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "700",
     flexShrink: 1,
   },
   tagChipClose: {
     color: "rgba(255,255,255,0.6)",
-    fontSize: 10,
-    marginLeft: 4,
+    fontSize: ms(10),
+    marginLeft: s(4),
     fontWeight: "700",
   },
   tagPickerContainer: {
     backgroundColor: "rgba(30,10,60,0.97)",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: s(16),
+    borderTopRightRadius: s(16),
     borderTopWidth: 1,
     borderColor: "rgba(124,77,255,0.35)",
-    maxHeight: 260,
-    paddingBottom: 8,
+    maxHeight: vs(260),
+    paddingBottom: vs(8),
   },
   tagPickerHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: s(16),
+    paddingVertical: vs(10),
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
   tagPickerTitle: {
     color: "rgba(255,255,255,0.9)",
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: "700",
     letterSpacing: 0.3,
   },
   tagPickerClose: {
     color: "rgba(255,255,255,0.5)",
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "700",
   },
   tagPickerEmpty: {
     color: "rgba(255,255,255,0.4)",
     textAlign: "center",
-    paddingVertical: 20,
-    fontSize: 13,
+    paddingVertical: vs(20),
+    fontSize: ms(13),
   },
   tagPickerList: {
-    paddingHorizontal: 8,
+    paddingHorizontal: s(8),
   },
   tagPickerItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    gap: 10,
+    paddingVertical: vs(8),
+    paddingHorizontal: s(8),
+    borderRadius: s(10),
+    gap: s(10),
   },
   tagPickerAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: s(36),
+    height: s(36),
+    borderRadius: s(18),
   },
   tagPickerAvatarFallback: {
     backgroundColor: "rgba(124,77,255,0.4)",
@@ -8359,7 +8412,7 @@ const styles = StyleSheet.create({
   },
   tagPickerAvatarInitial: {
     color: "white",
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "700",
   },
   tagPickerUserInfo: {
@@ -8367,22 +8420,22 @@ const styles = StyleSheet.create({
   },
   tagPickerName: {
     color: "white",
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "600",
   },
   tagPickerUsername: {
     color: "rgba(255,255,255,0.45)",
-    fontSize: 12,
-    marginTop: 1,
+    fontSize: ms(12),
+    marginTop: vs(1),
   },
   tagPickerMicBadge: {
     backgroundColor: "rgba(77,200,255,0.15)",
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: s(8),
+    paddingHorizontal: s(6),
+    paddingVertical: vs(2),
   },
   tagPickerMicText: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   modalOverlay: {
     flex: 1,
@@ -8948,6 +9001,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     justifyContent: "center",
     alignItems: "center",
+    flexDirection: "row",
+    overflow: "hidden",
     zIndex: 2,
   },
   entryBannerAvatar: {
@@ -8959,26 +9014,28 @@ const styles = StyleSheet.create({
   },
 
   entryBannerTextContainer: {
-    marginLeft: 4,
     flex: 1,
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    paddingRight: 20,
+    paddingHorizontal: 8,
   },
   entryBannerName: {
     color: "#FFD700",
     fontWeight: "800",
-    fontSize: 8,
+    fontSize: 8.5,
     letterSpacing: 0.1,
     textAlign: "center",
-
+    textAlignVertical: "center",
+    includeFontPadding: false,
   },
   entryBannerJoined: {
     color: "rgba(255,255,255,0.75)",
     fontSize: 9.5,
     marginTop: 1.5,
     textAlign: "center",
+    textAlignVertical: "center",
+    includeFontPadding: false,
   },
 
   // ── Backpack modal ──
@@ -9118,7 +9175,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.55)",
+    backgroundColor: "transparent",
   },
   bpGiftImage: {
     width: "88%",
