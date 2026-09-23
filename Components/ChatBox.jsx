@@ -177,6 +177,7 @@ export default function ChatBox({ user = {}, onBack }) {
     name = "User",
     avatar = null,
     lastMsg = "",
+    level = null,
   } = user;
   const router = useRouter();
   const handleAvatarPress = () => {

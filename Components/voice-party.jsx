@@ -7,6 +7,7 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import {
   AlertCircle,
   Ban,
+  BadgeCheck,
   Crown,
   LayoutGrid,
   MessageCircle,
@@ -7292,6 +7293,11 @@ export default function VoiceParty() {
                             source={resolveLocalLevelBadge(msg.level)}
                             style={styles.lvBadgeImg}
                             resizeMode="contain"
+                          />
+                          <BadgeCheck
+                            size={14}
+                            color="#3897f0"
+                            strokeWidth={2.2}
                           />
                           {senderVipLogo && (
                             <Image

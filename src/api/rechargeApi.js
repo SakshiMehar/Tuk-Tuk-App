@@ -7,5 +7,6 @@ export const getDiamondStockManager = async () => {
     "/api/app/diamond-stock-manager/diamond-stock-manager",
     await authRequestConfig()
   );
+  console.log("[diamond-stock-manager] response:", response.data);
   return response.data;
 };

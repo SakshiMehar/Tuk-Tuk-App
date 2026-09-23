@@ -88,33 +88,6 @@ export default function DiamondRechargeModal({
     fetchAgent();
   }, [visible, fetchPackages, fetchAgent]);
 
-  const buildRechargeMessage = () => {
-    if (!selectedPackage) return "";
-    const idLine = userId ? `User ID: ${userId}\n` : "";
-    return (
-      `Hi, I want to recharge Tuk-Tuk diamonds.\n` +
-      `Package: ${formatInr(selectedPackage.inr)} for ${formatDiamonds(selectedPackage.diamonds)}\n` +
-      idLine +
-      `Please share payment details.`
-    );
-  };
-
-  const openWhatsApp = async () => {
-    const phone = sanitizePhone(agent?.whatsapp || agent?.phone);
-    if (!phone) {
-      Alert.alert("Contact unavailable", "No WhatsApp number is available for the recharge agent.");
-      return;
-    }
-    const message = encodeURIComponent(buildRechargeMessage());
-    const url = `https://wa.me/${phone.replace(/^\+/, "")}?text=${message}`;
-    const canOpen = await Linking.canOpenURL(url);
-    if (!canOpen) {
-      Alert.alert("WhatsApp", "Could not open WhatsApp on this device.");
-      return;
-    }
-    Linking.openURL(url);
-  };
-
   const callAgent = async () => {
     const phone = sanitizePhone(agent?.phone || agent?.whatsapp);
     if (!phone) {
@@ -242,16 +215,20 @@ export default function DiamondRechargeModal({
                   <>
                     <Text style={styles.agentName}>{agent?.name ?? "Recharge Agent"}</Text>
                     <Text style={styles.agentNote}>{agent?.note}</Text>
+                    {agent?.countryName ? (
+                      <View style={styles.agentInfoRow}>
+                        {agent?.flagEmoji ? (
+                          <Text style={styles.agentInfoFlag}>{agent.flagEmoji}</Text>
+                        ) : (
+                          <Ionicons name="earth-outline" size={16} color="#a78bfa" />
+                        )}
+                        <Text style={styles.agentInfoText}>{agent.countryName}</Text>
+                      </View>
+                    ) : null}
                     {agent?.phone ? (
                       <View style={styles.agentInfoRow}>
                         <Ionicons name="call-outline" size={16} color="#a78bfa" />
                         <Text style={styles.agentInfoText}>{agent.phone}</Text>
-                      </View>
-                    ) : null}
-                    {agent?.whatsapp ? (
-                      <View style={styles.agentInfoRow}>
-                        <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
-                        <Text style={styles.agentInfoText}>{agent.whatsapp}</Text>
                       </View>
                     ) : null}
                     {agent?.upiId ? (
@@ -278,20 +255,10 @@ export default function DiamondRechargeModal({
 
             <View style={styles.footer}>
               <TouchableOpacity
-                style={[styles.secondaryBtn, agentLoading && styles.btnDisabled]}
+                style={[styles.primaryBtnWrap, agentLoading && styles.btnDisabled]}
                 activeOpacity={0.85}
                 disabled={agentLoading || !agent}
                 onPress={callAgent}
-              >
-                <Ionicons name="call" size={16} color="white" />
-                <Text style={styles.secondaryBtnText}>Call</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.primaryBtnWrap, (agentLoading || !selectedPackage) && styles.btnDisabled]}
-                activeOpacity={0.85}
-                disabled={agentLoading || !selectedPackage || !agent}
-                onPress={openWhatsApp}
               >
                 <LinearGradient
                   colors={["#7c4dff", "#a855f7"]}
@@ -299,8 +266,8 @@ export default function DiamondRechargeModal({
                   end={{ x: 1, y: 0 }}
                   style={styles.primaryBtn}
                 >
-                  <Ionicons name="logo-whatsapp" size={18} color="white" />
-                  <Text style={styles.primaryBtnText}>Contact on WhatsApp</Text>
+                  <Ionicons name="call" size={18} color="white" />
+                  <Text style={styles.primaryBtnText}>Call Agent</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -480,6 +447,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     flex: 1,
   },
+  agentInfoFlag: {
+    fontSize: 16,
+    width: 16,
+    textAlign: "center",
+  },
   helpText: {
     color: "rgba(255,255,255,0.45)",
     fontSize: 12,
@@ -490,23 +462,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     marginTop: 8,
-  },
-  secondaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    minHeight: 48,
-  },
-  secondaryBtnText: {
-    color: "white",
-    fontWeight: "700",
-    fontSize: 14,
   },
   primaryBtnWrap: {
     flex: 1,
