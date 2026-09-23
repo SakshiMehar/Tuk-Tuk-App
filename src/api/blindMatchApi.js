@@ -12,12 +12,6 @@ const buildAuthedConfig = async (label) => {
   }
   const authConfig = await authRequestConfig();
 
-  console.log("====================================");
-  console.log(`[AUTH] ${label}`);
-  console.log("[AUTH] Bearer token:", token);
-  console.log("[AUTH] Token length:", token.length);
-  console.log("====================================");
-
   return {
     token,
     headers: {

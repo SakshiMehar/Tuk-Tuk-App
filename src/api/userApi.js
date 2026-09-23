@@ -99,7 +99,6 @@ export const getUserById = async (userId) => {
     `/api/app/users/${id}`,
     await authRequestConfig()
   );
-  console.log(`[userApi] GET /api/app/users/${id} -> RAW`, JSON.stringify(response.data));
   return response.data;
 };
 
@@ -110,7 +109,6 @@ export const getUserProfile = async (userId) => {
     `/api/app/users/user/profile/${id}`,
     await authRequestConfig()
   );
-  console.log(`[userApi] GET /api/app/users/user/profile/${id} -> RAW`, JSON.stringify(response.data));
   return response.data;
 };
 
@@ -123,7 +121,6 @@ export const getUserProfileDetails = async (targetUserId) => {
     `/api/app/users/${id}/profile-details`,
     await authRequestConfig()
   );
-  console.log(`[userApi] GET /api/app/users/${id}/profile-details -> RAW`, JSON.stringify(response.data));
   return response.data;
 };
 

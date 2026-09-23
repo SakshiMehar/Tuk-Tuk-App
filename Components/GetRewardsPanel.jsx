@@ -281,15 +281,10 @@ export default function GetRewardsPanel({ active }) {
     const configPromise = loadInviteFriendsConfig()
       .then((config) => {
         if (cancelled) return;
-        console.log("[GetRewardsPanel] invite-friends/config parsed ->", JSON.stringify(config, null, 2));
-        if (!config?.tiers?.length) {
-          console.log("[GetRewardsPanel] config has no tiers — check the raw API response shape against normalizeConfig/normalizeTier in inviteFriendsService.js");
-        }
         setInviteConfig(config);
       })
       .catch((err) => {
         if (cancelled) return;
-        console.log("[GetRewardsPanel] invite-friends/config failed:", err?.status, err?.message);
         if (err?.status === 404) {
           setInviteConfig(INVITE_FRIENDS_PREVIEW_CONFIG);
           return;

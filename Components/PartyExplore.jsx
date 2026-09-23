@@ -352,7 +352,6 @@ export default function PartyExplore() {
     setRoomsLoading(true);
     loadRoomRecommendations()
       .then((apiRooms) => {
-        console.log("[PartyExplore] loadRoomRecommendations resolved, count:", apiRooms?.length);
         if (!cancelled) setRooms(apiRooms);
       })
       .catch((err) => {
@@ -377,7 +376,6 @@ export default function PartyExplore() {
     setRelatedLoading(true);
     loader()
       .then((apiRooms) => {
-        console.log(`[PartyExplore] ${activeRelatedTab} rooms resolved, count:`, apiRooms?.length);
         if (!cancelled) setRelatedRooms(apiRooms);
       })
       .catch((err) => {

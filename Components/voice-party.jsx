@@ -143,6 +143,8 @@ import {
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import {
   getPkBattleRole,
+  isPkBattleLive,
+  isPkBattlePending,
   loadActivePkBattle,
   normalizePkBattle,
   respondPkBattle,
@@ -1802,10 +1804,6 @@ export default function VoiceParty() {
       fetchedUiAssetIdsRef.current.add(userId);
       getUserUiAssets(userId)
         .then((response) => {
-          console.log(
-            `[VoiceParty] ui-assets userId=${userId}:`,
-            JSON.stringify(response),
-          );
           const showFrame = Boolean(
             response?.showNewUserFrame ??
             response?.hasNewUserFrame ??
@@ -2353,14 +2351,7 @@ export default function VoiceParty() {
         try {
           loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
           if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
-          console.log(
-            "[VoiceParty] myVipAssets loaded, xp used:",
-            levelData?.xp?.totalXp,
-            "-> ",
-            JSON.stringify(loadedVip),
-          );
         } catch (e) {
-          console.log("[VoiceParty] loadMyVipAssets threw:", e?.message ?? e);
         }
         let session;
         if (isRandomParty) {
@@ -2393,9 +2384,6 @@ export default function VoiceParty() {
           }),
         );
         setOnlineUsers(session.onlineUsers);
-        console.log(
-          `[joinRoom onlineCount] room ${roomId}: onlineCount=${session.onlineCount}, onlineUsers.length=${session.onlineUsers?.length}`
-        );
         setOnlineCount(session.onlineCount);
 
         // Show entry toast banner immediately upon entering the room
@@ -2637,11 +2625,9 @@ export default function VoiceParty() {
     if (!roomId) return undefined;
     const activeRoomId = String(roomId);
 
-    console.log(`[VoiceParty] Initializing WebSocket subscriptions for room: ${activeRoomId}`);
     wsService
       .connect()
       .then(() => {
-        console.log(`[VoiceParty] WS connected, joining room: ${activeRoomId}`);
         wsService.joinRoom(activeRoomId);
       })
       .catch((err) => {
@@ -2869,7 +2855,6 @@ export default function VoiceParty() {
       (payload) => {
         if (!payload) return;
         const eventType = String(payload.eventType || payload.type || "").toUpperCase();
-        console.log(`[VoiceParty Notification] 🔔 Event: ${eventType}`, payload);
         const uId = payload.userId != null ? String(payload.userId) : null;
         const uName = payload.userName || payload.senderName || payload.name || "User";
         const uAvatar =
@@ -3166,7 +3151,6 @@ export default function VoiceParty() {
               await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
               setIsMicMuted(false);
             } catch (e) {
-              console.log("Failed to unmute mic:", e);
             }
           }
 
@@ -3445,7 +3429,6 @@ export default function VoiceParty() {
         if (cancelled) return;
         if (typeof count === "number") setOnlineCount(count);
       } catch (error) {
-        console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
       }
     };
 
@@ -5672,7 +5655,6 @@ export default function VoiceParty() {
       <PkBattleModal
         visible={showPkBattle}
         onClose={() => setShowPkBattle(false)}
-        gifts={displayPkGifts}
         roomUsers={pkOpponentCandidates}
         submitting={pkBattleActionLoading}
         onConfirm={handlePkConfirm}
@@ -6003,6 +5985,13 @@ export default function VoiceParty() {
                 activeOpacity={0.75}
                 onPress={() => {
                   setShowPlayCenter(false);
+                  if (isPkBattlePending(activePkBattle) || isPkBattleLive(activePkBattle)) {
+                    Alert.alert(
+                      "PK battle in progress",
+                      "This room already has an active PK battle. Wait for it to finish before starting a new one.",
+                    );
+                    return;
+                  }
                   setTimeout(() => {
                     setShowPkBattle(true);
                   }, 400);
@@ -6880,9 +6869,7 @@ export default function VoiceParty() {
             <TouchableOpacity
               style={styles.headerBtn}
               onPress={() => {
-                getClaimedSeats(String(roomId))
-                  .then((data) => console.log("[claimed-seat]", data))
-                  .catch((err) => console.log("[claimed-seat] failed", err));
+                getClaimedSeats(String(roomId)).catch(() => {});
                 setShowActiveUsersModal(true);
               }}
             >

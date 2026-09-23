@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { ChevronRight, HelpCircle } from "lucide-react-native";
+import { HelpCircle } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -54,15 +54,14 @@ const DURATIONS = [1, 3, 5, 10, 30];
 const SLOT_COUNT = 10;
 
 /** Bottom-sheet PK battle setup screen — light theme version of the
- *  reference "Personal gift PK" design (tabs, 10 opponent slots, gift
- *  picker, duration picker, jackpot toggle). Opened from the room's Play
- *  Center "PK" button. `gifts` is the PK gift catalog (voice-party.jsx's
- *  displayPkGifts) so the picker reuses the same inventory the Backpack's
- *  PK tab already shows. */
+ *  reference "Personal gift PK" design (tabs, 10 opponent slots, duration
+ *  picker, jackpot toggle). Opened from the room's Play Center "PK" button.
+ *  No gift is chosen here — Confirm just creates the battle (opponent +
+ *  duration); gifting happens afterwards through the room's normal gift
+ *  sheet once the battle card is live, same as any other room gift. */
 export default function PkBattleModal({
   visible,
   onClose,
-  gifts = [],
   roomUsers = [],
   submitting = false,
   onConfirm,
@@ -70,8 +69,6 @@ export default function PkBattleModal({
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("personal");
   const [selectedTeam, setSelectedTeam] = useState("yellow");
-  const [selectedGift, setSelectedGift] = useState(null);
-  const [showGiftPicker, setShowGiftPicker] = useState(false);
   const [durationMinutes, setDurationMinutes] = useState(1);
   const [jackpotMode, setJackpotMode] = useState(false);
   const [opponentId, setOpponentId] = useState(null);
@@ -83,7 +80,6 @@ export default function PkBattleModal({
 
   useEffect(() => {
     if (!visible) {
-      setShowGiftPicker(false);
       setOpponentId(null);
       setTeamMemberIds([]);
     }
@@ -121,16 +117,11 @@ export default function PkBattleModal({
       Alert.alert("Select an opponent", "Pick who you want to challenge.");
       return;
     }
-    if (!isVote && !selectedGift) {
-      Alert.alert("Select a gift", "Pick a gift before starting the PK.");
-      return;
-    }
     onConfirm?.({
       mode: activeTab,
       team: isTeam ? selectedTeam : null,
       opponentId,
       teamMemberIds: isTeam ? teamMemberIds : [],
-      gift: isVote ? null : selectedGift,
       durationMinutes,
       jackpotMode: isPersonal ? jackpotMode : false,
     });
@@ -298,62 +289,6 @@ export default function PkBattleModal({
             })}
           </View>
 
-          {/* Gift selector (not shown for Vote PK — votes don't cost a gift) */}
-          {!isVote && (
-            <>
-              <Text style={styles.sectionLabel}>Select a gift</Text>
-              <TouchableOpacity
-                style={styles.giftRow}
-                activeOpacity={0.8}
-                onPress={() => setShowGiftPicker((v) => !v)}
-              >
-                <View style={styles.giftIconWrap}>
-                  {selectedGift ? (
-                    <Text style={styles.giftIconEmoji}>{selectedGift.emoji}</Text>
-                  ) : (
-                    <Text style={styles.giftIconEmoji}>🎁</Text>
-                  )}
-                </View>
-                <Text style={styles.giftRowText} numberOfLines={1}>
-                  {selectedGift ? selectedGift.name : "Choose a gift"}
-                </Text>
-                <ChevronRight
-                  size={18}
-                  color={Colors.textSlateMuted}
-                  style={showGiftPicker ? styles.giftChevronOpen : null}
-                />
-              </TouchableOpacity>
-
-              {showGiftPicker && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.giftPickerScroll}
-                  contentContainerStyle={styles.giftPickerContent}
-                >
-                  {gifts.map((gift) => {
-                    const selected = selectedGift?.id === gift.id;
-                    return (
-                      <TouchableOpacity
-                        key={gift.id}
-                        style={[styles.giftPickerItem, selected && styles.giftPickerItemActive]}
-                        activeOpacity={0.8}
-                        onPress={() => {
-                          setSelectedGift(gift);
-                          setShowGiftPicker(false);
-                        }}
-                      >
-                        <Text style={styles.giftPickerEmoji}>{gift.emoji}</Text>
-                        <Text style={styles.giftPickerName} numberOfLines={1}>{gift.name}</Text>
-                        <Text style={styles.giftPickerPrice}>💎 {gift.price}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              )}
-            </>
-          )}
-
           {/* Duration selector */}
           <Text style={styles.sectionLabel}>Select duration (minutes)</Text>
           <View style={styles.durationRow}>
@@ -386,7 +321,7 @@ export default function PkBattleModal({
 
           {/* Confirm */}
           {(() => {
-            const ready = Boolean(opponentId) && (isVote || Boolean(selectedGift));
+            const ready = Boolean(opponentId);
             return (
               <TouchableOpacity
                 activeOpacity={0.85}

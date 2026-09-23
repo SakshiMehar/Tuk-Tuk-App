@@ -7,11 +7,9 @@ import API, {
 const LOG_TAG = "[PkBattleAPI]";
 
 const logRequest = (method, path, payload) => {
-  console.log(`${LOG_TAG} → ${method} ${path}`, payload ?? "");
 };
 
 const logResponse = (method, path, data) => {
-  console.log(`${LOG_TAG} ← ${method} ${path}`, data);
 };
 
 const logError = (method, path, error) => {

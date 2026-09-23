@@ -65,8 +65,6 @@ const resolveTargetAction = async (targetUrl, data = {}) => {
   let urlStr = targetUrl.trim();
   if (!urlStr) return null;
 
-  console.log("[notificationNavigation] Resolving targetUrl:", urlStr);
-
   // Strip custom schemes like tuktuk://, app://, etc.
   urlStr = urlStr.replace(/^(tuktuk|app|tuk-tuk):\/\/?/i, "/");
 
@@ -125,13 +123,6 @@ const resolveTargetAction = async (targetUrl, data = {}) => {
     // Pick the other user's ID
     const targetUserId =
       String(currentUserId) === String(userA) ? userB : userA;
-
-    console.log("[notificationNavigation] Matched conversation target:", {
-      userA,
-      userB,
-      currentUserId,
-      targetUserId,
-    });
 
     return {
       type: "chat",
@@ -323,11 +314,6 @@ export const navigateFromNotification = async (router, rawData) => {
     data = { ...data, ...rawData.data };
   }
 
-  console.log(
-    "[notificationNavigation] navigateFromNotification invoked with:",
-    JSON.stringify(data, null, 2)
-  );
-
   const rawTargetUrl =
     data.targetUrl ||
     data.target_url ||
@@ -340,10 +326,8 @@ export const navigateFromNotification = async (router, rawData) => {
   // 1. Resolve and execute targetUrl action
   if (rawTargetUrl) {
     const action = await resolveTargetAction(rawTargetUrl, data);
-    console.log("[notificationNavigation] Resolved target action:", action);
     if (action) {
       if (action.type === "chat") {
-        console.log("[notificationNavigation] Opening chat with user:", action.userId);
         return openUserChat(router, {
           userId: action.userId,
           name: action.name,
@@ -353,7 +337,6 @@ export const navigateFromNotification = async (router, rawData) => {
 
       if (action.type === "route") {
         try {
-          console.log("[notificationNavigation] Navigating to in-app route:", action.path, action.params);
           router.push({
             pathname: action.path,
             params: action.params ?? {},
@@ -366,7 +349,6 @@ export const navigateFromNotification = async (router, rawData) => {
 
       if (action.type === "external") {
         try {
-          console.log("[notificationNavigation] Opening external URL:", action.url);
           const canOpen = await Linking.canOpenURL(action.url);
           if (canOpen) {
             await Linking.openURL(action.url);
@@ -411,7 +393,6 @@ export const navigateFromNotification = async (router, rawData) => {
 
   if (chatUserId || type === "chat" || type === "message") {
     if (chatUserId) {
-      console.log("[notificationNavigation] Fallback navigating to chat with user:", chatUserId);
       return openUserChat(router, {
         userId: chatUserId,
         name: senderName,
@@ -424,7 +405,6 @@ export const navigateFromNotification = async (router, rawData) => {
   if (type === "party" || type === "voice_party" || data.roomId) {
     const roomId = data.roomId || data.channelId;
     if (roomId) {
-      console.log("[notificationNavigation] Fallback navigating to voice party room:", roomId);
       router.push({
         pathname: "/voice-party",
         params: { roomId: String(roomId) },
@@ -436,7 +416,6 @@ export const navigateFromNotification = async (router, rawData) => {
   // 4. Fallback for custom pathname
   if (data.pathname) {
     try {
-      console.log("[notificationNavigation] Fallback navigating to pathname:", data.pathname);
       router.push({
         pathname: data.pathname,
         params:
@@ -450,7 +429,6 @@ export const navigateFromNotification = async (router, rawData) => {
     }
   }
 
-  console.log("[notificationNavigation] Default navigating to chat tab.");
   router.push("/(tabs)/chat");
   return true;
 };
