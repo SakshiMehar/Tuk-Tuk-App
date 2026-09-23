@@ -3119,36 +3119,19 @@ export default function VoiceParty() {
         return;
       }
 
-      try {
-        let DocumentPicker = null;
-        try {
-          DocumentPicker = require("expo-document-picker");
-        } catch (e) {
-          console.warn("[voice-party] expo-document-picker unavailable:", e?.message ?? e);
-        }
-
-        if (!DocumentPicker || typeof DocumentPicker.getDocumentAsync !== "function") {
-          Alert.alert(
-            "Music Feature Unavailable",
-            "Audio file picker is not available on this build.",
-          );
-          return;
-        }
-
-        const result = await DocumentPicker.getDocumentAsync({
-          type: "audio/*",
-          copyToCacheDirectory: false,
-        });
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-          if (onMic && isMicMuted && roomId && mySeatNumber) {
-            try {
-              await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
-              setIsMicMuted(false);
-            } catch (e) {
-            }
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        copyToCacheDirectory: false,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        if (onMic && isMicMuted && roomId && mySeatNumber) {
+          try {
+            await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
+            setIsMicMuted(false);
+          } catch (e) {
           }
         }
-
+        
         const localUri = result.assets[0].uri;
         agoraVoice.playAudioForEveryone(localUri);
         setIsMusicPlaying(true);
@@ -5718,6 +5701,7 @@ export default function VoiceParty() {
         visible={Boolean(treasureUnlockEvent)}
         onClose={() => setTreasureUnlockEvent(null)}
         eventData={treasureUnlockEvent}
+      />
       <PkBattleModal
         visible={showPkBattle}
         onClose={() => setShowPkBattle(false)}
