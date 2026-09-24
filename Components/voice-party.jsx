@@ -7,7 +7,6 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import {
   AlertCircle,
   Ban,
-  BadgeCheck,
   Crown,
   LayoutGrid,
   MessageCircle,
@@ -59,6 +58,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { refreshTokenCache } from "../src/api/axios";
 import {
   followRoom,
@@ -129,6 +129,14 @@ import {
   upsertChatMessage,
 } from "../src/services/partyService";
 import * as partyVoice from "../src/services/partyVoiceService";
+import {
+  getPkBattleRole,
+  isPkBattleLive,
+  isPkBattlePending,
+  loadActivePkBattle,
+  respondPkBattle,
+  startPkBattle
+} from "../src/services/pkBattleService";
 import { loadPublicProfile } from "../src/services/publicProfileService";
 import {
   blockUser,
@@ -139,15 +147,6 @@ import {
 } from "../src/services/relationshipService";
 import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
-import {
-  getPkBattleRole,
-  isPkBattleLive,
-  isPkBattlePending,
-  loadActivePkBattle,
-  normalizePkBattle,
-  respondPkBattle,
-  startPkBattle,
-} from "../src/services/pkBattleService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
@@ -160,6 +159,7 @@ import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import DiamondRechargeModal from "./DiamondRechargeModal";
 import PkAcceptTeamModal from "./PkAcceptTeamModal";
 import PkBattleModal from "./PkBattleModal";
 import PkLiveBanner from "./PkLiveBanner";
@@ -168,7 +168,6 @@ import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
 import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureBoxModal from "./TreasureBoxModal";
-import DiamondRechargeModal from "./DiamondRechargeModal";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
@@ -706,6 +705,7 @@ const UserEntryBanner = ({ user, countryFlag = null, onComplete }) => {
     </Animated.View>
   );
 };
+
 
 const RoomActivityEventBanner = ({ event, onDismiss, onClap }) => {
   const { W: SW } = useResponsive();
@@ -1266,6 +1266,7 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
 };
 
 export default function VoiceParty() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams();
   const roomIdParam = params.roomId ?? params.id ?? null;
@@ -2164,6 +2165,38 @@ export default function VoiceParty() {
 
     return Array.from(byId.values());
   }, [hostId, roomInfo, onlineUsers, seats, myUserId, resolveRecipientUserId]);
+
+  const pkOpponentCandidates = useMemo(() => {
+    const byId = new Map();
+
+    // 1. Seated users on mic first
+    seats.forEach((seat) => {
+      if (!seat.user) return;
+      const u = seat.user;
+      const userId = u.id != null ? String(u.id) : (u.userId != null ? String(u.userId) : null);
+      if (!userId || isSameUser(userId, myUserId)) return;
+      byId.set(userId, {
+        id: userId,
+        name: u.name || u.username || "User",
+        avatar: u.avatar || u.profileImageUrl || u.avatarUrl || null,
+        seatId: seat.id,
+      });
+    });
+
+    // 2. Other online users in room
+    onlineUsers.forEach((user) => {
+      const userId = user.id != null ? String(user.id) : (user.userId != null ? String(user.userId) : null);
+      if (!userId || isSameUser(userId, myUserId) || byId.has(userId)) return;
+      byId.set(userId, {
+        id: userId,
+        name: user.name || user.username || "User",
+        avatar: user.avatar || user.profileImageUrl || user.avatarUrl || null,
+        seatId: null,
+      });
+    });
+
+    return Array.from(byId.values());
+  }, [seats, onlineUsers, myUserId]);
 
   useEffect(() => {
     if (!showBackpack) setShowGiftReceiverPicker(false);
@@ -6887,7 +6920,7 @@ export default function VoiceParty() {
             <TouchableOpacity
               style={styles.headerBtn}
               onPress={() => {
-                getClaimedSeats(String(roomId)).catch(() => {});
+                getClaimedSeats(String(roomId)).catch(() => { });
                 setShowActiveUsersModal(true);
               }}
             >
@@ -7207,7 +7240,7 @@ export default function VoiceParty() {
                                 avatar: senderAvatar,
                               })}
                               frameSource={senderProfileFrame}
-                              size={32}
+                              size={28}
                               avatarStyle={styles.chatAvatar}
                               frameScale={VIP_PROFILE_FRAME_LAYOUT.frameScale}
                               frameResizeMode={
@@ -7243,7 +7276,7 @@ export default function VoiceParty() {
                             <Text
                               style={{
                                 color: "white",
-                                fontSize: 12,
+                                fontSize: 11,
                                 fontWeight: "700",
                               }}
                             >
@@ -7298,11 +7331,6 @@ export default function VoiceParty() {
                             source={resolveLocalLevelBadge(msg.level)}
                             style={styles.lvBadgeImg}
                             resizeMode="contain"
-                          />
-                          <BadgeCheck
-                            size={14}
-                            color="#3897f0"
-                            strokeWidth={2.2}
                           />
                           {senderVipLogo && (
                             <Image
@@ -8106,11 +8134,11 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   systemMsgText: { color: "rgba(255,255,255,0.7)", fontSize: ms(12) },
-  chatMsg: { flexDirection: "row", alignItems: "flex-start", gap: s(6) },
+  chatMsg: { flexDirection: "row", alignItems: "flex-start", gap: s(5) },
   chatAvatar: {
-    width: s(32),
-    height: s(32),
-    borderRadius: s(16),
+    width: s(28),
+    height: s(28),
+    borderRadius: s(14),
     borderWidth: 1.5,
     borderColor: "#7c4dff",
   },
@@ -8121,8 +8149,9 @@ const styles = StyleSheet.create({
   },
   chatBubble: {
     backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: s(12),
-    padding: s(8),
+    borderRadius: s(10),
+    paddingHorizontal: s(8),
+    paddingVertical: vs(5),
     flex: 1,
     overflow: "hidden",
   },
@@ -8133,27 +8162,28 @@ const styles = StyleSheet.create({
   // above/below the bubble instead of being clipped — see vipChatFrameStyle.
   chatBubbleVipPadding: {
     paddingHorizontal: s(10),
-    paddingVertical: vs(12),
+    paddingVertical: vs(10),
+    paddingRight: s(22),
     overflow: "visible",
   },
   chatMeta: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(6),
-    marginBottom: vs(3),
+    gap: s(4),
+    marginBottom: vs(2),
     flexWrap: "wrap",
   },
-  chatUser: { color: "#b44dff", fontSize: ms(12), fontWeight: "700" },
-  chatUserFlag: { fontSize: ms(12) },
+  chatUser: { color: "#b44dff", fontSize: ms(11), fontWeight: "700" },
+  chatUserFlag: { fontSize: ms(11) },
   // Same level-badge image (and aspect ratio) shown on the Profile tab —
   // 142/149 measured from the actual asset files, see levelBadge.js.
-  lvBadgeImg: { height: vs(18), width: vs(18) * (142 / 149) },
-  chatVipBadge: { width: vs(18), height: vs(18) },
-  chatVerifiedBadge: { width: vs(18) * (438 / 179), height: vs(18) },
-  newStartBadge: { width: s(52), height: vs(24), marginLeft: s(2) },
-  chatCoin: { fontSize: ms(11), color: "#ffd700" },
-  chatDiamond: { fontSize: ms(11), color: "#4dc8ff" },
-  chatText: { color: "white", fontSize: ms(13) },
+  lvBadgeImg: { height: vs(14), width: vs(14) * (142 / 149) },
+  chatVipBadge: { width: vs(14), height: vs(14) },
+  chatVerifiedBadge: { width: vs(13) * (438 / 179), height: vs(13) },
+  newStartBadge: { width: s(44), height: vs(24), marginLeft: s(1), marginTop: vs(-6) },
+  chatCoin: { fontSize: ms(10), color: "#ffd700" },
+  chatDiamond: { fontSize: ms(10), color: "#4dc8ff" },
+  chatText: { color: "white", fontSize: ms(11.5), lineHeight: vs(16) },
   chatGiftText: { color: "#f9a8d4", fontWeight: "700" },
   chatRight: {
     // width: 60,
