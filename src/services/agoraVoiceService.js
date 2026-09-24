@@ -349,6 +349,10 @@ export const getVoiceDiagnostics = () => ({
   currentChannel,
   currentIsSpeaker,
   remoteSpeakerCount: remoteSpeakerUids.size,
+  // Actual Agora uids currently producing/publishing remote audio — the
+  // ground truth for "who's really still here", independent of the
+  // WebSocket presence list used to drive seat display.
+  remoteSpeakerUids: Array.from(remoteSpeakerUids),
   remoteAudioMuted,
   lastError,
   hasEngine: Boolean(engine),

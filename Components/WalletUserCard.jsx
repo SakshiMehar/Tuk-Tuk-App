@@ -31,6 +31,7 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
   const [vipLogo, setVipLogo] = useState(null);
   const [decorationBadgeUrl, setDecorationBadgeUrl] = useState(null);
+  const [decorationFrameUrl, setDecorationFrameUrl] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,7 +54,10 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
       // (the logged-in user), not a per-row list, so it's safe here.
       const myUserId = storedUser?.id ?? storedUser?.userId;
       const decorations = await fetchUserDecorations(myUserId).catch(() => null);
-      if (!cancelled) setDecorationBadgeUrl(decorations?.badgeUrl ?? null);
+      if (!cancelled) {
+        setDecorationBadgeUrl(decorations?.badgeUrl ?? null);
+        setDecorationFrameUrl(decorations?.frameUrl ?? null);
+      }
     })();
     return () => {
       cancelled = true;
@@ -62,6 +66,12 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
 
   const avatarSource = resolveProfileAvatarSource(user);
   const username = user?.name || "User";
+  // Backend-assigned decorations (e.g. a room-owner frame) are a separate
+  // system from the VIP tier and always take priority when equipped — same
+  // ordering as the main Profile tab (app/(tabs)/profile.jsx), so this
+  // card doesn't fall back to showing just the VIP frame when the user
+  // actually has something else equipped.
+  const frameSource = decorationFrameUrl ?? vipProfileFrame;
 
   const hasExplicitXp = xpCurrent !== undefined && xpTarget !== undefined;
   const resolvedXpTarget = hasExplicitXp ? xpTarget : VIP_XP_THRESHOLD;
@@ -76,21 +86,23 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
     <Wrapper style={styles.card} activeOpacity={0.85} onPress={onPress}>
       <ProfileAvatarWithFrame
         avatarSource={avatarSource}
-        frameSource={vipProfileFrame}
+        frameSource={frameSource}
         size={56}
         avatarStyle={styles.avatar}
         placeholderInitial={username[0]?.toUpperCase() ?? "?"}
-        {...(vipProfileFrame
-          ? {
-              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-            }
-          : {})}
+        {...(decorationFrameUrl
+          ? { frameResizeMode: "contain" }
+          : vipProfileFrame
+            ? {
+                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+              }
+            : {})}
       />
       <View style={styles.infoCol}>
         <Text style={styles.username} numberOfLines={1}>
