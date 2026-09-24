@@ -34,6 +34,16 @@ export const stopAudioForEveryone = () => {
   if (!engine) return;
   engine.stopAudioMixing();
 };
+
+export const pauseAudioForEveryone = () => {
+  if (!engine) return;
+  engine.pauseAudioMixing();
+};
+
+export const resumeAudioForEveryone = () => {
+  if (!engine) return;
+  engine.resumeAudioMixing();
+};
 // Volume threshold — Agora reports 0–255; anything above this is "speaking"
 const SPEAKING_VOLUME_THRESHOLD = 20;
 
@@ -59,6 +69,12 @@ const notifySpeakingListeners = (uid, isSpeaking) => {
       // ignore
     }
   });
+};
+
+let audioMixingListeners = new Set();
+export const subscribeAudioMixing = (callback) => {
+  audioMixingListeners.add(callback);
+  return () => audioMixingListeners.delete(callback);
 };
 
 const settleJoinWaiters = (err = null) => {
@@ -283,6 +299,15 @@ const ensureEngine = (appId) => {
         const volume = Number(speaker?.volume ?? 0);
         const isSpeaking = volume > SPEAKING_VOLUME_THRESHOLD;
         notifySpeakingListeners(uid, isSpeaking);
+      });
+    },
+    onAudioMixingStateChanged: (state, reason) => {
+      audioMixingListeners.forEach((listener) => {
+        try {
+          listener({ state, reason });
+        } catch {
+          // ignore
+        }
       });
     },
   });
