@@ -135,6 +135,7 @@ import {
   isPkBattleLive,
   isPkBattlePending,
   loadActivePkBattle,
+  normalizePkBattle,
   respondPkBattle,
   startPkBattle
 } from "../src/services/pkBattleService";
@@ -171,7 +172,6 @@ import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureBoxModal from "./TreasureBoxModal";
 import TreasureWinnersModal from "./TreasureWinnersModal";
 import TreasureAnimationModal from "./TreasureAnimationModal";
-import DiamondRechargeModal from "./DiamondRechargeModal";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
