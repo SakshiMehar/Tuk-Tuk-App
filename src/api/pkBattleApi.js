@@ -54,7 +54,7 @@ export const createPkBattle = async ({
 }) => {
   const path = "/api/app/pk-battles";
   const body = {
-    roomId: String(roomId),
+    roomId: String(roomId).trim(),
     opponentHostId,
     durationSeconds,
     ...(Array.isArray(teamAMemberIds) && teamAMemberIds.length
@@ -100,9 +100,13 @@ export const respondToPkBattle = async (battleId, { accepted, teamBMemberIds }) 
 };
 
 /** GET /api/app/pk-battles/room/{roomId}/active — the room's live/pending
- *  PK card, or null/empty if there isn't one right now. */
+ *  PK card, or null/empty if there isn't one right now. Always pass the
+ *  exact roomId the PK subsystem itself echoed back (create/active/get
+ *  response), not a separately-tracked route/session id — the backend
+ *  resolves the latest LIVE battle first, falling back to the latest
+ *  PENDING one, so a stale/mismatched id can hide a live battle. */
 export const getActivePkBattleForRoom = async (roomId) => {
-  const path = `/api/app/pk-battles/room/${roomId}/active`;
+  const path = `/api/app/pk-battles/room/${encodeURIComponent(String(roomId).trim())}/active`;
   logRequest("GET", path);
   try {
     const { headers } = await buildAuthedConfig("pk-battles/active");

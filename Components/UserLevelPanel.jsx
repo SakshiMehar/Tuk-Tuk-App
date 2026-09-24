@@ -7,6 +7,7 @@ import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
@@ -89,6 +90,7 @@ export default function UserLevelPanel() {
   const [level, setLevel] = useState(0);
   const [xp, setXp] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
+  const [decorationFrameUrl, setDecorationFrameUrl] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +103,13 @@ export default function UserLevelPanel() {
 
       const vipAssets = await loadMyVipAssets(levelResult?.xp?.totalXp).catch(() => null);
       if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
+
+      // Backend-assigned decorations (e.g. a room-owner frame) are a
+      // separate system from the VIP tier and always take priority when
+      // equipped — same as the main Profile tab.
+      const myUserId = storedUser?.id ?? storedUser?.userId;
+      const decorations = await fetchUserDecorations(myUserId).catch(() => null);
+      if (!cancelled) setDecorationFrameUrl(decorations?.frameUrl ?? null);
     })();
     return () => {
       cancelled = true;
@@ -108,6 +117,7 @@ export default function UserLevelPanel() {
   }, []);
 
   const avatarSource = resolveProfileAvatarSource(user);
+  const frameSource = decorationFrameUrl ?? vipProfileFrame;
   // Real progress when the gamification profile loaded; otherwise a static placeholder.
   const xpCurrent = xp ? Math.max(0, xp.totalXp - xp.currentLevelXpStart) : 10;
   const xpTarget = xp ? Math.max(1, xp.nextLevelXpTarget - xp.currentLevelXpStart) : 30;
@@ -159,20 +169,22 @@ export default function UserLevelPanel() {
               <View style={styles.avatarGlow} />
               <ProfileAvatarWithFrame
                 avatarSource={avatarSource}
-                frameSource={vipProfileFrame}
+                frameSource={frameSource}
                 size={76}
                 avatarStyle={styles.avatar}
-                {...(vipProfileFrame
-                  ? {
-                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                    }
-                  : {})}
+                {...(decorationFrameUrl
+                  ? { frameResizeMode: "contain" }
+                  : vipProfileFrame
+                    ? {
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
+                    : {})}
               />
             </View>
             <LevelBadge level={level} />

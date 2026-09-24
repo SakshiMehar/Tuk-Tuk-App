@@ -25,9 +25,21 @@ export const normalizePkBattle = (data) => {
     ? raw.teamBMemberIds.map(String)
     : [];
 
+  // Prefer `remainingSeconds` (a plain duration) over `endsAt` (an absolute
+  // timestamp): the backend sends `endsAt` with no timezone designator
+  // (e.g. "2026-09-24T18:30:00"), which JS parses as *local* time — on a
+  // device whose clock isn't in the same timezone as the server this silently
+  // produces a wildly wrong countdown. `remainingSeconds` has no such
+  // ambiguity, so it wins whenever both are present.
+  const remainingSeconds = firstDefined(raw.remainingSeconds, raw.secondsRemaining);
+  const endsAt =
+    remainingSeconds != null
+      ? new Date(Date.now() + Number(remainingSeconds) * 1000).toISOString()
+      : (raw.endsAt ?? raw.endAt ?? null);
+
   return {
     id: String(id),
-    roomId: raw.roomId != null ? String(raw.roomId) : null,
+    roomId: raw.roomId != null ? String(raw.roomId).trim() : null,
     status: String(raw.status ?? raw.state ?? "PENDING").toUpperCase(),
     hostAId: firstDefined(raw.hostAId, raw.hostId, raw.creatorId, raw.ownerId) ?? null,
     hostBId: firstDefined(raw.hostBId, raw.opponentHostId, raw.opponentId) ?? null,
@@ -41,8 +53,13 @@ export const normalizePkBattle = (data) => {
     teamBScore: Number(firstDefined(raw.teamBScore, raw.scoreB, raw.hostBScore, 0)) || 0,
     durationSeconds: Number(firstDefined(raw.durationSeconds, raw.duration, 0)) || 0,
     startedAt: raw.startedAt ?? raw.startAt ?? null,
-    endsAt: raw.endsAt ?? raw.endAt ?? null,
+    endsAt,
     winner: raw.winner ?? raw.winnerTeam ?? null,
+    contributors: Array.isArray(data?.contributors)
+      ? data.contributors
+      : Array.isArray(raw.contributors)
+        ? raw.contributors
+        : [],
     raw,
   };
 };

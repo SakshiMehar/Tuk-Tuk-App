@@ -128,7 +128,14 @@ export const normalizeCatalogGift = (item) => {
     name: item?.name ?? "Gift",
     price: Number(item?.price ?? item?.unitPrice ?? 0),
     emoji: item?.emoji ?? "🎁",
-    imageUrl: item?.imageUrl ?? null,
+    imageUrl:
+      item?.imageUrl ??
+      item?.icon ??
+      item?.image ??
+      item?.iconUrl ??
+      item?.img ??
+      item?.thumbnailUrl ??
+      null,
     videoUrl: item?.videoUrl ?? null,
     hot: Boolean(item?.hot),
     isNew: Boolean(item?.isNew ?? item?.new),
@@ -148,7 +155,7 @@ export const normalizeInventoryGift = (item) => {
       item?.code ??
       nested?.giftCode ??
       nested?.code ??
-      catalog.giftCode ??
+      (catalog.giftCode || null) ??
       item?.giftId ??
       nested?.giftId ??
       item?.id ??

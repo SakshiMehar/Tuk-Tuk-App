@@ -16,11 +16,11 @@ import Svg, { Defs, Polygon, Stop, LinearGradient as SvgGradient, Text as SvgTex
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-const CARD_WIDTH = 250;
+const CARD_WIDTH = 190;
 const MIN_X = 8;
 const MAX_X = SCREEN_WIDTH - CARD_WIDTH - 8;
 const MIN_Y = 70;
-const MAX_Y = SCREEN_HEIGHT - 260;
+const MAX_Y = SCREEN_HEIGHT - 200;
 const INITIAL_X = Math.round((SCREEN_WIDTH - CARD_WIDTH) / 2);
 const INITIAL_Y = 130;
 
@@ -50,8 +50,8 @@ function useCountdown(endsAt) {
 
 // ── "Gift PK" ribbon header — same cut-corner badge technique as
 // TopGiftingRanking's OctagonHeader, recolored gold→blue for the PK theme. ──
-function PkRibbon({ title, width = CARD_WIDTH - 60, height = 32 }) {
-  const cut = 8;
+function PkRibbon({ title, width = CARD_WIDTH - 46, height = 25 }) {
+  const cut = 6;
   const outerPts = `
     ${cut},0 ${width - cut},0 ${width},${cut} ${width},${height - cut}
     ${width - cut},${height} ${cut},${height} 0,${height - cut} 0,${cut}
@@ -71,12 +71,12 @@ function PkRibbon({ title, width = CARD_WIDTH - 60, height = 32 }) {
       <Polygon points={outerPts} fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="1.5" />
       <SvgText
         x={width / 2}
-        y={height / 2 + 5}
-        fontSize="13"
+        y={height / 2 + 4}
+        fontSize="10"
         fontWeight="bold"
         fill="#ffffff"
         textAnchor="middle"
-        letterSpacing="0.4"
+        letterSpacing="0.3"
       >
         {title}
       </SvgText>
@@ -84,7 +84,7 @@ function PkRibbon({ title, width = CARD_WIDTH - 60, height = 32 }) {
   );
 }
 
-function Avatar({ uri, name, size = 56 }) {
+function Avatar({ uri, name, size = 42 }) {
   const initial = (name || "?").charAt(0).toUpperCase();
   return uri ? (
     <Image source={{ uri }} style={[styles.avatarImg, { width: size, height: size, borderRadius: size / 2 }]} contentFit="cover" />
@@ -179,6 +179,9 @@ export default function PkLiveBanner({
   const avatarB = battle.hostBAvatar || metaB?.avatar || null;
 
   const ribbonTitle = isPending ? "PK Challenge" : isLive ? "Gift PK" : "PK Result";
+  const topContributor = Array.isArray(battle.contributors) && battle.contributors.length > 0
+    ? battle.contributors.find((c) => c.rank === 1) || battle.contributors[0]
+    : null;
 
   return (
     <Animated.View
@@ -242,7 +245,7 @@ export default function PkLiveBanner({
                   <View style={styles.vsRow}>
                     <Avatar uri={avatarA} name={nameA} />
                     <View style={styles.vsBadgeWrap}>
-                      <Zap size={20} color="#fbbf24" fill="#fbbf24" />
+                      <Zap size={15} color="#fbbf24" fill="#fbbf24" />
                       <Text style={styles.vsText}>VS</Text>
                     </View>
                     <Avatar uri={avatarB} name={nameB} />
@@ -268,6 +271,15 @@ export default function PkLiveBanner({
                       </View>
                     </View>
                   </View>
+
+                  {topContributor && (
+                    <View style={styles.topSupporterRow}>
+                      <Text style={styles.topSupporterText} numberOfLines={1}>
+                        🏆 {topContributor.userName || topContributor.name || "Someone"} +
+                        {formatCount(topContributor.points ?? topContributor.value ?? 0)}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               );
             })()}
@@ -293,7 +305,7 @@ export default function PkLiveBanner({
                 onPress={onDismiss}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <X size={14} color="rgba(255,255,255,0.7)" />
+                <X size={11} color="rgba(255,255,255,0.7)" />
               </TouchableOpacity>
             </View>
           )}
@@ -316,12 +328,12 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: CARD_WIDTH,
     zIndex: 90,
-    paddingTop: 16,
+    paddingTop: 12,
   },
   ribbonWrap: {
     position: "absolute",
     top: 0,
-    left: 30,
+    left: 23,
     zIndex: 2,
     alignItems: "center",
     shadowColor: "#fbbf24",
@@ -331,39 +343,39 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   cardOuter: {
-    borderRadius: 18,
-    borderWidth: 1.5,
+    borderRadius: 14,
+    borderWidth: 1.2,
     borderColor: "rgba(167,139,250,0.5)",
     overflow: "hidden",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 5 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.5,
-    shadowRadius: 10,
+    shadowRadius: 8,
     elevation: 10,
   },
   cardBg: {
-    paddingTop: 20,
-    paddingBottom: 12,
-    paddingHorizontal: 14,
+    paddingTop: 15,
+    paddingBottom: 9,
+    paddingHorizontal: 10,
   },
 
   // Accept/reject prompt
   promptBody: {},
   subtitle: {
     color: "rgba(255,255,255,0.9)",
-    fontSize: 12,
+    fontSize: 10.5,
     fontWeight: "600",
     textAlign: "center",
   },
   actionRow: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 10,
+    gap: 7,
+    marginTop: 8,
   },
   actionBtn: {
     flex: 1,
-    borderRadius: 12,
-    paddingVertical: 9,
+    borderRadius: 10,
+    paddingVertical: 7,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -377,7 +389,7 @@ const styles = StyleSheet.create({
   },
   actionBtnText: {
     color: "white",
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "800",
   },
 
@@ -385,12 +397,12 @@ const styles = StyleSheet.create({
   waitingRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   waitingText: {
     flex: 1,
     color: "rgba(255,255,255,0.85)",
-    fontSize: 12,
+    fontSize: 10.5,
     fontWeight: "600",
   },
 
@@ -399,22 +411,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   avatarImg: {
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.5)",
   },
   avatarFallback: {
     backgroundColor: "#5b21b6",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.5)",
   },
   avatarInitial: {
     color: "white",
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "800",
   },
   vsBadgeWrap: {
@@ -423,16 +435,16 @@ const styles = StyleSheet.create({
   },
   vsText: {
     color: "#fbbf24",
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "900",
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
 
   // Progress bar
   barTrack: {
     flexDirection: "row",
-    height: 10,
-    borderRadius: 5,
+    height: 7,
+    borderRadius: 3.5,
     overflow: "hidden",
     backgroundColor: "rgba(255,255,255,0.12)",
     position: "relative",
@@ -445,16 +457,16 @@ const styles = StyleSheet.create({
   },
   barSpark: {
     position: "absolute",
-    top: -3,
-    width: 16,
-    height: 16,
-    marginLeft: -8,
-    borderRadius: 8,
+    top: -2.5,
+    width: 12,
+    height: 12,
+    marginLeft: -6,
+    borderRadius: 6,
     backgroundColor: "white",
     shadowColor: "#fff",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.9,
-    shadowRadius: 6,
+    shadowRadius: 5,
   },
 
   // Score row
@@ -462,22 +474,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 10,
+    marginTop: 8,
+  },
+  topSupporterRow: {
+    marginTop: 6,
+    alignItems: "center",
+  },
+  topSupporterText: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 9.5,
+    fontWeight: "700",
   },
   scorePillLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
   },
   scorePillRight: {
     flexDirection: "row-reverse",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
   },
   pkCoin: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 15,
+    height: 15,
+    borderRadius: 7.5,
     backgroundColor: "#fbbf24",
     alignItems: "center",
     justifyContent: "center",
@@ -486,12 +507,12 @@ const styles = StyleSheet.create({
   },
   pkCoinText: {
     color: "#78350f",
-    fontSize: 7,
+    fontSize: 6,
     fontWeight: "900",
   },
   scoreVal: {
     color: "white",
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: "800",
   },
 
@@ -500,12 +521,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 8,
   },
   closeBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.1)",
@@ -514,12 +535,12 @@ const styles = StyleSheet.create({
   // Countdown footer strip
   timerFooter: {
     backgroundColor: "rgba(0,0,0,0.35)",
-    paddingVertical: 5,
+    paddingVertical: 4,
     alignItems: "center",
   },
   timerText: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 11,
+    fontSize: 9.5,
     fontWeight: "700",
   },
 });

@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
@@ -245,10 +246,20 @@ export default function PremiumPanel({ onClose }) {
 
   const [selfUser, setSelfUser] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
+  const [decorationFrameUrl, setDecorationFrameUrl] = useState(null);
   useEffect(() => {
     let cancelled = false;
     getUser().then((u) => {
       if (!cancelled) setSelfUser(u);
+      const myUserId = u?.id ?? u?.userId;
+      // Backend-assigned decorations (e.g. a room-owner frame) are a
+      // separate system from the VIP tier and always take priority when
+      // equipped — same as the main Profile tab.
+      fetchUserDecorations(myUserId)
+        .then((decorations) => {
+          if (!cancelled) setDecorationFrameUrl(decorations?.frameUrl ?? null);
+        })
+        .catch(() => {});
     });
     loadMyVipAssets().then((vipAssets) => {
       if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
@@ -258,6 +269,7 @@ export default function PremiumPanel({ onClose }) {
     };
   }, []);
   const selfAvatarSource = resolveProfileAvatarSource(selfUser);
+  const selfFrameSource = decorationFrameUrl ?? vipProfileFrame;
 
   const [activeTierIndex, setActiveTierIndex] = useState(0);
   const [slideWidth, setSlideWidth] = useState(TIER_SLIDE_WIDTH);
@@ -425,19 +437,21 @@ export default function PremiumPanel({ onClose }) {
             <View style={styles.notYetAvatarRing}>
               <ProfileAvatarWithFrame
                 avatarSource={selfAvatarSource}
-                frameSource={vipProfileFrame}
+                frameSource={selfFrameSource}
                 size={26}
-                {...(vipProfileFrame
-                  ? {
-                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                    }
-                  : {})}
+                {...(decorationFrameUrl
+                  ? { frameResizeMode: "contain" }
+                  : vipProfileFrame
+                    ? {
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
+                    : {})}
               />
             </View>
             <Text

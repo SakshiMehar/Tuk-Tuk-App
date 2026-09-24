@@ -120,3 +120,5 @@ export const deleteAccount = async ({ reason, additionalComment } = {}) => {
   logAuthResponse("DELETE /api/auth/account", response.data);
   return response.data;
 };
+
+

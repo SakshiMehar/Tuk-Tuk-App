@@ -159,6 +159,7 @@ import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import { resolveProfileAvatarSource, resolveProfileAvatarUri } from "../src/utils/profileAvatar";
 import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
+import { resolveVoiceUidForUserId } from "../src/utils/voiceUid";
 import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import DiamondRechargeModal from "./DiamondRechargeModal";
@@ -286,6 +287,12 @@ const reconcileSeatAssignments = (
     myUserId = null,
     mySeatNumber = null,
     staleSeatTracker = null,
+    // Agora uids currently producing live remote audio (see
+    // agoraVoiceService.getVoiceDiagnostics().remoteSpeakerUids). A user
+    // missing from the WS presence list but still live on Agora is a
+    // presence-sync glitch, not a real departure — clearing their seat here
+    // would wipe their profile while their voice keeps playing.
+    activeVoiceUids = null,
   } = {},
 ) => {
   const next = parsedSeats.map((seat) => ({
@@ -308,6 +315,10 @@ const reconcileSeatAssignments = (
       const userId = next[i]?.user?.id != null ? String(next[i].user.id) : null;
       if (!userId) continue;
       if (onlineIds.has(userId)) {
+        staleSeatTracker?.delete(userId);
+        continue;
+      }
+      if (activeVoiceUids?.size && activeVoiceUids.has(resolveVoiceUidForUserId(userId))) {
         staleSeatTracker?.delete(userId);
         continue;
       }
@@ -1518,6 +1529,10 @@ export default function VoiceParty() {
   const mySeatNumberRef = useRef(null);
   // Tracks consecutive presence-list misses per userId (see reconcileSeatAssignments).
   const staleSeatTrackerRef = useRef(new Map());
+  // Agora uids with a live remote audio stream right now (kept in sync from
+  // the voice-status subscription below) — lets reconcileSeatAssignments
+  // avoid clearing a seat whose user is still actually talking.
+  const activeVoiceUidsRef = useRef(new Set());
   // Bumped every time a live ui-state broadcast applies a seats update, so a
   // REST getRoomState() snapshot in flight can detect it's been superseded
   // by fresher socket data and skip overwriting it.
@@ -1547,6 +1562,11 @@ export default function VoiceParty() {
   const [showPkBattle, setShowPkBattle] = useState(false);
   const [showPkTeamAccept, setShowPkTeamAccept] = useState(false);
   const [activePkBattle, setActivePkBattle] = useState(null);
+  // Once a battle exists, its own echoed `roomId` is the authoritative id
+  // for all further PK lookups — never the route/session roomId, which can
+  // drift out of sync (whitespace, re-derived session ids, etc.) from what
+  // the PK subsystem itself considers this battle's room.
+  const pkPollRoomId = activePkBattle?.roomId || (roomId != null ? String(roomId).trim() : null);
   const [pkBattleActionLoading, setPkBattleActionLoading] = useState(false);
   // Synchronous reentrancy guard — `pkBattleActionLoading` state only takes
   // effect on the next render, so a real double-tap (two touch events before
@@ -2365,6 +2385,7 @@ export default function VoiceParty() {
             myUserId,
             mySeatNumber: null,
             staleSeatTracker: staleSeatTrackerRef.current,
+            activeVoiceUids: activeVoiceUidsRef.current,
           }),
         );
         setOnlineUsers(session.onlineUsers);
@@ -2428,6 +2449,7 @@ export default function VoiceParty() {
                 myUserId,
                 mySeatNumber: mySeatNumberRef.current,
                 staleSeatTracker: staleSeatTrackerRef.current,
+                activeVoiceUids: activeVoiceUidsRef.current,
               }),
             );
           } catch {
@@ -2533,6 +2555,7 @@ export default function VoiceParty() {
     if (!roomId) return undefined;
     return partyVoice.subscribeVoiceSessionStatus((diag) => {
       setVoiceDiagnostics(diag);
+      activeVoiceUidsRef.current = new Set(diag?.remoteSpeakerUids ?? []);
       if (__DEV__ && diag?.lastError) {
         console.warn("[voice-party] Agora:", diag.lastError.message);
       }
@@ -2679,25 +2702,38 @@ export default function VoiceParty() {
       // entry here rather than resetting every occupied seat on a guess.
       if (payload?.seats && Object.keys(payload.seats).length > 0) {
         seatSyncTokenRef.current += 1;
-        const nextSeats = parseSeats(payload.seats, payload);
+        // `payload.seats` can be a partial/diff broadcast — just the seat(s)
+        // that actually changed, not the full 15. parseSeats only returns
+        // entries for the keys present, so patching those onto the PREVIOUS
+        // full seats array (instead of replacing it outright) keeps every
+        // occupied seat the payload doesn't mention exactly as it was,
+        // rather than it vanishing from the grid until the next full sync.
+        const patchSeats = parseSeats(payload.seats, payload);
+        const mergeOntoPrev = (prev, patch) => {
+          const base = Array.isArray(prev) && prev.length ? prev : micSeats;
+          const byId = new Map(patch.map((s) => [s.id, s]));
+          return base.map((seat) => byId.get(seat.id) ?? seat);
+        };
         if (mySeatNumber) {
-          enrichSeatsWithMyProfile(nextSeats, mySeatNumber).then((enriched) =>
-            setSeats(
-              reconcileSeatAssignments(enriched, {
+          enrichSeatsWithMyProfile(patchSeats, mySeatNumber).then((enriched) =>
+            setSeats((prev) =>
+              reconcileSeatAssignments(mergeOntoPrev(prev, enriched), {
                 onlineUsers: hasPresenceSnapshot ? users : null,
                 myUserId,
                 mySeatNumber,
                 staleSeatTracker: staleSeatTrackerRef.current,
+                activeVoiceUids: activeVoiceUidsRef.current,
               }),
             ),
           );
         } else {
-          setSeats(
-            reconcileSeatAssignments(nextSeats, {
+          setSeats((prev) =>
+            reconcileSeatAssignments(mergeOntoPrev(prev, patchSeats), {
               onlineUsers: hasPresenceSnapshot ? users : null,
               myUserId,
               mySeatNumber,
               staleSeatTracker: staleSeatTrackerRef.current,
+              activeVoiceUids: activeVoiceUidsRef.current,
             }),
           );
         }
@@ -3126,13 +3162,14 @@ export default function VoiceParty() {
               myUserId,
               mySeatNumber: mySeatNumberRef.current,
               staleSeatTracker: staleSeatTrackerRef.current,
+              activeVoiceUids: activeVoiceUidsRef.current,
             }),
           );
         })
         .catch(() => {
           // Non-critical — a later reconnect or user action will re-sync.
         });
-      loadActivePkBattle(String(roomId))
+      loadActivePkBattle(pkPollRoomId)
         .then(setActivePkBattle)
         .catch(() => {
           // Non-critical — the `pk` topic or the fallback poll will catch it.
@@ -3397,7 +3434,7 @@ export default function VoiceParty() {
     const ping = async () => {
       try {
         if (wsService.connected) {
-          wsService.sendSeatHeartbeat(String(roomId));
+          wsService.sendSeatHeartbeat(String(roomId), mySeatNumber);
         } else {
           await postSeatHeartbeat(String(roomId));
         }
@@ -3407,7 +3444,7 @@ export default function VoiceParty() {
     };
 
     ping(); // send immediately when seat is taken
-    const interval = setInterval(ping, 25_000);
+    const interval = setInterval(ping, 15_000);
     return () => clearInterval(interval);
   }, [onMic, mySeatNumber, roomId]);
 
@@ -3443,13 +3480,13 @@ export default function VoiceParty() {
   // and re-enter the room. Cheap enough to just poll while one might be
   // pending/live; stops once we know there's nothing to wait on.
   useEffect(() => {
-    if (!roomId) return undefined;
+    if (!pkPollRoomId) return undefined;
     if (activePkBattle && activePkBattle.status !== "PENDING" && activePkBattle.status !== "LIVE") {
       return undefined;
     }
 
     const interval = setInterval(() => {
-      loadActivePkBattle(String(roomId))
+      loadActivePkBattle(pkPollRoomId)
         .then((battle) => {
           console.log("[VoiceParty][PK] poll active battle ->", battle);
           setActivePkBattle(battle);
@@ -3459,7 +3496,7 @@ export default function VoiceParty() {
         });
     }, 5000);
     return () => clearInterval(interval);
-  }, [roomId, activePkBattle]);
+  }, [pkPollRoomId, activePkBattle]);
 
   // Listen Rewards progress sync & UTC midnight reset check — every 30 s
   useEffect(() => {
@@ -3483,27 +3520,8 @@ export default function VoiceParty() {
     return () => clearInterval(interval);
   }, [roomId, flushListenRewardProgress, refreshListenRewardStatus]);
 
-  // Room user-count badge — refresh from the public count endpoint.
-  useEffect(() => {
-    if (!roomId) return;
-    let cancelled = false;
-
-    const fetchUserCount = async () => {
-      try {
-        const count = await getRoomUserCount(String(roomId));
-        if (cancelled) return;
-        if (typeof count === "number") setOnlineCount(count);
-      } catch (error) {
-      }
-    };
-
-    fetchUserCount();
-    const interval = setInterval(fetchUserCount, 15_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [roomId]);
+  // User count is now kept in sync exclusively via WebSocket `ui-state`
+  // and `notifications` (USER_JOINED/USER_LEFT) pushes.
 
   const applySeatsAfterClaim = async (claimData, seatNumber) => {
     const claimedState = roomStateFromPayload(claimData);
@@ -3521,6 +3539,7 @@ export default function VoiceParty() {
         myUserId,
         mySeatNumber: seatNumber,
         staleSeatTracker: staleSeatTrackerRef.current,
+        activeVoiceUids: activeVoiceUidsRef.current,
       }),
     );
     if (typeof nextState?.onlineCount === "number") {
@@ -3547,6 +3566,7 @@ export default function VoiceParty() {
             myUserId,
             mySeatNumber: null,
             staleSeatTracker: staleSeatTrackerRef.current,
+            activeVoiceUids: activeVoiceUidsRef.current,
           }),
         );
       } catch (err) {
@@ -3569,6 +3589,7 @@ export default function VoiceParty() {
           myUserId,
           mySeatNumber,
           staleSeatTracker: staleSeatTrackerRef.current,
+          activeVoiceUids: activeVoiceUidsRef.current,
         }),
       );
 
@@ -3687,7 +3708,32 @@ export default function VoiceParty() {
       await partyVoice.toggleMicMute(String(roomId), mySeatNumber, nextMuted);
       setIsMicMuted(nextMuted);
     } catch (err) {
-      Alert.alert("Mic mute failed", err?.message ?? "Please try again.");
+      if (partyVoice.isNotOnSeatError(err)) {
+        // Backend says we're no longer on this seat — local state is stale
+        // (kicked, seat expired, left from another device). Resync instead
+        // of retrying a mute toggle that will keep failing.
+        onMicRef.current = false;
+        mySeatNumberRef.current = null;
+        setOnMic(false);
+        setMySeatNumber(null);
+        setIsMicMuted(true);
+        try {
+          const state = await getRoomState(String(roomId));
+          setSeats(
+            reconcileSeatAssignments(parseSeats(state?.seats, state), {
+              onlineUsers,
+              myUserId,
+              mySeatNumber: null,
+              staleSeatTracker: staleSeatTrackerRef.current,
+              activeVoiceUids: activeVoiceUidsRef.current,
+            }),
+          );
+        } catch (e) {
+          // Non-critical — a later poll/reconnect will re-sync seats.
+        }
+      } else {
+        Alert.alert("Mic mute failed", err?.message ?? "Please try again.");
+      }
     } finally {
       setVoiceConnecting(false);
     }
@@ -4097,7 +4143,7 @@ export default function VoiceParty() {
         // one this same request duplicated) — pull the real one and show
         // it instead of leaving the user stuck on a bare error.
         setShowPkBattle(false);
-        loadActivePkBattle(String(roomId))
+        loadActivePkBattle(pkPollRoomId)
           .then((fresh) => {
             if (fresh) {
               setActivePkBattle(fresh);
@@ -4139,6 +4185,29 @@ export default function VoiceParty() {
       setPkBattleActionLoading(false);
     }
   };
+
+  // A challenge left un-accepted for 2 minutes is auto-discarded: the
+  // challenged host's client rejects it (freeing the room for a new
+  // challenge server-side); anyone else just loses the popup locally.
+  const PK_CHALLENGE_TIMEOUT_MS = 2 * 60 * 1000;
+  useEffect(() => {
+    if (!activePkBattle || activePkBattle.status !== "PENDING") return undefined;
+    const battleId = activePkBattle.id;
+
+    const timer = setTimeout(() => {
+      setActivePkBattle((current) => {
+        if (!current || current.id !== battleId || current.status !== "PENDING") {
+          return current;
+        }
+        if (getPkBattleRole(current, myUserId) === "hostB") {
+          handlePkRespond(false);
+        }
+        return null;
+      });
+    }, PK_CHALLENGE_TIMEOUT_MS);
+
+    return () => clearTimeout(timer);
+  }, [activePkBattle?.id, activePkBattle?.status, myUserId]);
 
   const handleSendBackpackGift = async () => {
     if (!selectedGift) {
@@ -4662,10 +4731,15 @@ export default function VoiceParty() {
       selfVipProfileFrame || otherUserVipProfileFrame,
     );
     const decorationFrame = fetched?.decorationFrameUrl ?? null;
+    // Backend-assigned decorations (e.g. a room-owner frame) are a separate
+    // system from the VIP tier and always take priority when equipped —
+    // same ordering as the main Profile tab (app/(tabs)/profile.jsx) — so a
+    // seated VIP whose account also has a decoration equipped shows that
+    // decoration here too, not just their VIP ring.
     const frameSource =
+      (decorationFrame ? { uri: decorationFrame } : null) ??
       selfVipProfileFrame ??
       otherUserVipProfileFrame ??
-      (decorationFrame ? { uri: decorationFrame } : null) ??
       resolveNewUserFrameSource(userWithFrame);
     const hasFrame = Boolean(frameSource);
     const activeFrameConfig = isVipProfileFrame
@@ -5849,9 +5923,19 @@ export default function VoiceParty() {
         }
         avatarSource={profilePopupAvatarSource}
         frameSource={
-          isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
+          // Backend-assigned decorations (e.g. a room-owner frame) are a
+          // separate system from the VIP tier and always take priority
+          // when equipped, self included — same ordering as the main
+          // Profile tab. `frameLayout` below already accounted for this
+          // case (auto-fit layout when a decoration is equipped); this was
+          // the only place still missing the decoration URL itself, so a
+          // self-view here fell back to the VIP frame it hardcoded, while
+          // any other surface reading the same decoration data showed the
+          // decoration correctly.
+          userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl ??
+          (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
-            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null
+            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null)
         }
         frameLayout={
           userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl
@@ -6162,7 +6246,7 @@ export default function VoiceParty() {
                   // websocket drop could have left `activePkBattle` stale,
                   // and either way opening the sheet on stale info just gets
                   // rejected by the backend with a 409 on Confirm.
-                  const fresh = await loadActivePkBattle(String(roomId)).catch(
+                  const fresh = await loadActivePkBattle(pkPollRoomId).catch(
                     () => activePkBattle,
                   );
                   setActivePkBattle(fresh);
