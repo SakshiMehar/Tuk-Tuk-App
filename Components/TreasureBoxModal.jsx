@@ -108,20 +108,12 @@ export default function TreasureBoxModal({
               <View style={styles.powerHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={styles.powerTitle}>Treasure Box</Text>
-                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '500' }}>Round {completedRound}</Text>
                 </View>
                 <TouchableOpacity onPress={handleHelp} hitSlop={8}>
                   <HelpCircle size={18} color="rgba(255,255,255,0.75)" />
                 </TouchableOpacity>
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 8 }}>
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
-                  {currentAmount.toLocaleString()} / {currentTarget.toLocaleString()}
-                </Text>
-                <Text style={{ color: '#ffd56a', fontSize: 13, fontWeight: '500' }}>
-                  {remainingAmount.toLocaleString()} remaining
-                </Text>
-              </View>
+
 
               <View style={styles.powerRow}>
                 <View style={styles.powerBarWrap}>

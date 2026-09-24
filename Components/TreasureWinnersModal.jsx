@@ -134,7 +134,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   modalWrapper: {
-    width: "85%",
+    width: "75%",
     alignItems: "center",
     marginTop: 80, // To give space for the protruding header image
   },
