@@ -34,6 +34,16 @@ export const stopAudioForEveryone = () => {
   if (!engine) return;
   engine.stopAudioMixing();
 };
+
+export const pauseAudioForEveryone = () => {
+  if (!engine) return;
+  engine.pauseAudioMixing();
+};
+
+export const resumeAudioForEveryone = () => {
+  if (!engine) return;
+  engine.resumeAudioMixing();
+};
 // Volume threshold — Agora reports 0–255; anything above this is "speaking"
 const SPEAKING_VOLUME_THRESHOLD = 20;
 
@@ -59,6 +69,12 @@ const notifySpeakingListeners = (uid, isSpeaking) => {
       // ignore
     }
   });
+};
+
+let audioMixingListeners = new Set();
+export const subscribeAudioMixing = (callback) => {
+  audioMixingListeners.add(callback);
+  return () => audioMixingListeners.delete(callback);
 };
 
 const settleJoinWaiters = (err = null) => {
@@ -285,6 +301,15 @@ const ensureEngine = (appId) => {
         notifySpeakingListeners(uid, isSpeaking);
       });
     },
+    onAudioMixingStateChanged: (state, reason) => {
+      audioMixingListeners.forEach((listener) => {
+        try {
+          listener({ state, reason });
+        } catch {
+          // ignore
+        }
+      });
+    },
   });
 
   engine.enableAudio();
@@ -324,6 +349,10 @@ export const getVoiceDiagnostics = () => ({
   currentChannel,
   currentIsSpeaker,
   remoteSpeakerCount: remoteSpeakerUids.size,
+  // Actual Agora uids currently producing/publishing remote audio — the
+  // ground truth for "who's really still here", independent of the
+  // WebSocket presence list used to drive seat display.
+  remoteSpeakerUids: Array.from(remoteSpeakerUids),
   remoteAudioMuted,
   lastError,
   hasEngine: Boolean(engine),

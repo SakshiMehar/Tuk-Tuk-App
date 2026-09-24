@@ -16,6 +16,7 @@ import {
   MicOff,
   Minimize2,
   MoreVertical,
+  Pause,
   Play,
   Plus,
   Power,
@@ -159,6 +160,7 @@ import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import { resolveProfileAvatarSource, resolveProfileAvatarUri } from "../src/utils/profileAvatar";
 import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
+import { resolveVoiceUidForUserId } from "../src/utils/voiceUid";
 import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import PkAcceptTeamModal from "./PkAcceptTeamModal";
@@ -169,6 +171,8 @@ import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
 import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureBoxModal from "./TreasureBoxModal";
+import TreasureWinnersModal from "./TreasureWinnersModal";
+import TreasureAnimationModal from "./TreasureAnimationModal";
 import DiamondRechargeModal from "./DiamondRechargeModal";
 
 const { width: W, height: H } = Dimensions.get("window");
@@ -284,6 +288,12 @@ const reconcileSeatAssignments = (
     myUserId = null,
     mySeatNumber = null,
     staleSeatTracker = null,
+    // Agora uids currently producing live remote audio (see
+    // agoraVoiceService.getVoiceDiagnostics().remoteSpeakerUids). A user
+    // missing from the WS presence list but still live on Agora is a
+    // presence-sync glitch, not a real departure — clearing their seat here
+    // would wipe their profile while their voice keeps playing.
+    activeVoiceUids = null,
   } = {},
 ) => {
   const next = parsedSeats.map((seat) => ({
@@ -306,6 +316,10 @@ const reconcileSeatAssignments = (
       const userId = next[i]?.user?.id != null ? String(next[i].user.id) : null;
       if (!userId) continue;
       if (onlineIds.has(userId)) {
+        staleSeatTracker?.delete(userId);
+        continue;
+      }
+      if (activeVoiceUids?.size && activeVoiceUids.has(resolveVoiceUidForUserId(userId))) {
         staleSeatTracker?.delete(userId);
         continue;
       }
@@ -1514,6 +1528,10 @@ export default function VoiceParty() {
   const mySeatNumberRef = useRef(null);
   // Tracks consecutive presence-list misses per userId (see reconcileSeatAssignments).
   const staleSeatTrackerRef = useRef(new Map());
+  // Agora uids with a live remote audio stream right now (kept in sync from
+  // the voice-status subscription below) — lets reconcileSeatAssignments
+  // avoid clearing a seat whose user is still actually talking.
+  const activeVoiceUidsRef = useRef(new Set());
   // Bumped every time a live ui-state broadcast applies a seats update, so a
   // REST getRoomState() snapshot in flight can detect it's been superseded
   // by fresher socket data and skip overwriting it.
@@ -1543,6 +1561,11 @@ export default function VoiceParty() {
   const [showPkBattle, setShowPkBattle] = useState(false);
   const [showPkTeamAccept, setShowPkTeamAccept] = useState(false);
   const [activePkBattle, setActivePkBattle] = useState(null);
+  // Once a battle exists, its own echoed `roomId` is the authoritative id
+  // for all further PK lookups — never the route/session roomId, which can
+  // drift out of sync (whitespace, re-derived session ids, etc.) from what
+  // the PK subsystem itself considers this battle's room.
+  const pkPollRoomId = activePkBattle?.roomId || (roomId != null ? String(roomId).trim() : null);
   const [pkBattleActionLoading, setPkBattleActionLoading] = useState(false);
   // Synchronous reentrancy guard — `pkBattleActionLoading` state only takes
   // effect on the next render, so a real double-tap (two touch events before
@@ -1591,7 +1614,20 @@ export default function VoiceParty() {
     "Welcome everyone! Let's chat and have fun together!",
   );
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [isMusicPaused, setIsMusicPaused] = useState(false);
   const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
+
+  useEffect(() => {
+    if (typeof agoraVoice.subscribeAudioMixing !== 'function') return;
+    const unsub = agoraVoice.subscribeAudioMixing(({ state }) => {
+      // 714 = AudioMixingStateCompleted. Ignore 710 (Stopped) as it fires when loading a new file.
+      if (state === 714 || state === 'COMPLETED') {
+        setIsMusicPlaying(false);
+        setIsMusicPaused(false);
+      }
+    });
+    return unsub;
+  }, []);
   const [welcomeDraft, setWelcomeDraft] = useState("");
 
   const videoPlayer = useVideoPlayer(null, (p) => {
@@ -1652,9 +1688,12 @@ export default function VoiceParty() {
   const myCountryFlag = useMyCountryFlag();
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
-  const { treasureState, selectChest } = useTreasureBoxProgress(
+  const { treasureState, selectChest, updateTreasureState } = useTreasureBoxProgress(
     !roomLoading && Boolean(roomId),
   );
+  const [treasureUnlockEvent, setTreasureUnlockEvent] = useState(null);
+  const [pendingTreasureEvent, setPendingTreasureEvent] = useState(null);
+  const [showTreasureAnimation, setShowTreasureAnimation] = useState(false);
   const { diamonds: walletDiamonds } = useWalletBalance();
 
   useEffect(() => {
@@ -2313,6 +2352,7 @@ export default function VoiceParty() {
             myUserId,
             mySeatNumber: null,
             staleSeatTracker: staleSeatTrackerRef.current,
+            activeVoiceUids: activeVoiceUidsRef.current,
           }),
         );
         setOnlineUsers(session.onlineUsers);
@@ -2376,6 +2416,7 @@ export default function VoiceParty() {
                 myUserId,
                 mySeatNumber: mySeatNumberRef.current,
                 staleSeatTracker: staleSeatTrackerRef.current,
+                activeVoiceUids: activeVoiceUidsRef.current,
               }),
             );
           } catch {
@@ -2481,6 +2522,7 @@ export default function VoiceParty() {
     if (!roomId) return undefined;
     return partyVoice.subscribeVoiceSessionStatus((diag) => {
       setVoiceDiagnostics(diag);
+      activeVoiceUidsRef.current = new Set(diag?.remoteSpeakerUids ?? []);
       if (__DEV__ && diag?.lastError) {
         console.warn("[voice-party] Agora:", diag.lastError.message);
       }
@@ -2627,30 +2669,88 @@ export default function VoiceParty() {
       // entry here rather than resetting every occupied seat on a guess.
       if (payload?.seats && Object.keys(payload.seats).length > 0) {
         seatSyncTokenRef.current += 1;
-        const nextSeats = parseSeats(payload.seats, payload);
+        // `payload.seats` can be a partial/diff broadcast — just the seat(s)
+        // that actually changed, not the full 15. parseSeats only returns
+        // entries for the keys present, so patching those onto the PREVIOUS
+        // full seats array (instead of replacing it outright) keeps every
+        // occupied seat the payload doesn't mention exactly as it was,
+        // rather than it vanishing from the grid until the next full sync.
+        const patchSeats = parseSeats(payload.seats, payload);
+        const mergeOntoPrev = (prev, patch) => {
+          const base = Array.isArray(prev) && prev.length ? prev : micSeats;
+          const byId = new Map(patch.map((s) => [s.id, s]));
+          return base.map((seat) => byId.get(seat.id) ?? seat);
+        };
         if (mySeatNumber) {
-          enrichSeatsWithMyProfile(nextSeats, mySeatNumber).then((enriched) =>
-            setSeats(
-              reconcileSeatAssignments(enriched, {
+          enrichSeatsWithMyProfile(patchSeats, mySeatNumber).then((enriched) =>
+            setSeats((prev) =>
+              reconcileSeatAssignments(mergeOntoPrev(prev, enriched), {
                 onlineUsers: hasPresenceSnapshot ? users : null,
                 myUserId,
                 mySeatNumber,
                 staleSeatTracker: staleSeatTrackerRef.current,
+                activeVoiceUids: activeVoiceUidsRef.current,
               }),
             ),
           );
         } else {
-          setSeats(
-            reconcileSeatAssignments(nextSeats, {
+          setSeats((prev) =>
+            reconcileSeatAssignments(mergeOntoPrev(prev, patchSeats), {
               onlineUsers: hasPresenceSnapshot ? users : null,
               myUserId,
               mySeatNumber,
               staleSeatTracker: staleSeatTrackerRef.current,
+              activeVoiceUids: activeVoiceUidsRef.current,
             }),
           );
         }
       }
     });
+
+    const unsubTreasure = wsService.onRoomTreasure(String(roomId), async (payload) => {
+      try {
+        const event = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        
+        if (event?.type === 'TREASURE_PROGRESS') {
+          updateTreasureState({
+            currentAmount: event.currentAmount,
+            currentTarget: event.currentTarget,
+            remainingAmount: event.remainingAmount,
+            completedRound: event.completedRound,
+            status: event.status,
+          });
+        } else if (event?.type === 'TREASURE_UNLOCKED') {
+          console.log('[VoiceParty] TREASURE_UNLOCKED event received:', JSON.stringify(event, null, 2));
+          console.log('[VoiceParty] Current myUserId:', myUserId);
+          
+          const myReward = event.rewards?.find(r => String(r.userId) === String(myUserId));
+          
+          if (myReward) {
+            // Delay showing the animation by 5 seconds
+            setTimeout(() => {
+              setPendingTreasureEvent({ ...event, myReward });
+              setShowTreasureAnimation(true);
+            }, 5000);
+            
+            if (myReward.rewardType === 'TOP_RANK_REWARD') {
+              // Refresh backpack in background
+              loadGiftInventory().then(setBackpackGifts).catch(() => {});
+            }
+            if (myReward.rewardType === 'PARTICIPATION_REWARD' || myReward.rewardAmount) {
+              // Refresh wallet in background
+              refreshWalletBalance().catch(() => {});
+            }
+          }
+          
+          if (event.nextTarget) {
+            updateTreasureState({ currentTarget: event.nextTarget, currentAmount: 0 });
+          }
+        }
+      } catch (err) {
+        console.error('[VoiceParty] Error handling treasure event:', err);
+      }
+    });
+
     const unsubSpeaking = wsService.onRoomSpeaking(
       String(roomId),
       (payload) => {
@@ -3029,13 +3129,14 @@ export default function VoiceParty() {
               myUserId,
               mySeatNumber: mySeatNumberRef.current,
               staleSeatTracker: staleSeatTrackerRef.current,
+              activeVoiceUids: activeVoiceUidsRef.current,
             }),
           );
         })
         .catch(() => {
           // Non-critical — a later reconnect or user action will re-sync.
         });
-      loadActivePkBattle(String(roomId))
+      loadActivePkBattle(pkPollRoomId)
         .then(setActivePkBattle)
         .catch(() => {
           // Non-critical — the `pk` topic or the fallback poll will catch it.
@@ -3046,6 +3147,7 @@ export default function VoiceParty() {
       unsubChatSummary();
       unsubUi();
       unsubSpeaking();
+      unsubTreasure();
       unsubGiftAnimation();
       unsubPk();
       unsubNotifications();
@@ -3057,58 +3159,54 @@ export default function VoiceParty() {
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
   const handleToggleMusic = useCallback(async () => {
-    if (isMusicPlaying) {
-      agoraVoice.stopAudioForEveryone();
-      setIsMusicPlaying(false);
-    } else {
-      let hasMicPermission = true;
-      if (Platform.OS === 'android') {
-        hasMicPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    let hasMicPermission = true;
+    if (Platform.OS === 'android') {
+      hasMicPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    }
+
+    if (!hasMicPermission) {
+      setMicPermWarning('music');
+      return;
+    }
+
+    try {
+      let DocumentPicker = null;
+      try {
+        DocumentPicker = require("expo-document-picker");
+      } catch (e) {
+        console.warn("[voice-party] expo-document-picker unavailable:", e?.message ?? e);
       }
 
-      if (!hasMicPermission) {
-        setMicPermWarning('music');
+      if (!DocumentPicker || typeof DocumentPicker.getDocumentAsync !== "function") {
+        Alert.alert(
+          "Music Feature Unavailable",
+          "Audio file picker is not available on this build.",
+        );
         return;
       }
 
-      try {
-        let DocumentPicker = null;
-        try {
-          DocumentPicker = require("expo-document-picker");
-        } catch (e) {
-          console.warn("[voice-party] expo-document-picker unavailable:", e?.message ?? e);
-        }
-
-        if (!DocumentPicker || typeof DocumentPicker.getDocumentAsync !== "function") {
-          Alert.alert(
-            "Music Feature Unavailable",
-            "Audio file picker is not available on this build.",
-          );
-          return;
-        }
-
-        const result = await DocumentPicker.getDocumentAsync({
-          type: "audio/*",
-          copyToCacheDirectory: false,
-        });
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-          if (onMic && isMicMuted && roomId && mySeatNumber) {
-            try {
-              await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
-              setIsMicMuted(false);
-            } catch (e) {
-            }
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        copyToCacheDirectory: false,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        if (onMic && isMicMuted && roomId && mySeatNumber) {
+          try {
+            await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
+            setIsMicMuted(false);
+          } catch (e) {
           }
-
-          const localUri = result.assets[0].uri;
-          agoraVoice.playAudioForEveryone(localUri);
-          setIsMusicPlaying(true);
         }
-      } catch (err) {
-        console.error("Audio selection error:", err);
+        
+        const localUri = result.assets[0].uri;
+        agoraVoice.playAudioForEveryone(localUri);
+        setIsMusicPlaying(true);
+        setIsMusicPaused(false);
       }
+    } catch (err) {
+      console.error("Audio selection error:", err);
     }
-  }, [isMusicPlaying, onMic, isMicMuted, roomId, mySeatNumber]);
+  }, [onMic, isMicMuted, roomId, mySeatNumber]);
 
   const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
@@ -3349,13 +3447,13 @@ export default function VoiceParty() {
   // and re-enter the room. Cheap enough to just poll while one might be
   // pending/live; stops once we know there's nothing to wait on.
   useEffect(() => {
-    if (!roomId) return undefined;
+    if (!pkPollRoomId) return undefined;
     if (activePkBattle && activePkBattle.status !== "PENDING" && activePkBattle.status !== "LIVE") {
       return undefined;
     }
 
     const interval = setInterval(() => {
-      loadActivePkBattle(String(roomId))
+      loadActivePkBattle(pkPollRoomId)
         .then((battle) => {
           console.log("[VoiceParty][PK] poll active battle ->", battle);
           setActivePkBattle(battle);
@@ -3365,7 +3463,7 @@ export default function VoiceParty() {
         });
     }, 5000);
     return () => clearInterval(interval);
-  }, [roomId, activePkBattle]);
+  }, [pkPollRoomId, activePkBattle]);
 
   // Listen Rewards progress sync & UTC midnight reset check — every 30 s
   useEffect(() => {
@@ -3427,6 +3525,7 @@ export default function VoiceParty() {
         myUserId,
         mySeatNumber: seatNumber,
         staleSeatTracker: staleSeatTrackerRef.current,
+        activeVoiceUids: activeVoiceUidsRef.current,
       }),
     );
     if (typeof nextState?.onlineCount === "number") {
@@ -3453,6 +3552,7 @@ export default function VoiceParty() {
             myUserId,
             mySeatNumber: null,
             staleSeatTracker: staleSeatTrackerRef.current,
+            activeVoiceUids: activeVoiceUidsRef.current,
           }),
         );
       } catch (err) {
@@ -3475,6 +3575,7 @@ export default function VoiceParty() {
           myUserId,
           mySeatNumber,
           staleSeatTracker: staleSeatTrackerRef.current,
+          activeVoiceUids: activeVoiceUidsRef.current,
         }),
       );
 
@@ -4003,7 +4104,7 @@ export default function VoiceParty() {
         // one this same request duplicated) — pull the real one and show
         // it instead of leaving the user stuck on a bare error.
         setShowPkBattle(false);
-        loadActivePkBattle(String(roomId))
+        loadActivePkBattle(pkPollRoomId)
           .then((fresh) => {
             if (fresh) {
               setActivePkBattle(fresh);
@@ -4045,6 +4146,29 @@ export default function VoiceParty() {
       setPkBattleActionLoading(false);
     }
   };
+
+  // A challenge left un-accepted for 2 minutes is auto-discarded: the
+  // challenged host's client rejects it (freeing the room for a new
+  // challenge server-side); anyone else just loses the popup locally.
+  const PK_CHALLENGE_TIMEOUT_MS = 2 * 60 * 1000;
+  useEffect(() => {
+    if (!activePkBattle || activePkBattle.status !== "PENDING") return undefined;
+    const battleId = activePkBattle.id;
+
+    const timer = setTimeout(() => {
+      setActivePkBattle((current) => {
+        if (!current || current.id !== battleId || current.status !== "PENDING") {
+          return current;
+        }
+        if (getPkBattleRole(current, myUserId) === "hostB") {
+          handlePkRespond(false);
+        }
+        return null;
+      });
+    }, PK_CHALLENGE_TIMEOUT_MS);
+
+    return () => clearTimeout(timer);
+  }, [activePkBattle?.id, activePkBattle?.status, myUserId]);
 
   const handleSendBackpackGift = async () => {
     if (!selectedGift) {
@@ -4568,10 +4692,15 @@ export default function VoiceParty() {
       selfVipProfileFrame || otherUserVipProfileFrame,
     );
     const decorationFrame = fetched?.decorationFrameUrl ?? null;
+    // Backend-assigned decorations (e.g. a room-owner frame) are a separate
+    // system from the VIP tier and always take priority when equipped —
+    // same ordering as the main Profile tab (app/(tabs)/profile.jsx) — so a
+    // seated VIP whose account also has a decoration equipped shows that
+    // decoration here too, not just their VIP ring.
     const frameSource =
+      (decorationFrame ? { uri: decorationFrame } : null) ??
       selfVipProfileFrame ??
       otherUserVipProfileFrame ??
-      (decorationFrame ? { uri: decorationFrame } : null) ??
       resolveNewUserFrameSource(userWithFrame);
     const hasFrame = Boolean(frameSource);
     const activeFrameConfig = isVipProfileFrame
@@ -5690,6 +5819,22 @@ export default function VoiceParty() {
         onSelectChest={selectChest}
       />
 
+      <TreasureAnimationModal
+        visible={showTreasureAnimation}
+        onAnimationComplete={() => {
+          setShowTreasureAnimation(false);
+          if (pendingTreasureEvent) {
+            setTreasureUnlockEvent(pendingTreasureEvent);
+            setPendingTreasureEvent(null);
+          }
+        }}
+      />
+
+      <TreasureWinnersModal
+        visible={Boolean(treasureUnlockEvent)}
+        onClose={() => setTreasureUnlockEvent(null)}
+        eventData={treasureUnlockEvent}
+      />
       <PkBattleModal
         visible={showPkBattle}
         onClose={() => setShowPkBattle(false)}
@@ -5739,9 +5884,19 @@ export default function VoiceParty() {
         }
         avatarSource={profilePopupAvatarSource}
         frameSource={
-          isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
+          // Backend-assigned decorations (e.g. a room-owner frame) are a
+          // separate system from the VIP tier and always take priority
+          // when equipped, self included — same ordering as the main
+          // Profile tab. `frameLayout` below already accounted for this
+          // case (auto-fit layout when a decoration is equipped); this was
+          // the only place still missing the decoration URL itself, so a
+          // self-view here fell back to the VIP frame it hardcoded, while
+          // any other surface reading the same decoration data showed the
+          // decoration correctly.
+          userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl ??
+          (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
-            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null
+            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null)
         }
         frameLayout={
           userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl
@@ -6008,21 +6163,23 @@ export default function VoiceParty() {
             <Text style={styles.playCenterTitle}>Play center</Text>
             <View style={styles.playCenterRow}>
               {/* Music */}
-              <TouchableOpacity
-                style={styles.playCenterItem}
-                activeOpacity={0.75}
-                onPress={() => {
-                  setShowPlayCenter(false);
-                  setTimeout(() => {
-                    handleToggleMusic();
-                  }, 400);
-                }}
-              >
-                <View style={styles.playCenterIconWrap}>
-                  <Text style={styles.playCenterEmoji}>🎵</Text>
-                </View>
-                <Text style={styles.playCenterLabel}>Music</Text>
-              </TouchableOpacity>
+              {isHostSelf && (
+                <TouchableOpacity
+                  style={styles.playCenterItem}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    setShowPlayCenter(false);
+                    setTimeout(() => {
+                      handleToggleMusic();
+                    }, 400);
+                  }}
+                >
+                  <View style={styles.playCenterIconWrap}>
+                    <Text style={styles.playCenterEmoji}>🎵</Text>
+                  </View>
+                  <Text style={styles.playCenterLabel}>Music</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Lucky bag */}
               <TouchableOpacity
@@ -6050,7 +6207,7 @@ export default function VoiceParty() {
                   // websocket drop could have left `activePkBattle` stale,
                   // and either way opening the sheet on stale info just gets
                   // rejected by the backend with a 409 on Confirm.
-                  const fresh = await loadActivePkBattle(String(roomId)).catch(
+                  const fresh = await loadActivePkBattle(pkPollRoomId).catch(
                     () => activePkBattle,
                   );
                   setActivePkBattle(fresh);
@@ -6883,6 +7040,38 @@ export default function VoiceParty() {
           </TouchableOpacity>
 
           <View style={styles.headerRight}>
+            {isHostSelf && isMusicPlaying && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 20, paddingHorizontal: 4 }}>
+                <TouchableOpacity
+                  style={{ padding: 6 }}
+                  onPress={() => {
+                    if (isMusicPaused) {
+                      if (typeof agoraVoice.resumeAudioForEveryone === 'function') agoraVoice.resumeAudioForEveryone();
+                      setIsMusicPaused(false);
+                    } else {
+                      if (typeof agoraVoice.pauseAudioForEveryone === 'function') agoraVoice.pauseAudioForEveryone();
+                      setIsMusicPaused(true);
+                    }
+                  }}
+                >
+                  {isMusicPaused ? (
+                    <Play size={16} color="white" fill="white" />
+                  ) : (
+                    <Pause size={16} color="white" fill="white" />
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ padding: 6 }}
+                  onPress={() => {
+                    agoraVoice.stopAudioForEveryone();
+                    setIsMusicPlaying(false);
+                    setIsMusicPaused(false);
+                  }}
+                >
+                  <X size={16} color="white" />
+                </TouchableOpacity>
+              </View>
+            )}
             <TouchableOpacity
               style={styles.headerBtn}
               activeOpacity={0.8}

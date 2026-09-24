@@ -25,9 +25,20 @@ export const normalizePkBattle = (data) => {
     ? raw.teamBMemberIds.map(String)
     : [];
 
+  // The "active" endpoint reports time left as `remainingSeconds` rather
+  // than an absolute `endsAt` — convert it once here so the rest of the
+  // app (countdowns) only ever has to deal with one shape.
+  const remainingSeconds = firstDefined(raw.remainingSeconds, raw.secondsRemaining);
+  const endsAt =
+    raw.endsAt ??
+    raw.endAt ??
+    (remainingSeconds != null
+      ? new Date(Date.now() + Number(remainingSeconds) * 1000).toISOString()
+      : null);
+
   return {
     id: String(id),
-    roomId: raw.roomId != null ? String(raw.roomId) : null,
+    roomId: raw.roomId != null ? String(raw.roomId).trim() : null,
     status: String(raw.status ?? raw.state ?? "PENDING").toUpperCase(),
     hostAId: firstDefined(raw.hostAId, raw.hostId, raw.creatorId, raw.ownerId) ?? null,
     hostBId: firstDefined(raw.hostBId, raw.opponentHostId, raw.opponentId) ?? null,
@@ -41,8 +52,13 @@ export const normalizePkBattle = (data) => {
     teamBScore: Number(firstDefined(raw.teamBScore, raw.scoreB, raw.hostBScore, 0)) || 0,
     durationSeconds: Number(firstDefined(raw.durationSeconds, raw.duration, 0)) || 0,
     startedAt: raw.startedAt ?? raw.startAt ?? null,
-    endsAt: raw.endsAt ?? raw.endAt ?? null,
+    endsAt,
     winner: raw.winner ?? raw.winnerTeam ?? null,
+    contributors: Array.isArray(data?.contributors)
+      ? data.contributors
+      : Array.isArray(raw.contributors)
+        ? raw.contributors
+        : [],
     raw,
   };
 };
