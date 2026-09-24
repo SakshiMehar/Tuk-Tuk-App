@@ -16,6 +16,7 @@ import {
   MicOff,
   Minimize2,
   MoreVertical,
+  Pause,
   Play,
   Plus,
   Power,
@@ -169,6 +170,8 @@ import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
 import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureBoxModal from "./TreasureBoxModal";
+import TreasureWinnersModal from "./TreasureWinnersModal";
+import TreasureAnimationModal from "./TreasureAnimationModal";
 import DiamondRechargeModal from "./DiamondRechargeModal";
 
 const { width: W, height: H } = Dimensions.get("window");
@@ -1591,7 +1594,20 @@ export default function VoiceParty() {
     "Welcome everyone! Let's chat and have fun together!",
   );
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [isMusicPaused, setIsMusicPaused] = useState(false);
   const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
+
+  useEffect(() => {
+    if (typeof agoraVoice.subscribeAudioMixing !== 'function') return;
+    const unsub = agoraVoice.subscribeAudioMixing(({ state }) => {
+      // 714 = AudioMixingStateCompleted. Ignore 710 (Stopped) as it fires when loading a new file.
+      if (state === 714 || state === 'COMPLETED') {
+        setIsMusicPlaying(false);
+        setIsMusicPaused(false);
+      }
+    });
+    return unsub;
+  }, []);
   const [welcomeDraft, setWelcomeDraft] = useState("");
 
   const videoPlayer = useVideoPlayer(null, (p) => {
@@ -1652,9 +1668,12 @@ export default function VoiceParty() {
   const myCountryFlag = useMyCountryFlag();
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
-  const { treasureState, selectChest } = useTreasureBoxProgress(
+  const { treasureState, selectChest, updateTreasureState } = useTreasureBoxProgress(
     !roomLoading && Boolean(roomId),
   );
+  const [treasureUnlockEvent, setTreasureUnlockEvent] = useState(null);
+  const [pendingTreasureEvent, setPendingTreasureEvent] = useState(null);
+  const [showTreasureAnimation, setShowTreasureAnimation] = useState(false);
   const { diamonds: walletDiamonds } = useWalletBalance();
 
   useEffect(() => {
@@ -2651,6 +2670,51 @@ export default function VoiceParty() {
         }
       }
     });
+
+    const unsubTreasure = wsService.onRoomTreasure(String(roomId), async (payload) => {
+      try {
+        const event = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        
+        if (event?.type === 'TREASURE_PROGRESS') {
+          updateTreasureState({
+            currentAmount: event.currentAmount,
+            currentTarget: event.currentTarget,
+            remainingAmount: event.remainingAmount,
+            completedRound: event.completedRound,
+            status: event.status,
+          });
+        } else if (event?.type === 'TREASURE_UNLOCKED') {
+          console.log('[VoiceParty] TREASURE_UNLOCKED event received:', JSON.stringify(event, null, 2));
+          console.log('[VoiceParty] Current myUserId:', myUserId);
+          
+          const myReward = event.rewards?.find(r => String(r.userId) === String(myUserId));
+          
+          if (myReward) {
+            // Delay showing the animation by 5 seconds
+            setTimeout(() => {
+              setPendingTreasureEvent({ ...event, myReward });
+              setShowTreasureAnimation(true);
+            }, 5000);
+            
+            if (myReward.rewardType === 'TOP_RANK_REWARD') {
+              // Refresh backpack in background
+              loadGiftInventory().then(setBackpackGifts).catch(() => {});
+            }
+            if (myReward.rewardType === 'PARTICIPATION_REWARD' || myReward.rewardAmount) {
+              // Refresh wallet in background
+              refreshWalletBalance().catch(() => {});
+            }
+          }
+          
+          if (event.nextTarget) {
+            updateTreasureState({ currentTarget: event.nextTarget, currentAmount: 0 });
+          }
+        }
+      } catch (err) {
+        console.error('[VoiceParty] Error handling treasure event:', err);
+      }
+    });
+
     const unsubSpeaking = wsService.onRoomSpeaking(
       String(roomId),
       (payload) => {
@@ -3046,6 +3110,7 @@ export default function VoiceParty() {
       unsubChatSummary();
       unsubUi();
       unsubSpeaking();
+      unsubTreasure();
       unsubGiftAnimation();
       unsubPk();
       unsubNotifications();
@@ -3057,58 +3122,54 @@ export default function VoiceParty() {
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
   const handleToggleMusic = useCallback(async () => {
-    if (isMusicPlaying) {
-      agoraVoice.stopAudioForEveryone();
-      setIsMusicPlaying(false);
-    } else {
-      let hasMicPermission = true;
-      if (Platform.OS === 'android') {
-        hasMicPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    let hasMicPermission = true;
+    if (Platform.OS === 'android') {
+      hasMicPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    }
+
+    if (!hasMicPermission) {
+      setMicPermWarning('music');
+      return;
+    }
+
+    try {
+      let DocumentPicker = null;
+      try {
+        DocumentPicker = require("expo-document-picker");
+      } catch (e) {
+        console.warn("[voice-party] expo-document-picker unavailable:", e?.message ?? e);
       }
 
-      if (!hasMicPermission) {
-        setMicPermWarning('music');
+      if (!DocumentPicker || typeof DocumentPicker.getDocumentAsync !== "function") {
+        Alert.alert(
+          "Music Feature Unavailable",
+          "Audio file picker is not available on this build.",
+        );
         return;
       }
 
-      try {
-        let DocumentPicker = null;
-        try {
-          DocumentPicker = require("expo-document-picker");
-        } catch (e) {
-          console.warn("[voice-party] expo-document-picker unavailable:", e?.message ?? e);
-        }
-
-        if (!DocumentPicker || typeof DocumentPicker.getDocumentAsync !== "function") {
-          Alert.alert(
-            "Music Feature Unavailable",
-            "Audio file picker is not available on this build.",
-          );
-          return;
-        }
-
-        const result = await DocumentPicker.getDocumentAsync({
-          type: "audio/*",
-          copyToCacheDirectory: false,
-        });
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-          if (onMic && isMicMuted && roomId && mySeatNumber) {
-            try {
-              await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
-              setIsMicMuted(false);
-            } catch (e) {
-            }
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        copyToCacheDirectory: false,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        if (onMic && isMicMuted && roomId && mySeatNumber) {
+          try {
+            await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
+            setIsMicMuted(false);
+          } catch (e) {
           }
-
-          const localUri = result.assets[0].uri;
-          agoraVoice.playAudioForEveryone(localUri);
-          setIsMusicPlaying(true);
         }
-      } catch (err) {
-        console.error("Audio selection error:", err);
+        
+        const localUri = result.assets[0].uri;
+        agoraVoice.playAudioForEveryone(localUri);
+        setIsMusicPlaying(true);
+        setIsMusicPaused(false);
       }
+    } catch (err) {
+      console.error("Audio selection error:", err);
     }
-  }, [isMusicPlaying, onMic, isMicMuted, roomId, mySeatNumber]);
+  }, [onMic, isMicMuted, roomId, mySeatNumber]);
 
   const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
@@ -5690,6 +5751,22 @@ export default function VoiceParty() {
         onSelectChest={selectChest}
       />
 
+      <TreasureAnimationModal
+        visible={showTreasureAnimation}
+        onAnimationComplete={() => {
+          setShowTreasureAnimation(false);
+          if (pendingTreasureEvent) {
+            setTreasureUnlockEvent(pendingTreasureEvent);
+            setPendingTreasureEvent(null);
+          }
+        }}
+      />
+
+      <TreasureWinnersModal
+        visible={Boolean(treasureUnlockEvent)}
+        onClose={() => setTreasureUnlockEvent(null)}
+        eventData={treasureUnlockEvent}
+      />
       <PkBattleModal
         visible={showPkBattle}
         onClose={() => setShowPkBattle(false)}
@@ -6008,21 +6085,23 @@ export default function VoiceParty() {
             <Text style={styles.playCenterTitle}>Play center</Text>
             <View style={styles.playCenterRow}>
               {/* Music */}
-              <TouchableOpacity
-                style={styles.playCenterItem}
-                activeOpacity={0.75}
-                onPress={() => {
-                  setShowPlayCenter(false);
-                  setTimeout(() => {
-                    handleToggleMusic();
-                  }, 400);
-                }}
-              >
-                <View style={styles.playCenterIconWrap}>
-                  <Text style={styles.playCenterEmoji}>🎵</Text>
-                </View>
-                <Text style={styles.playCenterLabel}>Music</Text>
-              </TouchableOpacity>
+              {isHostSelf && (
+                <TouchableOpacity
+                  style={styles.playCenterItem}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    setShowPlayCenter(false);
+                    setTimeout(() => {
+                      handleToggleMusic();
+                    }, 400);
+                  }}
+                >
+                  <View style={styles.playCenterIconWrap}>
+                    <Text style={styles.playCenterEmoji}>🎵</Text>
+                  </View>
+                  <Text style={styles.playCenterLabel}>Music</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Lucky bag */}
               <TouchableOpacity
@@ -6883,6 +6962,38 @@ export default function VoiceParty() {
           </TouchableOpacity>
 
           <View style={styles.headerRight}>
+            {isHostSelf && isMusicPlaying && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 20, paddingHorizontal: 4 }}>
+                <TouchableOpacity
+                  style={{ padding: 6 }}
+                  onPress={() => {
+                    if (isMusicPaused) {
+                      if (typeof agoraVoice.resumeAudioForEveryone === 'function') agoraVoice.resumeAudioForEveryone();
+                      setIsMusicPaused(false);
+                    } else {
+                      if (typeof agoraVoice.pauseAudioForEveryone === 'function') agoraVoice.pauseAudioForEveryone();
+                      setIsMusicPaused(true);
+                    }
+                  }}
+                >
+                  {isMusicPaused ? (
+                    <Play size={16} color="white" fill="white" />
+                  ) : (
+                    <Pause size={16} color="white" fill="white" />
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ padding: 6 }}
+                  onPress={() => {
+                    agoraVoice.stopAudioForEveryone();
+                    setIsMusicPlaying(false);
+                    setIsMusicPaused(false);
+                  }}
+                >
+                  <X size={16} color="white" />
+                </TouchableOpacity>
+              </View>
+            )}
             <TouchableOpacity
               style={styles.headerBtn}
               activeOpacity={0.8}

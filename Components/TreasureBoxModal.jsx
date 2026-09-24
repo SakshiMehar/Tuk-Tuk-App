@@ -28,10 +28,14 @@ export default function TreasureBoxModal({
   treasureState,
   onSelectChest,
 }) {
-  const powerPercent = treasureState?.powerPercent ?? 0;
+  const currentAmount = treasureState?.currentAmount ?? 0;
+  const currentTarget = treasureState?.currentTarget ?? 1;
+  const remainingAmount = treasureState?.remainingAmount ?? 0;
+  const completedRound = treasureState?.completedRound ?? 0;
+  const progressPercent = Math.min(100, Math.max(0, (currentAmount / currentTarget) * 100));
+
   const selectedChest = treasureState?.selectedChest ?? 0;
   const activeChest = treasureState?.activeChest ?? 0;
-  const clampedPower = Math.max(0, Math.min(100, powerPercent));
 
   const handleHelp = () => {
     Alert.alert(
@@ -44,7 +48,7 @@ export default function TreasureBoxModal({
   const featured = rewards.find((item) => item.featured);
   const gridRewards = rewards.filter((item) => !item.featured);
   const barWidth = W - 120;
-  const sparkleLeft = (barWidth * clampedPower) / 100 - 11;
+  const sparkleLeft = (barWidth * progressPercent) / 100 - 11;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -102,10 +106,21 @@ export default function TreasureBoxModal({
                 style={styles.powerPanelTopBorder}
               />
               <View style={styles.powerHeader}>
-                <Text style={styles.powerTitle}>Power bar</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.powerTitle}>Treasure Box</Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '500' }}>Round {completedRound}</Text>
+                </View>
                 <TouchableOpacity onPress={handleHelp} hitSlop={8}>
                   <HelpCircle size={18} color="rgba(255,255,255,0.75)" />
                 </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 8 }}>
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
+                  {currentAmount.toLocaleString()} / {currentTarget.toLocaleString()}
+                </Text>
+                <Text style={{ color: '#ffd56a', fontSize: 13, fontWeight: '500' }}>
+                  {remainingAmount.toLocaleString()} remaining
+                </Text>
               </View>
 
               <View style={styles.powerRow}>
@@ -115,7 +130,7 @@ export default function TreasureBoxModal({
                       <View
                         style={[
                           styles.powerBarFill,
-                          { width: `${clampedPower}%` },
+                          { width: `${progressPercent}%` },
                         ]}
                       >
                         <LinearGradient
@@ -126,7 +141,7 @@ export default function TreasureBoxModal({
                         />
                       </View>
                     </View>
-                    {clampedPower > 0 && (
+                    {progressPercent > 0 && (
                       <View
                         style={[
                           styles.powerSparkle,
@@ -136,7 +151,7 @@ export default function TreasureBoxModal({
                     )}
                   </View>
                   <View style={styles.powerPercentBadge}>
-                    <Text style={styles.powerPercentText}>{Math.round(clampedPower)}%</Text>
+                    <Text style={styles.powerPercentText}>{Math.round(progressPercent)}%</Text>
                   </View>
                 </View>
 

@@ -329,13 +329,14 @@ export default function Settings() {
 
           try {
             await logoutSession();
+            router.dismissAll();
             router.replace("/login");
           } catch (err) {
-
             Alert.alert(
               "Logout",
               err?.message || "Could not reach server. You have been signed out locally."
             );
+            router.dismissAll();
             router.replace("/login");
           } finally {
             setLoggingOut(false);
@@ -362,6 +363,7 @@ export default function Settings() {
       await deleteAccountSession({ reason, additionalComment });
       closeDeleteAccountModal();
       Alert.alert("Account deleted", "Your account has been deleted.");
+      router.dismissAll();
       router.replace("/login");
     } catch (err) {
 

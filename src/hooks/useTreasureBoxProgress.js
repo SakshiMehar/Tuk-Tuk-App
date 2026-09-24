@@ -25,9 +25,18 @@ export function useTreasureBoxProgress(enabled = true) {
   const selectChest = useCallback((index) => {
     setTreasureState((prev) => {
       if (!prev) return prev;
-      const next = { ...prev, selectedChest: index, powerPercent: 0 };
+      const next = { ...prev, selectedChest: index };
       stateRef.current = next;
       saveTreasureBoxState(next);
+      return next;
+    });
+  }, []);
+
+  const updateTreasureState = useCallback((payload) => {
+    setTreasureState((prev) => {
+      const next = { ...prev, ...payload };
+      stateRef.current = next;
+      // We don't save to local storage here as it's real-time from server
       return next;
     });
   }, []);
@@ -35,5 +44,6 @@ export function useTreasureBoxProgress(enabled = true) {
   return {
     treasureState,
     selectChest,
+    updateTreasureState,
   };
 }
