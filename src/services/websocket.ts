@@ -19,8 +19,8 @@
 
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
-import { getToken, getUser } from '../store/authStore';
 import { API_BASE_URL } from '../config/env';
+import { getToken, getUser } from '../store/authStore';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -36,11 +36,19 @@ export interface ChatMessage {
   audioDuration?: number;
   timestamp: string;
   status: MessageStatus;
-  
+
   // Call signaling
   callSignalType?: 'OFFER' | 'ANSWER' | 'REJECT' | 'END';
   callType?: 'audio' | 'video';
   callChannelId?: string;
+}
+
+export interface CallSignalPayload {
+  type: 'CALL_INCOMING' | 'CALL_ACCEPTED' | 'CALL_REJECTED' | 'CALL_ENDED';
+  callId: number;
+  senderId: number | string;
+  receiverId: number | string;
+  [key: string]: any;
 }
 
 export interface TypingPayload {
@@ -107,15 +115,15 @@ export interface FamilyChatSummaryPayload {
 
 export interface RoomNotificationPayload {
   eventType?:
-    | 'USER_JOINED'
-    | 'USER_LEFT'
-    | 'CHAT_MESSAGE'
-    | 'GIFT_SENT'
-    | 'MIC_MUTED'
-    | 'MIC_UNMUTED'
-    | 'SEAT_TAKEN'
-    | 'SEAT_RELEASED'
-    | string;
+  | 'USER_JOINED'
+  | 'USER_LEFT'
+  | 'CHAT_MESSAGE'
+  | 'GIFT_SENT'
+  | 'MIC_MUTED'
+  | 'MIC_UNMUTED'
+  | 'SEAT_TAKEN'
+  | 'SEAT_RELEASED'
+  | string;
   type?: string;
   roomId?: string;
   userId?: number | string;
@@ -197,10 +205,11 @@ class WebSocketService {
   private subscriptions = new Map<string, StompSubscription>();
   private joinedRooms = new Set<string>();
 
-  private messageHandlers  = new Set<Handler<ChatMessage>>();
-  private typingHandlers   = new Set<Handler<TypingPayload>>();
+  private messageHandlers = new Set<Handler<ChatMessage>>();
+  private typingHandlers = new Set<Handler<TypingPayload>>();
   private presenceHandlers = new Set<Handler<PresencePayload>>();
-  private receiptHandlers  = new Set<Handler<ReadReceiptPayload>>();
+  private receiptHandlers = new Set<Handler<ReadReceiptPayload>>();
+  private callSignalHandlers = new Set<Handler<CallSignalPayload>>();
   private liveRoomsHandlers = new Set<Handler<unknown>>();
   private reconnectHandlers = new Set<() => void>();
   private hasConnectedOnce = false;
@@ -240,7 +249,7 @@ class WebSocketService {
         reconnectDelay: 5000,
         heartbeatIncoming: 10000,
         heartbeatOutgoing: 10000,
-        debug: () => {},
+        debug: () => { },
         onConnect: () => {
           this._onConnect();
           resolve();
@@ -338,7 +347,7 @@ class WebSocketService {
       if (this.subscriptions.has(key)) return;
 
       const destination = `/topic/users/${userId}/chats`;
-      
+
       const sub = this.client.subscribe(destination, (frame: IMessage) => {
         const payload: ChatMessage = JSON.parse(frame.body);
         console.log("[WS] Received user chat payload raw:", frame.body);
@@ -515,9 +524,9 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
-  sendSeatHeartbeat(roomId: string): void {
+  sendSeatHeartbeat(roomId: string, seatNumber: number | string): void {
     this._assertConnected();
-    const destination = `/app/room/${roomId}/seat/heartbeat`;
+    const destination = `/app/room/${roomId}/seat/${seatNumber}/heartbeat`;
     this.client!.publish({ destination, body: JSON.stringify({}) });
   }
 
@@ -634,7 +643,7 @@ class WebSocketService {
   ): void {
     this._assertConnected();
     const destination = `/app/users/${recipientId}/chat`;
-    
+
     // Explicitly construct payload with all keys present to prevent backend validation errors
     let formattedMedia = [];
     let extractedAudioUrl = mediaPayload?.audioUrl ?? null;
@@ -653,15 +662,15 @@ class WebSocketService {
         }
       });
     } else if (mediaPayload?.url && mediaPayload?.type) {
-       if (mediaPayload.type === 'AUDIO') {
-         extractedAudioUrl = mediaPayload.url;
-       } else {
-         formattedMedia.push({
-           url: mediaPayload.url,
-           type: mediaPayload.type,
-           sortOrder: 1
-         });
-       }
+      if (mediaPayload.type === 'AUDIO') {
+        extractedAudioUrl = mediaPayload.url;
+      } else {
+        formattedMedia.push({
+          url: mediaPayload.url,
+          type: mediaPayload.type,
+          sortOrder: 1
+        });
+      }
     }
 
     const payload: any = {
@@ -685,7 +694,7 @@ class WebSocketService {
     const destination = `/app/users/${recipientId}/chat`;
     // Format: __CALL_SIGNAL__|{signalType}|{callType}|{channelId}
     const signalString = `__CALL_SIGNAL__|${signalType}|${callType}|${channelId || ''}`;
-    const payload: any = { 
+    const payload: any = {
       message: signalString
     };
     const body = JSON.stringify(payload);
@@ -742,6 +751,11 @@ class WebSocketService {
   onReadReceipt(handler: Handler<ReadReceiptPayload>): () => void {
     this.receiptHandlers.add(handler);
     return () => this.receiptHandlers.delete(handler);
+  }
+
+  onCallSignal(handler: Handler<CallSignalPayload>): () => void {
+    this.callSignalHandlers.add(handler);
+    return () => this.callSignalHandlers.delete(handler);
   }
 }
 

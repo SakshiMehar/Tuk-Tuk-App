@@ -3401,7 +3401,7 @@ export default function VoiceParty() {
     const ping = async () => {
       try {
         if (wsService.connected) {
-          wsService.sendSeatHeartbeat(String(roomId));
+          wsService.sendSeatHeartbeat(String(roomId), mySeatNumber);
         } else {
           await postSeatHeartbeat(String(roomId));
         }
@@ -3411,7 +3411,7 @@ export default function VoiceParty() {
     };
 
     ping(); // send immediately when seat is taken
-    const interval = setInterval(ping, 25_000);
+    const interval = setInterval(ping, 15_000);
     return () => clearInterval(interval);
   }, [onMic, mySeatNumber, roomId]);
 
@@ -3487,27 +3487,8 @@ export default function VoiceParty() {
     return () => clearInterval(interval);
   }, [roomId, flushListenRewardProgress, refreshListenRewardStatus]);
 
-  // Room user-count badge — refresh from the public count endpoint.
-  useEffect(() => {
-    if (!roomId) return;
-    let cancelled = false;
-
-    const fetchUserCount = async () => {
-      try {
-        const count = await getRoomUserCount(String(roomId));
-        if (cancelled) return;
-        if (typeof count === "number") setOnlineCount(count);
-      } catch (error) {
-      }
-    };
-
-    fetchUserCount();
-    const interval = setInterval(fetchUserCount, 15_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [roomId]);
+  // User count is now kept in sync exclusively via WebSocket `ui-state`
+  // and `notifications` (USER_JOINED/USER_LEFT) pushes.
 
   const applySeatsAfterClaim = async (claimData, seatNumber) => {
     const claimedState = roomStateFromPayload(claimData);
