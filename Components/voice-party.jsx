@@ -3675,7 +3675,32 @@ export default function VoiceParty() {
       await partyVoice.toggleMicMute(String(roomId), mySeatNumber, nextMuted);
       setIsMicMuted(nextMuted);
     } catch (err) {
-      Alert.alert("Mic mute failed", err?.message ?? "Please try again.");
+      if (partyVoice.isNotOnSeatError(err)) {
+        // Backend says we're no longer on this seat — local state is stale
+        // (kicked, seat expired, left from another device). Resync instead
+        // of retrying a mute toggle that will keep failing.
+        onMicRef.current = false;
+        mySeatNumberRef.current = null;
+        setOnMic(false);
+        setMySeatNumber(null);
+        setIsMicMuted(true);
+        try {
+          const state = await getRoomState(String(roomId));
+          setSeats(
+            reconcileSeatAssignments(parseSeats(state?.seats, state), {
+              onlineUsers,
+              myUserId,
+              mySeatNumber: null,
+              staleSeatTracker: staleSeatTrackerRef.current,
+              activeVoiceUids: activeVoiceUidsRef.current,
+            }),
+          );
+        } catch (e) {
+          // Non-critical — a later poll/reconnect will re-sync seats.
+        }
+      } else {
+        Alert.alert("Mic mute failed", err?.message ?? "Please try again.");
+      }
     } finally {
       setVoiceConnecting(false);
     }
@@ -8385,15 +8410,15 @@ const styles = StyleSheet.create({
   // chatBubble's default "hidden") lets the frame's crown/gem art bleed
   // above/below the bubble instead of being clipped — see vipChatFrameStyle.
   chatBubbleVipPadding: {
-    paddingHorizontal: s(10),
-    paddingVertical: vs(12),
+    paddingHorizontal: s(8),
+    paddingVertical: vs(5),
     overflow: "visible",
   },
   chatMeta: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(6),
-    marginBottom: vs(3),
+    gap: s(4),
+    marginBottom: vs(2),
     flexWrap: "wrap",
   },
   chatUser: { color: "#b44dff", fontSize: ms(12), fontWeight: "700" },

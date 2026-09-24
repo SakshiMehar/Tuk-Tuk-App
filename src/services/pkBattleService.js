@@ -25,16 +25,17 @@ export const normalizePkBattle = (data) => {
     ? raw.teamBMemberIds.map(String)
     : [];
 
-  // The "active" endpoint reports time left as `remainingSeconds` rather
-  // than an absolute `endsAt` — convert it once here so the rest of the
-  // app (countdowns) only ever has to deal with one shape.
+  // Prefer `remainingSeconds` (a plain duration) over `endsAt` (an absolute
+  // timestamp): the backend sends `endsAt` with no timezone designator
+  // (e.g. "2026-09-24T18:30:00"), which JS parses as *local* time — on a
+  // device whose clock isn't in the same timezone as the server this silently
+  // produces a wildly wrong countdown. `remainingSeconds` has no such
+  // ambiguity, so it wins whenever both are present.
   const remainingSeconds = firstDefined(raw.remainingSeconds, raw.secondsRemaining);
   const endsAt =
-    raw.endsAt ??
-    raw.endAt ??
-    (remainingSeconds != null
+    remainingSeconds != null
       ? new Date(Date.now() + Number(remainingSeconds) * 1000).toISOString()
-      : null);
+      : (raw.endsAt ?? raw.endAt ?? null);
 
   return {
     id: String(id),

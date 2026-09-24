@@ -179,6 +179,9 @@ export default function PkLiveBanner({
   const avatarB = battle.hostBAvatar || metaB?.avatar || null;
 
   const ribbonTitle = isPending ? "PK Challenge" : isLive ? "Gift PK" : "PK Result";
+  const topContributor = Array.isArray(battle.contributors) && battle.contributors.length > 0
+    ? battle.contributors.find((c) => c.rank === 1) || battle.contributors[0]
+    : null;
 
   return (
     <Animated.View
@@ -268,6 +271,15 @@ export default function PkLiveBanner({
                       </View>
                     </View>
                   </View>
+
+                  {topContributor && (
+                    <View style={styles.topSupporterRow}>
+                      <Text style={styles.topSupporterText} numberOfLines={1}>
+                        🏆 {topContributor.userName || topContributor.name || "Someone"} +
+                        {formatCount(topContributor.points ?? topContributor.value ?? 0)}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               );
             })()}
@@ -463,6 +475,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 8,
+  },
+  topSupporterRow: {
+    marginTop: 6,
+    alignItems: "center",
+  },
+  topSupporterText: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 9.5,
+    fontWeight: "700",
   },
   scorePillLeft: {
     flexDirection: "row",
