@@ -15,6 +15,7 @@ import {
   MicOff,
   Minimize2,
   MoreVertical,
+  Pause,
   Play,
   Plus,
   Power,
@@ -168,6 +169,9 @@ import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
 import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureBoxModal from "./TreasureBoxModal";
+import TreasureWinnersModal from "./TreasureWinnersModal";
+import TreasureAnimationModal from "./TreasureAnimationModal";
+import DiamondRechargeModal from "./DiamondRechargeModal";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
@@ -1268,6 +1272,7 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
 export default function VoiceParty() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const roomIdParam = params.roomId ?? params.id ?? null;
   const isRandomParty = params.party === "true";
@@ -1590,7 +1595,20 @@ export default function VoiceParty() {
     "Welcome everyone! Let's chat and have fun together!",
   );
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [isMusicPaused, setIsMusicPaused] = useState(false);
   const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
+
+  useEffect(() => {
+    if (typeof agoraVoice.subscribeAudioMixing !== 'function') return;
+    const unsub = agoraVoice.subscribeAudioMixing(({ state }) => {
+      // 714 = AudioMixingStateCompleted. Ignore 710 (Stopped) as it fires when loading a new file.
+      if (state === 714 || state === 'COMPLETED') {
+        setIsMusicPlaying(false);
+        setIsMusicPaused(false);
+      }
+    });
+    return unsub;
+  }, []);
   const [welcomeDraft, setWelcomeDraft] = useState("");
 
   const videoPlayer = useVideoPlayer(null, (p) => {
@@ -1651,9 +1669,12 @@ export default function VoiceParty() {
   const myCountryFlag = useMyCountryFlag();
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
-  const { treasureState, selectChest } = useTreasureBoxProgress(
+  const { treasureState, selectChest, updateTreasureState } = useTreasureBoxProgress(
     !roomLoading && Boolean(roomId),
   );
+  const [treasureUnlockEvent, setTreasureUnlockEvent] = useState(null);
+  const [pendingTreasureEvent, setPendingTreasureEvent] = useState(null);
+  const [showTreasureAnimation, setShowTreasureAnimation] = useState(false);
   const { diamonds: walletDiamonds } = useWalletBalance();
 
   useEffect(() => {
@@ -2166,37 +2187,37 @@ export default function VoiceParty() {
     return Array.from(byId.values());
   }, [hostId, roomInfo, onlineUsers, seats, myUserId, resolveRecipientUserId]);
 
-  const pkOpponentCandidates = useMemo(() => {
-    const byId = new Map();
+  // const pkOpponentCandidates = useMemo(() => {
+  //   const byId = new Map();
 
-    // 1. Seated users on mic first
-    seats.forEach((seat) => {
-      if (!seat.user) return;
-      const u = seat.user;
-      const userId = u.id != null ? String(u.id) : (u.userId != null ? String(u.userId) : null);
-      if (!userId || isSameUser(userId, myUserId)) return;
-      byId.set(userId, {
-        id: userId,
-        name: u.name || u.username || "User",
-        avatar: u.avatar || u.profileImageUrl || u.avatarUrl || null,
-        seatId: seat.id,
-      });
-    });
+  //   // 1. Seated users on mic first
+  //   seats.forEach((seat) => {
+  //     if (!seat.user) return;
+  //     const u = seat.user;
+  //     const userId = u.id != null ? String(u.id) : (u.userId != null ? String(u.userId) : null);
+  //     if (!userId || isSameUser(userId, myUserId)) return;
+  //     byId.set(userId, {
+  //       id: userId,
+  //       name: u.name || u.username || "User",
+  //       avatar: u.avatar || u.profileImageUrl || u.avatarUrl || null,
+  //       seatId: seat.id,
+  //     });
+  //   });
 
-    // 2. Other online users in room
-    onlineUsers.forEach((user) => {
-      const userId = user.id != null ? String(user.id) : (user.userId != null ? String(user.userId) : null);
-      if (!userId || isSameUser(userId, myUserId) || byId.has(userId)) return;
-      byId.set(userId, {
-        id: userId,
-        name: user.name || user.username || "User",
-        avatar: user.avatar || user.profileImageUrl || user.avatarUrl || null,
-        seatId: null,
-      });
-    });
+  //   // 2. Other online users in room
+  //   onlineUsers.forEach((user) => {
+  //     const userId = user.id != null ? String(user.id) : (user.userId != null ? String(user.userId) : null);
+  //     if (!userId || isSameUser(userId, myUserId) || byId.has(userId)) return;
+  //     byId.set(userId, {
+  //       id: userId,
+  //       name: user.name || user.username || "User",
+  //       avatar: user.avatar || user.profileImageUrl || user.avatarUrl || null,
+  //       seatId: null,
+  //     });
+  //   });
 
-    return Array.from(byId.values());
-  }, [seats, onlineUsers, myUserId]);
+  //   return Array.from(byId.values());
+  // }, [seats, onlineUsers, myUserId]);
 
   useEffect(() => {
     if (!showBackpack) setShowGiftReceiverPicker(false);
@@ -2597,6 +2618,19 @@ export default function VoiceParty() {
         console.error("[VoiceParty] WS connection error:", err?.message || err);
       });
 
+    // Pull whatever PK card already exists for this room on entry — the
+    // `pk` topic below only pushes *changes*, so a battle created before
+    // this client joined (or missed while briefly disconnected) needs an
+    // explicit fetch, not just a subscription.
+    loadActivePkBattle(activeRoomId)
+      .then((battle) => {
+        console.log("[VoiceParty][PK] initial active battle ->", battle);
+        setActivePkBattle(battle);
+      })
+      .catch(() => {
+        // Non-critical — the `pk` topic or the fallback poll will catch it.
+      });
+
     const appendChatMessage = (payload) => {
       setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -2669,6 +2703,51 @@ export default function VoiceParty() {
         }
       }
     });
+
+    const unsubTreasure = wsService.onRoomTreasure(String(roomId), async (payload) => {
+      try {
+        const event = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        
+        if (event?.type === 'TREASURE_PROGRESS') {
+          updateTreasureState({
+            currentAmount: event.currentAmount,
+            currentTarget: event.currentTarget,
+            remainingAmount: event.remainingAmount,
+            completedRound: event.completedRound,
+            status: event.status,
+          });
+        } else if (event?.type === 'TREASURE_UNLOCKED') {
+          console.log('[VoiceParty] TREASURE_UNLOCKED event received:', JSON.stringify(event, null, 2));
+          console.log('[VoiceParty] Current myUserId:', myUserId);
+          
+          const myReward = event.rewards?.find(r => String(r.userId) === String(myUserId));
+          
+          if (myReward) {
+            // Delay showing the animation by 5 seconds
+            setTimeout(() => {
+              setPendingTreasureEvent({ ...event, myReward });
+              setShowTreasureAnimation(true);
+            }, 5000);
+            
+            if (myReward.rewardType === 'TOP_RANK_REWARD') {
+              // Refresh backpack in background
+              loadGiftInventory().then(setBackpackGifts).catch(() => {});
+            }
+            if (myReward.rewardType === 'PARTICIPATION_REWARD' || myReward.rewardAmount) {
+              // Refresh wallet in background
+              refreshWalletBalance().catch(() => {});
+            }
+          }
+          
+          if (event.nextTarget) {
+            updateTreasureState({ currentTarget: event.nextTarget, currentAmount: 0 });
+          }
+        }
+      } catch (err) {
+        console.error('[VoiceParty] Error handling treasure event:', err);
+      }
+    });
+
     const unsubSpeaking = wsService.onRoomSpeaking(
       String(roomId),
       (payload) => {
@@ -2803,6 +2882,14 @@ export default function VoiceParty() {
         );
       },
     );
+    // The room's live PK card — pushed on create/accept/reject/score
+    // change/finish. This is what lets the challenged opponent (and
+    // everyone else in the room) see the battle without polling.
+    const unsubPk = wsService.onRoomPk(String(roomId), (payload) => {
+      console.log("[VoiceParty][PK] WS push ->", payload);
+      setActivePkBattle(normalizePkBattle(payload));
+    });
+
     const unsubNotifications = wsService.onRoomNotifications(
       String(roomId),
       (payload) => {
@@ -3045,13 +3132,20 @@ export default function VoiceParty() {
         .catch(() => {
           // Non-critical — a later reconnect or user action will re-sync.
         });
+      loadActivePkBattle(String(roomId))
+        .then(setActivePkBattle)
+        .catch(() => {
+          // Non-critical — the `pk` topic or the fallback poll will catch it.
+        });
     });
     return () => {
       unsubChat();
       unsubChatSummary();
       unsubUi();
       unsubSpeaking();
+      unsubTreasure();
       unsubGiftAnimation();
+      unsubPk();
       unsubNotifications();
       unsubReconnect();
       if (!isNavigatingToInboxRef.current) {
@@ -3061,58 +3155,54 @@ export default function VoiceParty() {
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
   const handleToggleMusic = useCallback(async () => {
-    if (isMusicPlaying) {
-      agoraVoice.stopAudioForEveryone();
-      setIsMusicPlaying(false);
-    } else {
-      let hasMicPermission = true;
-      if (Platform.OS === 'android') {
-        hasMicPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    let hasMicPermission = true;
+    if (Platform.OS === 'android') {
+      hasMicPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    }
+
+    if (!hasMicPermission) {
+      setMicPermWarning('music');
+      return;
+    }
+
+    try {
+      let DocumentPicker = null;
+      try {
+        DocumentPicker = require("expo-document-picker");
+      } catch (e) {
+        console.warn("[voice-party] expo-document-picker unavailable:", e?.message ?? e);
       }
 
-      if (!hasMicPermission) {
-        setMicPermWarning('music');
+      if (!DocumentPicker || typeof DocumentPicker.getDocumentAsync !== "function") {
+        Alert.alert(
+          "Music Feature Unavailable",
+          "Audio file picker is not available on this build.",
+        );
         return;
       }
 
-      try {
-        let DocumentPicker = null;
-        try {
-          DocumentPicker = require("expo-document-picker");
-        } catch (e) {
-          console.warn("[voice-party] expo-document-picker unavailable:", e?.message ?? e);
-        }
-
-        if (!DocumentPicker || typeof DocumentPicker.getDocumentAsync !== "function") {
-          Alert.alert(
-            "Music Feature Unavailable",
-            "Audio file picker is not available on this build.",
-          );
-          return;
-        }
-
-        const result = await DocumentPicker.getDocumentAsync({
-          type: "audio/*",
-          copyToCacheDirectory: false,
-        });
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-          if (onMic && isMicMuted && roomId && mySeatNumber) {
-            try {
-              await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
-              setIsMicMuted(false);
-            } catch (e) {
-            }
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        copyToCacheDirectory: false,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        if (onMic && isMicMuted && roomId && mySeatNumber) {
+          try {
+            await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
+            setIsMicMuted(false);
+          } catch (e) {
           }
-
-          const localUri = result.assets[0].uri;
-          agoraVoice.playAudioForEveryone(localUri);
-          setIsMusicPlaying(true);
         }
-      } catch (err) {
-        console.error("Audio selection error:", err);
+        
+        const localUri = result.assets[0].uri;
+        agoraVoice.playAudioForEveryone(localUri);
+        setIsMusicPlaying(true);
+        setIsMusicPaused(false);
       }
+    } catch (err) {
+      console.error("Audio selection error:", err);
     }
-  }, [isMusicPlaying, onMic, isMicMuted, roomId, mySeatNumber]);
+  }, [onMic, isMicMuted, roomId, mySeatNumber]);
 
   const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
@@ -3345,6 +3435,31 @@ export default function VoiceParty() {
     const interval = setInterval(ping, 25_000);
     return () => clearInterval(interval);
   }, [roomId]);
+
+  // Belt-and-braces poll for the room's PK card — the `pk` WS topic should
+  // push every create/accept/reject/score/finish, but if the backend only
+  // wires up the *later* events (not the initial create), the challenged
+  // opponent would otherwise never learn a battle exists until they leave
+  // and re-enter the room. Cheap enough to just poll while one might be
+  // pending/live; stops once we know there's nothing to wait on.
+  useEffect(() => {
+    if (!roomId) return undefined;
+    if (activePkBattle && activePkBattle.status !== "PENDING" && activePkBattle.status !== "LIVE") {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      loadActivePkBattle(String(roomId))
+        .then((battle) => {
+          console.log("[VoiceParty][PK] poll active battle ->", battle);
+          setActivePkBattle(battle);
+        })
+        .catch(() => {
+          // Non-critical — next tick or the WS push will catch it.
+        });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [roomId, activePkBattle]);
 
   // Listen Rewards progress sync & UTC midnight reset check — every 30 s
   useEffect(() => {
@@ -3844,6 +3959,17 @@ export default function VoiceParty() {
       return true;
     });
   }, [seats, onlineUsers, myUserId]);
+
+  // PK battle opponent/teammate slots are seated members only (no audience).
+  const pkOpponentCandidates = useMemo(() => {
+    return (seats || [])
+      .filter((s) => s?.user && s.user.id != null && !isSameUser(s.user.id, myUserId))
+      .map((s) => ({
+        id: String(s.user.id),
+        name: s.user.name ?? s.user.username ?? "User",
+        avatar: s.user.avatar ?? s.user.avatarUrl ?? null,
+      }));
+  }, [seats, myUserId]);
 
   const handleTagUser = (member) => {
     setTaggedUser(member);
@@ -4448,7 +4574,7 @@ export default function VoiceParty() {
       }
 
       if (micGranted) {
-        handleTakeSeat(seat.id);
+        setSeatActionSheet({ seatId: seat.id });
       } else {
         setMicPermWarning(seat.id);
       }
@@ -5658,6 +5784,22 @@ export default function VoiceParty() {
         onSelectChest={selectChest}
       />
 
+      <TreasureAnimationModal
+        visible={showTreasureAnimation}
+        onAnimationComplete={() => {
+          setShowTreasureAnimation(false);
+          if (pendingTreasureEvent) {
+            setTreasureUnlockEvent(pendingTreasureEvent);
+            setPendingTreasureEvent(null);
+          }
+        }}
+      />
+
+      <TreasureWinnersModal
+        visible={Boolean(treasureUnlockEvent)}
+        onClose={() => setTreasureUnlockEvent(null)}
+        eventData={treasureUnlockEvent}
+      />
       <PkBattleModal
         visible={showPkBattle}
         onClose={() => setShowPkBattle(false)}
@@ -5976,21 +6118,23 @@ export default function VoiceParty() {
             <Text style={styles.playCenterTitle}>Play center</Text>
             <View style={styles.playCenterRow}>
               {/* Music */}
-              <TouchableOpacity
-                style={styles.playCenterItem}
-                activeOpacity={0.75}
-                onPress={() => {
-                  setShowPlayCenter(false);
-                  setTimeout(() => {
-                    handleToggleMusic();
-                  }, 400);
-                }}
-              >
-                <View style={styles.playCenterIconWrap}>
-                  <Text style={styles.playCenterEmoji}>🎵</Text>
-                </View>
-                <Text style={styles.playCenterLabel}>Music</Text>
-              </TouchableOpacity>
+              {isHostSelf && (
+                <TouchableOpacity
+                  style={styles.playCenterItem}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    setShowPlayCenter(false);
+                    setTimeout(() => {
+                      handleToggleMusic();
+                    }, 400);
+                  }}
+                >
+                  <View style={styles.playCenterIconWrap}>
+                    <Text style={styles.playCenterEmoji}>🎵</Text>
+                  </View>
+                  <Text style={styles.playCenterLabel}>Music</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Lucky bag */}
               <TouchableOpacity
@@ -6007,7 +6151,7 @@ export default function VoiceParty() {
                 <Text style={styles.playCenterLabel}>Lucky bag</Text>
               </TouchableOpacity>
 
-              {/* PK — opens the Backpack's PK gifts tab */}
+              {/* PK — opens the PK battle setup sheet */}
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
@@ -6030,8 +6174,7 @@ export default function VoiceParty() {
                     return;
                   }
                   setTimeout(() => {
-                    setBackpackMainTab("PK");
-                    setShowBackpack(true);
+                    setShowPkBattle(true);
                   }, 400);
                 }}
               >
@@ -6067,7 +6210,7 @@ export default function VoiceParty() {
                 onPress={() => setShowPowerMenu(false)}
               >
                 <View style={styles.playCenterIconWrap}>
-                  <Minimize2 size={28} color="#a78bfa" />
+                  <Minimize2 size={20} color="#a78bfa" />
                 </View>
                 <Text style={styles.playCenterLabel}>Keep</Text>
               </TouchableOpacity>
@@ -6084,7 +6227,7 @@ export default function VoiceParty() {
                 <View
                   style={[styles.playCenterIconWrap, styles.powerExitIconWrap]}
                 >
-                  <Power size={28} color="#ff6b6b" />
+                  <Power size={20} color="#ff6b6b" />
                 </View>
                 <Text style={[styles.playCenterLabel, { color: "#ff6b6b" }]}>
                   Exit
@@ -6474,7 +6617,9 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── SEAT ACTION POPUP (centered) ── */}
+      {/* ── SEAT ACTION POPUP (centered) — same illustrated card as the
+          mic-permission warning, so every "confirm before joining a mic"
+          prompt in the room looks consistent. ── */}
       <Modal
         visible={Boolean(seatActionSheet)}
         transparent
@@ -6486,53 +6631,70 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setSeatActionSheet(null)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.seatActionCard}>
-            {/* Header */}
-            <View style={styles.seatActionHeader}>
-              <Text style={styles.seatActionHeaderEmoji}>🎙️</Text>
-              <Text style={styles.seatActionHeaderTitle}>
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            {/* ── Illustrated header area ── */}
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              {/* Decorative glow blobs */}
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              {/* Main illustration — mic inside a phone-shaped card */}
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                <View style={styles.micPermMicCircle}>
+                  <Mic size={16} color="#7c4dff" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+
+              {/* Small floating badge */}
+              <View style={styles.micPermBadge}>
+                <View style={styles.micPermBadgeDot} />
+                <View style={styles.micPermBadgeLine} />
+              </View>
+            </LinearGradient>
+
+            {/* ── Body text ── */}
+            <View style={styles.micPermBody}>
+              <Text style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}>
                 Seat {seatActionSheet?.seatId}
               </Text>
-              <Text style={styles.seatActionHeaderSub}>
-                What would you like to do?
+              <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
+                Do you want to claim this seat and join the mic?
               </Text>
             </View>
 
-            {/* Divider */}
-            <View style={styles.seatActionDivider} />
+            {/* ── Buttons ── */}
+            <View style={styles.micPermBtnRow}>
+              <TouchableOpacity
+                style={styles.micPermCancelBtn}
+                activeOpacity={0.7}
+                onPress={() => setSeatActionSheet(null)}
+              >
+                <Text style={styles.micPermCancelText}>Cancel</Text>
+              </TouchableOpacity>
 
-            {/* Take a Seat */}
-            <TouchableOpacity
-              style={styles.seatActionBtn}
-              activeOpacity={0.8}
-              disabled={seatActionLoading}
-              onPress={() => handleTakeSeat(seatActionSheet?.seatId)}
-            >
-              <LinearGradient
-                colors={["#7c4dff", "#a855f7"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.seatActionBtnGradient}
+              <View style={styles.micPermBtnDivider} />
+
+              <TouchableOpacity
+                style={styles.micPermOkBtn}
+                activeOpacity={0.7}
+                disabled={seatActionLoading}
+                onPress={() => handleTakeSeat(seatActionSheet?.seatId)}
               >
                 {seatActionLoading ? (
-                  <ActivityIndicator color="white" />
+                  <ActivityIndicator color="#a855f7" size="small" />
                 ) : (
-                  <>
-                    <Text style={styles.seatActionBtnIcon}>🎤</Text>
-                    <Text style={styles.seatActionBtnText}>Claim seat</Text>
-                  </>
+                  <Text style={styles.micPermOkText}>Claim seat</Text>
                 )}
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Cancel */}
-            <TouchableOpacity
-              style={styles.seatActionCancelBtn}
-              activeOpacity={0.8}
-              onPress={() => setSeatActionSheet(null)}
-            >
-              <Text style={styles.seatActionCancelText}>Cancel</Text>
-            </TouchableOpacity>
+              </TouchableOpacity>
+            </View>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -6567,7 +6729,7 @@ export default function VoiceParty() {
                 <View style={styles.micPermPhoneBar2} />
                 {/* Mic icon inside the card */}
                 <View style={styles.micPermMicCircle}>
-                  <Mic size={22} color="#7c4dff" strokeWidth={2} />
+                  <Mic size={16} color="#7c4dff" strokeWidth={2} />
                 </View>
                 <View style={styles.micPermPhoneBar3} />
               </View>
@@ -6833,6 +6995,38 @@ export default function VoiceParty() {
           </TouchableOpacity>
 
           <View style={styles.headerRight}>
+            {isHostSelf && isMusicPlaying && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 20, paddingHorizontal: 4 }}>
+                <TouchableOpacity
+                  style={{ padding: 6 }}
+                  onPress={() => {
+                    if (isMusicPaused) {
+                      if (typeof agoraVoice.resumeAudioForEveryone === 'function') agoraVoice.resumeAudioForEveryone();
+                      setIsMusicPaused(false);
+                    } else {
+                      if (typeof agoraVoice.pauseAudioForEveryone === 'function') agoraVoice.pauseAudioForEveryone();
+                      setIsMusicPaused(true);
+                    }
+                  }}
+                >
+                  {isMusicPaused ? (
+                    <Play size={16} color="white" fill="white" />
+                  ) : (
+                    <Pause size={16} color="white" fill="white" />
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ padding: 6 }}
+                  onPress={() => {
+                    agoraVoice.stopAudioForEveryone();
+                    setIsMusicPlaying(false);
+                    setIsMusicPaused(false);
+                  }}
+                >
+                  <X size={16} color="white" />
+                </TouchableOpacity>
+              </View>
+            )}
             <TouchableOpacity
               style={styles.headerBtn}
               activeOpacity={0.8}
@@ -8718,12 +8912,12 @@ const styles = StyleSheet.create({
   // ── Power modal ──
   powerBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minWidth: 220,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minWidth: 170,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -8774,12 +8968,12 @@ const styles = StyleSheet.create({
   },
   playCenterBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minWidth: 220,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minWidth: 170,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -8788,32 +8982,32 @@ const styles = StyleSheet.create({
   },
   playCenterTitle: {
     color: "white",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
-    marginBottom: 16,
+    marginBottom: 10,
   },
   playCenterRow: {
     flexDirection: "row",
-    gap: 24,
+    gap: 16,
   },
   playCenterItem: {
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   playCenterIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: "rgba(124,77,255,0.2)",
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
-  playCenterEmoji: { fontSize: 28 },
+  playCenterEmoji: { fontSize: 20 },
   playCenterLabel: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "600",
   },
   powerExitIconWrap: {
@@ -9995,84 +10189,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 34,
   },
-  seatActionCard: {
-    width: "64%",
-    maxWidth: 245,
-    backgroundColor: "#1e1035",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 10,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
-    shadowColor: "#7c4dff",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  seatActionHeader: {
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  seatActionHeaderEmoji: {
-    fontSize: 24,
-    marginBottom: 4,
-  },
   seatActionHeaderTitle: {
     color: "white",
     fontSize: 15,
     fontWeight: "700",
     marginBottom: 1,
   },
-  seatActionHeaderSub: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 11,
-  },
-  seatActionDivider: {
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    marginBottom: 8,
-  },
-  seatActionBtn: {
-    alignSelf: "center",
-    width: "65%",
-    maxWidth: 135,
-    borderRadius: 8,
-    overflow: "hidden",
-    marginBottom: 3,
-  },
-  seatActionBtnGradient: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    gap: 4,
-  },
-  seatActionBtnIcon: { fontSize: 12 },
-  seatActionBtnText: {
-    color: "white",
-    fontSize: 11.5,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  seatActionCancelBtn: {
-    marginTop: 1,
-    paddingVertical: 4,
-    alignItems: "center",
-  },
-  seatActionCancelText: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 11,
-    fontWeight: "600",
-  },
 
   // ── Mic permission warning card ──
   micPermCard: {
-    width: "82%",
+    width: "68%",
     backgroundColor: "#12082b",
-    borderRadius: 22,
+    borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.3)",
@@ -10080,7 +10208,7 @@ const styles = StyleSheet.create({
   // Top illustrated gradient section
   micPermIllustration: {
     width: "100%",
-    height: 170,
+    height: 120,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -10088,50 +10216,50 @@ const styles = StyleSheet.create({
   // Decorative background blobs
   micPermBlob1: {
     position: "absolute",
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 85,
+    height: 85,
+    borderRadius: 43,
     backgroundColor: "rgba(124,77,255,0.25)",
-    top: -20,
-    left: -30,
+    top: -14,
+    left: -21,
   },
   micPermBlob2: {
     position: "absolute",
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: "rgba(168,85,247,0.2)",
-    bottom: -10,
-    right: -10,
+    bottom: -7,
+    right: -7,
   },
   // Phone-shaped card in the illustration
   micPermPhoneCard: {
-    width: 110,
+    width: 78,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1.5,
     borderColor: "rgba(168,85,247,0.5)",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     alignItems: "flex-start",
-    gap: 7,
+    gap: 5,
   },
   micPermPhoneBar1: {
     width: "80%",
-    height: 7,
-    borderRadius: 4,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.6)",
   },
   micPermPhoneBar2: {
     width: "55%",
-    height: 7,
-    borderRadius: 4,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   micPermMicCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: "rgba(124,77,255,0.25)",
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.5)",
@@ -10142,47 +10270,47 @@ const styles = StyleSheet.create({
   },
   micPermPhoneBar3: {
     width: "65%",
-    height: 7,
-    borderRadius: 4,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   // Small floating badge bottom-right of illustration
   micPermBadge: {
     position: "absolute",
-    bottom: 22,
-    right: 36,
+    bottom: 16,
+    right: 26,
     backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.4)",
-    padding: 7,
+    padding: 5,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
   },
   micPermBadgeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: "#a855f7",
   },
   micPermBadgeLine: {
-    width: 24,
-    height: 5,
-    borderRadius: 3,
+    width: 18,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: "rgba(168,85,247,0.5)",
   },
   // Text body section
   micPermBody: {
-    paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   micPermMsg: {
     color: "rgba(255,255,255,0.75)",
-    fontSize: 14,
+    fontSize: 12,
     textAlign: "center",
-    lineHeight: 21,
+    lineHeight: 17,
   },
   // Button row
   micPermBtnRow: {
@@ -10193,12 +10321,12 @@ const styles = StyleSheet.create({
   },
   micPermCancelBtn: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 11,
     alignItems: "center",
   },
   micPermCancelText: {
     color: "rgba(255,255,255,0.35)",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "600",
   },
   micPermBtnDivider: {
@@ -10207,12 +10335,12 @@ const styles = StyleSheet.create({
   },
   micPermOkBtn: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 11,
     alignItems: "center",
   },
   micPermOkText: {
     color: "#a855f7",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "700",
   },
 
