@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
 import {
   AlertCircle,
+  BadgeCheck,
   Ban,
   Crown,
   LayoutGrid,
@@ -66,7 +67,6 @@ import {
   getClaimedSeats,
   getRoomChatMessages,
   getRoomState,
-  getRoomUserCount,
   postRoomHeartbeat,
   postSeatHeartbeat,
   unfollowRoom
@@ -130,16 +130,6 @@ import {
   upsertChatMessage,
 } from "../src/services/partyService";
 import * as partyVoice from "../src/services/partyVoiceService";
-import { loadPublicProfile } from "../src/services/publicProfileService";
-import {
-  blockUser,
-  followUser,
-  isSameUser,
-  loadRelationshipStatus,
-  unfollowUser,
-} from "../src/services/relationshipService";
-import { useMyCountryFlag } from "../src/services/userCountryService";
-import { syncUserLevelForSession } from "../src/services/userLevelService";
 import {
   getPkBattleRole,
   isPkBattleLive,
@@ -150,6 +140,16 @@ import {
   respondPkBattle,
   startPkBattle,
 } from "../src/services/pkBattleService";
+import { loadPublicProfile } from "../src/services/publicProfileService";
+import {
+  blockUser,
+  followUser,
+  isSameUser,
+  loadRelationshipStatus,
+  unfollowUser,
+} from "../src/services/relationshipService";
+import { useMyCountryFlag } from "../src/services/userCountryService";
+import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
@@ -160,9 +160,9 @@ import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import { resolveProfileAvatarSource, resolveProfileAvatarUri } from "../src/utils/profileAvatar";
 import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
-import { resolveVoiceUidForUserId } from "../src/utils/voiceUid";
 import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import { resolveVoiceUidForUserId } from "../src/utils/voiceUid";
 import DiamondRechargeModal from "./DiamondRechargeModal";
 import PkAcceptTeamModal from "./PkAcceptTeamModal";
 import PkBattleModal from "./PkBattleModal";
@@ -171,6 +171,7 @@ import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
 import TopGiftingRanking from "./TopGiftingRanking";
+import TreasureAnimationModal from "./TreasureAnimationModal";
 import TreasureBoxModal from "./TreasureBoxModal";
 import TreasureWinnersModal from "./TreasureWinnersModal";
 import TreasureAnimationModal from "./TreasureAnimationModal";
@@ -1733,7 +1734,8 @@ export default function VoiceParty() {
   const myCountryFlag = useMyCountryFlag();
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
-  const { treasureState, selectChest, updateTreasureState } = useTreasureBoxProgress(
+  const { treasureState, selectChest, updateTreasureState, refreshTreasureState } = useTreasureBoxProgress(
+    roomId,
     !roomLoading && Boolean(roomId),
   );
   const [treasureUnlockEvent, setTreasureUnlockEvent] = useState(null);
@@ -2799,7 +2801,7 @@ export default function VoiceParty() {
     const unsubTreasure = wsService.onRoomTreasure(String(roomId), async (payload) => {
       try {
         const event = typeof payload === 'string' ? JSON.parse(payload) : payload;
-        
+
         if (event?.type === 'TREASURE_PROGRESS') {
           updateTreasureState({
             currentAmount: event.currentAmount,
@@ -2811,29 +2813,26 @@ export default function VoiceParty() {
         } else if (event?.type === 'TREASURE_UNLOCKED') {
           console.log('[VoiceParty] TREASURE_UNLOCKED event received:', JSON.stringify(event, null, 2));
           console.log('[VoiceParty] Current myUserId:', myUserId);
-          
+
           const myReward = event.rewards?.find(r => String(r.userId) === String(myUserId));
-          
+
           if (myReward) {
-            // Delay showing the animation by 5 seconds
-            setTimeout(() => {
-              setPendingTreasureEvent({ ...event, myReward });
-              setShowTreasureAnimation(true);
-            }, 5000);
-            
+            // Show the animation immediately, wait for it to complete to show popup
+            setPendingTreasureEvent({ ...event, myReward });
+            setShowTreasureAnimation(true);
+
             if (myReward.rewardType === 'TOP_RANK_REWARD') {
               // Refresh backpack in background
-              loadGiftInventory().then(setBackpackGifts).catch(() => {});
+              loadGiftInventory().then(setBackpackGifts).catch(() => { });
             }
             if (myReward.rewardType === 'PARTICIPATION_REWARD' || myReward.rewardAmount) {
               // Refresh wallet in background
-              refreshWalletBalance().catch(() => {});
+              refreshWalletBalance().catch(() => { });
             }
           }
-          
-          if (event.nextTarget) {
-            updateTreasureState({ currentTarget: event.nextTarget, currentAmount: 0 });
-          }
+
+          // Refresh state from backend instead of relying purely on WS data for the new round
+          refreshTreasureState();
         }
       } catch (err) {
         console.error('[VoiceParty] Error handling treasure event:', err);
@@ -3286,7 +3285,7 @@ export default function VoiceParty() {
           } catch (e) {
           }
         }
-        
+
         const localUri = result.assets[0].uri;
         agoraVoice.playAudioForEveryone(localUri);
         setIsMusicPlaying(true);
@@ -5981,8 +5980,10 @@ export default function VoiceParty() {
         onAnimationComplete={() => {
           setShowTreasureAnimation(false);
           if (pendingTreasureEvent) {
-            setTreasureUnlockEvent(pendingTreasureEvent);
-            setPendingTreasureEvent(null);
+            setTimeout(() => {
+              setTreasureUnlockEvent(pendingTreasureEvent);
+              setPendingTreasureEvent(null);
+            }, 100);
           }
         }}
       />

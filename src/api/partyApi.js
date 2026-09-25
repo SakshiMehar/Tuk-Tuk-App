@@ -65,6 +65,14 @@ export const getRoomRecommendations = async () => {
   return response.data;
 };
 
+export const getTreasureProgress = async (roomId) => {
+  const response = await API.get(
+    `/api/v1/tuktuk/rooms/${roomId}/treasure-progress`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
 export const getRecentlyRooms = async () => {
   const response = await API.get(
     "/api/v1/tuktuk/rooms/recently",

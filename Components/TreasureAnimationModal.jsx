@@ -11,7 +11,7 @@ export default function TreasureAnimationModal({ visible, onAnimationComplete })
       // The GIF will play for a few seconds. We auto-close the animation and trigger the rewards modal.
       const timer = setTimeout(() => {
         onAnimationComplete?.();
-      }, 1500); // 1.5 seconds for the animation to play
+      }, 1200); // 1.2 seconds for the animation to play
       return () => clearTimeout(timer);
     }
   }, [visible]);
