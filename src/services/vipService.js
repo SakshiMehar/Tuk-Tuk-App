@@ -124,10 +124,6 @@ export const loadMyVipAssets = async (totalXp) => {
     ? VIP_TIER_THRESHOLDS.find((entry) => entry.tier === tier)?.assets ?? null
     : null;
 
-  const normalizeVipUrl = (url) => {
-    if (typeof url !== "string") return url;
-    return url.replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png");
-  };
 
   // The live endpoints can also return a URL that's *present* but broken —
   // confirmed for tier 8's logo, where /api/app/vip/me/logo answers with

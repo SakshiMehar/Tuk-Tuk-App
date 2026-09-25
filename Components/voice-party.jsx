@@ -130,15 +130,6 @@ import {
   upsertChatMessage,
 } from "../src/services/partyService";
 import * as partyVoice from "../src/services/partyVoiceService";
-import {
-  getPkBattleRole,
-  isPkBattleLive,
-  isPkBattlePending,
-  loadActivePkBattle,
-  normalizePkBattle,
-  respondPkBattle,
-  startPkBattle
-} from "../src/services/pkBattleService";
 import { loadPublicProfile } from "../src/services/publicProfileService";
 import {
   blockUser,
