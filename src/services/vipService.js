@@ -120,7 +120,10 @@ export const loadMyVipAssets = async (totalXp) => {
   // badge silently fails to render. Re-fall back to the *confirmed* tier's
   // assets so every asset matches the tier already shown elsewhere (chat
   // frame, seat ring), not a stale local guess.
-  const confirmedAssets = VIP_TIER_THRESHOLDS.find((t) => t.tier === tier)?.assets ?? null;
+  const confirmedAssets = tier
+    ? VIP_TIER_THRESHOLDS.find((entry) => entry.tier === tier)?.assets ?? null
+    : null;
+
 
   // The live endpoints can also return a URL that's *present* but broken —
   // confirmed for tier 8's logo, where /api/app/vip/me/logo answers with
