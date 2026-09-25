@@ -2401,8 +2401,10 @@ export default function VoiceParty() {
         let loadedVip = null;
         try {
           loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
+          console.log("[VoiceParty] myVipAssets loaded:", JSON.stringify(loadedVip));
           if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
         } catch (e) {
+          console.log("[VoiceParty] myVipAssets load threw:", e?.message ?? e);
         }
         let session;
         if (isRandomParty) {
