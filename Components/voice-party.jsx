@@ -174,7 +174,6 @@ import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureAnimationModal from "./TreasureAnimationModal";
 import TreasureBoxModal from "./TreasureBoxModal";
 import TreasureWinnersModal from "./TreasureWinnersModal";
-import TreasureAnimationModal from "./TreasureAnimationModal";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
