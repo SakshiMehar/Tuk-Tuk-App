@@ -135,6 +135,7 @@ import {
   isPkBattleLive,
   isPkBattlePending,
   loadActivePkBattle,
+  loadPkBattle,
   normalizePkBattle,
   respondPkBattle,
   startPkBattle,
@@ -149,16 +150,6 @@ import {
 } from "../src/services/relationshipService";
 import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
-import {
-  getPkBattleRole,
-  isPkBattleLive,
-  isPkBattlePending,
-  loadActivePkBattle,
-  loadPkBattle,
-  normalizePkBattle,
-  respondPkBattle,
-  startPkBattle,
-} from "../src/services/pkBattleService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
