@@ -120,15 +120,22 @@ export const loadMyVipAssets = async (totalXp) => {
   // badge silently fails to render. Re-fall back to the *confirmed* tier's
   // assets so every asset matches the tier already shown elsewhere (chat
   // frame, seat ring), not a stale local guess.
-  const confirmedAssets = VIP_TIER_THRESHOLDS.find((t) => t.tier === tier)?.assets ?? null;
+  const confirmedAssets = tier
+    ? VIP_TIER_THRESHOLDS.find((entry) => entry.tier === tier)?.assets ?? null
+    : null;
+
+  const normalizeVipUrl = (url) => {
+    if (typeof url !== "string") return url;
+    return url.replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png");
+  };
 
   return {
     unlocked: true,
     tier,
-    profileFrame: profileFrame.url ?? confirmedAssets?.profileFrame ?? null,
-    entryFrame: entryFrame.url ?? confirmedAssets?.entryFrame ?? null,
-    chatFrame: chatFrame.url ?? confirmedAssets?.chatFrame ?? null,
-    logo: logo.url ?? confirmedAssets?.logo ?? null,
+    profileFrame: normalizeVipUrl(profileFrame.url ?? confirmedAssets?.profileFrame ?? null),
+    entryFrame: normalizeVipUrl(entryFrame.url ?? confirmedAssets?.entryFrame ?? null),
+    chatFrame: normalizeVipUrl(chatFrame.url ?? confirmedAssets?.chatFrame ?? null),
+    logo: normalizeVipUrl(logo.url ?? confirmedAssets?.logo ?? null),
   };
 };
 

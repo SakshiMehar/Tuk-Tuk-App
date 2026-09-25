@@ -206,8 +206,27 @@ const VIP_LOGO_BY_TIER = Object.fromEntries(
 // values derived from each icon's actual alpha bounding box.
 const RECHARGE_BONUS_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box1.png";
 const GIFT_PANEL_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box2.png";
-const MIC_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/mic.png";
 const CHAT_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/chat.png";
+const MIC_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/mic.png";
+
+const AutoBadgeImage = ({ source, style, resizeMode = "contain" }) => {
+  const [hasError, setHasError] = useState(false);
+  const uriKey = typeof source === "object" ? source?.uri : source;
+  useEffect(() => {
+    setHasError(false);
+  }, [uriKey]);
+
+  if (!source || hasError) return null;
+
+  return (
+    <Image
+      source={source}
+      style={style}
+      resizeMode={resizeMode}
+      onError={() => setHasError(true)}
+    />
+  );
+};
 
 // Listen Rewards — countdown thresholds in seconds
 const LISTEN_THRESHOLDS = [60, 3600, 18000]; // 1 min, 1 hr, 5 hr
@@ -850,8 +869,9 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
     .trim();
   const lowerName = String(name).toLowerCase().trim();
 
-  // If emoji is not provided directly, match in catalog
-  if (!emoji && catalog) {
+  let matchedImageUrl = null;
+  // If emoji or image is not provided directly, match in catalog
+  if (catalog) {
     const allCatalogItems = [
       ...(catalog.gift || []),
       ...(catalog.random || []),
@@ -860,6 +880,7 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
       ...(catalog.vip || []),
       ...(catalog.pk || []),
       ...(catalog.relationship || []),
+      ...Object.values(catalog.activityByEvent || {}).flat(),
     ];
 
     const match = allCatalogItems.find((item) => {
@@ -883,8 +904,11 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
       );
     });
 
-    if (match?.emoji) {
+    if (match?.emoji && (!emoji || emoji === "🎁")) {
       emoji = match.emoji;
+    }
+    if (match?.imageUrl || match?.iconUrl || match?.icon || match?.image) {
+      matchedImageUrl = match.imageUrl || match.iconUrl || match.icon || match.image;
     }
   }
 
@@ -995,11 +1019,12 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
     else if (!emoji) emoji = "🎁";
   }
 
+  const resolvedUrl = explicitUrl || matchedImageUrl;
   const isRemoteImage =
-    typeof explicitUrl === "string" && explicitUrl.startsWith("http");
+    typeof resolvedUrl === "string" && resolvedUrl.startsWith("http");
 
   return {
-    image: isRemoteImage ? resolveImageSource(explicitUrl) : null,
+    image: isRemoteImage ? resolveImageSource(resolvedUrl) : null,
     emoji,
     name,
   };
@@ -1013,6 +1038,11 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
   const scaleAnim = useSharedValue(0.2);
   const pulseScale = useSharedValue(1);
   const badgeScale = useSharedValue(0);
+
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   const visual = useMemo(
     () => resolveGiftVisual(gift, catalog),
@@ -1062,18 +1092,24 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
       ),
     );
 
-    // 4. Display for 2 seconds then smoothly slide out and fade
-    const timer = setTimeout(() => {
+    // 4. Slide out and fade animation after 2.0s
+    const slideOutTimer = setTimeout(() => {
       opacity.value = withTiming(0, { duration: 240 });
-      translateX.value = withTiming(-SW * 0.9, { duration: 240 }, (finished) => {
-        if (finished && onComplete) {
-          runOnJS(onComplete)();
-        }
-      });
+      translateX.value = withTiming(-SW * 0.9, { duration: 240 });
     }, 2000);
 
-    return () => clearTimeout(timer);
-  }, [SW, badgeScale, onComplete, opacity, pulseScale, scaleAnim, translateX]);
+    // 5. Guaranteed dismiss callback at 2.35s
+    const completeTimer = setTimeout(() => {
+      if (onCompleteRef.current) {
+        onCompleteRef.current();
+      }
+    }, 2350);
+
+    return () => {
+      clearTimeout(slideOutTimer);
+      clearTimeout(completeTimer);
+    };
+  }, [SW, badgeScale, opacity, pulseScale, scaleAnim, translateX]);
 
   const bannerAnimStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -1191,6 +1227,11 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
   const swayX = useSharedValue(0);
   const rotate = useSharedValue(0);
 
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
   const initialX = useMemo(() => {
     return SW * 0.5 - s(30) + (Math.random() - 0.5) * s(120);
   }, [SW]);
@@ -1237,22 +1278,23 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
       true,
     );
 
-    translateY.value = withTiming(
-      -vs(140),
-      { duration: 2700 },
-      (finished) => {
-        if (finished && onComplete) {
-          runOnJS(onComplete)();
-        }
-      },
-    );
+    translateY.value = withTiming(-vs(140), { duration: 2700 });
 
-    const timer = setTimeout(() => {
+    const fadeTimer = setTimeout(() => {
       opacity.value = withTiming(0, { duration: 400 });
     }, 2250);
 
-    return () => clearTimeout(timer);
-  }, [SH, onComplete, opacity, rotate, scale, swayX, translateY]);
+    const completeTimer = setTimeout(() => {
+      if (onCompleteRef.current) {
+        onCompleteRef.current();
+      }
+    }, 2750);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(completeTimer);
+    };
+  }, [opacity, rotate, scale, swayX, translateY]);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [
@@ -1754,17 +1796,20 @@ export default function VoiceParty() {
   // survives any re-render. Chat senders are included so the NEW STAR badge
   // also appears for audience members who are not on a mic seat.
   useEffect(() => {
-    const seatUserIds = seats
-      .filter((seat) => seat.user?.id != null)
-      .map((seat) => String(seat.user.id));
-    const audienceUserIds = onlineUsers
-      .filter((u) => u?.id != null)
-      .map((u) => String(u.id));
-    const chatSenderIds = messages
+    const seatUserIds = (seats || [])
+      .filter((seat) => seat.user?.id != null || seat.user?.userId != null)
+      .map((seat) => String(seat.user.id ?? seat.user.userId));
+    const audienceUserIds = (onlineUsers || [])
+      .filter((u) => u?.id != null || u?.userId != null)
+      .map((u) => String(u.id ?? u.userId));
+    const activeUserIds = (displayActiveUsers || [])
+      .filter((u) => u?.id != null || u?.userId != null)
+      .map((u) => String(u.id ?? u.userId));
+    const chatSenderIds = (messages || [])
       .filter((m) => m?.userId != null)
       .map((m) => String(m.userId));
     const allIds = [
-      ...new Set([...seatUserIds, ...audienceUserIds, ...chatSenderIds]),
+      ...new Set([...seatUserIds, ...audienceUserIds, ...activeUserIds, ...chatSenderIds]),
     ];
     const pending = allIds.filter(
       (userId) => !fetchedUiAssetIdsRef.current.has(userId),
@@ -2626,6 +2671,13 @@ export default function VoiceParty() {
       const next = [...prev, { ...animated, _riseKey: riseKey }];
       return next.length > 5 ? next.slice(next.length - 5) : next;
     });
+
+    // Safety timeout to ensure banner is cleared even in edge cases
+    setTimeout(() => {
+      setActiveGiftDisplays((prev) =>
+        prev.filter((g) => (g._displayKey || g.id) !== key),
+      );
+    }, 3000);
   }, []);
 
   useEffect(() => {
@@ -4703,7 +4755,12 @@ export default function VoiceParty() {
       : imageStyle;
     const size = resolvedStyle?.width ?? resolvedStyle?.height ?? 48;
     // Merge in fetched frame data so WebSocket seat resets don't lose it.
-    const userId = user?.id != null ? String(user.id) : null;
+    const userId =
+      user?.id != null
+        ? String(user.id)
+        : user?.userId != null
+          ? String(user.userId)
+          : null;
     const fetched = userId ? (userFrameData[userId] ?? {}) : {};
     const userWithFrame = user
       ? {
@@ -4713,29 +4770,23 @@ export default function VoiceParty() {
       }
       : user;
     const imageSource = resolveRoomUserAvatarSource(userWithFrame);
-    // Mic seats show the same circular VIP profile-frame ring used everywhere
-    // else in the app — the entry frame (a wide horizontal banner asset) is
-    // only for the one-time "entered the room" moment, not a permanent seat
-    // decoration. Self uses the already-fetched myVipAssets; other seats use
-    // the seat's own ui-assets fetch (fetched.vipProfileFrameUrl) — the
-    // backend embeds this only when that user's own XP clears the threshold.
+    // Mic seats & audience avatars show circular VIP / decoration / new-user profile-frame ring
     const isSelf =
       userId != null && myUserId != null && userId === String(myUserId);
     const selfVipProfileFrame =
       isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
     const otherUserVipProfileFrame =
-      !isSelf && fetched.vipProfileFrameUrl
-        ? { uri: fetched.vipProfileFrameUrl }
+      !isSelf && (fetched.vipProfileFrameUrl || userWithFrame?.vipProfileFrameUrl)
+        ? { uri: fetched.vipProfileFrameUrl || userWithFrame.vipProfileFrameUrl }
         : null;
     const isVipProfileFrame = Boolean(
       selfVipProfileFrame || otherUserVipProfileFrame,
     );
-    const decorationFrame = fetched?.decorationFrameUrl ?? null;
-    // Backend-assigned decorations (e.g. a room-owner frame) are a separate
-    // system from the VIP tier and always take priority when equipped —
-    // same ordering as the main Profile tab (app/(tabs)/profile.jsx) — so a
-    // seated VIP whose account also has a decoration equipped shows that
-    // decoration here too, not just their VIP ring.
+    const decorationFrame =
+      fetched?.decorationFrameUrl ??
+      userWithFrame?.decorationFrameUrl ??
+      userWithFrame?.frameUrl ??
+      null;
     const frameSource =
       (decorationFrame ? { uri: decorationFrame } : null) ??
       selfVipProfileFrame ??
@@ -6496,6 +6547,20 @@ export default function VoiceParty() {
                     uId != null
                       ? (userFrameData[String(uId)]?.decorationBadgeUrl ?? null)
                       : null;
+                  const rowVipLogoSource = rowVipLogo
+                    ? (typeof rowVipLogo === "string" && rowVipLogo.trim().length > 0
+                        ? { uri: rowVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
+                        : (typeof rowVipLogo === "number" || (typeof rowVipLogo === "object" && rowVipLogo?.uri))
+                          ? rowVipLogo
+                          : null)
+                    : null;
+                  const rowDecorationBadgeSource = rowDecorationBadge
+                    ? (typeof rowDecorationBadge === "string" && rowDecorationBadge.trim().length > 0
+                        ? { uri: rowDecorationBadge.trim() }
+                        : (typeof rowDecorationBadge === "number" || (typeof rowDecorationBadge === "object" && rowDecorationBadge?.uri))
+                          ? rowDecorationBadge
+                          : null)
+                    : null;
                   return (
                     <TouchableOpacity
                       key={uId ?? `active-user-${idx}`}
@@ -6541,28 +6606,22 @@ export default function VoiceParty() {
                           <Text style={styles.activeUserName} numberOfLines={1}>
                             {user.name || user.username || `User ${uId || ""}`}
                           </Text>
-                          {user.level != null && (
-                            <Image
-                              source={resolveLocalLevelBadge(user.level)}
-                              style={styles.activeUserLevelImg}
-                              resizeMode="contain"
-                            />
-                          )}
-                          {rowVipLogo && (
-                            <Image
-                              source={{ uri: rowVipLogo }}
-                              style={styles.activeUserVipBadge}
-                              resizeMode="contain"
-                            />
-                          )}
-                          {rowDecorationBadge && (
-                            <Image
-                              source={{ uri: rowDecorationBadge }}
-                              style={styles.activeUserVerifiedBadge}
-                              resizeMode="contain"
-                            />
-                          )}
-                          <Image
+                          <AutoBadgeImage
+                            source={resolveLocalLevelBadge(user.level)}
+                            style={styles.activeUserLevelImg}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={rowVipLogoSource}
+                            style={styles.activeUserVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={rowDecorationBadgeSource}
+                            style={styles.activeUserDecorationBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
                             source={VERIFIED_BADGE}
                             style={styles.activeUserVerifiedBadge}
                             resizeMode="contain"
@@ -6594,6 +6653,7 @@ export default function VoiceParty() {
                         {isMeOnSeat && (
                           <TouchableOpacity
                             style={styles.leaveSeatBtn}
+                            activeOpacity={0.8}
                             onPress={() => {
                               setShowActiveUsersModal(false);
                               handleTakeMic();
@@ -7148,53 +7208,58 @@ export default function VoiceParty() {
             </Text>
           </View>
           <View style={styles.badgesRowRight}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.audienceScroll}
-              contentContainerStyle={styles.audienceScrollContent}
-            >
+            <View style={styles.audienceAvatarGroup}>
               {(onlineUsers.length > 0 ? onlineUsers : displayActiveUsers)
-                .slice(0, 6)
+                .slice(0, 3)
                 .map((user, index) => (
                   <TouchableOpacity
                     key={user.userId || user.id || `user-${index}`}
-                    style={styles.audienceItem}
+                    style={[
+                      styles.audienceItem,
+                      index > 0 && styles.audienceItemOverlap,
+                    ]}
                     activeOpacity={0.85}
                     onPress={() => handleOnlineUserPress(user)}
                   >
                     {renderRoomUserAvatar(
                       user,
-                      [
-                        styles.audienceAvatar,
-                        index > 0 && styles.audienceAvatarOverlap,
-                      ],
+                      styles.audienceAvatar,
                       [
                         styles.audienceAvatar,
                         styles.audienceAvatarPlaceholder,
-                        index > 0 && styles.audienceAvatarOverlap,
                       ],
                       styles.audienceInitial,
                     )}
                     <View style={styles.micStatusDot}>
                       {user.muted ? (
-                        <MicOff size={9} color="#f87171" />
+                        <MicOff size={8} color="#f87171" />
                       ) : user.isSpeaking ? (
-                        <Mic size={9} color="#4ade80" />
+                        <Mic size={8} color="#4ade80" />
                       ) : (
-                        <Mic size={9} color="rgba(255,255,255,0.5)" />
+                        <Mic size={8} color="rgba(255,255,255,0.5)" />
                       )}
                     </View>
                   </TouchableOpacity>
                 ))}
-            </ScrollView>
-            {(onlineCount || displayActiveUsers.length) > 6 && (
-              <View style={styles.audienceCount}>
-                <Text style={styles.audienceCountText}>
-                  +{(onlineCount || displayActiveUsers.length) - 6}
-                </Text>
-              </View>
-            )}
+              {(onlineCount || displayActiveUsers.length) > 3 && (
+                <TouchableOpacity
+                  style={[
+                    styles.audienceItem,
+                    styles.audienceCountCircle,
+                    styles.audienceItemOverlap,
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    getClaimedSeats(String(roomId)).catch(() => { });
+                    setShowActiveUsersModal(true);
+                  }}
+                >
+                  <Text style={styles.audienceCountText}>
+                    +{(onlineCount || displayActiveUsers.length) - 3}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <TouchableOpacity
               style={styles.headerBtn}
               onPress={() => {
@@ -7202,7 +7267,7 @@ export default function VoiceParty() {
                 setShowActiveUsersModal(true);
               }}
             >
-              <Users size={20} color="white" />
+              <Users size={19} color="white" />
             </TouchableOpacity>
           </View>
         </View>
@@ -7455,14 +7520,24 @@ export default function VoiceParty() {
                     : otherSenderVipTier
                       ? VIP_LOGO_BY_TIER[otherSenderVipTier]
                       : null;
-                  // Same backend-assigned decoration badge shown below the
-                  // name on the profile screens (fetchUserDecorations) —
-                  // fetched per userId for every visible sender, self included.
                   const senderDecorationBadge =
                     msg.userId != null
-                      ? (userFrameData[String(msg.userId)]?.decorationBadgeUrl ??
-                        null)
+                      ? (userFrameData[String(msg.userId)]?.decorationBadgeUrl ?? null)
                       : null;
+                  const senderVipLogoSource = senderVipLogo
+                    ? (typeof senderVipLogo === "string" && senderVipLogo.trim().length > 0
+                        ? { uri: senderVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
+                        : (typeof senderVipLogo === "number" || (typeof senderVipLogo === "object" && senderVipLogo?.uri))
+                          ? senderVipLogo
+                          : null)
+                    : null;
+                  const senderDecorationBadgeSource = senderDecorationBadge
+                    ? (typeof senderDecorationBadge === "string" && senderDecorationBadge.trim().length > 0
+                        ? { uri: senderDecorationBadge.trim() }
+                        : (typeof senderDecorationBadge === "number" || (typeof senderDecorationBadge === "object" && senderDecorationBadge?.uri))
+                          ? senderDecorationBadge
+                          : null)
+                    : null;
                   // Trimmed whole-image chat frame for this sender's tier (keyed
                   // by tier number, not by URL — the URL can vary once the real
                   // API is wired up). Falls back to the raw remote asset (old
@@ -7605,26 +7680,22 @@ export default function VoiceParty() {
                           {isSenderSelf && !!myCountryFlag && (
                             <Text style={styles.chatUserFlag}>{myCountryFlag}</Text>
                           )}
-                          <Image
+                          <AutoBadgeImage
                             source={resolveLocalLevelBadge(msg.level)}
                             style={styles.lvBadgeImg}
                             resizeMode="contain"
                           />
-                          {senderVipLogo && (
-                            <Image
-                              source={{ uri: senderVipLogo }}
-                              style={styles.chatVipBadge}
-                              resizeMode="contain"
-                            />
-                          )}
-                          {senderDecorationBadge && (
-                            <Image
-                              source={{ uri: senderDecorationBadge }}
-                              style={styles.chatVerifiedBadge}
-                              resizeMode="contain"
-                            />
-                          )}
-                          <Image
+                          <AutoBadgeImage
+                            source={senderVipLogoSource}
+                            style={styles.chatVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={senderDecorationBadgeSource}
+                            style={styles.chatDecorationBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
                             source={VERIFIED_BADGE}
                             style={styles.chatVerifiedBadge}
                             resizeMode="contain"
@@ -7633,7 +7704,7 @@ export default function VoiceParty() {
                             (userFrameData[String(msg.userId)]
                               ?.hasNewUserFrame ??
                               false) && (
-                              <Image
+                              <AutoBadgeImage
                                 source={NEW_START_BADGE}
                                 style={styles.newStartBadge}
                                 resizeMode="contain"
@@ -8173,63 +8244,68 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  audienceScroll: {
-    flexGrow: 0,
-    flexShrink: 1,
-  },
-  audienceScrollContent: {
+  audienceAvatarGroup: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    paddingRight: 2,
-    paddingLeft: 2,
   },
-  audienceItem: { position: "relative" },
-  audienceAvatarOverlap: { marginLeft: -8 },
+  audienceItem: {
+    position: "relative",
+    overflow: "visible",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  audienceItemOverlap: {
+    marginLeft: s(-7),
+  },
   micStatusDot: {
     position: "absolute",
     right: -2,
     bottom: -2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "rgba(15,7,32,0.9)",
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "rgba(15,7,32,0.95)",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.3)",
+    borderColor: "rgba(167,139,250,0.4)",
     zIndex: 10,
     elevation: 10,
   },
   audienceAvatarPlaceholder: {
-    backgroundColor: "rgba(124,77,255,0.35)",
+    backgroundColor: "rgba(124,77,255,0.4)",
     alignItems: "center",
     justifyContent: "center",
   },
   audienceInitial: {
     color: "white",
-    fontSize: 11,
+    fontSize: ms(10),
     fontWeight: "700",
   },
   audienceAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: s(26),
+    height: s(26),
+    borderRadius: s(13),
     borderWidth: 1.5,
     borderColor: "#1a0a2e",
   },
-  audienceCount: {
-    minWidth: 32,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.2)",
+  audienceCountCircle: {
+    width: s(26),
+    height: s(26),
+    borderRadius: s(13),
+    backgroundColor: "rgba(124,77,255,0.4)",
+    borderWidth: 1.5,
+    borderColor: "#1a0a2e",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
-    marginLeft: 2,
-    flexShrink: 0,
   },
-  audienceCountText: { color: "white", fontSize: 11, fontWeight: "700" },
+  audienceCountText: {
+    color: "#ffffff",
+    fontSize: ms(9.5),
+    fontWeight: "800",
+    textAlign: "center",
+    includeFontPadding: false,
+  },
   headerRight: { flexDirection: "row", gap: 6, flexShrink: 0 },
   badgesRow: {
     flexDirection: "row",
@@ -8457,6 +8533,7 @@ const styles = StyleSheet.create({
   // 142/149 measured from the actual asset files, see levelBadge.js.
   lvBadgeImg: { height: vs(14), width: vs(14) * (142 / 149) },
   chatVipBadge: { width: vs(14), height: vs(14) },
+  chatDecorationBadge: { width: vs(14), height: vs(14) },
   chatVerifiedBadge: { width: vs(13) * (438 / 179), height: vs(13) },
   newStartBadge: { width: s(44), height: vs(24), marginLeft: s(1), marginTop: vs(-6) },
   chatCoin: { fontSize: ms(10), color: "#ffd700" },
@@ -10780,27 +10857,46 @@ const styles = StyleSheet.create({
     gap: 4,
     marginBottom: 0,
   },
-  activeUserLevelImg: { height: 14, width: 14 * (142 / 149) },
-  activeUserVipBadge: { width: 14, height: 14 },
-  activeUserVerifiedBadge: { width: 14 * (438 / 179), height: 14 },
+  activeUserLevelImg: {
+    height: 13,
+    width: 13 * (142 / 149),
+    flexShrink: 0,
+  },
+  activeUserVipBadge: {
+    width: 13,
+    height: 13,
+    flexShrink: 0,
+  },
+  activeUserDecorationBadge: {
+    width: 13,
+    height: 13,
+    flexShrink: 0,
+  },
+  activeUserVerifiedBadge: {
+    width: 13 * (438 / 179),
+    height: 13,
+    flexShrink: 0,
+  },
   activeUserActionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
+    flexShrink: 0,
+    marginLeft: 6,
   },
   seatStatusBadge: {
     backgroundColor: "rgba(167, 139, 250, 0.2)",
     borderWidth: 1,
     borderColor: "#a78bfa",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
     alignItems: "center",
     justifyContent: "center",
   },
   seatStatusText: {
     color: "#e9d5ff",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "600",
   },
   audienceStatusBadge: {
@@ -10809,22 +10905,22 @@ const styles = StyleSheet.create({
   },
   audienceStatusText: {
     color: "#c4b5fd",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "600",
   },
   leaveSeatBtn: {
     backgroundColor: "rgba(239, 68, 68, 0.2)",
     borderWidth: 1,
     borderColor: "#ef4444",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 5,
     alignItems: "center",
     justifyContent: "center",
   },
   leaveSeatBtnText: {
     color: "#fca5a5",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
   },
   rewardModalGiftImg: {
@@ -11062,5 +11158,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+
 
 
