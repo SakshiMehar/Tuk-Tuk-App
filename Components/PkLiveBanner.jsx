@@ -179,6 +179,16 @@ export default function PkLiveBanner({
   const avatarB = battle.hostBAvatar || metaB?.avatar || null;
 
   const ribbonTitle = isPending ? "PK Challenge" : isLive ? "Gift PK" : "PK Result";
+  const topContributor = Array.isArray(battle.contributors) && battle.contributors.length > 0
+    ? battle.contributors.find((c) => c.rank === 1) || battle.contributors[0]
+    : null;
+  const winnerName = battle.winner === "A" ? nameA : battle.winner === "B" ? nameB : null;
+  const winnerScore =
+    battle.winner === "A"
+      ? battle.teamAScore
+      : battle.winner === "B"
+        ? battle.teamBScore
+        : null;
 
   return (
     <Animated.View
@@ -268,6 +278,15 @@ export default function PkLiveBanner({
                       </View>
                     </View>
                   </View>
+
+                  {topContributor && (
+                    <View style={styles.topSupporterRow}>
+                      <Text style={styles.topSupporterText} numberOfLines={1}>
+                        🏆 {topContributor.userName || topContributor.name || "Someone"} +
+                        {formatCount(topContributor.points ?? topContributor.value ?? 0)}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               );
             })()}
@@ -275,19 +294,26 @@ export default function PkLiveBanner({
           {/* Finished / cancelled / rejected result */}
           {!isPending && !isLive && (
             <View style={styles.resultRow}>
-              <Text style={styles.subtitle} numberOfLines={2}>
-                {battle.status === "REJECTED"
-                  ? `${nameB} declined the PK challenge.`
-                  : battle.status === "CANCELLED"
-                    ? "The PK battle was cancelled."
-                    : battle.winner === "DRAW"
-                      ? "It's a draw!"
-                      : battle.winner === "A"
-                        ? `${nameA} wins! 🏆`
-                        : battle.winner === "B"
-                          ? `${nameB} wins! 🏆`
+              <View style={{ flex: 1 }}>
+                <Text style={styles.subtitle} numberOfLines={2}>
+                  {battle.status === "REJECTED"
+                    ? `${nameB} declined the PK challenge.`
+                    : battle.status === "CANCELLED"
+                      ? "The PK battle was cancelled."
+                      : battle.winner === "DRAW"
+                        ? "It's a draw!"
+                        : winnerName
+                          ? `${winnerName} wins! 🏆`
                           : "The PK battle has ended."}
-              </Text>
+                </Text>
+                {battle.winner === "DRAW" ? (
+                  <Text style={styles.resultScoreText}>
+                    {formatCount(battle.teamAScore)} — {formatCount(battle.teamBScore)}
+                  </Text>
+                ) : winnerName && winnerScore != null ? (
+                  <Text style={styles.resultScoreText}>+{formatCount(winnerScore)}</Text>
+                ) : null}
+              </View>
               <TouchableOpacity
                 style={styles.closeBtn}
                 onPress={onDismiss}
@@ -464,6 +490,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 8,
   },
+  topSupporterRow: {
+    marginTop: 6,
+    alignItems: "center",
+  },
+  topSupporterText: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 9.5,
+    fontWeight: "700",
+  },
   scorePillLeft: {
     flexDirection: "row",
     alignItems: "center",
@@ -501,6 +536,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
+  },
+  resultScoreText: {
+    color: "#fbbf24",
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+    marginTop: 3,
   },
   closeBtn: {
     width: 18,

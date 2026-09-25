@@ -80,45 +80,46 @@ import { resolveImageSource } from "../../src/utils/videoSource";
 
 const screen = Dimensions.get("window");
 
-const meImg = require("../../assets/images/me.png");
-const boyMeImg = require("../../assets/images/boyme.png");
-const NEW_START_BADGE = require("../../assets/Batches/newstart-batch.png");
-const VERIFIED_BADGE = require("../../assets/Batches/verified-batch.png");
+const S3_BASE = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets";
+const meImg = { uri: `${S3_BASE}/images/me.png` };
+const boyMeImg = { uri: `${S3_BASE}/images/boyme.png` };
+const NEW_START_BADGE = { uri: `${S3_BASE}/Batches/newstart-batch.png` };
+const VERIFIED_BADGE = { uri: `${S3_BASE}/Batches/verified-batch.png` };
 
 // ── Dummy gifts for UI preview until API data is populated ──
 const DUMMY_GIFTS_RECEIVED = [
   {
     id: "dummy-r1",
     name: "Purple Wand",
-    localImage: require("../../assets/Gift/gift1.png"),
+    localImage: { uri: `${S3_BASE}/Gift/gift1.png` },
     quantity: 1,
     senderName: "Sakshi",
   },
   {
     id: "dummy-r2",
     name: "Love Balloon",
-    localImage: require("../../assets/Gift/gift2.png"),
+    localImage: { uri: `${S3_BASE}/Gift/gift2.png` },
     quantity: 1,
     senderName: "Rahul",
   },
   {
     id: "dummy-r3",
     name: "Wood Elephant",
-    localImage: require("../../assets/Gift/gift3.png"),
+    localImage: { uri: `${S3_BASE}/Gift/gift3.png` },
     quantity: 1,
     senderName: "Amit",
   },
   {
     id: "dummy-r4",
     name: "Rose",
-    localImage: require("../../assets/Gift/gift1.png"),
+    localImage: { uri: `${S3_BASE}/Gift/gift1.png` },
     quantity: 1,
     senderName: "Priya",
   },
   {
     id: "dummy-r5",
     name: "Cricket Kit",
-    localImage: require("../../assets/Gift/gift2.png"),
+    localImage: { uri: `${S3_BASE}/Gift/gift2.png` },
     quantity: 2,
     senderName: "Vikram",
   },
@@ -128,21 +129,21 @@ const DUMMY_GIFTS_SENT = [
   {
     id: "dummy-s1",
     name: "Rose",
-    localImage: require("../../assets/Gift/gift1.png"),
+    localImage: { uri: `${S3_BASE}/Gift/gift1.png` },
     quantity: 3,
     receiverName: "Sakshi",
   },
   {
     id: "dummy-s2",
     name: "Love Balloon",
-    localImage: require("../../assets/Gift/gift2.png"),
+    localImage: { uri: `${S3_BASE}/Gift/gift2.png` },
     quantity: 1,
     receiverName: "Priya",
   },
   {
     id: "dummy-s3",
     name: "Wood Elephant",
-    localImage: require("../../assets/Gift/gift3.png"),
+    localImage: { uri: `${S3_BASE}/Gift/gift3.png` },
     quantity: 1,
     receiverName: "Rahul",
   },

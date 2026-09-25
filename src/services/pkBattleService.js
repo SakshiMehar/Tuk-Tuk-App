@@ -25,16 +25,28 @@ export const normalizePkBattle = (data) => {
     ? raw.teamBMemberIds.map(String)
     : [];
 
-  // The "active" endpoint reports time left as `remainingSeconds` rather
-  // than an absolute `endsAt` — convert it once here so the rest of the
-  // app (countdowns) only ever has to deal with one shape.
+  // Prefer `remainingSeconds` (a plain duration) over `endsAt` (an absolute
+  // timestamp): the backend sends `endsAt` with no timezone designator
+  // (e.g. "2026-09-24T18:30:00"), which JS parses as *local* time — on a
+  // device whose clock isn't in the same timezone as the server this silently
+  // produces a wildly wrong countdown. `remainingSeconds` has no such
+  // ambiguity, so it wins whenever both are present.
   const remainingSeconds = firstDefined(raw.remainingSeconds, raw.secondsRemaining);
   const endsAt =
-    raw.endsAt ??
-    raw.endAt ??
-    (remainingSeconds != null
+    remainingSeconds != null
       ? new Date(Date.now() + Number(remainingSeconds) * 1000).toISOString()
-      : null);
+      : (raw.endsAt ?? raw.endAt ?? null);
+
+  // Finished battles report the winner as `winnerSide` ("TEAM_A"/"TEAM_B")
+  // + `winnerHostId`, not the "A"/"B"/"DRAW" shorthand the rest of the app
+  // uses — collapse it down to that one shape here.
+  const winnerSide = firstDefined(raw.winnerSide, raw.winnerTeam);
+  let winner = firstDefined(raw.winner, null);
+  if (winner == null) {
+    if (winnerSide === "TEAM_A" || winnerSide === "A") winner = "A";
+    else if (winnerSide === "TEAM_B" || winnerSide === "B") winner = "B";
+    else if (String(raw.status ?? "").toUpperCase() === "DRAW") winner = "DRAW";
+  }
 
   return {
     id: String(id),
@@ -53,7 +65,8 @@ export const normalizePkBattle = (data) => {
     durationSeconds: Number(firstDefined(raw.durationSeconds, raw.duration, 0)) || 0,
     startedAt: raw.startedAt ?? raw.startAt ?? null,
     endsAt,
-    winner: raw.winner ?? raw.winnerTeam ?? null,
+    winner,
+    winnerHostId: firstDefined(raw.winnerHostId, raw.winnerId) ?? null,
     contributors: Array.isArray(data?.contributors)
       ? data.contributors
       : Array.isArray(raw.contributors)

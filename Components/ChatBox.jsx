@@ -49,18 +49,10 @@ import { wsService } from "../src/services/websocket";
 import { openUserProfile } from "../src/utils/profileNavigation";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { getAppUserId } from "../src/utils/sessionUser";
-import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
 import { parseRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import { getActiveRoomId } from "../src/services/partyVoiceService";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
-const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
-
-// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
-// appears (UserProfileView, RoomUserProfilePopup) — built the same way here
-// for the header identity badge row.
-const VIP_LOGO_BY_TIER = Object.fromEntries(
-  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
-);
+const NEW_START_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/newstart-batch.png" };
 
 const { width: W } = Dimensions.get("window");
 const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", "😡", "👍", "🙏", "🎉", "❤️"];
@@ -203,7 +195,6 @@ export default function ChatBox({ user = {}, onBack }) {
     name = "User",
     avatar = null,
     lastMsg = "",
-    level = null,
   } = user;
   const router = useRouter();
   const handleAvatarPress = () => {
@@ -740,11 +731,6 @@ export default function ChatBox({ user = {}, onBack }) {
     return () => clearTimeout(timer);
   }, [isKeyboardVisible, message]);
 
-  // Header identity badge row — VIP logo (tier derived from the
-  // already-fetched otherUserVipFrame) + decoration badge.
-  const headerVipTier = resolveVipTierFromAssetUrl(otherUserVipFrame);
-  const headerVipLogo = headerVipTier != null ? VIP_LOGO_BY_TIER[headerVipTier] : null;
-
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
@@ -756,22 +742,13 @@ export default function ChatBox({ user = {}, onBack }) {
         </TouchableOpacity>
         <View style={styles.headerNameRow}>
           <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
-          {(headerVipLogo || otherUserDecorationBadge) && (
+          {otherUserDecorationBadge && (
             <View style={styles.headerBadgeRow}>
-              {headerVipLogo && (
-                <Image
-                  source={{ uri: headerVipLogo }}
-                  style={styles.headerVipBadge}
-                  resizeMode="contain"
-                />
-              )}
-              {otherUserDecorationBadge && (
-                <Image
-                  source={{ uri: otherUserDecorationBadge }}
-                  style={styles.headerDecorationBadge}
-                  resizeMode="contain"
-                />
-              )}
+              <Image
+                source={{ uri: otherUserDecorationBadge }}
+                style={styles.headerDecorationBadge}
+                resizeMode="contain"
+              />
             </View>
           )}
         </View>
@@ -1057,21 +1034,14 @@ export default function ChatBox({ user = {}, onBack }) {
                         </LinearGradient>
                       ) : (
                         <View>
-                          {/* Lv. badge + NEW STAR badge row */}
-                          {(level != null || otherUserHasNewFrame) && (
+                          {/* NEW STAR badge row */}
+                          {otherUserHasNewFrame && (
                             <View style={styles.msgBadgeRow}>
-                              {level != null && (
-                                <View style={styles.msgLvBadge}>
-                                  <Text style={styles.msgLvText}>Lv.{level}</Text>
-                                </View>
-                              )}
-                              {otherUserHasNewFrame && (
-                                <Image
-                                  source={NEW_START_BADGE}
-                                  style={styles.msgNewStarBadge}
-                                  resizeMode="contain"
-                                />
-                              )}
+                              <Image
+                                source={NEW_START_BADGE}
+                                style={styles.msgNewStarBadge}
+                                resizeMode="contain"
+                              />
                             </View>
                           )}
                           <View
@@ -1418,10 +1388,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     flexShrink: 0,
-  },
-  headerVipBadge: {
-    width: 16,
-    height: 16,
   },
   headerDecorationBadge: {
     height: 16,

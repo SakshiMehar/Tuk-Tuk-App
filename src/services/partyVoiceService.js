@@ -95,9 +95,9 @@ export const joinAsListener = async (roomId) => {
   return { uid, tokenData };
 };
 
-const isRoomNotJoinedError = (err) => {
+const errorTokens = (err) => {
   const body = err?.responseData ?? err?.response?.data ?? {};
-  const tokens = [
+  return [
     err?.code,
     err?.message,
     body?.code,
@@ -110,8 +110,16 @@ const isRoomNotJoinedError = (err) => {
   ]
     .filter((value) => value != null && value !== "")
     .map((value) => String(value).toUpperCase());
-  return tokens.some((token) => token.includes("ROOM_NOT_JOINED"));
 };
+
+const isRoomNotJoinedError = (err) =>
+  errorTokens(err).some((token) => token.includes("ROOM_NOT_JOINED"));
+
+// Backend truth says we're not seated (kicked, seat expired, already left
+// from another device, etc.) — local mic/seat state is stale and should be
+// reset rather than retried.
+export const isNotOnSeatError = (err) =>
+  errorTokens(err).some((token) => token.includes("NOT_ON_SEAT"));
 
 export const reserveSeat = async (roomId, seatNumber) => {
   await ensureAuthToken();

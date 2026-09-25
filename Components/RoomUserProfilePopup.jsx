@@ -33,8 +33,8 @@ import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
 const { width: W } = Dimensions.get("window");
 
-const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
-const VERIFIED_BADGE = require("../assets/Batches/verified-batch.png");
+const NEW_START_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/newstart-batch.png" };
+const VERIFIED_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/verified-batch.png" };
 
 const VIP_LOGO_BY_TIER = Object.fromEntries(
   VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])

@@ -55,7 +55,7 @@ const VIP_LOGO_BY_TIER = Object.fromEntries(
   VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
 );
 
-const VERIFIED_BADGE = require("../assets/Batches/verified-batch.png");
+const VERIFIED_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/verified-batch.png" };
 const BADGE_HEIGHT = 20;
 const BADGE_ASPECT = { level: 142 / 149, verified: 438 / 179 };
 

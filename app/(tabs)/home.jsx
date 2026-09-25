@@ -143,12 +143,14 @@ const dedupePostsById = (posts) => {
 const WAVE_HEIGHTS = [8, 14, 10, 18, 12];
 const MATCH_WAVE_HEIGHTS = [5, 10, 7, 13, 9, 6, 11];
 
+const HOME_S3_BASE = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/images";
+
 const actionCards = [
   {
     title: "Voice Party",
     subtitle: "Join a live room",
     colors: ["#362407ff", "#f76b1c"],
-    img: require("../../assets/images/TM1.png"),
+    img: { uri: `${HOME_S3_BASE}/TM1.png` },
     partyRandom: true,
     showWave: true,
     imgSize: CARD_SIZE * 0.8,
@@ -158,7 +160,7 @@ const actionCards = [
     title: "Find Friends",
     subtitle: "Meet new people",
     colors: ["#180c3aff", "#a647eaff"],
-    img: require("../../assets/images/ofcchat.gif"),
+    img: { uri: `${HOME_S3_BASE}/ofcchat.gif` },
     route: "/find-friends",
     imgSize: CARD_SIZE * 0.88,
     gifDelay: 400,
@@ -167,7 +169,7 @@ const actionCards = [
     title: "Nearby",
     subtitle: "People around you",
     colors: ["#143238ff", "#0077b6"],
-    img: require("../../assets/images/TM3.gif"),
+    img: { uri: `${HOME_S3_BASE}/TM3.gif` },
     route: "/nearby",
     imgSize: CARD_SIZE * 0.9,
     gifDelay: 800,
@@ -176,7 +178,7 @@ const actionCards = [
     title: "Blind Pick",
     subtitle: "Mystery match",
     colors: ["#dc62bcff", "#351743ff"],
-    img: require("../../assets/images/TM2B.gif"),
+    img: { uri: `${HOME_S3_BASE}/TM2B.gif` },
     route: "/(tabs)/blind-pick",
     imgSize: CARD_SIZE * 0.8,
     gifDelay: 1200,
@@ -186,49 +188,49 @@ const actionCards = [
 const iconItems = [
   {
     label: "Voice Call",
-    img: require("../../assets/images/officialchat.png"),
+    img: { uri: `${HOME_S3_BASE}/officialchat.png` },
     colors: ["#cf91b6ff", "#180a31ff"],
     imgSize: 60,
     comingSoon: true,
   },
   {
     label: "Personality Test",
-    img: require("../../assets/images/blindpick.png"),
+    img: { uri: `${HOME_S3_BASE}/blindpick.png` },
     colors: ["#080334ff", "#ac4dffff"],
     imgSize: 60,
     comingSoon: true,
   },
   {
     label: "Truth & Dare",
-    img: require("../../assets/images/truthdare.png"),
+    img: { uri: `${HOME_S3_BASE}/truthdare.png` },
     colors: ["#15072dff", "#486ba8ff"],
     imgSize: 150,
     comingSoon: true,
   },
   {
     label: "Invitation\nRewards",
-    img: require("../../assets/images/invitationReward.png"),
+    img: { uri: `${HOME_S3_BASE}/invitationReward.png` },
     colors: ["#76093fff", "#ba741eff"],
     imgSize: 80,
     comingSoon: true,
   },
   {
     label: "Ludo",
-    img: require("../../assets/images/ludo.jpg"),
+    img: { uri: `${HOME_S3_BASE}/ludo.jpg` },
     colors: ["#041e04ff", "#175726ff"],
     imgSize: 55,
     comingSoon: true,
   },
   {
     label: "Snakes & ladders",
-    img: require("../../assets/images/SnakesAndLadders.jpg"),
+    img: { uri: `${HOME_S3_BASE}/SnakesAndLadders.jpg` },
     colors: ["#0c250cff", "#d2ec23cf"],
     imgSize: 50,
     comingSoon: true,
   },
   {
     label: "Draw & Guess",
-    img: require("../../assets/images/draw n guess.jpg"),
+    img: { uri: `${HOME_S3_BASE}/draw+n+guess.jpg` },
     colors: ["#5f0909ff", "#9e4c3eff"],
     imgSize: 50,
     comingSoon: true,
