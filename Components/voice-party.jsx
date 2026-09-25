@@ -184,9 +184,10 @@ Dimensions.addEventListener("change", ({ window }) => {
   // for any future dynamic usage.
 });
 
-const TREASURE_BOX_GIF = require("../assets/Gift/tresurebox.gif");
-const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
-const VERIFIED_BADGE = require("../assets/Batches/verified-batch.png");
+const ASSETS_S3_BASE = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets";
+const TREASURE_BOX_GIF = { uri: `${ASSETS_S3_BASE}/Gift/tresurebox.gif` };
+const NEW_START_BADGE = { uri: `${ASSETS_S3_BASE}/Batches/newstart-batch.png` };
+const VERIFIED_BADGE = { uri: `${ASSETS_S3_BASE}/Batches/verified-batch.png` };
 const ROOM_HEADER_BG = require("../assets/images/roomHeaderBg.png");
 
 // Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
@@ -215,15 +216,15 @@ const CHAT_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.
 const LISTEN_THRESHOLDS = [60, 3600, 18000]; // 1 min, 1 hr, 5 hr
 const LISTEN_THRESHOLD_LABELS = ["1 min", "1 hr", "5 hr"];
 const LISTEN_LOCKED_IMGS = [
-  require("../assets/Gift/gift1.png"),
-  require("../assets/Gift/gift2.png"),
-  require("../assets/Gift/gift3.png"),
+  { uri: `${ASSETS_S3_BASE}/Gift/gift1.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift2.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift3.png` },
 ];
 const LISTEN_GIFT_POOL = [
-  require("../assets/Gift/gift1.png"),
-  require("../assets/Gift/gift2.png"),
-  require("../assets/Gift/gift3.png"),
-  require("../assets/Gift/gift4.gif"),
+  { uri: `${ASSETS_S3_BASE}/Gift/gift1.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift2.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift3.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift4.gif` },
 ];
 
 const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
