@@ -37,6 +37,17 @@ export const normalizePkBattle = (data) => {
       ? new Date(Date.now() + Number(remainingSeconds) * 1000).toISOString()
       : (raw.endsAt ?? raw.endAt ?? null);
 
+  // Finished battles report the winner as `winnerSide` ("TEAM_A"/"TEAM_B")
+  // + `winnerHostId`, not the "A"/"B"/"DRAW" shorthand the rest of the app
+  // uses — collapse it down to that one shape here.
+  const winnerSide = firstDefined(raw.winnerSide, raw.winnerTeam);
+  let winner = firstDefined(raw.winner, null);
+  if (winner == null) {
+    if (winnerSide === "TEAM_A" || winnerSide === "A") winner = "A";
+    else if (winnerSide === "TEAM_B" || winnerSide === "B") winner = "B";
+    else if (String(raw.status ?? "").toUpperCase() === "DRAW") winner = "DRAW";
+  }
+
   return {
     id: String(id),
     roomId: raw.roomId != null ? String(raw.roomId).trim() : null,
@@ -54,7 +65,8 @@ export const normalizePkBattle = (data) => {
     durationSeconds: Number(firstDefined(raw.durationSeconds, raw.duration, 0)) || 0,
     startedAt: raw.startedAt ?? raw.startAt ?? null,
     endsAt,
-    winner: raw.winner ?? raw.winnerTeam ?? null,
+    winner,
+    winnerHostId: firstDefined(raw.winnerHostId, raw.winnerId) ?? null,
     contributors: Array.isArray(data?.contributors)
       ? data.contributors
       : Array.isArray(raw.contributors)

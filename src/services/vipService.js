@@ -129,13 +129,28 @@ export const loadMyVipAssets = async (totalXp) => {
     return url.replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png");
   };
 
+  // The live endpoints can also return a URL that's *present* but broken —
+  // confirmed for tier 8's logo, where /api/app/vip/me/logo answers with
+  // ".../viplogo8.png" (lowercase) while the real S3 object is
+  // ".../Viplogo8.png" (capitalized), a 403 on the exact-lowercase key. S3
+  // keys are case-sensitive, so that mounts a broken <Image> instead of
+  // falling through to any fallback. When the live URL is only a case
+  // variant of our verified-working static asset for the same tier, prefer
+  // the static one; anything genuinely different (a real custom asset) is
+  // left untouched.
+  const preferCaseCorrected = (liveUrl, staticUrl) => {
+    if (!liveUrl) return staticUrl ?? null;
+    if (!staticUrl || liveUrl === staticUrl) return liveUrl;
+    return liveUrl.toLowerCase() === staticUrl.toLowerCase() ? staticUrl : liveUrl;
+  };
+
   return {
     unlocked: true,
     tier,
-    profileFrame: normalizeVipUrl(profileFrame.url ?? confirmedAssets?.profileFrame ?? null),
-    entryFrame: normalizeVipUrl(entryFrame.url ?? confirmedAssets?.entryFrame ?? null),
-    chatFrame: normalizeVipUrl(chatFrame.url ?? confirmedAssets?.chatFrame ?? null),
-    logo: normalizeVipUrl(logo.url ?? confirmedAssets?.logo ?? null),
+    profileFrame: preferCaseCorrected(profileFrame.url, confirmedAssets?.profileFrame),
+    entryFrame: preferCaseCorrected(entryFrame.url, confirmedAssets?.entryFrame),
+    chatFrame: preferCaseCorrected(chatFrame.url, confirmedAssets?.chatFrame),
+    logo: preferCaseCorrected(logo.url, confirmedAssets?.logo),
   };
 };
 

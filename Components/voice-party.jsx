@@ -149,6 +149,16 @@ import {
 } from "../src/services/relationshipService";
 import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
+import {
+  getPkBattleRole,
+  isPkBattleLive,
+  isPkBattlePending,
+  loadActivePkBattle,
+  loadPkBattle,
+  normalizePkBattle,
+  respondPkBattle,
+  startPkBattle,
+} from "../src/services/pkBattleService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
@@ -3541,7 +3551,18 @@ export default function VoiceParty() {
       loadActivePkBattle(pkPollRoomId)
         .then((battle) => {
           console.log("[VoiceParty][PK] poll active battle ->", battle);
-          setActivePkBattle(battle);
+          setActivePkBattle((current) => {
+            // `.../active` only ever reports LIVE/PENDING battles, so a
+            // request that was already in flight when the battle finished
+            // resolves with `null` right as (or just after) the `pk`
+            // websocket push shows the COMPLETED/DRAW result — without this
+            // guard that lagging response wipes the result card the instant
+            // it appears.
+            if (!battle && current && !["PENDING", "LIVE"].includes(current.status)) {
+              return current;
+            }
+            return battle;
+          });
         })
         .catch(() => {
           // Non-critical — next tick or the WS push will catch it.
@@ -4261,6 +4282,38 @@ export default function VoiceParty() {
     return () => clearTimeout(timer);
   }, [activePkBattle?.id, activePkBattle?.status, myUserId]);
 
+  // Once a LIVE battle's timer runs out, actively fetch the authoritative
+  // final result instead of just waiting on the `pk` websocket push — a
+  // missed/delayed push (brief disconnect, app backgrounded) would otherwise
+  // leave the card frozen on the last-seen LIVE score forever.
+  useEffect(() => {
+    if (!activePkBattle || activePkBattle.status !== "LIVE" || !activePkBattle.endsAt) {
+      return undefined;
+    }
+    const battleId = activePkBattle.id;
+    const msLeft = new Date(activePkBattle.endsAt).getTime() - Date.now();
+
+    const fetchFinalResult = () => {
+      loadPkBattle(battleId)
+        .then((fresh) => {
+          if (!fresh) return;
+          setActivePkBattle((current) =>
+            current && current.id === battleId ? fresh : current,
+          );
+        })
+        .catch(() => {
+          // Non-critical — the poll or a later WS push will catch it.
+        });
+    };
+
+    if (msLeft <= 0) {
+      fetchFinalResult();
+      return undefined;
+    }
+    const timer = setTimeout(fetchFinalResult, msLeft + 1500);
+    return () => clearTimeout(timer);
+  }, [activePkBattle?.id, activePkBattle?.status, activePkBattle?.endsAt]);
+
   const handleSendBackpackGift = async () => {
     if (!selectedGift) {
       Alert.alert("Select a gift", "Choose a gift from your backpack first.");
@@ -4926,13 +4979,23 @@ export default function VoiceParty() {
         </Text>
         <Text style={styles.bpSendChev}> ▼</Text>
       </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.bpSendQtyBtn}
-        activeOpacity={0.8}
-        onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-      >
-        <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-      </TouchableOpacity>
+      <View style={styles.bpSendQtyBtn}>
+        <TouchableOpacity
+          style={styles.bpQtyStepBtn}
+          activeOpacity={0.8}
+          onPress={() => setGiftQty((q) => Math.max(1, (Number(q) || 1) - 1))}
+        >
+          <Text style={styles.bpQtyStepText}>−</Text>
+        </TouchableOpacity>
+        <Text style={styles.bpSendQtyText}>{giftQty}</Text>
+        <TouchableOpacity
+          style={styles.bpQtyStepBtn}
+          activeOpacity={0.8}
+          onPress={() => setGiftQty((q) => Math.min(99, (Number(q) || 1) + 1))}
+        >
+          <Text style={styles.bpQtyStepText}>+</Text>
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity
         style={styles.bpSendBtn}
         activeOpacity={0.8}
@@ -5590,13 +5653,23 @@ export default function VoiceParty() {
                       </Text>
                       <Text style={styles.bpSendChev}> ▼</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.bpSendQtyBtn}
-                      activeOpacity={0.8}
-                      onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-                    >
-                      <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-                    </TouchableOpacity>
+                    <View style={styles.bpSendQtyBtn}>
+                      <TouchableOpacity
+                        style={styles.bpQtyStepBtn}
+                        activeOpacity={0.8}
+                        onPress={() => setGiftQty((q) => Math.max(1, (Number(q) || 1) - 1))}
+                      >
+                        <Text style={styles.bpQtyStepText}>−</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.bpSendQtyText}>{giftQty}</Text>
+                      <TouchableOpacity
+                        style={styles.bpQtyStepBtn}
+                        activeOpacity={0.8}
+                        onPress={() => setGiftQty((q) => Math.min(99, (Number(q) || 1) + 1))}
+                      >
+                        <Text style={styles.bpQtyStepText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
                     <TouchableOpacity
                       style={styles.bpSendBtn}
                       activeOpacity={0.8}
@@ -9713,14 +9786,37 @@ const styles = StyleSheet.create({
   bpSendName: { color: "#3D1A80", fontSize: 13, fontWeight: "600", flex: 1 },
   bpSendChev: { color: "#3D1A80", fontSize: 12 },
   bpSendQtyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     backgroundColor: "rgba(124,77,255,0.15)",
     borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
   },
-  bpSendQtyText: { color: "#3D1A80", fontSize: 13, fontWeight: "700" },
+  bpQtyStepBtn: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7c4dff",
+  },
+  bpQtyStepText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  bpSendQtyText: {
+    color: "#3D1A80",
+    fontSize: 13,
+    fontWeight: "700",
+    minWidth: 16,
+    textAlign: "center",
+  },
   bpSendBtn: {
     backgroundColor: "#7c4dff",
     borderRadius: 20,
