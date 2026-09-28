@@ -77,8 +77,10 @@ export const createPkBattle = async ({
   }
 };
 
-/** POST /api/app/pk-battles/{battleId}/respond — the challenged host
- *  accepts (optionally naming teamBMemberIds) or rejects. */
+/** POST /api/app/pk-battles/{battleId}/respond — whichever participant is
+ *  calling (identified by their auth token) accepts (optionally naming
+ *  teamBMemberIds, side B only) or rejects. Both participants must accept
+ *  before the battle goes LIVE. */
 export const respondToPkBattle = async (battleId, { accepted, teamBMemberIds }) => {
   const path = `/api/app/pk-battles/${battleId}/respond`;
   const body = accepted

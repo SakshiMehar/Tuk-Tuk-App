@@ -1646,6 +1646,12 @@ export default function VoiceParty() {
   // drift out of sync (whitespace, re-derived session ids, etc.) from what
   // the PK subsystem itself considers this battle's room.
   const pkPollRoomId = activePkBattle?.roomId || (roomId != null ? String(roomId).trim() : null);
+  // The backend doesn't expose *which* side has accepted a pending battle
+  // (status just stays PENDING until both have) — so "did I already accept
+  // this one" has to be tracked locally, purely to swap this client's own
+  // accept/reject prompt for a "waiting on the other participant" banner.
+  const [myAcceptedBattleId, setMyAcceptedBattleId] = useState(null);
+  const myAcceptedBattleIdRef = useRef(null);
   const [pkBattleActionLoading, setPkBattleActionLoading] = useState(false);
   // Synchronous reentrancy guard — `pkBattleActionLoading` state only takes
   // effect on the next render, so a real double-tap (two touch events before
@@ -4387,6 +4393,10 @@ export default function VoiceParty() {
           ? teamMemberIds.map(toNumericId)
           : undefined,
       );
+      if (accepted) {
+        myAcceptedBattleIdRef.current = activePkBattle.id;
+        setMyAcceptedBattleId(activePkBattle.id);
+      }
       setActivePkBattle(battle);
       setShowPkTeamAccept(false);
     } catch (err) {
@@ -4400,9 +4410,11 @@ export default function VoiceParty() {
     }
   };
 
-  // A challenge left un-accepted for 2 minutes is auto-discarded: the
-  // challenged host's client rejects it (freeing the room for a new
-  // challenge server-side); anyone else just loses the popup locally.
+  // A challenge left un-accepted for 2 minutes is auto-discarded: whichever
+  // of the two participants hasn't responded yet has their client reject it
+  // on their behalf (freeing the room for a new challenge server-side);
+  // anyone else (organizer who isn't fighting, bystanders) just loses the
+  // popup locally.
   const PK_CHALLENGE_TIMEOUT_MS = 2 * 60 * 1000;
   useEffect(() => {
     if (!activePkBattle || activePkBattle.status !== "PENDING") return undefined;
@@ -4413,7 +4425,11 @@ export default function VoiceParty() {
         if (!current || current.id !== battleId || current.status !== "PENDING") {
           return current;
         }
-        if (getPkBattleRole(current, myUserId) === "hostB") {
+        const role = getPkBattleRole(current, myUserId);
+        const iHaventRespondedYet =
+          (role === "hostA" || role === "hostB") &&
+          myAcceptedBattleIdRef.current !== battleId;
+        if (iHaventRespondedYet) {
           handlePkRespond(false);
         }
         return null;
@@ -6173,6 +6189,7 @@ export default function VoiceParty() {
       <PkLiveBanner
         battle={activePkBattle}
         role={getPkBattleRole(activePkBattle, myUserId)}
+        myAccepted={myAcceptedBattleId != null && myAcceptedBattleId === activePkBattle?.id}
         actionLoading={pkBattleActionLoading}
         topOffset={insets.top + 64}
         resolveUser={(id) => {
@@ -6180,7 +6197,10 @@ export default function VoiceParty() {
           return seat ? { name: seat.user.name, avatar: seat.user.avatar } : null;
         }}
         onAccept={() => {
-          if (activePkBattle?.teamAMemberIds?.length) {
+          // Side A's team was already fixed by the organizer at creation
+          // time — only side B picks their own teammates, at accept time.
+          const myRole = getPkBattleRole(activePkBattle, myUserId);
+          if (myRole === "hostB" && activePkBattle?.teamAMemberIds?.length) {
             setShowPkTeamAccept(true);
           } else {
             handlePkRespond(true);

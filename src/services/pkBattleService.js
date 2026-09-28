@@ -52,10 +52,22 @@ export const normalizePkBattle = (data) => {
     id: String(id),
     roomId: raw.roomId != null ? String(raw.roomId).trim() : null,
     status: String(raw.status ?? raw.state ?? "PENDING").toUpperCase(),
-    hostAId: firstDefined(raw.hostAId, raw.hostId, raw.creatorId, raw.ownerId) ?? null,
-    hostBId: firstDefined(raw.hostBId, raw.opponentHostId, raw.opponentId) ?? null,
-    hostAName: firstDefined(raw.hostAName, raw.hostName, raw.creatorName) ?? null,
-    hostBName: firstDefined(raw.hostBName, raw.opponentHostName, raw.opponentName) ?? null,
+    // Both sides now have to accept before a battle goes LIVE (neither is
+    // auto-accepted just because the room host set the match up — the host
+    // may not even be one of the two participants). The backend doesn't
+    // currently expose per-side accepted flags on the battle object (just
+    // `status`, which stays PENDING until both have) — these default to
+    // false and are kept only in case that's added later; the UI tracks
+    // "have I accepted" locally instead (see `myAccepted` in PkLiveBanner).
+    acceptedByA: Boolean(firstDefined(raw.acceptedByA, raw.hostAAccepted, raw.participantAAccepted, false)),
+    acceptedByB: Boolean(firstDefined(raw.acceptedByB, raw.hostBAccepted, raw.participantBAccepted, false)),
+    // The room host who *organized* this battle — may be neither combatant.
+    roomHostId: firstDefined(raw.roomHostId) ?? null,
+    roomHostName: firstDefined(raw.roomHostName) ?? null,
+    hostAId: firstDefined(raw.hostAId, raw.participantAId, raw.hostId, raw.creatorId, raw.ownerId) ?? null,
+    hostBId: firstDefined(raw.hostBId, raw.participantBId, raw.opponentHostId, raw.opponentId) ?? null,
+    hostAName: firstDefined(raw.hostAName, raw.participantAName, raw.hostName, raw.creatorName) ?? null,
+    hostBName: firstDefined(raw.hostBName, raw.participantBName, raw.opponentHostName, raw.opponentName) ?? null,
     hostAAvatar: firstDefined(raw.hostAAvatar, raw.hostAvatar) ?? null,
     hostBAvatar: firstDefined(raw.hostBAvatar, raw.opponentAvatar) ?? null,
     teamAMemberIds,
