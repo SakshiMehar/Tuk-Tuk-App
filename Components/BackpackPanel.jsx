@@ -14,7 +14,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { s, vs, ms } from "react-native-size-matters";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
-import backpackBg from "../assets/images/backpackBg.png";
+import backpackBg from "../assets/images/backpackBg.jpg";
 
 const CATEGORIES = ["All", "Frames", "Effects", "Badges", "Backgrounds"];
 

@@ -54,9 +54,13 @@ const DURATIONS = [1, 3, 5, 10, 30];
 const SLOT_COUNT = 10;
 
 /** Bottom-sheet PK battle setup screen — light theme version of the
- *  reference "Personal gift PK" design (tabs, 10 opponent slots, duration
+ *  reference "Personal gift PK" design (tabs, 10 participant slots, duration
  *  picker, jackpot toggle). Opened from the room's Play Center "PK" button.
- *  No gift is chosen here — Confirm just creates the battle (opponent +
+ *  The host organizing the battle doesn't have to fight themselves — they
+ *  pick BOTH sides (participant A and participant B) from anyone currently
+ *  in the room; only participant B gets an accept/reject prompt (matching
+ *  the single-response backend flow), participant A is added directly.
+ *  No gift is chosen here — Confirm just creates the battle (participants +
  *  duration); gifting happens afterwards through the room's normal gift
  *  sheet once the battle card is live, same as any other room gift. */
 export default function PkBattleModal({
@@ -71,7 +75,8 @@ export default function PkBattleModal({
   const [selectedTeam, setSelectedTeam] = useState("yellow");
   const [durationMinutes, setDurationMinutes] = useState(1);
   const [jackpotMode, setJackpotMode] = useState(false);
-  const [opponentId, setOpponentId] = useState(null);
+  const [participantAId, setParticipantAId] = useState(null);
+  const [participantBId, setParticipantBId] = useState(null);
   const [teamMemberIds, setTeamMemberIds] = useState([]);
 
   const isVote = activeTab === "vote";
@@ -80,7 +85,8 @@ export default function PkBattleModal({
 
   useEffect(() => {
     if (!visible) {
-      setOpponentId(null);
+      setParticipantAId(null);
+      setParticipantBId(null);
       setTeamMemberIds([]);
     }
   }, [visible]);
@@ -93,34 +99,44 @@ export default function PkBattleModal({
       return;
     }
     const id = String(user.id);
-    if (id === opponentId) {
-      setOpponentId(null);
+    if (id === participantAId) {
+      setParticipantAId(null);
+      return;
+    }
+    if (id === participantBId) {
+      setParticipantBId(null);
       return;
     }
     if (teamMemberIds.includes(id)) {
       setTeamMemberIds((prev) => prev.filter((x) => x !== id));
       return;
     }
-    if (!opponentId) {
-      setOpponentId(id);
+    if (!participantAId) {
+      setParticipantAId(id);
+      return;
+    }
+    if (!participantBId) {
+      setParticipantBId(id);
       return;
     }
     if (isTeam) {
       setTeamMemberIds((prev) => [...prev, id]);
     } else {
-      setOpponentId(id);
+      // Both sides already picked — a further tap swaps in a new side B.
+      setParticipantBId(id);
     }
   };
 
   const handleConfirm = () => {
-    if (!opponentId) {
-      Alert.alert("Select an opponent", "Pick who you want to challenge.");
+    if (!participantAId || !participantBId) {
+      Alert.alert("Select both participants", "Pick the two people who'll battle.");
       return;
     }
     onConfirm?.({
       mode: activeTab,
       team: isTeam ? selectedTeam : null,
-      opponentId,
+      participantAId,
+      participantBId,
       teamMemberIds: isTeam ? teamMemberIds : [],
       durationMinutes,
       jackpotMode: isPersonal ? jackpotMode : false,
@@ -240,15 +256,16 @@ export default function PkBattleModal({
             )}
           </View>
 
-          {/* Opponent / teammate slots — seated room members only */}
+          {/* Participant / teammate slots — anyone currently in the room */}
           <Text style={styles.sectionLabel}>
-            {isTeam ? "Choose an opponent + teammates" : "Choose an opponent"}
+            {isTeam ? "Choose 2 participants + teammates" : "Choose 2 participants"}
           </Text>
           <View style={styles.slotGrid}>
             {Array.from({ length: SLOT_COUNT }).map((_, i) => {
               const user = roomUsers[i] ?? null;
               const id = user ? String(user.id) : null;
-              const isOpponent = id != null && id === opponentId;
+              const isParticipantA = id != null && id === participantAId;
+              const isParticipantB = id != null && id === participantBId;
               const isTeammate = id != null && teamMemberIds.includes(id);
               return (
                 <TouchableOpacity
@@ -261,7 +278,8 @@ export default function PkBattleModal({
                   <View
                     style={[
                       styles.slotCircle,
-                      isOpponent && styles.slotCircleOpponent,
+                      isParticipantA && styles.slotCircleParticipantA,
+                      isParticipantB && styles.slotCircleOpponent,
                       isTeammate && styles.slotCircleTeammate,
                     ]}
                   >
@@ -274,9 +292,14 @@ export default function PkBattleModal({
                     ) : (
                       <Text style={styles.slotEmptyText}>Empty</Text>
                     )}
-                    {isOpponent && (
+                    {isParticipantA && (
+                      <View style={styles.slotBadgeA}>
+                        <Text style={styles.slotBadgeText}>A</Text>
+                      </View>
+                    )}
+                    {isParticipantB && (
                       <View style={styles.slotBadgeOpponent}>
-                        <Text style={styles.slotBadgeText}>VS</Text>
+                        <Text style={styles.slotBadgeText}>B</Text>
                       </View>
                     )}
                     {isTeammate && <View style={styles.slotBadgeTeammate} />}
@@ -321,7 +344,7 @@ export default function PkBattleModal({
 
           {/* Confirm */}
           {(() => {
-            const ready = Boolean(opponentId);
+            const ready = Boolean(participantAId && participantBId);
             return (
               <TouchableOpacity
                 activeOpacity={0.85}
@@ -558,6 +581,10 @@ const styles = StyleSheet.create({
     position: "relative",
     overflow: "visible",
   },
+  slotCircleParticipantA: {
+    borderWidth: 2,
+    borderColor: Colors.accentGold,
+  },
   slotCircleOpponent: {
     borderWidth: 2,
     borderColor: Colors.error,
@@ -575,6 +602,17 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontSize: 18,
     fontWeight: "800",
+  },
+  slotBadgeA: {
+    position: "absolute",
+    bottom: -4,
+    alignSelf: "center",
+    backgroundColor: Colors.accentGold,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderWidth: 1.5,
+    borderColor: Colors.white,
   },
   slotBadgeOpponent: {
     position: "absolute",

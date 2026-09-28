@@ -44,18 +44,21 @@ const buildAuthedConfig = async (label) => {
   };
 };
 
-/** POST /api/app/pk-battles — room owner/host challenges another host.
- *  `teamAMemberIds` is optional; the caller (Host A) is auto-included. */
+/** POST /api/app/pk-battles — the room host sets up a battle between any two
+ *  people present in the room; the host doesn't have to be either one.
+ *  `teamAMemberIds` is optional (participant A's teammates, "Team gift PK"). */
 export const createPkBattle = async ({
   roomId,
-  opponentHostId,
+  participantAId,
+  participantBId,
   durationSeconds,
   teamAMemberIds,
 }) => {
   const path = "/api/app/pk-battles";
   const body = {
     roomId: String(roomId).trim(),
-    opponentHostId,
+    participantAId,
+    participantBId,
     durationSeconds,
     ...(Array.isArray(teamAMemberIds) && teamAMemberIds.length
       ? { teamAMemberIds }

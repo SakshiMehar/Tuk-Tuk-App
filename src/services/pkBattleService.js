@@ -76,11 +76,20 @@ export const normalizePkBattle = (data) => {
   };
 };
 
-/** Room owner starts a PK challenge against another host in the room. */
-export const startPkBattle = async ({ roomId, opponentHostId, durationMinutes, teamAMemberIds }) => {
+/** Room host sets up a PK battle between two participants — the host can
+ *  pick themselves for either side, or sit it out and pick two other room
+ *  members entirely. */
+export const startPkBattle = async ({
+  roomId,
+  participantAId,
+  participantBId,
+  durationMinutes,
+  teamAMemberIds,
+}) => {
   const data = await createPkBattle({
     roomId,
-    opponentHostId,
+    participantAId,
+    participantBId,
     durationSeconds: Math.max(1, Math.round(Number(durationMinutes) * 60)),
     teamAMemberIds,
   });

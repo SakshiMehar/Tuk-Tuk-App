@@ -180,7 +180,7 @@ const menuPages = [
   [
     { icon: "gift", label: "Get Rewards", badge: true },
     { icon: "tasks", label: "Task", badge: true },
-    { icon: "id-card", label: "Monthly Card", badge: true, comingSoon: true },
+    { icon: "id-card", label: "Monthly Card", badge: true },
     { icon: "store", label: "Store", badge: true },
     { icon: "users", label: "Relationship", badge: true },
     { icon: "wallet", label: "Wallet", badge: false },
