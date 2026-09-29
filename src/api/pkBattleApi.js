@@ -46,13 +46,15 @@ const buildAuthedConfig = async (label) => {
 
 /** POST /api/app/pk-battles — the room host sets up a battle between any two
  *  people present in the room; the host doesn't have to be either one.
- *  `teamAMemberIds` is optional (participant A's teammates, "Team gift PK"). */
+ *  `teamAMemberIds`/`teamBMemberIds` are optional (each side's teammates,
+ *  "Team gift PK" — the organizer sets both full rosters up front). */
 export const createPkBattle = async ({
   roomId,
   participantAId,
   participantBId,
   durationSeconds,
   teamAMemberIds,
+  teamBMemberIds,
 }) => {
   const path = "/api/app/pk-battles";
   const body = {
@@ -62,6 +64,9 @@ export const createPkBattle = async ({
     durationSeconds,
     ...(Array.isArray(teamAMemberIds) && teamAMemberIds.length
       ? { teamAMemberIds }
+      : {}),
+    ...(Array.isArray(teamBMemberIds) && teamBMemberIds.length
+      ? { teamBMemberIds }
       : {}),
   };
 

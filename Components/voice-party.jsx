@@ -190,7 +190,6 @@ Dimensions.addEventListener("change", ({ window }) => {
 const ASSETS_S3_BASE = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets";
 const TREASURE_BOX_GIF = { uri: `${ASSETS_S3_BASE}/Gift/tresurebox.gif` };
 const NEW_START_BADGE = { uri: `${ASSETS_S3_BASE}/Batches/newstart-batch.png` };
-const VERIFIED_BADGE = { uri: `${ASSETS_S3_BASE}/Batches/verified-batch.png` };
 const ROOM_HEADER_BG = require("../assets/images/roomHeaderBg.png");
 
 // Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
@@ -4336,7 +4335,14 @@ export default function VoiceParty() {
     return Number.isFinite(n) ? n : id;
   };
 
-  const handlePkConfirm = async ({ mode, participantAId, participantBId, teamMemberIds, durationMinutes }) => {
+  const handlePkConfirm = async ({
+    mode,
+    participantAId,
+    participantBId,
+    teamMemberIds,
+    teamBMemberIds,
+    durationMinutes,
+  }) => {
     if (!isHostSelf) {
       Alert.alert("Not allowed", "Only the room host can start a PK battle.");
       return;
@@ -4353,6 +4359,10 @@ export default function VoiceParty() {
         teamAMemberIds:
           mode === "team" && teamMemberIds?.length
             ? teamMemberIds.map(toNumericId)
+            : [],
+        teamBMemberIds:
+          mode === "team" && teamBMemberIds?.length
+            ? teamBMemberIds.map(toNumericId)
             : [],
       });
       setActivePkBattle(battle);
@@ -6197,10 +6207,16 @@ export default function VoiceParty() {
           return seat ? { name: seat.user.name, avatar: seat.user.avatar } : null;
         }}
         onAccept={() => {
-          // Side A's team was already fixed by the organizer at creation
-          // time — only side B picks their own teammates, at accept time.
+          // The organizer can already set both full rosters at creation
+          // (Team gift PK's two-team picker) — side B only needs to pick
+          // their own teammates here if the organizer left that roster
+          // for them to fill in themselves.
           const myRole = getPkBattleRole(activePkBattle, myUserId);
-          if (myRole === "hostB" && activePkBattle?.teamAMemberIds?.length) {
+          const needsTeamPick =
+            myRole === "hostB" &&
+            activePkBattle?.teamAMemberIds?.length &&
+            !activePkBattle?.teamBMemberIds?.length;
+          if (needsTeamPick) {
             setShowPkTeamAccept(true);
           } else {
             handlePkRespond(true);
@@ -6868,7 +6884,7 @@ export default function VoiceParty() {
                             resizeMode="contain"
                           />
                           <AutoBadgeImage
-                            source={VERIFIED_BADGE}
+                            source={user.verifiedBadgeUrl ? { uri: user.verifiedBadgeUrl } : null}
                             style={styles.activeUserVerifiedBadge}
                             resizeMode="contain"
                           />
@@ -7961,7 +7977,7 @@ export default function VoiceParty() {
                             resizeMode="contain"
                           />
                           <AutoBadgeImage
-                            source={VERIFIED_BADGE}
+                            source={msg.verifiedBadgeUrl ? { uri: msg.verifiedBadgeUrl } : null}
                             style={styles.chatVerifiedBadge}
                             resizeMode="contain"
                           />

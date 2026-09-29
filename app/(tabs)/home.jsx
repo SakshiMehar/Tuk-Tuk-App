@@ -72,6 +72,7 @@ import { fetchUserDecorations } from "../../src/services/decorationsService";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import {
   fetchNotificationsData,
+  markAllNotificationsAsRead,
   markNotificationsAsRead,
 } from "../../src/services/notificationService";
 import {
@@ -3288,14 +3289,20 @@ export default function Home() {
   );
 
   const handleMarkAllRead = useCallback(async () => {
+    // Optimistic clear; restore previous state if the request fails.
+    const prevUnread = unreadNotifications;
+    const prevCount = unreadCount;
     setUnreadNotifications([]);
     setUnreadCount(0);
     try {
-      await markNotificationsRead("all");
+      // POST /api/notifications/mark-read  { "notificationIds": "all" }
+      await markAllNotificationsAsRead();
     } catch (error) {
       console.error("[notifications] markAllRead failed:", error);
+      setUnreadNotifications(prevUnread);
+      setUnreadCount(prevCount);
     }
-  }, []);
+  }, [unreadNotifications, unreadCount]);
 
   const handleSearchQuery = useCallback(
     (text) => {

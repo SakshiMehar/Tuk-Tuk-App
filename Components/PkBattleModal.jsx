@@ -20,38 +20,14 @@ const TABS = [
   { id: "team", label: "Team gift pk" },
 ];
 
-const TEAMS = [
-  {
-    id: "yellow",
-    label: "Yellow team",
-    colors: [Colors.accentGold, "#f59e0b"],
-    glow: "rgba(251,191,36,0.5)",
-  },
-  {
-    id: "blue",
-    label: "Blue team",
-    colors: [Colors.accentCyan, Colors.primary],
-    glow: "rgba(0,224,255,0.5)",
-  },
-];
-
-/** Small glossy circles scattered over a team's gradient half — the
- *  "bubble" texture from the reference design, recolored to sit on our
- *  own gradients instead of the reference's dotted pattern. */
-function TeamBubbles() {
-  return (
-    <>
-      <View style={[styles.teamBubble, { width: 34, height: 34, top: -12, left: -8 }]} />
-      <View style={[styles.teamBubble, { width: 14, height: 14, top: 10, right: 18, opacity: 0.22 }]} />
-      <View style={[styles.teamBubble, { width: 20, height: 20, bottom: -8, right: -6 }]} />
-      <View style={[styles.teamBubble, { width: 9, height: 9, bottom: 10, left: 28, opacity: 0.28 }]} />
-    </>
-  );
-}
-
 const DURATIONS = [1, 3, 5, 10, 30];
 
 const SLOT_COUNT = 10;
+const TEAM_SLOT_COUNT = 5;
+const TEAM_SIDES = {
+  blue: { label: "Select Blue team", ringColor: Colors.accentCyan, badgeColor: Colors.accentCyan },
+  yellow: { label: "Select Yellow team", ringColor: Colors.accentGold, badgeColor: Colors.accentGold },
+};
 
 /** Bottom-sheet PK battle setup screen — light theme version of the
  *  reference "Personal gift PK" design (tabs, 10 participant slots, duration
@@ -72,12 +48,14 @@ export default function PkBattleModal({
 }) {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("personal");
-  const [selectedTeam, setSelectedTeam] = useState("yellow");
   const [durationMinutes, setDurationMinutes] = useState(1);
   const [jackpotMode, setJackpotMode] = useState(false);
   const [participantAId, setParticipantAId] = useState(null);
   const [participantBId, setParticipantBId] = useState(null);
-  const [teamMemberIds, setTeamMemberIds] = useState([]);
+  // Team gift PK: each roster's first entry is that side's leader
+  // (participant A/B), the rest are their teammates — up to 5 a side.
+  const [blueMemberIds, setBlueMemberIds] = useState([]);
+  const [yellowMemberIds, setYellowMemberIds] = useState([]);
 
   const isVote = activeTab === "vote";
   const isTeam = activeTab === "team";
@@ -87,13 +65,14 @@ export default function PkBattleModal({
     if (!visible) {
       setParticipantAId(null);
       setParticipantBId(null);
-      setTeamMemberIds([]);
+      setBlueMemberIds([]);
+      setYellowMemberIds([]);
     }
   }, [visible]);
 
   if (!visible) return null;
 
-  const handleSlotPress = (user) => {
+  const handleSoloSlotPress = (user) => {
     if (!user) {
       Alert.alert("No one here", "This seat is empty right now.");
       return;
@@ -107,10 +86,6 @@ export default function PkBattleModal({
       setParticipantBId(null);
       return;
     }
-    if (teamMemberIds.includes(id)) {
-      setTeamMemberIds((prev) => prev.filter((x) => x !== id));
-      return;
-    }
     if (!participantAId) {
       setParticipantAId(id);
       return;
@@ -119,25 +94,64 @@ export default function PkBattleModal({
       setParticipantBId(id);
       return;
     }
-    if (isTeam) {
-      setTeamMemberIds((prev) => [...prev, id]);
-    } else {
-      // Both sides already picked — a further tap swaps in a new side B.
-      setParticipantBId(id);
+    // Both sides already picked — a further tap swaps in a new side B.
+    setParticipantBId(id);
+  };
+
+  const handleTeamSlotPress = (side, user) => {
+    if (!user) {
+      Alert.alert("No one here", "This seat is empty right now.");
+      return;
     }
+    const id = String(user.id);
+    const [ids, setIds] =
+      side === "blue" ? [blueMemberIds, setBlueMemberIds] : [yellowMemberIds, setYellowMemberIds];
+    const otherIds = side === "blue" ? yellowMemberIds : blueMemberIds;
+    const otherLabel = side === "blue" ? "Yellow" : "Blue";
+
+    if (ids.includes(id)) {
+      setIds((prev) => prev.filter((x) => x !== id));
+      return;
+    }
+    if (otherIds.includes(id)) {
+      Alert.alert("Already picked", `This person is already on the ${otherLabel} team.`);
+      return;
+    }
+    if (ids.length >= TEAM_SLOT_COUNT) {
+      Alert.alert("Team full", `The ${side === "blue" ? "Blue" : "Yellow"} team already has ${TEAM_SLOT_COUNT} people.`);
+      return;
+    }
+    setIds((prev) => [...prev, id]);
   };
 
   const handleConfirm = () => {
+    if (isTeam) {
+      if (!blueMemberIds.length || !yellowMemberIds.length) {
+        Alert.alert("Pick both teams", "Add at least one person (the team leader) to each team.");
+        return;
+      }
+      onConfirm?.({
+        mode: activeTab,
+        team: null,
+        participantAId: blueMemberIds[0],
+        participantBId: yellowMemberIds[0],
+        teamMemberIds: blueMemberIds.slice(1),
+        teamBMemberIds: yellowMemberIds.slice(1),
+        durationMinutes,
+        jackpotMode: false,
+      });
+      return;
+    }
     if (!participantAId || !participantBId) {
       Alert.alert("Select both participants", "Pick the two people who'll battle.");
       return;
     }
     onConfirm?.({
       mode: activeTab,
-      team: isTeam ? selectedTeam : null,
+      team: null,
       participantAId,
       participantBId,
-      teamMemberIds: isTeam ? teamMemberIds : [],
+      teamMemberIds: [],
       durationMinutes,
       jackpotMode: isPersonal ? jackpotMode : false,
     });
@@ -179,63 +193,6 @@ export default function PkBattleModal({
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} style={styles.body}>
-          {/* Team switcher (Team gift PK only) */}
-          {isTeam && (
-            <View style={styles.teamRow}>
-              <View
-                style={[
-                  styles.teamCardShadow,
-                  { shadowColor: TEAMS.find((t) => t.id === selectedTeam)?.glow },
-                ]}
-              >
-                <View style={styles.teamCard}>
-                  {TEAMS.map((team) => {
-                    const active = team.id === selectedTeam;
-                    return (
-                      <TouchableOpacity
-                        key={team.id}
-                        activeOpacity={0.88}
-                        style={styles.teamHalf}
-                        onPress={() => setSelectedTeam(team.id)}
-                      >
-                        {active ? (
-                          <LinearGradient
-                            colors={team.colors}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.teamHalfBg}
-                          >
-                            <TeamBubbles />
-                            <Text style={styles.teamHalfTextActive}>{team.label}</Text>
-                          </LinearGradient>
-                        ) : (
-                          <View style={styles.teamHalfBgInactive}>
-                            <Text style={styles.teamHalfText}>{team.label}</Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                  <View style={styles.teamVsBadge}>
-                    <Text style={styles.teamVsText}>VS</Text>
-                  </View>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={styles.teamHelpBtn}
-                activeOpacity={0.8}
-                onPress={() =>
-                  Alert.alert(
-                    "How it works",
-                    "Each team's PK score is based on the total value of gifts their supporters send during the battle.",
-                  )
-                }
-              >
-                <HelpCircle size={15} color={Colors.textSlateMuted} />
-              </TouchableOpacity>
-            </View>
-          )}
-
           {/* Calculation hint */}
           <View style={styles.hintRow}>
             <Text style={styles.hintText}>
@@ -256,61 +213,116 @@ export default function PkBattleModal({
             )}
           </View>
 
-          {/* Participant / teammate slots — anyone currently in the room */}
-          <Text style={styles.sectionLabel}>
-            {isTeam ? "Choose 2 participants + teammates" : "Choose 2 participants"}
-          </Text>
-          <View style={styles.slotGrid}>
-            {Array.from({ length: SLOT_COUNT }).map((_, i) => {
-              const user = roomUsers[i] ?? null;
-              const id = user ? String(user.id) : null;
-              const isParticipantA = id != null && id === participantAId;
-              const isParticipantB = id != null && id === participantBId;
-              const isTeammate = id != null && teamMemberIds.includes(id);
-              return (
-                <TouchableOpacity
-                  key={id ?? i}
-                  style={styles.slotItem}
-                  activeOpacity={0.75}
-                  onPress={() => handleSlotPress(user)}
-                  disabled={!user}
-                >
-                  <View
-                    style={[
-                      styles.slotCircle,
-                      isParticipantA && styles.slotCircleParticipantA,
-                      isParticipantB && styles.slotCircleOpponent,
-                      isTeammate && styles.slotCircleTeammate,
-                    ]}
-                  >
-                    {user ? (
-                      user.avatar ? (
-                        <Image source={{ uri: user.avatar }} style={styles.slotAvatarImg} contentFit="cover" />
-                      ) : (
-                        <Text style={styles.slotInitial}>{(user.name || "?").charAt(0).toUpperCase()}</Text>
-                      )
-                    ) : (
-                      <Text style={styles.slotEmptyText}>Empty</Text>
-                    )}
-                    {isParticipantA && (
-                      <View style={styles.slotBadgeA}>
-                        <Text style={styles.slotBadgeText}>A</Text>
-                      </View>
-                    )}
-                    {isParticipantB && (
-                      <View style={styles.slotBadgeOpponent}>
-                        <Text style={styles.slotBadgeText}>B</Text>
-                      </View>
-                    )}
-                    {isTeammate && <View style={styles.slotBadgeTeammate} />}
+          {/* Participant slots — anyone currently in the room */}
+          {isTeam ? (
+            <>
+              {["blue", "yellow"].map((side) => {
+                const sideIds = side === "blue" ? blueMemberIds : yellowMemberIds;
+                const { label, ringColor, badgeColor } = TEAM_SIDES[side];
+                return (
+                  <View key={side}>
+                    <Text style={styles.sectionLabel}>
+                      {label} ({sideIds.length}/{TEAM_SLOT_COUNT})
+                    </Text>
+                    <View style={styles.slotGrid}>
+                      {Array.from({ length: SLOT_COUNT }).map((_, i) => {
+                        const user = roomUsers[i] ?? null;
+                        const id = user ? String(user.id) : null;
+                        const posInSide = id != null ? sideIds.indexOf(id) : -1;
+                        const isOnThisSide = posInSide !== -1;
+                        return (
+                          <TouchableOpacity
+                            key={id ?? i}
+                            style={styles.slotItem}
+                            activeOpacity={0.75}
+                            onPress={() => handleTeamSlotPress(side, user)}
+                            disabled={!user}
+                          >
+                            <View
+                              style={[
+                                styles.slotCircle,
+                                isOnThisSide && { borderWidth: 2, borderColor: ringColor },
+                              ]}
+                            >
+                              {user ? (
+                                user.avatar ? (
+                                  <Image source={{ uri: user.avatar }} style={styles.slotAvatarImg} contentFit="cover" />
+                                ) : (
+                                  <Text style={styles.slotInitial}>{(user.name || "?").charAt(0).toUpperCase()}</Text>
+                                )
+                              ) : (
+                                <Text style={styles.slotEmptyText}>Empty</Text>
+                              )}
+                              {isOnThisSide && (
+                                <View style={[styles.slotBadgeA, { backgroundColor: badgeColor }]}>
+                                  <Text style={styles.slotBadgeText}>{posInSide + 1}</Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text style={styles.slotNumber} numberOfLines={1}>
+                              {user ? user.name : i + 1}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
                   </View>
-                  <Text style={styles.slotNumber} numberOfLines={1}>
-                    {user ? user.name : i + 1}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                );
+              })}
+            </>
+          ) : (
+            <>
+              <Text style={styles.sectionLabel}>Choose 2 participants</Text>
+              <View style={styles.slotGrid}>
+                {Array.from({ length: SLOT_COUNT }).map((_, i) => {
+                  const user = roomUsers[i] ?? null;
+                  const id = user ? String(user.id) : null;
+                  const isParticipantA = id != null && id === participantAId;
+                  const isParticipantB = id != null && id === participantBId;
+                  return (
+                    <TouchableOpacity
+                      key={id ?? i}
+                      style={styles.slotItem}
+                      activeOpacity={0.75}
+                      onPress={() => handleSoloSlotPress(user)}
+                      disabled={!user}
+                    >
+                      <View
+                        style={[
+                          styles.slotCircle,
+                          isParticipantA && styles.slotCircleParticipantA,
+                          isParticipantB && styles.slotCircleOpponent,
+                        ]}
+                      >
+                        {user ? (
+                          user.avatar ? (
+                            <Image source={{ uri: user.avatar }} style={styles.slotAvatarImg} contentFit="cover" />
+                          ) : (
+                            <Text style={styles.slotInitial}>{(user.name || "?").charAt(0).toUpperCase()}</Text>
+                          )
+                        ) : (
+                          <Text style={styles.slotEmptyText}>Empty</Text>
+                        )}
+                        {isParticipantA && (
+                          <View style={styles.slotBadgeA}>
+                            <Text style={styles.slotBadgeText}>A</Text>
+                          </View>
+                        )}
+                        {isParticipantB && (
+                          <View style={styles.slotBadgeOpponent}>
+                            <Text style={styles.slotBadgeText}>B</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.slotNumber} numberOfLines={1}>
+                        {user ? user.name : i + 1}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
 
           {/* Duration selector */}
           <Text style={styles.sectionLabel}>Select duration (minutes)</Text>
@@ -344,7 +356,9 @@ export default function PkBattleModal({
 
           {/* Confirm */}
           {(() => {
-            const ready = Boolean(participantAId && participantBId);
+            const ready = isTeam
+              ? Boolean(blueMemberIds.length && yellowMemberIds.length)
+              : Boolean(participantAId && participantBId);
             return (
               <TouchableOpacity
                 activeOpacity={0.85}
@@ -453,97 +467,6 @@ const styles = StyleSheet.create({
   },
 
   body: { paddingBottom: 12 },
-
-  // Team switcher (Team gift PK)
-  teamRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 16,
-  },
-  teamCardShadow: {
-    flex: 1,
-    borderRadius: 18,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.55,
-    shadowRadius: 14,
-    elevation: 10,
-  },
-  teamCard: {
-    flexDirection: "row",
-    borderRadius: 18,
-    overflow: "hidden",
-    position: "relative",
-  },
-  teamHalf: { flex: 1 },
-  teamHalfBg: {
-    paddingVertical: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    position: "relative",
-  },
-  teamHalfBgInactive: {
-    paddingVertical: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.bgSlateLight,
-  },
-  teamHalfText: {
-    color: Colors.textSlateMuted,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  teamHalfTextActive: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.2,
-    textShadowColor: "rgba(0,0,0,0.25)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  teamBubble: {
-    position: "absolute",
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.9)",
-    opacity: 0.16,
-  },
-  teamVsBadge: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    marginTop: -16,
-    marginLeft: -16,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.error,
-    borderWidth: 2,
-    borderColor: Colors.white,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: Colors.error,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 5,
-    elevation: 6,
-  },
-  teamVsText: {
-    color: "white",
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  teamHelpBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.bgSlateLight,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
-  },
 
   // Hint row
   hintRow: {

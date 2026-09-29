@@ -131,7 +131,7 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
         <View style={styles.rowInfo}>
           <View style={styles.nameRow}>
             <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-            {item.verified && <Text style={styles.verified}>✓</Text>}
+            {item.verifiedBadgeUrl && <Text style={styles.verified}>✓</Text>}
             {item.level != null && (
               <Image
                 source={resolveLocalLevelBadge(item.level)}

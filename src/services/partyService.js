@@ -112,7 +112,7 @@ export const normalizeRoom = (rawRoom) => {
     participantCount:
       room?.userCount ?? room?.onlineCount ?? room?.participantCount ?? rawRoom?.userCount ?? 0,
     hasChat: room?.hasChat !== false,
-    verified: room?.status === "LIVE" || Boolean(room?.verified),
+    verified: Boolean(room?.verified ?? rawRoom?.verified),
     category: normalizeCategory(room),
     hostId: firstValue(room?.creatorId, room?.hostId, room?.ownerId, rawRoom?.creatorId, rawRoom?.hostId),
     badges: Array.isArray(room?.badges) ? room.badges : Array.isArray(rawRoom?.badges) ? rawRoom.badges : [],
@@ -163,6 +163,7 @@ const normalizeSeatUser = (seatValue) => {
     muted: Boolean(user?.muted ?? user?.isMuted ?? seatValue?.muted),
     id: firstValue(user?.id, user?.userId, user?.uid, seatValue?.userId),
     level: firstNumber(user?.level, seatValue?.level),
+    verifiedBadgeUrl: firstText(user?.verifiedBadgeUrl, seatValue?.verifiedBadgeUrl),
   };
 };
 
@@ -229,6 +230,7 @@ export const parseOnlineUsers = (stateData, joinData) => {
       muted: Boolean(user?.muted ?? user?.isMuted),
       isSpeaking: Boolean(user?.isSpeaking),
       level: firstNumber(user?.level),
+      verifiedBadgeUrl: firstText(user?.verifiedBadgeUrl),
     };
   });
 };
@@ -327,6 +329,7 @@ export const normalizeChatMessage = (msg, index = 0) => {
     diamonds: msg?.diamonds ?? 0,
     isGift: Boolean(msg?.isGift),
     pending: Boolean(msg?.pending),
+    verifiedBadgeUrl: firstText(msg?.verifiedBadgeUrl, msg?.sender?.verifiedBadgeUrl),
   };
 };
 

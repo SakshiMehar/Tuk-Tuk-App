@@ -94,7 +94,7 @@ export const normalizeRelationshipUser = (user) => {
       user?.photoUrl
     ),
     handle: username ? (username.startsWith("@") ? username : `@${username}`) : "",
-    verified: Boolean(user?.verified ?? user?.vip),
+    verifiedBadgeUrl: firstText(user?.verifiedBadgeUrl),
     online: Boolean(user?.isOnline ?? user?.online),
     vipProfileFrameUrl: extractVipProfileFrameUrl(user),
     level: firstNumber(user?.level, user?.profile?.level),

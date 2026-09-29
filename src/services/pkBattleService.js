@@ -97,6 +97,7 @@ export const startPkBattle = async ({
   participantBId,
   durationMinutes,
   teamAMemberIds,
+  teamBMemberIds,
 }) => {
   const data = await createPkBattle({
     roomId,
@@ -104,6 +105,7 @@ export const startPkBattle = async ({
     participantBId,
     durationSeconds: Math.max(1, Math.round(Number(durationMinutes) * 60)),
     teamAMemberIds,
+    teamBMemberIds,
   });
   return normalizePkBattle(data);
 };

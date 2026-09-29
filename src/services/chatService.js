@@ -110,7 +110,7 @@ const normalizeConversation = (conversation) => {
       ) ?? "",
     time: formatChatTime(lastAt) || firstText(conversation?.time) || "",
     unread: Number(conversation?.unread ?? conversation?.unreadCount ?? 0) || 0,
-    verified: Boolean(conversation?.verified ?? peer?.verified ?? peer?.vip),
+    verifiedBadgeUrl: firstText(conversation?.verifiedBadgeUrl, peer?.verifiedBadgeUrl),
     live: Boolean(conversation?.live ?? conversation?.isLive ?? peer?.isLive),
     liked: Boolean(conversation?.liked),
     vipProfileFrameUrl: extractVipProfileFrameUrl(conversation) ?? extractVipProfileFrameUrl(peer),

@@ -196,7 +196,7 @@ export default function FindFriends() {
   // the backend doesn't include those fields on this payload.
   const cardVipTier = resolveVipTierFromAssetUrl(extractVipProfileFrameUrl(card));
   const cardVipLogo = cardVipTier != null ? VIP_LOGO_BY_TIER[cardVipTier] : null;
-  const cardVerified = Boolean(card?.verified ?? card?.isVerified);
+  const cardVerifiedBadgeUrl = card?.verifiedBadgeUrl ?? null;
 
   const loadNextFriend = useCallback(async () => {
     setCardLoading(true);
@@ -530,7 +530,7 @@ export default function FindFriends() {
               <View style={styles.matchInfo}>
                 <View style={styles.matchNameRow}>
                   <Text style={styles.matchName}>{card.name ?? "User"}</Text>
-                  {cardVerified && <Text style={{ fontSize: 13 }}>✅</Text>}
+                  {cardVerifiedBadgeUrl && <Text style={{ fontSize: 13 }}>✅</Text>}
                   {card.level != null && (
                     <Image
                       source={resolveLocalLevelBadge(card.level)}
