@@ -155,6 +155,7 @@ import {
 import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { loadMyPremiumAssets } from "../src/services/premiumService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
 import { applyWalletFromSources, refreshWalletBalance } from "../src/store/walletStore";
@@ -1516,6 +1517,9 @@ export default function VoiceParty() {
     chatFrame: null,
     logo: null,
   });
+  // The logged-in user's own premium tier logo — same badge shown on the
+  // Profile tab, wherever this room shows the current user's own VIP logo.
+  const [myPremiumLogo, setMyPremiumLogo] = useState(null);
   // The logged-in user's own gamification level — same value shown on the
   // Profile tab's level badge, used for the room's mini profile popup.
   const [myLevel, setMyLevel] = useState(1);
@@ -2462,6 +2466,12 @@ export default function VoiceParty() {
           if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
         } catch (e) {
           console.log("[VoiceParty] myVipAssets load threw:", e?.message ?? e);
+        }
+        try {
+          const premiumAssets = await loadMyPremiumAssets();
+          if (!cancelled) setMyPremiumLogo(premiumAssets?.logo ?? null);
+        } catch {
+          // Non-critical — badge just stays hidden.
         }
         let session;
         if (isRandomParty) {
@@ -6265,6 +6275,11 @@ export default function VoiceParty() {
               ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl)]
               : null
         }
+        premiumLogoSource={
+          // Premium is fetched only for the current user (GET /users/me/ui-assets
+          // has no per-other-user equivalent), so this only ever shows for self.
+          isSameUser(profilePopupUser?.id, myUserId) ? myPremiumLogo : null
+        }
         badgeSource={
           userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ?? null
         }
@@ -6823,6 +6838,10 @@ export default function VoiceParty() {
                           ? rowDecorationBadge
                           : null)
                     : null;
+                  // Premium (like VIP) is only ever known for the current user —
+                  // no per-other-user premium data is available from this list.
+                  const rowPremiumLogoSource =
+                    isRowSelf && myPremiumLogo ? { uri: myPremiumLogo } : null;
                   return (
                     <TouchableOpacity
                       key={uId ?? `active-user-${idx}`}
@@ -6875,6 +6894,11 @@ export default function VoiceParty() {
                           />
                           <AutoBadgeImage
                             source={rowVipLogoSource}
+                            style={styles.activeUserVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={rowPremiumLogoSource}
                             style={styles.activeUserVipBadge}
                             resizeMode="contain"
                           />
@@ -7814,6 +7838,10 @@ export default function VoiceParty() {
                           ? senderDecorationBadge
                           : null)
                     : null;
+                  // Premium (like VIP) is only ever known for the current user —
+                  // no per-other-sender premium data is available on `msg`.
+                  const senderPremiumLogoSource =
+                    isSenderSelf && myPremiumLogo ? { uri: myPremiumLogo } : null;
                   // Trimmed whole-image chat frame for this sender's tier (keyed
                   // by tier number, not by URL — the URL can vary once the real
                   // API is wired up). Falls back to the raw remote asset (old
@@ -7968,6 +7996,11 @@ export default function VoiceParty() {
                           />
                           <AutoBadgeImage
                             source={senderVipLogoSource}
+                            style={styles.chatVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={senderPremiumLogoSource}
                             style={styles.chatVipBadge}
                             resizeMode="contain"
                           />

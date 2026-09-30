@@ -29,6 +29,7 @@ import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { fetchVipProfileFrameForUser } from "../src/services/vipService";
 import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
+import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
 const { width: W } = Dimensions.get("window");
@@ -73,6 +74,7 @@ export default function RoomUserProfilePopup({
   frameSource = null,
   frameLayout = null,
   logoSource = null,
+  premiumLogoSource = null,
   badgeSource = null,
   levelBadgeSource = null,
   loading = false,
@@ -155,6 +157,13 @@ export default function RoomUserProfilePopup({
 
   const frameUrlString =
     typeof frameSource === "string" ? frameSource : frameSource?.uri ?? null;
+  // The decoration frame (banner above + flourish below the circular
+  // opening) renders much taller than a plain ring at frameScale 1.6 — push
+  // the avatar block up and give the card extra top padding so it clears
+  // the name/ID text below instead of overlapping it.
+  const isDecorationFrame = frameLayout === DECORATION_FRAME_LAYOUT;
+  const avatarTopOverflow = isDecorationFrame ? s(55) : 0;
+  const avatarBottomOverflow = isDecorationFrame ? s(48) : 0;
   const resolvedVipLogo =
     logoSource ??
     user?.vipLogo ??
@@ -224,11 +233,17 @@ export default function RoomUserProfilePopup({
             styles.sheetContainer,
             {
               paddingBottom: Math.max(insets.bottom, vs(16)) + vs(8),
+              paddingTop: AVATAR_SIZE / 2 + vs(16) + avatarBottomOverflow,
             },
           ]}
         >
           {/* Centered Overlapping Avatar: Half outer and half inside modal at top center */}
-          <View style={styles.avatarOverlapContainer}>
+          <View
+            style={[
+              styles.avatarOverlapContainer,
+              { top: -(AVATAR_SIZE / 2) - avatarTopOverflow },
+            ]}
+          >
             <View style={styles.avatarGlowWrapper}>
               <ProfileAvatarWithFrame
                 user={user}
@@ -361,6 +376,13 @@ export default function RoomUserProfilePopup({
                   <ProfileBadge
                     source={resolvedVipLogo}
                     aspectRatio={PROFILE_BADGE_ASPECT.vip}
+                  />
+                )}
+                {premiumLogoSource && (
+                  <ProfileBadge
+                    source={premiumLogoSource}
+                    aspectRatio={PROFILE_BADGE_ASPECT.vip}
+                    style={styles.premiumLogoBadge}
                   />
                 )}
                 {resolvedBadgeSource && (
@@ -662,6 +684,10 @@ const styles = StyleSheet.create({
     gap: s(6),
     marginTop: vs(8),
     marginBottom: vs(2),
+  },
+  premiumLogoBadge: {
+    height: PROFILE_BADGE_HEIGHT * 1.3,
+    width: PROFILE_BADGE_HEIGHT * 1.3,
   },
   bottomButtonsRow: {
     flexDirection: "row",
