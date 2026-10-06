@@ -6,7 +6,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
 import {
   AlertCircle,
-  BadgeCheck,
   Ban,
   Crown,
   LayoutGrid,
@@ -174,7 +173,7 @@ import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureAnimationModal from "./TreasureAnimationModal";
 import TreasureBoxModal from "./TreasureBoxModal";
 import TreasureWinnersModal from "./TreasureWinnersModal";
-import TreasureAnimationModal from "./TreasureAnimationModal";
+import MiniMusicPlayer from "./MiniMusicPlayer";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
@@ -1624,6 +1623,7 @@ export default function VoiceParty() {
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
   const [selectedGift, setSelectedGift] = useState(null);
+  const [backpackSelectedGifts, setBackpackSelectedGifts] = useState([]);
   const [giftQty, setGiftQty] = useState(1);
   const [purchaseGift, setPurchaseGift] = useState(null);
   const [backpackGifts, setBackpackGifts] = useState([]);
@@ -1661,19 +1661,37 @@ export default function VoiceParty() {
   );
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [isMusicPaused, setIsMusicPaused] = useState(false);
+  const [musicPlaylist, setMusicPlaylist] = useState([]);
+  const [currentMusicIndex, setCurrentMusicIndex] = useState(0);
+  const [showMusicPlaylist, setShowMusicPlaylist] = useState(false);
   const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
 
   useEffect(() => {
     if (typeof agoraVoice.subscribeAudioMixing !== 'function') return;
-    const unsub = agoraVoice.subscribeAudioMixing(({ state }) => {
-      // 714 = AudioMixingStateCompleted. Ignore 710 (Stopped) as it fires when loading a new file.
-      if (state === 714 || state === 'COMPLETED') {
-        setIsMusicPlaying(false);
-        setIsMusicPaused(false);
+    const unsub = agoraVoice.subscribeAudioMixing(({ state, reason }) => {
+      // state 713 = Stopped. reason 721 = OneLoopCompleted, 723 = AllLoopsCompleted, 724 = StoppedByUser
+      if (
+        reason === 721 || 
+        reason === 723 || 
+        ((state === 713 || state === 'COMPLETED' || state === 'STOPPED') && reason !== 724)
+      ) {
+        DeviceEventEmitter.emit('AUDIO_MIXING_COMPLETED');
       }
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('AUDIO_MIXING_COMPLETED', () => {
+      // If there are more songs left, play next. Otherwise, stop and show play icon.
+      if (musicPlaylist && musicPlaylist.length > 1 && currentMusicIndex < musicPlaylist.length - 1) {
+        handleNextMusic();
+      } else {
+        setIsMusicPaused(true);
+      }
+    });
+    return () => sub.remove();
+  }, [musicPlaylist, currentMusicIndex, handleNextMusic]);
   const [welcomeDraft, setWelcomeDraft] = useState("");
 
   const videoPlayer = useVideoPlayer(null, (p) => {
@@ -3276,6 +3294,7 @@ export default function VoiceParty() {
       const result = await DocumentPicker.getDocumentAsync({
         type: "audio/*",
         copyToCacheDirectory: false,
+        multiple: true,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         if (onMic && isMicMuted && roomId && mySeatNumber) {
@@ -3286,6 +3305,9 @@ export default function VoiceParty() {
           }
         }
 
+        setMusicPlaylist(result.assets);
+        setCurrentMusicIndex(0);
+
         const localUri = result.assets[0].uri;
         agoraVoice.playAudioForEveryone(localUri);
         setIsMusicPlaying(true);
@@ -3295,6 +3317,20 @@ export default function VoiceParty() {
       console.error("Audio selection error:", err);
     }
   }, [onMic, isMicMuted, roomId, mySeatNumber]);
+
+  const handleNextMusic = useCallback(() => {
+    if (musicPlaylist.length > 0) {
+      let nextIndex = currentMusicIndex + 1;
+      if (nextIndex >= musicPlaylist.length) {
+        nextIndex = 0; // loop back to start
+      }
+      setCurrentMusicIndex(nextIndex);
+      const nextUri = musicPlaylist[nextIndex].uri;
+      agoraVoice.playAudioForEveryone(nextUri);
+      setIsMusicPlaying(true);
+      setIsMusicPaused(false);
+    }
+  }, [musicPlaylist, currentMusicIndex]);
 
   const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
@@ -4308,19 +4344,23 @@ export default function VoiceParty() {
   }, [activePkBattle?.id, activePkBattle?.status, activePkBattle?.endsAt]);
 
   const handleSendBackpackGift = async () => {
-    if (!selectedGift) {
-      Alert.alert("Select a gift", "Choose a gift from your backpack first.");
+    if (backpackSelectedGifts.length === 0) {
+      Alert.alert("Select a gift", "Choose at least one gift from your backpack first.");
       return;
     }
 
-    const owned = findInventoryGift(backpackGifts, selectedGift);
     const qty = Math.max(1, Number(giftQty) || 1);
 
-    const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
-    const hasBackpackStock = ownedQty >= qty;
-    const totalCost = Math.max(0, Number(selectedGift.price ?? 0)) * qty;
+    let totalCost = 0;
+    let allInStock = true;
+    for (const g of backpackSelectedGifts) {
+       const owned = findInventoryGift(backpackGifts, g);
+       const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
+       if (ownedQty < qty) allInStock = false;
+       totalCost += Math.max(0, Number(g.price ?? 0)) * qty;
+    }
 
-    if (!hasBackpackStock && totalCost > 0 && walletDiamonds < totalCost) {
+    if (!allInStock && totalCost > 0 && walletDiamonds < totalCost) {
       Alert.alert(
         "Not enough diamonds",
         `You need 💎 ${formatGiftPrice(totalCost)} but only have 💎 ${formatGiftPrice(walletDiamonds)}.`,
@@ -4354,75 +4394,90 @@ export default function VoiceParty() {
         user?.name ?? user?.username ?? user?.nickname ?? "You";
       const senderAvatar =
         user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null;
-      const giftText = `sent ${selectedGift.emoji} ${selectedGift.name} ×${qty}`;
 
-      const result = await sendPartyRoomGift({
-        roomId,
-        gift: owned ?? selectedGift,
-        receiverId,
-        quantity: qty,
-        senderName,
-        backpackQty: ownedQty,
-      });
+      let optimisticInventory = [...backpackGifts];
+      
+      for (const g of backpackSelectedGifts) {
+        const owned = findInventoryGift(backpackGifts, g);
+        const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
+        const hasBackpackStock = ownedQty >= qty;
+        
+        const giftText = `sent ${g.emoji} ${g.name} ×${qty}`;
 
-      const optimisticInventory = hasBackpackStock
-        ? adjustInventoryQty(backpackGifts, owned ?? selectedGift, -qty)
-        : backpackGifts;
-
-      let inventory = await loadGiftInventory();
-      inventory = reconcileInventory(inventory, optimisticInventory, {
-        preferLowerQty: hasBackpackStock,
-      });
-      setBackpackGifts(inventory);
-
-      const remaining = findInventoryGift(inventory, selectedGift);
-      setSelectedGift(remaining?.qty > 0 ? remaining : null);
-      await refreshWalletBalance();
-
-      revealGiftAnimation(
-        {
-          ...result,
-          senderName,
-          senderAvatar,
-          receiverName: giftReceiverName,
-        },
-        {
-          ...selectedGift,
-          senderName,
-          senderAvatar,
-          receiverName: giftReceiverName,
+        const result = await sendPartyRoomGift({
+          roomId,
+          gift: owned ?? g,
+          receiverId,
           quantity: qty,
-        },
-      );
+          senderName,
+          backpackQty: ownedQty,
+        });
 
-      const localMsg = createLocalChatMessage({
-        text: giftText,
-        user: senderName,
-        avatar: senderAvatar,
-        extra: {
-          userId: myUserId,
-          diamonds: Number(selectedGift.price ?? 0) * qty,
-          isGift: true,
-          pending: false,
-        },
-      });
+        if (hasBackpackStock) {
+          optimisticInventory = adjustInventoryQty(optimisticInventory, owned ?? g, -qty);
+        }
 
-      setMessages((prev) => [...prev, localMsg]);
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+        revealGiftAnimation(
+          {
+            ...result,
+            senderName,
+            senderAvatar,
+            receiverName: giftReceiverName,
+          },
+          {
+            ...g,
+            senderName,
+            senderAvatar,
+            receiverName: giftReceiverName,
+            quantity: qty,
+          },
+        );
 
-      if (roomId) {
-        try {
-          wsService.sendRoomMessage(String(roomId), giftText);
-        } catch {
-          // Chat message already added locally.
+        const localMsg = createLocalChatMessage({
+          text: giftText,
+          user: senderName,
+          avatar: senderAvatar,
+          extra: {
+            userId: myUserId,
+            diamonds: Number(g.price ?? 0) * qty,
+            isGift: true,
+            pending: false,
+          },
+        });
+
+        setMessages((prev) => [...prev, localMsg]);
+        
+        if (roomId) {
+          try {
+            wsService.sendRoomMessage(String(roomId), giftText);
+          } catch {
+            // Chat message already added locally.
+          }
         }
       }
 
-      setSelectedGift(null);
+      let inventory = await loadGiftInventory();
+      inventory = reconcileInventory(inventory, optimisticInventory, {
+        preferLowerQty: true,
+      });
+      setBackpackGifts(inventory);
+
+      const newSelected = backpackSelectedGifts.filter(g => {
+         const rem = findInventoryGift(inventory, g);
+         return rem?.qty > 0;
+      });
+      setBackpackSelectedGifts(newSelected);
+
+      await refreshWalletBalance();
+
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+
+      if (newSelected.length === 0) {
+        setShowBackpack(false);
+        setShowGiftPanel(false);
+        setShowGiftReceiverPicker(false);
+      }
       setGiftQty(1);
-      setShowBackpack(false);
-      setShowGiftPanel(false);
-      setShowGiftReceiverPicker(false);
     } catch (err) {
       Alert.alert("Send failed", err?.message || "Could not send gift.");
     }
@@ -5434,11 +5489,18 @@ export default function VoiceParty() {
                               key={gift.id}
                               style={[
                                 styles.bpGiftCard,
-                                giftsMatch(selectedGift, gift) &&
+                                backpackSelectedGifts.some(g => giftsMatch(g, gift)) &&
                                 styles.bpGiftCardSelected,
                               ]}
                               activeOpacity={0.8}
-                              onPress={() => setSelectedGift(gift)}
+                              onPress={() => {
+                                setBackpackSelectedGifts((prev) => {
+                                  if (prev.some(g => giftsMatch(g, gift))) {
+                                    return prev.filter(g => !giftsMatch(g, gift));
+                                  }
+                                  return [...prev, gift];
+                                });
+                              }}
                             >
                               <View style={styles.bpGiftQtyBadge}>
                                 <Text style={styles.bpGiftQtyBadgeText}>
@@ -5987,6 +6049,59 @@ export default function VoiceParty() {
           }
         }}
       />
+
+      <Modal
+        visible={showMusicPlaylist}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowMusicPlaylist(false)}
+      >
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{ backgroundColor: '#222', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '60%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+              <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>Music Queue</Text>
+              <TouchableOpacity onPress={() => setShowMusicPlaylist(false)}>
+                <X size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {musicPlaylist.length === 0 ? (
+                <Text style={{ color: '#aaa', textAlign: 'center', padding: 20 }}>No songs selected.</Text>
+              ) : (
+                musicPlaylist.map((item, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 12,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#333'
+                    }}
+                    onPress={() => {
+                      setCurrentMusicIndex(index);
+                      agoraVoice.playAudioForEveryone(item.uri);
+                      setIsMusicPlaying(true);
+                      setIsMusicPaused(false);
+                    }}
+                  >
+                    <View style={{ width: 30 }}>
+                      {index === currentMusicIndex ? (
+                        <Play size={16} color="#ff5722" fill="#ff5722" />
+                      ) : (
+                        <Text style={{ color: '#888' }}>{index + 1}</Text>
+                      )}
+                    </View>
+                    <Text style={{ color: index === currentMusicIndex ? '#ff5722' : 'white', flex: 1 }} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <TreasureWinnersModal
         visible={Boolean(treasureUnlockEvent)}
@@ -6617,17 +6732,17 @@ export default function VoiceParty() {
                       : null;
                   const rowVipLogoSource = rowVipLogo
                     ? (typeof rowVipLogo === "string" && rowVipLogo.trim().length > 0
-                        ? { uri: rowVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
-                        : (typeof rowVipLogo === "number" || (typeof rowVipLogo === "object" && rowVipLogo?.uri))
-                          ? rowVipLogo
-                          : null)
+                      ? { uri: rowVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
+                      : (typeof rowVipLogo === "number" || (typeof rowVipLogo === "object" && rowVipLogo?.uri))
+                        ? rowVipLogo
+                        : null)
                     : null;
                   const rowDecorationBadgeSource = rowDecorationBadge
                     ? (typeof rowDecorationBadge === "string" && rowDecorationBadge.trim().length > 0
-                        ? { uri: rowDecorationBadge.trim() }
-                        : (typeof rowDecorationBadge === "number" || (typeof rowDecorationBadge === "object" && rowDecorationBadge?.uri))
-                          ? rowDecorationBadge
-                          : null)
+                      ? { uri: rowDecorationBadge.trim() }
+                      : (typeof rowDecorationBadge === "number" || (typeof rowDecorationBadge === "object" && rowDecorationBadge?.uri))
+                        ? rowDecorationBadge
+                        : null)
                     : null;
                   return (
                     <TouchableOpacity
@@ -7207,38 +7322,6 @@ export default function VoiceParty() {
           </TouchableOpacity>
 
           <View style={styles.headerRight}>
-            {isHostSelf && isMusicPlaying && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 20, paddingHorizontal: 4 }}>
-                <TouchableOpacity
-                  style={{ padding: 6 }}
-                  onPress={() => {
-                    if (isMusicPaused) {
-                      if (typeof agoraVoice.resumeAudioForEveryone === 'function') agoraVoice.resumeAudioForEveryone();
-                      setIsMusicPaused(false);
-                    } else {
-                      if (typeof agoraVoice.pauseAudioForEveryone === 'function') agoraVoice.pauseAudioForEveryone();
-                      setIsMusicPaused(true);
-                    }
-                  }}
-                >
-                  {isMusicPaused ? (
-                    <Play size={16} color="white" fill="white" />
-                  ) : (
-                    <Pause size={16} color="white" fill="white" />
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={{ padding: 6 }}
-                  onPress={() => {
-                    agoraVoice.stopAudioForEveryone();
-                    setIsMusicPlaying(false);
-                    setIsMusicPaused(false);
-                  }}
-                >
-                  <X size={16} color="white" />
-                </TouchableOpacity>
-              </View>
-            )}
             <TouchableOpacity
               style={styles.headerBtn}
               activeOpacity={0.8}
@@ -7594,17 +7677,17 @@ export default function VoiceParty() {
                       : null;
                   const senderVipLogoSource = senderVipLogo
                     ? (typeof senderVipLogo === "string" && senderVipLogo.trim().length > 0
-                        ? { uri: senderVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
-                        : (typeof senderVipLogo === "number" || (typeof senderVipLogo === "object" && senderVipLogo?.uri))
-                          ? senderVipLogo
-                          : null)
+                      ? { uri: senderVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
+                      : (typeof senderVipLogo === "number" || (typeof senderVipLogo === "object" && senderVipLogo?.uri))
+                        ? senderVipLogo
+                        : null)
                     : null;
                   const senderDecorationBadgeSource = senderDecorationBadge
                     ? (typeof senderDecorationBadge === "string" && senderDecorationBadge.trim().length > 0
-                        ? { uri: senderDecorationBadge.trim() }
-                        : (typeof senderDecorationBadge === "number" || (typeof senderDecorationBadge === "object" && senderDecorationBadge?.uri))
-                          ? senderDecorationBadge
-                          : null)
+                      ? { uri: senderDecorationBadge.trim() }
+                      : (typeof senderDecorationBadge === "number" || (typeof senderDecorationBadge === "object" && senderDecorationBadge?.uri))
+                        ? senderDecorationBadge
+                        : null)
                     : null;
                   // Trimmed whole-image chat frame for this sender's tier (keyed
                   // by tier number, not by URL — the URL can vary once the real
@@ -8031,6 +8114,29 @@ export default function VoiceParty() {
                 </ScrollView>
               )}
             </View>
+          )}
+
+          {isHostSelf && isMusicPlaying && (
+            <MiniMusicPlayer 
+              isPlaying={!isMusicPaused}
+              onTogglePlay={() => {
+                if (isMusicPaused) {
+                  if (typeof agoraVoice.resumeAudioForEveryone === 'function') agoraVoice.resumeAudioForEveryone();
+                  setIsMusicPaused(false);
+                } else {
+                  if (typeof agoraVoice.pauseAudioForEveryone === 'function') agoraVoice.pauseAudioForEveryone();
+                  setIsMusicPaused(true);
+                }
+              }}
+              onClose={() => {
+                agoraVoice.stopAudioForEveryone();
+                setIsMusicPlaying(false);
+                setIsMusicPaused(false);
+                setMusicPlaylist([]);
+              }}
+              onNext={handleNextMusic}
+              onOpenPlaylist={() => setShowMusicPlaylist(true)}
+            />
           )}
 
           {/* Bottom icon bar — always visible except on Android when typing to avoid adjustPan overlay issues */}

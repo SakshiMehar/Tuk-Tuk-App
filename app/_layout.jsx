@@ -24,6 +24,7 @@ import {
   setPendingDeepLink,
 } from "../src/utils/deepLinkUtils";
 import { getActiveRoomId } from "../src/services/partyVoiceService";
+import { CallProvider } from "../src/context/CallContext";
 
 LogBox.ignoreAllLogs();
 // ── Global font-scale guard ────────────────────────────────────────────────
@@ -145,13 +146,14 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: Colors.background },
-          animation: "slide_from_right",
-        }}
-      >
+      <CallProvider>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: Colors.background },
+            animation: "slide_from_right",
+          }}
+        >
         <Stack.Screen name="index" />
         <Stack.Screen name="login" />
         <Stack.Screen name="(tabs)" />
@@ -169,7 +171,8 @@ export default function RootLayout() {
         <Stack.Screen name="blocked-accounts" />
         <Stack.Screen name="message-notification" />
         <Stack.Screen name="room/[roomId]" />
-      </Stack>
+        </Stack>
+      </CallProvider>
     </SafeAreaProvider>
   );
 }

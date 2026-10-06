@@ -12,12 +12,11 @@ import {
   MoreHorizontal,
   Pause,
   Phone,
-  Shield,
-  Sparkles,
   PhoneCall,
   PhoneOff,
   Play,
   Send,
+  Sparkles,
   UserPlus,
   Volume2,
   VolumeX,
@@ -38,21 +37,30 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getUserUiAssets } from "../src/api/uiAssetsApi";
 import { uploadChatMedia } from "../src/api/chatApi";
+import { getUserUiAssets } from "../src/api/uiAssetsApi";
 import Colors from "../src/constants/colors";
+import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
+import { useCallContext } from "../src/context/CallContext";
 import { getAvatarSource, isBundledAvatarId } from "../src/data/avatarOptions";
 import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
-import { destroyCallEngine, leaveCall, requestPermissions, startCall, subscribeCallStatus, toggleLocalAudio, toggleSpeakerphone } from "../src/services/agoraCallService";
+import { toggleLocalAudio, toggleSpeakerphone } from "../src/services/agoraCallService";
 import { formatChatTime, loadChatHistory, markChatAsRead } from "../src/services/chatService";
-import { wsService } from "../src/services/websocket";
-import { openUserProfile } from "../src/utils/profileNavigation";
 import { fetchUserDecorations } from "../src/services/decorationsService";
-import { getAppUserId } from "../src/utils/sessionUser";
-import { parseRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import { getActiveRoomId } from "../src/services/partyVoiceService";
+import { wsService } from "../src/services/websocket";
+import { parseRoomInviteMessage } from "../src/utils/deepLinkUtils";
+import { openUserProfile } from "../src/utils/profileNavigation";
+import { getAppUserId } from "../src/utils/sessionUser";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 const NEW_START_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/newstart-batch.png" };
+
+// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
+// appears (UserProfileView, RoomUserProfilePopup) — built the same way here
+// for the header identity badge row.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
+);
 
 const { width: W } = Dimensions.get("window");
 const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", "😡", "👍", "🙏", "🎉", "❤️"];
@@ -195,6 +203,7 @@ export default function ChatBox({ user = {}, onBack }) {
     name = "User",
     avatar = null,
     lastMsg = "",
+    level = null,
   } = user;
   const router = useRouter();
   const handleAvatarPress = () => {
@@ -281,17 +290,12 @@ export default function ChatBox({ user = {}, onBack }) {
   const recordingRef = useRef(null);
   const recordingIntervalRef = useRef(null);
 
-  const [callState, setCallState] = useState({
-    status: "IDLE", // IDLE, INCOMING, OUTGOING, CONNECTED
-    callType: null, // 'audio' | 'video'
-    channelId: null,
-    agoraState: { joined: false, localAudioEnabled: true, localVideoEnabled: true, remoteUid: 0 }
-  });
+  const { callState, initiateCall, acceptCall, rejectCall, endCall } = useCallContext();
   const [callDuration, setCallDuration] = useState(0);
 
   useEffect(() => {
     let interval = null;
-    if (callState.status === "CONNECTED") {
+    if (callState?.status === "CONNECTED") {
       interval = setInterval(() => {
         setCallDuration((prev) => prev + 1);
       }, 1000);
@@ -302,7 +306,7 @@ export default function ChatBox({ user = {}, onBack }) {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [callState.status]);
+  }, [callState?.status]);
 
   const formatCallDuration = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -310,68 +314,10 @@ export default function ChatBox({ user = {}, onBack }) {
     return `${mins < 10 ? "0" : ""}${mins}:${secs < 10 ? "0" : ""}${secs}`;
   };
 
-  useEffect(() => {
-    const unsub = subscribeCallStatus((status) => {
-      setCallState((prev) => ({ ...prev, agoraState: status }));
-    });
-    return () => {
-      unsub();
-      destroyCallEngine();
-    };
-  }, []);
-
-  const initiateCall = async (type) => {
-    const granted = await requestPermissions(type === 'video');
-    if (!granted) return Alert.alert("Permission required", "Microphone and Camera access are needed for calling.");
-
-    const sortedIds = [String(myUserId), String(userId)].sort();
-    const channel = `call_${sortedIds[0]}_${sortedIds[1]}`;
-
-    setCallState(prev => ({ ...prev, status: "OUTGOING", callType: type, channelId: channel }));
-    wsService.sendCallSignal(String(userId), "OFFER", type, channel);
-    startCall({ channelId: channel, uid: 0, isVideo: type === 'video' });
-  };
-
-  const endCallLocal = () => {
-    leaveCall();
-    setCallState({ status: "IDLE", callType: null, channelId: null, agoraState: { joined: false, localAudioEnabled: true, localVideoEnabled: true, remoteUid: 0 } });
-  };
-
-  const handleCallSignal = (payload) => {
-    const { callSignalType, callType, callChannelId } = payload;
-
-    if (callSignalType === "OFFER") {
-      setCallState(prev => {
-        if (prev.status !== "IDLE") return prev; // already busy
-        return { ...prev, status: "INCOMING", callType, channelId: callChannelId };
-      });
-    } else if (callSignalType === "ANSWER") {
-      setCallState(prev => ({ ...prev, status: "CONNECTED" }));
-    } else if (callSignalType === "REJECT" || callSignalType === "END") {
-      endCallLocal();
+  const handleInitiateCall = (type) => {
+    if (initiateCall) {
+      initiateCall(type, userId);
     }
-  };
-
-  const acceptCall = async () => {
-    const granted = await requestPermissions(callState.callType === 'video');
-    if (!granted) {
-      wsService.sendCallSignal(String(userId), "REJECT", callState.callType, callState.channelId);
-      endCallLocal();
-      return Alert.alert("Permission required", "Microphone and Camera access are needed for calling.");
-    }
-    wsService.sendCallSignal(String(userId), "ANSWER", callState.callType, callState.channelId);
-    setCallState(prev => ({ ...prev, status: "CONNECTED" }));
-    startCall({ channelId: callState.channelId, uid: 0, isVideo: callState.callType === 'video' });
-  };
-
-  const rejectCall = () => {
-    wsService.sendCallSignal(String(userId), "REJECT", callState.callType, callState.channelId);
-    endCallLocal();
-  };
-
-  const endCall = () => {
-    wsService.sendCallSignal(String(userId), "END", callState.callType, callState.channelId);
-    endCallLocal();
   };
 
   const mapApiMessage = (m, currentUserId) => ({
@@ -401,7 +347,7 @@ export default function ChatBox({ user = {}, onBack }) {
           .filter((m) => !m.text.startsWith("__CALL_SIGNAL__|"))
       );
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
-      markChatAsRead(userId).catch(() => {});
+      markChatAsRead(userId).catch(() => { });
     } catch {
       setHistoryError(true);
     } finally {
@@ -502,23 +448,15 @@ export default function ChatBox({ user = {}, onBack }) {
       const image = payload?.image ?? payload?.media?.find(m => (m.type === 'IMAGE' || m.mediaType === 'IMAGE'))?.url ?? payload?.media?.find(m => (m.type === 'IMAGE' || m.mediaType === 'IMAGE'))?.mediaUrl ?? null;
       const audio = payload?.audio ?? payload?.audioUrl ?? payload?.media?.find(m => (m.type === 'AUDIO' || m.mediaType === 'AUDIO'))?.url ?? payload?.media?.find(m => (m.type === 'AUDIO' || m.mediaType === 'AUDIO'))?.mediaUrl ?? null;
       const audioDuration = payload?.audioDuration ?? 0;
-      
+
       console.log("[ChatBox] onMessage parsed image:", image, "audio:", audio);
 
       // Check if this is a call signal embedded in the message
       if (text && text.startsWith("__CALL_SIGNAL__|")) {
-        const parts = text.split("|");
-        const signalPayload = {
-          callSignalType: parts[1],
-          callType: parts[2],
-          callChannelId: parts[3]
-        };
-        handleCallSignal(signalPayload);
         return;
       }
 
       if (payload?.callSignalType) {
-        handleCallSignal(payload);
         return;
       }
 
@@ -534,8 +472,8 @@ export default function ChatBox({ user = {}, onBack }) {
         // If the server echoes our own message back, replace the optimistic
         // pending entry. For media messages, ignore text if image/audio match.
         const isMatch = (m) => m._pending && fromMe && (
-          (image && m.image === image) || 
-          (audio && m.audio === audio) || 
+          (image && m.image === image) ||
+          (audio && m.audio === audio) ||
           (!image && !audio && m.text === text)
         );
 
@@ -621,7 +559,7 @@ export default function ChatBox({ user = {}, onBack }) {
     try {
       const response = await uploadChatMedia(localUri, 'image/jpeg');
       const imageUrl = response?.media?.find(m => m.type === 'IMAGE')?.url || response?.media?.[0]?.url || response?.url;
-      
+
       if (imageUrl) {
         wsService.sendMessage(String(userId), "", response);
         setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, image: imageUrl, _pending: true } : m));
@@ -697,7 +635,7 @@ export default function ChatBox({ user = {}, onBack }) {
     try {
       const response = await uploadChatMedia(localUri, 'audio/m4a');
       const audioUrl = response?.media?.find(m => m.type === 'AUDIO')?.url || response?.media?.[0]?.url || response?.url;
-      
+
       if (audioUrl) {
         wsService.sendMessage(String(userId), "", { ...response, audioDuration: durationMs });
         setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, audio: audioUrl, _pending: true } : m));
@@ -731,6 +669,11 @@ export default function ChatBox({ user = {}, onBack }) {
     return () => clearTimeout(timer);
   }, [isKeyboardVisible, message]);
 
+  // Header identity badge row — VIP logo (tier derived from the
+  // already-fetched otherUserVipFrame) + decoration badge.
+  const headerVipTier = resolveVipTierFromAssetUrl(otherUserVipFrame);
+  const headerVipLogo = headerVipTier != null ? VIP_LOGO_BY_TIER[headerVipTier] : null;
+
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
@@ -742,13 +685,22 @@ export default function ChatBox({ user = {}, onBack }) {
         </TouchableOpacity>
         <View style={styles.headerNameRow}>
           <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
-          {otherUserDecorationBadge && (
+          {(headerVipLogo || otherUserDecorationBadge) && (
             <View style={styles.headerBadgeRow}>
-              <Image
-                source={{ uri: otherUserDecorationBadge }}
-                style={styles.headerDecorationBadge}
-                resizeMode="contain"
-              />
+              {headerVipLogo && (
+                <Image
+                  source={{ uri: headerVipLogo }}
+                  style={styles.headerVipBadge}
+                  resizeMode="contain"
+                />
+              )}
+              {otherUserDecorationBadge && (
+                <Image
+                  source={{ uri: otherUserDecorationBadge }}
+                  style={styles.headerDecorationBadge}
+                  resizeMode="contain"
+                />
+              )}
             </View>
           )}
         </View>
@@ -956,8 +908,8 @@ export default function ChatBox({ user = {}, onBack }) {
                             (msg.image || msg.imageUrl)
                               ? ["transparent", "transparent"]
                               : inviteInfo.isRoomInvite
-                              ? ["#2e1065", "#4c1d95"]
-                              : [Colors.primary, Colors.secondary]
+                                ? ["#2e1065", "#4c1d95"]
+                                : [Colors.primary, Colors.secondary]
                           }
                           style={[
                             styles.msgBubbleGrad,
@@ -1009,7 +961,7 @@ export default function ChatBox({ user = {}, onBack }) {
                                 </LinearGradient>
                               </TouchableOpacity>
                             </View>
-                          ) : msg.text && !( (msg.image || msg.audio) && (msg.text === "📷 Image" || msg.text === "🎵 Audio" || msg.text === " ") ) ? (
+                          ) : msg.text && !((msg.image || msg.audio) && (msg.text === "📷 Image" || msg.text === "🎵 Audio" || msg.text === " ")) ? (
                             <Text style={styles.msgTextMe}>{msg.text}</Text>
                           ) : null}
 
@@ -1034,14 +986,21 @@ export default function ChatBox({ user = {}, onBack }) {
                         </LinearGradient>
                       ) : (
                         <View>
-                          {/* NEW STAR badge row */}
-                          {otherUserHasNewFrame && (
+                          {/* Lv. badge + NEW STAR badge row */}
+                          {(level != null || otherUserHasNewFrame) && (
                             <View style={styles.msgBadgeRow}>
-                              <Image
-                                source={NEW_START_BADGE}
-                                style={styles.msgNewStarBadge}
-                                resizeMode="contain"
-                              />
+                              {level != null && (
+                                <View style={styles.msgLvBadge}>
+                                  <Text style={styles.msgLvText}>Lv.{level}</Text>
+                                </View>
+                              )}
+                              {otherUserHasNewFrame && (
+                                <Image
+                                  source={NEW_START_BADGE}
+                                  style={styles.msgNewStarBadge}
+                                  resizeMode="contain"
+                                />
+                              )}
                             </View>
                           )}
                           <View
@@ -1098,7 +1057,7 @@ export default function ChatBox({ user = {}, onBack }) {
                                   </LinearGradient>
                                 </TouchableOpacity>
                               </View>
-                            ) : msg.text && !( (msg.image || msg.audio) && (msg.text === "📷 Image" || msg.text === "🎵 Audio" || msg.text === " ") ) ? (
+                            ) : msg.text && !((msg.image || msg.audio) && (msg.text === "📷 Image" || msg.text === "🎵 Audio" || msg.text === " ")) ? (
                               <Text style={styles.msgTextThem}>{msg.text}</Text>
                             ) : null}
 
@@ -1200,7 +1159,7 @@ export default function ChatBox({ user = {}, onBack }) {
                 { icon: <ImageIcon size={22} color={Colors.primary} />, label: "Gallery", action: handleGalleryPick },
                 { icon: <HelpCircle size={22} color={Colors.primary} />, label: "Help" },
                 { icon: <Gift size={22} color={Colors.accentGold || Colors.accentGold} />, label: "Gift" },
-                { icon: <Phone size={22} color={Colors.primary} />, label: "Call", action: () => initiateCall('audio') },
+                { icon: <Phone size={22} color={Colors.primary} />, label: "Call", action: () => handleInitiateCall('audio') },
               ].map((item, idx) => (
                 <TouchableOpacity
                   key={idx}
@@ -1388,6 +1347,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     flexShrink: 0,
+  },
+  headerVipBadge: {
+    width: 16,
+    height: 16,
   },
   headerDecorationBadge: {
     height: 16,
@@ -1661,6 +1624,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 3,
     gap: 2,
+  },
+  msgLvBadge: {
+    backgroundColor: Colors.accentGold || "#fde047",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  msgLvText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold",
   },
   msgNewStarBadge: {
     width: 52,

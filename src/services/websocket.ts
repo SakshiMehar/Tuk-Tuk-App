@@ -243,13 +243,22 @@ class WebSocketService {
     this.connectPromise = new Promise<void>((resolve, reject) => {
       this.client = new Client({
         webSocketFactory: () => new SockJS(`${API_BASE_URL}/ws-tuktuk`) as unknown as WebSocket,
-        connectHeaders: {
-          Authorization: `Bearer ${token}`,
-        },
         reconnectDelay: 5000,
         heartbeatIncoming: 10000,
         heartbeatOutgoing: 10000,
         debug: () => { },
+        beforeConnect: () => {
+          return new Promise<void>((resolveBefore) => {
+            getToken().then((freshToken) => {
+              if (freshToken) {
+                this.client!.connectHeaders = {
+                  Authorization: `Bearer ${freshToken}`,
+                };
+              }
+              resolveBefore();
+            }).catch(() => resolveBefore());
+          });
+        },
         onConnect: () => {
           this._onConnect();
           resolve();
@@ -320,6 +329,7 @@ class WebSocketService {
     this.hasConnectedOnce = true;
 
     this._subscribeUserChats();
+    this._subscribeUserCalls();
     this._sub('rooms-live', '/topic/rooms/live', this.liveRoomsHandlers);
 
     this.joinedRooms.forEach((roomId) => this._subscribeRoomTopics(roomId));
@@ -355,6 +365,24 @@ class WebSocketService {
       });
       this.subscriptions.set(key, sub);
     });
+  }
+
+  private _subscribeUserCalls(): void {
+    const key = 'user-calls';
+    if (this.subscriptions.has(key) || !this.client || !this.connected) return;
+
+    const destination = `/user/queue/call`;
+
+    const sub = this.client.subscribe(destination, (frame: IMessage) => {
+      try {
+        const payload: CallSignalPayload = JSON.parse(frame.body);
+        console.log("[WS] Received call signal payload:", payload);
+        this.callSignalHandlers.forEach((h) => h(payload));
+      } catch (err) {
+        console.error("[WS] Error parsing call signal:", err);
+      }
+    });
+    this.subscriptions.set(key, sub);
   }
 
   private _onDisconnect(): void {
@@ -524,9 +552,9 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
-  sendSeatHeartbeat(roomId: string, seatNumber: number | string): void {
+  sendSeatHeartbeat(roomId: string): void {
     this._assertConnected();
-    const destination = `/app/room/${roomId}/seat/${seatNumber}/heartbeat`;
+    const destination = `/app/room/${roomId}/seat/heartbeat`;
     this.client!.publish({ destination, body: JSON.stringify({}) });
   }
 
