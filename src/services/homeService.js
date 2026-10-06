@@ -120,8 +120,9 @@ const normalizeRecommendedUser = (user) => {
     // Explicit fallback chain (not just the `...user` spread above) so this
     // survives whichever of the raw top-level/nested `profile` shapes the
     // backend actually returns — the spread alone silently drops it whenever
-    // the real value lives under `profile` instead of top-level.
-    verified: Boolean(user?.verified ?? user?.isVerified ?? profile?.verified),
+    // the real value lives under `profile` instead of top-level. Sent as a
+    // badge asset URL (present = verified), not a boolean flag.
+    verifiedBadgeUrl: firstText(user?.verifiedBadgeUrl, profile?.verifiedBadgeUrl),
     level: firstNumber(user?.level, profile?.level),
   };
 };

@@ -41,7 +41,7 @@ import {
   loadRoomRecommendations,
   normalizeRoom
 } from "../src/services/partyService";
-import { useMyCountryFlag } from "../src/services/userCountryService";
+import { resolveCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
@@ -60,7 +60,6 @@ const VIP_LOGO_BY_TIER = Object.fromEntries(
   VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
 );
 const BADGE_ASPECT = { level: 142 / 149, verified: 438 / 179 };
-const VERIFIED_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/verified-batch.png" };
 
 const { width: W } = Dimensions.get("window");
 
@@ -196,7 +195,11 @@ function useRoomUserCount(roomId) {
 // room list API embeds host identity fields directly.
 function ExploreRoomItem({ room, onPress }) {
   const userCount = useRoomUserCount(room.id);
-  const countryFlag = useMyCountryFlag();
+  // This room's own (host's) flag — never the viewer's — so changing your
+  // own country doesn't repaint every card in the list with your flag.
+  // Falls back to no flag (the chat-bubble icon below) until the room-list
+  // API exposes a per-room country field.
+  const countryFlag = resolveCountryFlag(room);
 
   return (
     <TouchableOpacity style={styles.exploreRoomCard} activeOpacity={0.8} onPress={onPress}>
@@ -828,7 +831,7 @@ export default function PartyExplore() {
                         )}
                       </LinearGradient>
                       <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
-                      {(levelBadge || vipLogo || decorationBadge || user?.verified) && (
+                      {(levelBadge || vipLogo || decorationBadge || user?.verifiedBadgeUrl) && (
                         <View style={styles.recommendBadgeRow}>
                           {levelBadge && (
                             <Image
@@ -851,9 +854,9 @@ export default function PartyExplore() {
                               resizeMode="contain"
                             />
                           )}
-                          {user?.verified && (
+                          {user?.verifiedBadgeUrl && (
                             <Image
-                              source={VERIFIED_BADGE}
+                              source={{ uri: user.verifiedBadgeUrl }}
                               style={styles.recommendVerifiedBadge}
                               resizeMode="contain"
                             />

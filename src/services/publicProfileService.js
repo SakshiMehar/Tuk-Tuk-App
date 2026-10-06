@@ -1,4 +1,4 @@
-import { getUserById, getUserProfileDetails } from "../api/userApi";
+import { getUserById, getUserProfile, getUserProfileDetails } from "../api/userApi";
 import {
   loadRelationshipStatus,
   followUser as apiFollowUser,
@@ -25,11 +25,14 @@ const firstNumber = (...values) => {
 // GET /api/app/users/{id}/profile-details (see getUserProfileDetails)
 // when available. A missing value stays `null` ("unavailable"), it must
 // never be shown as 0.
-export const normalizePublicProfile = (data, details) => {
+export const normalizePublicProfile = (data, details, dynamicProfile) => {
   const user = data?.user ?? data?.data ?? data ?? {};
   const profile = user?.profile ?? user?.userProfile ?? user;
 
   const detailsUser = details?.user ?? details?.data ?? details ?? {};
+  // GET /api/app/users/user/profile/{userId} — the confirmed source of
+  // truth for `verified`, fetched alongside the other two above.
+  const dynamicUser = dynamicProfile?.data ?? dynamicProfile?.user ?? dynamicProfile ?? {};
 
   const userId = firstValue(
     user?.id, user?.userId, user?._id, profile?.id, profile?.userId,
@@ -58,17 +61,12 @@ export const normalizePublicProfile = (data, details) => {
       detailsUser?.introduction, detailsUser?.bio, detailsUser?.about,
       user?.bio, user?.about, user?.status, profile?.bio, profile?.about
     ),
-    // A VIP user counts as verified too — same convention as
-    // normalizeRelationshipUser (following/followers lists), where a VIP
-    // badge already implies the verified checkmark.
-    verified: Boolean(
-      user?.verified ??
-      user?.isVerified ??
-      profile?.verified ??
-      user?.vip ??
-      profile?.vip ??
-      detailsUser?.verified ??
-      detailsUser?.vip
+    // Backend sends the checkmark as an asset URL, not a boolean flag.
+    verifiedBadgeUrl: firstText(
+      dynamicUser?.verifiedBadgeUrl,
+      user?.verifiedBadgeUrl,
+      profile?.verifiedBadgeUrl,
+      detailsUser?.verifiedBadgeUrl
     ),
     vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
     age: firstNumber(user?.age, profile?.age, detailsUser?.age),
@@ -95,18 +93,22 @@ export const normalizePublicProfile = (data, details) => {
 };
 
 export const loadPublicProfile = async (userId) => {
-  const [profileResult, detailsResult, statusResult] = await Promise.allSettled([
+  const [profileResult, detailsResult, statusResult, dynamicResult] = await Promise.allSettled([
     getUserById(userId),
     getUserProfileDetails(userId),
     loadRelationshipStatus(userId),
+    getUserProfile(userId),
   ]);
 
   const detailsData =
     detailsResult.status === "fulfilled" ? detailsResult.value : null;
 
+  const dynamicData =
+    dynamicResult.status === "fulfilled" ? dynamicResult.value : null;
+
   const profile =
     profileResult.status === "fulfilled"
-      ? normalizePublicProfile(profileResult.value, detailsData)
+      ? normalizePublicProfile(profileResult.value, detailsData, dynamicData)
       : null;
 
   const status =

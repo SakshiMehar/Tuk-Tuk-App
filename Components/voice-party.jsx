@@ -94,7 +94,11 @@ import {
   isChatMediaUrl,
   stickerPacks,
 } from "../src/data/voicePartyMediaPicker";
-import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
+import {
+  getAndroidNavBarInset,
+  useKeyboardInset,
+  useModalKeyboardInset,
+} from "../src/hooks/useKeyboardInset";
 import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
 import { useWalletBalance } from "../src/hooks/useWalletBalance";
 import * as agoraVoice from "../src/services/agoraVoiceService";
@@ -157,6 +161,7 @@ import {
 import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { loadMyPremiumAssets } from "../src/services/premiumService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
 import { applyWalletFromSources, refreshWalletBalance } from "../src/store/walletStore";
@@ -193,7 +198,6 @@ Dimensions.addEventListener("change", ({ window }) => {
 const ASSETS_S3_BASE = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets";
 const TREASURE_BOX_GIF = { uri: `${ASSETS_S3_BASE}/Gift/tresurebox.gif` };
 const NEW_START_BADGE = { uri: `${ASSETS_S3_BASE}/Batches/newstart-batch.png` };
-const VERIFIED_BADGE = { uri: `${ASSETS_S3_BASE}/Batches/verified-batch.png` };
 const ROOM_HEADER_BG = require("../assets/images/roomHeaderBg.png");
 
 // Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
@@ -1039,6 +1043,33 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
   };
 };
 
+// Gift sends are echoed into room chat as "sent {emoji} {name} ×{qty} to {receiver}".
+// Room chat is the one channel every device in the room reliably receives,
+// so other clients parse this line to show the same gift banner as the sender.
+const GIFT_CHAT_PATTERN = /(?:^|\s)sent\s+(\S+)\s+(.+?)\s+×(\d+)(?:\s+to\s+(.+))?$/u;
+
+export const buildGiftChatText = ({ emoji, name, quantity, receiverName }) => {
+  const qty = Math.max(1, Number(quantity) || 1);
+  const base = `sent ${emoji || "🎁"} ${name || "Gift"} ×${qty}`;
+  return receiverName ? `${base} to ${receiverName}` : base;
+};
+
+export const parseGiftChatText = (text) => {
+  const match = GIFT_CHAT_PATTERN.exec(String(text ?? "").trim());
+  if (!match) return null;
+  return {
+    emoji: match[1],
+    name: match[2].trim(),
+    quantity: Math.max(1, Number(match[3]) || 1),
+    receiverName: match[4]?.trim() || null,
+  };
+};
+
+const giftBannerKey = (g) =>
+  [g?.senderName, g?.name ?? g?.giftName, g?.quantity ?? g?.qty ?? 1]
+    .map((v) => String(v ?? "").trim().toLowerCase())
+    .join("|");
+
 const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
   const { W: SW } = useResponsive();
 
@@ -1137,7 +1168,11 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
 
   const senderName = gift.senderName || "User";
   const qty = Math.max(1, Number(gift.quantity || gift.qty || 1));
-  const receiverText = gift.receiverName ? `to ${gift.receiverName}` : "in room";
+  const receiverText = gift.receiverIsMe
+    ? "to you"
+    : gift.receiverName
+      ? `to ${gift.receiverName}`
+      : "in room";
 
   return (
     <Animated.View
@@ -1490,6 +1525,9 @@ export default function VoiceParty() {
     chatFrame: null,
     logo: null,
   });
+  // The logged-in user's own premium tier logo — same badge shown on the
+  // Profile tab, wherever this room shows the current user's own VIP logo.
+  const [myPremiumLogo, setMyPremiumLogo] = useState(null);
   // The logged-in user's own gamification level — same value shown on the
   // Profile tab's level badge, used for the room's mini profile popup.
   const [myLevel, setMyLevel] = useState(1);
@@ -1642,6 +1680,12 @@ export default function VoiceParty() {
   // drift out of sync (whitespace, re-derived session ids, etc.) from what
   // the PK subsystem itself considers this battle's room.
   const pkPollRoomId = activePkBattle?.roomId || (roomId != null ? String(roomId).trim() : null);
+  // The backend doesn't expose *which* side has accepted a pending battle
+  // (status just stays PENDING until both have) — so "did I already accept
+  // this one" has to be tracked locally, purely to swap this client's own
+  // accept/reject prompt for a "waiting on the other participant" banner.
+  const [myAcceptedBattleId, setMyAcceptedBattleId] = useState(null);
+  const myAcceptedBattleIdRef = useRef(null);
   const [pkBattleActionLoading, setPkBattleActionLoading] = useState(false);
   // Synchronous reentrancy guard — `pkBattleActionLoading` state only takes
   // effect on the next render, so a real double-tap (two touch events before
@@ -1692,6 +1736,22 @@ export default function VoiceParty() {
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [isMusicPaused, setIsMusicPaused] = useState(false);
   const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
+  const {
+    keyboardHeight: welcomeKeyboardRaw,
+    safeBottom: welcomeSafeBottom,
+    syncKeyboardHeight: syncWelcomeKeyboard,
+  } = useModalKeyboardInset(showWelcomeEdit);
+  // Android keyboard height excludes the nav bar, but the edge-to-edge
+  // Modal extends behind it — add the inset so the sheet clears the keyboard.
+  const welcomeKeyboardHeight =
+    welcomeKeyboardRaw > 0 && Platform.OS === "android"
+      ? welcomeKeyboardRaw +
+        Math.max(
+          welcomeSafeBottom,
+          // screen - window also includes the status bar; strip it out
+          getAndroidNavBarInset() - (StatusBar.currentHeight || 0),
+        )
+      : welcomeKeyboardRaw;
 
   useEffect(() => {
     if (typeof agoraVoice.subscribeAudioMixing !== 'function') return;
@@ -2441,6 +2501,12 @@ export default function VoiceParty() {
         } catch (e) {
           console.log("[VoiceParty] myVipAssets load threw:", e?.message ?? e);
         }
+        try {
+          const premiumAssets = await loadMyPremiumAssets();
+          if (!cancelled) setMyPremiumLogo(premiumAssets?.logo ?? null);
+        } catch {
+          // Non-critical — badge just stays hidden.
+        }
         let session;
         if (isRandomParty) {
           session = await enterRandomPartySession();
@@ -2698,12 +2764,35 @@ export default function VoiceParty() {
     );
   }, []);
 
+  // Last time a banner was shown per sender+gift+qty, so a gift that arrives
+  // via both the gift-animation topic and its chat echo only shows once.
+  const recentGiftBannersRef = useRef(new Map());
+  // Chat lines this device just sent as gifts — the server echoes them back.
+  const mySentGiftTextsRef = useRef(new Map());
+  const myDisplayNameRef = useRef("");
+  useEffect(() => {
+    myDisplayNameRef.current = String(
+      localSessionUser?.name ??
+        localSessionUser?.username ??
+        localSessionUser?.nickname ??
+        "",
+    ).trim();
+  }, [localSessionUser]);
+
   const revealGiftAnimation = useCallback((payload, fallbackGift) => {
     const animated = normalizeGiftAnimation(payload, fallbackGift);
+    recentGiftBannersRef.current.set(giftBannerKey(animated), Date.now());
     const key = `gift-disp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const riseKey = `gift-rise-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setActiveGiftDisplays((prev) => {
-      const next = [...prev, { ...animated, _displayKey: key }];
+      const next = [
+        ...prev,
+        {
+          ...animated,
+          receiverIsMe: Boolean(payload?.receiverIsMe),
+          _displayKey: key,
+        },
+      ];
       return next.length > 3 ? next.slice(next.length - 3) : next;
     });
     setActiveRisingGifts((prev) => {
@@ -2745,9 +2834,45 @@ export default function VoiceParty() {
         // Non-critical — the `pk` topic or the fallback poll will catch it.
       });
 
+    const revealGiftFromChat = (payload) => {
+      const msg = normalizeChatMessage(payload);
+      const gift = parseGiftChatText(msg.text);
+      if (!gift) return;
+
+      // Skip the echo of a gift this device sent — its banner already showed.
+      const now = Date.now();
+      const sentAt = mySentGiftTextsRef.current.get(msg.text);
+      if (sentAt && now - sentAt < 15000) {
+        mySentGiftTextsRef.current.delete(msg.text);
+        return;
+      }
+      if (msg.userId != null && isSameUser(msg.userId, myUserId)) return;
+
+      const senderName = msg.user && msg.user !== "User" ? msg.user : "User";
+      const key = giftBannerKey({ senderName, ...gift });
+      const shownAt = recentGiftBannersRef.current.get(key);
+      if (shownAt && now - shownAt < 1500) return;
+
+      const myName = myDisplayNameRef.current.toLowerCase();
+      const receiverIsMe = Boolean(
+        myName && gift.receiverName?.toLowerCase() === myName,
+      );
+      revealGiftAnimation({
+        id: msg.id,
+        giftName: gift.name,
+        emoji: gift.emoji,
+        quantity: gift.quantity,
+        senderName,
+        senderAvatar: msg.avatar,
+        receiverName: gift.receiverName,
+        receiverIsMe,
+      });
+    };
+
     const appendChatMessage = (payload) => {
       setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      revealGiftFromChat(payload);
     };
 
     const unsubChat = wsService.onRoomChat(String(roomId), appendChatMessage);
@@ -4444,16 +4569,54 @@ export default function VoiceParty() {
     });
   }, [seats, onlineUsers, myUserId]);
 
-  // PK battle opponent/teammate slots are seated members only (no audience).
-  const pkOpponentCandidates = useMemo(() => {
-    return (seats || [])
-      .filter((s) => s?.user && s.user.id != null && !isSameUser(s.user.id, myUserId))
+  // PK battle participant slots — anyone present in the room (seated or
+  // audience), including the host themself: the host organizing the battle
+  // no longer has to be one of the two combatants, so they need to be able
+  // to pick themselves back in as either side too.
+  const pkParticipantCandidates = useMemo(() => {
+    const seatUsers = (seats || [])
+      .filter((s) => s?.user && s.user.id != null)
       .map((s) => ({
         id: String(s.user.id),
         name: s.user.name ?? s.user.username ?? "User",
         avatar: s.user.avatar ?? s.user.avatarUrl ?? null,
       }));
-  }, [seats, myUserId]);
+    const audienceUsers = (onlineUsers || [])
+      .filter((u) => u?.id != null)
+      .map((u) => ({
+        id: String(u.id),
+        name: u.name ?? u.username ?? "User",
+        avatar: u.avatar ?? u.avatarUrl ?? null,
+      }));
+    const seen = new Set();
+    const merged = [...seatUsers, ...audienceUsers].filter((u) => {
+      if (seen.has(u.id)) return false;
+      seen.add(u.id);
+      return true;
+    });
+
+    const selfId = myUserId != null ? String(myUserId) : null;
+    if (!selfId) return merged;
+    const selfIdx = merged.findIndex((u) => u.id === selfId);
+    if (selfIdx === -1) {
+      // Not seated and not yet in the audience list — fall back to the
+      // local session profile so the host is still selectable.
+      merged.unshift({
+        id: selfId,
+        name: localSessionUser?.name || localSessionUser?.username || "You",
+        avatar:
+          localSessionUser?.avatar ||
+          localSessionUser?.avatarUrl ||
+          localSessionUser?.profileImageUrl ||
+          null,
+      });
+    } else if (selfIdx > 0) {
+      // Pin self first — the most likely pick for one of the two sides.
+      const [self] = merged.splice(selfIdx, 1);
+      merged.unshift(self);
+    }
+    return merged;
+  }, [seats, onlineUsers, myUserId, localSessionUser]);
 
   const handleTagUser = (member) => {
     setTaggedUser(member);
@@ -4555,7 +4718,14 @@ export default function VoiceParty() {
     return Number.isFinite(n) ? n : id;
   };
 
-  const handlePkConfirm = async ({ mode, opponentId, teamMemberIds, durationMinutes }) => {
+  const handlePkConfirm = async ({
+    mode,
+    participantAId,
+    participantBId,
+    teamMemberIds,
+    teamBMemberIds,
+    durationMinutes,
+  }) => {
     if (!isHostSelf) {
       Alert.alert("Not allowed", "Only the room host can start a PK battle.");
       return;
@@ -4566,11 +4736,16 @@ export default function VoiceParty() {
     try {
       const battle = await startPkBattle({
         roomId,
-        opponentHostId: toNumericId(opponentId),
+        participantAId: toNumericId(participantAId),
+        participantBId: toNumericId(participantBId),
         durationMinutes,
         teamAMemberIds:
           mode === "team" && teamMemberIds?.length
             ? teamMemberIds.map(toNumericId)
+            : [],
+        teamBMemberIds:
+          mode === "team" && teamBMemberIds?.length
+            ? teamBMemberIds.map(toNumericId)
             : [],
       });
       setActivePkBattle(battle);
@@ -4611,6 +4786,10 @@ export default function VoiceParty() {
           ? teamMemberIds.map(toNumericId)
           : undefined,
       );
+      if (accepted) {
+        myAcceptedBattleIdRef.current = activePkBattle.id;
+        setMyAcceptedBattleId(activePkBattle.id);
+      }
       setActivePkBattle(battle);
       setShowPkTeamAccept(false);
     } catch (err) {
@@ -4624,9 +4803,11 @@ export default function VoiceParty() {
     }
   };
 
-  // A challenge left un-accepted for 2 minutes is auto-discarded: the
-  // challenged host's client rejects it (freeing the room for a new
-  // challenge server-side); anyone else just loses the popup locally.
+  // A challenge left un-accepted for 2 minutes is auto-discarded: whichever
+  // of the two participants hasn't responded yet has their client reject it
+  // on their behalf (freeing the room for a new challenge server-side);
+  // anyone else (organizer who isn't fighting, bystanders) just loses the
+  // popup locally.
   const PK_CHALLENGE_TIMEOUT_MS = 2 * 60 * 1000;
   useEffect(() => {
     if (!activePkBattle || activePkBattle.status !== "PENDING") return undefined;
@@ -4637,7 +4818,11 @@ export default function VoiceParty() {
         if (!current || current.id !== battleId || current.status !== "PENDING") {
           return current;
         }
-        if (getPkBattleRole(current, myUserId) === "hostB") {
+        const role = getPkBattleRole(current, myUserId);
+        const iHaventRespondedYet =
+          (role === "hostA" || role === "hostB") &&
+          myAcceptedBattleIdRef.current !== battleId;
+        if (iHaventRespondedYet) {
           handlePkRespond(false);
         }
         return null;
@@ -4726,7 +4911,16 @@ export default function VoiceParty() {
         user?.name ?? user?.username ?? user?.nickname ?? "You";
       const senderAvatar =
         user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null;
-      const giftText = `sent ${selectedGift.emoji} ${selectedGift.name} ×${qty}`;
+      const receiverDisplayName =
+        giftReceiverName && giftReceiverName !== "Select person"
+          ? giftReceiverName
+          : null;
+      const giftText = buildGiftChatText({
+        emoji: selectedGift.emoji,
+        name: selectedGift.name,
+        quantity: qty,
+        receiverName: receiverDisplayName,
+      });
 
       const result = await sendPartyRoomGift({
         roomId,
@@ -4783,6 +4977,7 @@ export default function VoiceParty() {
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
 
       if (roomId) {
+        mySentGiftTextsRef.current.set(giftText, Date.now());
         try {
           wsService.sendRoomMessage(String(roomId), giftText);
         } catch {
@@ -5776,7 +5971,7 @@ export default function VoiceParty() {
             style={styles.backpackBox}
             onStartShouldSetResponder={() => true}
           >
-            <View style={{ height: H * 0.82 }}>
+            <View style={{ height: H * 0.58 }}>
               {/* Handle */}
               <View style={styles.shareHandle} />
 
@@ -6518,7 +6713,7 @@ export default function VoiceParty() {
       <PkBattleModal
         visible={showPkBattle}
         onClose={() => setShowPkBattle(false)}
-        roomUsers={pkOpponentCandidates}
+        roomUsers={pkParticipantCandidates}
         submitting={pkBattleActionLoading}
         onConfirm={handlePkConfirm}
       />
@@ -6527,7 +6722,7 @@ export default function VoiceParty() {
         visible={showPkTeamAccept}
         onClose={() => setShowPkTeamAccept(false)}
         hostAName={activePkBattle?.hostAName}
-        roomUsers={pkOpponentCandidates.filter(
+        roomUsers={pkParticipantCandidates.filter(
           (u) => !isSameUser(u.id, activePkBattle?.hostAId),
         )}
         submitting={pkBattleActionLoading}
@@ -6537,6 +6732,7 @@ export default function VoiceParty() {
       <PkLiveBanner
         battle={activePkBattle}
         role={getPkBattleRole(activePkBattle, myUserId)}
+        myAccepted={myAcceptedBattleId != null && myAcceptedBattleId === activePkBattle?.id}
         actionLoading={pkBattleActionLoading}
         topOffset={insets.top + 64}
         resolveUser={(id) => {
@@ -6544,7 +6740,16 @@ export default function VoiceParty() {
           return seat ? { name: seat.user.name, avatar: seat.user.avatar } : null;
         }}
         onAccept={() => {
-          if (activePkBattle?.teamAMemberIds?.length) {
+          // The organizer can already set both full rosters at creation
+          // (Team gift PK's two-team picker) — side B only needs to pick
+          // their own teammates here if the organizer left that roster
+          // for them to fill in themselves.
+          const myRole = getPkBattleRole(activePkBattle, myUserId);
+          const needsTeamPick =
+            myRole === "hostB" &&
+            activePkBattle?.teamAMemberIds?.length &&
+            !activePkBattle?.teamBMemberIds?.length;
+          if (needsTeamPick) {
             setShowPkTeamAccept(true);
           } else {
             handlePkRespond(true);
@@ -6592,6 +6797,11 @@ export default function VoiceParty() {
             : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
               ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl)]
               : null
+        }
+        premiumLogoSource={
+          // Premium is fetched only for the current user (GET /users/me/ui-assets
+          // has no per-other-user equivalent), so this only ever shows for self.
+          isSameUser(profilePopupUser?.id, myUserId) ? myPremiumLogo : null
         }
         badgeSource={
           userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ?? null
@@ -7175,6 +7385,10 @@ export default function VoiceParty() {
                         ? rowDecorationBadge
                         : null)
                     : null;
+                  // Premium (like VIP) is only ever known for the current user —
+                  // no per-other-user premium data is available from this list.
+                  const rowPremiumLogoSource =
+                    isRowSelf && myPremiumLogo ? { uri: myPremiumLogo } : null;
                   return (
                     <TouchableOpacity
                       key={uId ?? `active-user-${idx}`}
@@ -7231,12 +7445,17 @@ export default function VoiceParty() {
                             resizeMode="contain"
                           />
                           <AutoBadgeImage
+                            source={rowPremiumLogoSource}
+                            style={styles.activeUserVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
                             source={rowDecorationBadgeSource}
                             style={styles.activeUserDecorationBadge}
                             resizeMode="contain"
                           />
                           <AutoBadgeImage
-                            source={VERIFIED_BADGE}
+                            source={user.verifiedBadgeUrl ? { uri: user.verifiedBadgeUrl } : null}
                             style={styles.activeUserVerifiedBadge}
                             resizeMode="contain"
                           />
@@ -7674,6 +7893,7 @@ export default function VoiceParty() {
         visible={showWelcomeEdit}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setShowWelcomeEdit(false)}
       >
         <TouchableOpacity
@@ -7681,8 +7901,20 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowWelcomeEdit(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.welcomeEditBox}>
-            <View style={styles.shareHandle} />
+          {/* Edge-to-edge Modals don't resize for the keyboard — lift the sheet manually */}
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[
+              styles.welcomeEditBox,
+              welcomeKeyboardHeight > 0 && {
+                marginBottom: welcomeKeyboardHeight,
+                paddingBottom: 12,
+              },
+            ]}
+          >
+            <View
+              style={[styles.shareHandle, { marginTop: 4, marginBottom: 10 }]}
+            />
             <Text style={styles.welcomeEditTitle}>Edit Welcome Message</Text>
             <TextInput
               style={styles.welcomeEditInput}
@@ -7693,6 +7925,7 @@ export default function VoiceParty() {
               multiline
               maxLength={120}
               autoFocus
+              onFocus={syncWelcomeKeyboard}
             />
             <Text style={styles.welcomeEditCount}>
               {welcomeDraft.length}/120
@@ -8280,12 +8513,21 @@ export default function VoiceParty() {
                         ? senderDecorationBadge
                         : null)
                     : null;
+                  // Premium (like VIP) is only ever known for the current user —
+                  // no per-other-sender premium data is available on `msg`.
+                  const senderPremiumLogoSource =
+                    isSenderSelf && myPremiumLogo ? { uri: myPremiumLogo } : null;
                   // Trimmed whole-image chat frame for this sender's tier (keyed
                   // by tier number, not by URL — the URL can vary once the real
                   // API is wired up). Falls back to the raw remote asset (old
-                  // behavior) for any tier without a trimmed image yet.
-                  const vipChatFrameAsset = isSenderVip
-                    ? VIP_CHAT_FRAME_FITTED_BY_TIER[myVipAssets.tier]
+                  // behavior) for any tier without a trimmed image yet. Other
+                  // VIP senders get the frame for the tier resolved from their
+                  // profile-frame URL, so every viewer sees it, not just self.
+                  const senderVipTier = isSenderVip
+                    ? myVipAssets.tier
+                    : otherSenderVipTier;
+                  const vipChatFrameAsset = senderVipTier
+                    ? (VIP_CHAT_FRAME_FITTED_BY_TIER[senderVipTier] ?? null)
                     : null;
                   // Re-wrapped as a bare {uri} (dropping the asset's known
                   // width/height) so resizeMode="stretch" fills the bubble's
@@ -8433,12 +8675,17 @@ export default function VoiceParty() {
                             resizeMode="contain"
                           />
                           <AutoBadgeImage
+                            source={senderPremiumLogoSource}
+                            style={styles.chatVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
                             source={senderDecorationBadgeSource}
                             style={styles.chatDecorationBadge}
                             resizeMode="contain"
                           />
                           <AutoBadgeImage
-                            source={VERIFIED_BADGE}
+                            source={msg.verifiedBadgeUrl ? { uri: msg.verifiedBadgeUrl } : null}
                             style={styles.chatVerifiedBadge}
                             resizeMode="contain"
                           />
@@ -11503,20 +11750,20 @@ const styles = StyleSheet.create({
   },
   welcomeEditBox: {
     backgroundColor: "#1a0a2e",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingBottom: 32,
-    paddingTop: 12,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+    paddingTop: 8,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.2)",
   },
   welcomeEditTitle: {
     color: "white",
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "700",
     textAlign: "center",
-    marginBottom: 16,
+    marginBottom: 10,
   },
   welcomeEditInput: {
     backgroundColor: "rgba(255,255,255,0.07)",
@@ -11524,45 +11771,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     color: "white",
-    fontSize: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    minHeight: 90,
+    fontSize: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minHeight: 40,
+    maxHeight: 64,
     textAlignVertical: "top",
   },
   welcomeEditCount: {
     color: "rgba(255,255,255,0.4)",
     fontSize: 11,
     textAlign: "right",
-    marginTop: 4,
-    marginBottom: 16,
+    marginTop: 3,
+    marginBottom: 10,
   },
   welcomeEditActions: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
   },
   welcomeEditCancel: {
     flex: 1,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 14,
-    paddingVertical: 13,
+    borderRadius: 12,
+    paddingVertical: 9,
     alignItems: "center",
   },
   welcomeEditCancelText: {
     color: "rgba(255,255,255,0.7)",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
   },
   welcomeEditSave: {
     flex: 1,
     backgroundColor: "#7c4dff",
-    borderRadius: 14,
-    paddingVertical: 13,
+    borderRadius: 12,
+    paddingVertical: 9,
     alignItems: "center",
   },
   welcomeEditSaveText: {
     color: "white",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
   },
 

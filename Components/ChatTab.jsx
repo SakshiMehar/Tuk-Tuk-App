@@ -25,7 +25,7 @@ import {
 import { getAvatarSource, isBundledAvatarId } from "../src/data/avatarOptions";
 import { loadConversations } from "../src/services/chatService";
 import { fetchUserDecorations } from "../src/services/decorationsService";
-import { useMyCountryFlag } from "../src/services/userCountryService";
+import { resolveCountryFlag } from "../src/services/userCountryService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { loadFamilyDetail, loadFamilyLists } from "../src/services/familyService";
 import { getRecommendedUsers } from "../src/services/homeService";
@@ -149,10 +149,6 @@ export default function ChatTab() {
   const isShareMode = Boolean(shareRoomId && !shareDismissed);
   const scrollRef = useRef(null);
   useScrollToTop(scrollRef);
-  // Only the signed-in user's own country is ever fetched (GET /me/country) —
-  // there's no per-user country lookup for other people, so this same flag is
-  // what's shown next to every username row below, not a per-row value.
-  const myCountryFlag = useMyCountryFlag();
   const [activeTopTab, setActiveTopTab] = useState("Chats");
   const [searchText, setSearchText] = useState("");
   const [showBanner, setShowBanner] = useState(true);
@@ -477,6 +473,7 @@ export default function ChatTab() {
       const rowVipLogo = rowVipTier != null ? VIP_LOGO_BY_TIER[rowVipTier] : null;
       const rowDecorationBadge =
         item.userId != null ? decorationsByUserId[String(item.userId)] : null;
+      const rowCountryFlag = resolveCountryFlag(item);
       return (
       <TouchableOpacity
         key={String(item.userId ?? item.id ?? idx)}
@@ -532,8 +529,8 @@ export default function ChatTab() {
           <View style={styles.chatTopRow}>
             <View style={styles.chatNameRow}>
               <Text style={styles.chatName} numberOfLines={1}>{item.name}</Text>
-              {!!myCountryFlag && (
-                <Text style={styles.chatCountryFlag}>{myCountryFlag}</Text>
+              {!!rowCountryFlag && (
+                <Text style={styles.chatCountryFlag}>{rowCountryFlag}</Text>
               )}
               {rowVipLogo && (
                 <Image
@@ -549,7 +546,7 @@ export default function ChatTab() {
                   resizeMode="contain"
                 />
               )}
-              {item.verified && (
+              {item.verifiedBadgeUrl && (
                 <View style={styles.verifiedBadge}>
                   <Check size={9} color="white" strokeWidth={3} />
                 </View>
@@ -893,7 +890,7 @@ export default function ChatTab() {
                                 resizeMode="contain"
                               />
                             )}
-                            {user.verified && (
+                            {user.verifiedBadgeUrl && (
                               <View style={styles.verifiedBadge}>
                                 <Check size={9} color="white" strokeWidth={3} />
                               </View>
@@ -1091,7 +1088,7 @@ export default function ChatTab() {
                         resizeMode="contain"
                       />
                     )}
-                    {user.verified && (
+                    {user.verifiedBadgeUrl && (
                       <View style={styles.recommendVerifiedBadge}>
                         <Check size={7} color="white" strokeWidth={3} />
                       </View>

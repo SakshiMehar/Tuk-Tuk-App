@@ -227,7 +227,7 @@ function ProfileModal({
               >
                 <View style={styles.profileModalNameRow}>
                   <Text style={styles.profileModalName}>{user.displayName ?? user.name}</Text>
-                  {user.verified && <Text style={{ fontSize: 14 }}>✅</Text>}
+                  {user.verifiedBadgeUrl && <Text style={{ fontSize: 14 }}>✅</Text>}
                   {user.online && <View style={styles.onlineDot} />}
                   {user.level != null && (
                     <Image
@@ -895,7 +895,7 @@ export default function Nearby() {
               </LinearGradient>
               <LinearGradient colors={["transparent","rgba(13,6,24,0.96)"]} style={styles.cardOverlay} />
               {item.online && <View style={styles.cardOnlineDot} />}
-              {item.verified && (
+              {item.verifiedBadgeUrl && (
                 <View style={styles.cardVerified}>
                   <Text style={{ fontSize: 10 }}>✅</Text>
                 </View>

@@ -37,7 +37,7 @@ const normalizeEntry = (user) => {
       null,
     occupation: user?.occupation ?? null,
     vipProfileFrameUrl: extractVipProfileFrameUrl(user),
-    verified: Boolean(user?.verified ?? user?.isVerified),
+    verifiedBadgeUrl: user?.verifiedBadgeUrl ?? null,
     level: Number.isFinite(level) ? level : null,
     savedAt: Date.now(),
   };

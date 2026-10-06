@@ -70,6 +70,7 @@ import { useMyCountryFlag } from "../../src/services/userCountryService";
 import { syncUserLevelForSession } from "../../src/services/userLevelService";
 import { submitFeedback } from "../../src/services/userSettingsService";
 import { loadMyVipAssets } from "../../src/services/vipService";
+import { loadMyPremiumAssets } from "../../src/services/premiumService";
 import { getUser, updateUser } from "../../src/store/authStore";
 import { refreshWalletBalance } from "../../src/store/walletStore";
 import { openUserChat } from "../../src/utils/chatNavigation";
@@ -84,7 +85,6 @@ const S3_BASE = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.co
 const meImg = { uri: `${S3_BASE}/images/me.png` };
 const boyMeImg = { uri: `${S3_BASE}/images/boyme.png` };
 const NEW_START_BADGE = { uri: `${S3_BASE}/Batches/newstart-batch.png` };
-const VERIFIED_BADGE = { uri: `${S3_BASE}/Batches/verified-batch.png` };
 
 // ── Dummy gifts for UI preview until API data is populated ──
 const DUMMY_GIFTS_RECEIVED = [
@@ -180,7 +180,7 @@ const menuPages = [
   [
     { icon: "gift", label: "Get Rewards", badge: true },
     { icon: "tasks", label: "Task", badge: true },
-    { icon: "id-card", label: "Monthly Card", badge: true, comingSoon: true },
+    { icon: "id-card", label: "Monthly Card", badge: true },
     { icon: "store", label: "Store", badge: true },
     { icon: "users", label: "Relationship", badge: true },
     { icon: "wallet", label: "Wallet", badge: false },
@@ -1116,6 +1116,7 @@ export default function Profile() {
   const [editVisible, setEditVisible] = useState(false);
   const [editName, setEditName] = useState("");
   const [userGender, setUserGender] = useState("");
+  const [verifiedBadgeUrl, setVerifiedBadgeUrl] = useState(null);
   const countryFlag = useMyCountryFlag();
   const [profileSaving, setProfileSaving] = useState(false);
   const [userId, setUserId] = useState(null);
@@ -1130,6 +1131,7 @@ export default function Profile() {
     logo: null,
   });
   const [decorations, setDecorations] = useState({ badgeUrl: null, frameUrl: null });
+  const [premiumLogo, setPremiumLogo] = useState(null);
   const avatarSource = resolveProfileAvatarSource({
     avatarId,
     profilePicUrl,
@@ -1210,11 +1212,13 @@ export default function Profile() {
     if (levelData?.level != null) setUserLevel(levelData.level);
     setLevelBadgeSource(levelData?.badgeSource ?? null);
     setVipAssets(await loadMyVipAssets(levelData?.xp?.totalXp));
+    setPremiumLogo((await loadMyPremiumAssets()).logo);
     if (localId != null) setDecorations(await fetchUserDecorations(String(localId)));
 
     try {
       await refreshTokenCache();
       const serverProfile = await loadMyProfile();
+      setVerifiedBadgeUrl(serverProfile?.verifiedBadgeUrl ?? null);
       if (serverProfile?.id != null) {
         const id = String(serverProfile.id);
         setUserId(id);
@@ -1261,6 +1265,7 @@ export default function Profile() {
     try {
       const user = await getUser();
       const serverProfile = await loadMyProfile();
+      setVerifiedBadgeUrl(serverProfile?.verifiedBadgeUrl ?? null);
       if (serverProfile.id != null) {
         const id = String(serverProfile.id);
         setUserId(id);
@@ -1295,6 +1300,7 @@ export default function Profile() {
       if (levelData?.level != null) setUserLevel(levelData.level);
       setLevelBadgeSource(levelData?.badgeSource ?? null);
       setVipAssets(await loadMyVipAssets(levelData?.xp?.totalXp));
+      setPremiumLogo((await loadMyPremiumAssets()).logo);
     } catch {
       // Keep cached local values if the profile tab fetch fails.
     } finally {
@@ -2242,10 +2248,19 @@ export default function Profile() {
                 {vipAssets.unlocked && vipAssets.logo && (
                   <ProfileBadge source={{ uri: vipAssets.logo }} aspectRatio={PROFILE_BADGE_ASPECT.vip} />
                 )}
+                {premiumLogo && (
+                  <ProfileBadge
+                    source={{ uri: premiumLogo }}
+                    aspectRatio={PROFILE_BADGE_ASPECT.vip}
+                    style={styles.premiumLogoBadge}
+                  />
+                )}
                 {decorations.badgeUrl && (
                   <ProfileBadge source={{ uri: decorations.badgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
                 )}
-                <ProfileBadge source={VERIFIED_BADGE} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
+                {verifiedBadgeUrl && (
+                  <ProfileBadge source={{ uri: verifiedBadgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
+                )}
               </View>
 
             </View>
@@ -2429,11 +2444,13 @@ export default function Profile() {
                       />
                       <View style={styles.momentPostAuthorInfo}>
                         <Text style={styles.momentPostTitle}>{name}</Text>
-                        <Image
-                          source={VERIFIED_BADGE}
-                          style={styles.momentPostAuthorBatch}
-                          resizeMode="contain"
-                        />
+                        {verifiedBadgeUrl && (
+                          <Image
+                            source={{ uri: verifiedBadgeUrl }}
+                            style={styles.momentPostAuthorBatch}
+                            resizeMode="contain"
+                          />
+                        )}
                       </View>
                     </View>
                     <TouchableOpacity
@@ -3082,6 +3099,10 @@ const styles = StyleSheet.create({
   profileCountryFlag: {
     fontSize: 15,
     marginLeft: 6,
+  },
+  premiumLogoBadge: {
+    height: PROFILE_BADGE_HEIGHT * 1.3,
+    width: PROFILE_BADGE_HEIGHT * 1.3,
   },
   profileLevelWrap: {
     flexDirection: "row",

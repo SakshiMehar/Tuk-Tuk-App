@@ -67,11 +67,12 @@ import {
 } from "../../src/data/countryOptions";
 import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
-import * as homeService from "../../src/services/homeService";
 import { fetchUserDecorations } from "../../src/services/decorationsService";
+import * as homeService from "../../src/services/homeService";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import {
   fetchNotificationsData,
+  markAllNotificationsAsRead,
   markNotificationsAsRead,
 } from "../../src/services/notificationService";
 import {
@@ -143,7 +144,8 @@ const dedupePostsById = (posts) => {
 const WAVE_HEIGHTS = [8, 14, 10, 18, 12];
 const MATCH_WAVE_HEIGHTS = [5, 10, 7, 13, 9, 6, 11];
 
-const HOME_S3_BASE = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/images";
+const HOME_S3_BASE =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/images";
 
 const actionCards = [
   {
@@ -346,11 +348,11 @@ const PostMoreMenu = memo(
         const text = `Check this out on Tuk Tuk! "${(post?.text ?? "").slice(0, 100)}..."`;
 
         if (post?.userId) {
-          shareUser(post.userId).catch(() => { });
+          shareUser(post.userId).catch(() => {});
         }
 
         if (platform.id === "more") {
-          await Share.share({ message: text }).catch(() => { });
+          await Share.share({ message: text }).catch(() => {});
           onClose();
           return;
         }
@@ -366,7 +368,7 @@ const PostMoreMenu = memo(
         if (canOpen) {
           Linking.openURL(url);
         } else {
-          await Share.share({ message: text }).catch(() => { });
+          await Share.share({ message: text }).catch(() => {});
         }
         onClose();
       },
@@ -465,18 +467,18 @@ const PostMoreMenu = memo(
                         avatarStyle={moreMenuStyles.friendAvatar}
                         {...(item.vipProfileFrameUrl
                           ? {
-                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                            frameResizeMode:
-                              VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                            frameOffsetX:
-                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                            frameOffsetY:
-                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                            avatarOffsetY:
-                              VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                          }
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode:
+                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX:
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY:
+                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY:
+                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
                           : {})}
                       />
                     </LinearGradient>
@@ -2111,12 +2113,25 @@ const toImageSource = (uri) => {
 
 const resolveNotifIcon = (icon, type) => {
   const str = String(type || "").toLowerCase();
-  if (str.includes("message") || str.includes("chat") || str.includes("direct_message")) return "💬";
+  if (
+    str.includes("message") ||
+    str.includes("chat") ||
+    str.includes("direct_message")
+  )
+    return "💬";
   if (str.includes("gift")) return "🎁";
   if (str.includes("like") || str.includes("heart")) return "👍";
   if (str.includes("follow") || str.includes("friend")) return "👤";
-  if (str.includes("party") || str.includes("room") || str.includes("voice")) return "🎉";
-  if (icon && typeof icon === "string" && icon.trim().length > 0 && icon !== "🔔" && icon.length <= 4) return icon;
+  if (str.includes("party") || str.includes("room") || str.includes("voice"))
+    return "🎉";
+  if (
+    icon &&
+    typeof icon === "string" &&
+    icon.trim().length > 0 &&
+    icon !== "🔔" &&
+    icon.length <= 4
+  )
+    return icon;
   return "🔔";
 };
 
@@ -2157,8 +2172,8 @@ const PostCard = memo(
     const postFrameSource = isOwnPost
       ? (currentUserVipFrameSource ?? currentUserFrameSource)
       : resolveEntityNewUserFrameSource({
-        hasNewUserFrame: post.authorHasNewUserFrame,
-      });
+          hasNewUserFrame: post.authorHasNewUserFrame,
+        });
     // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
     const imageUri = post.imageUrl ?? post._localMediaUri ?? null;
     const galleryUrls = post.imageUrls?.length
@@ -2200,7 +2215,7 @@ const PostCard = memo(
         (w, h) => {
           if (!cancelled && w && h) setImgAspectRatio(w / h);
         },
-        () => { },
+        () => {},
       );
       return () => {
         cancelled = true;
@@ -2220,15 +2235,15 @@ const PostCard = memo(
                   imageComponent={Image}
                   {...(isOwnVipFrame
                     ? {
-                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                      frameResizeMode:
-                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                    }
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode:
+                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
                     : {})}
                 />
               ) : (
@@ -2319,9 +2334,9 @@ const PostCard = memo(
                   styles.postImage,
                   imgAspectRatio
                     ? {
-                      aspectRatio: clampAspectRatio(imgAspectRatio),
-                      height: undefined,
-                    }
+                        aspectRatio: clampAspectRatio(imgAspectRatio),
+                        height: undefined,
+                      }
                     : { height: 220 },
                 ]}
                 contentFit="cover"
@@ -2342,9 +2357,9 @@ const PostCard = memo(
                 styles.postImage,
                 imgAspectRatio
                   ? {
-                    aspectRatio: clampAspectRatio(imgAspectRatio),
-                    height: undefined,
-                  }
+                      aspectRatio: clampAspectRatio(imgAspectRatio),
+                      height: undefined,
+                    }
                   : { height: 220 },
               ]}
               onLayout={(e) => setGalleryWidth(e.nativeEvent.layout.width)}
@@ -2499,14 +2514,14 @@ const RecommendedUserItem = memo(({ user }) => {
             avatarStyle={{ borderRadius: s(36) }}
             {...(user.vipProfileFrameUrl
               ? {
-                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-              }
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
               : {})}
           />
         ) : (
@@ -2640,7 +2655,11 @@ const HomeHeader = memo(
       <>
         {/* ── HEADER CARD ── */}
         <LinearGradient
-          colors={["rgba(255,255,255,0)", "rgba(255,255,255,0)", "rgba(255,255,255,0)"]}
+          colors={[
+            "rgba(255,255,255,0)",
+            "rgba(255,255,255,0)",
+            "rgba(255,255,255,0)",
+          ]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={[styles.headerCard, { marginTop: Math.max(insets.top, 10) }]}
@@ -2650,7 +2669,9 @@ const HomeHeader = memo(
               <ProfileAvatarWithFrame
                 avatarSource={
                   sessionAvatarSource ??
-                  (userProfile?.avatarUrl ? { uri: userProfile.avatarUrl } : null)
+                  (userProfile?.avatarUrl
+                    ? { uri: userProfile.avatarUrl }
+                    : null)
                 }
                 frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
                 size={s(45)}
@@ -2661,14 +2682,14 @@ const HomeHeader = memo(
                 imageComponent={Image}
                 {...(vipProfileFrameSource
                   ? {
-                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                  }
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
                   : {})}
               />
             </View>
@@ -2720,9 +2741,11 @@ const HomeHeader = memo(
                   numberOfLines={1}
                   adjustsFontSizeToFit
                 >
-                  {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString(
-                    "en-IN",
-                  )}
+                  {(
+                    walletDiamonds ??
+                    userProfile?.diamonds ??
+                    0
+                  ).toLocaleString("en-IN")}
                 </Text>
                 <TouchableOpacity
                   style={styles.diamondPlusBtn}
@@ -2739,12 +2762,17 @@ const HomeHeader = memo(
                 onPress={onNotifOpen}
               >
                 <RNImage
-                  source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/notifications.png" }}
+                  source={{
+                    uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/notifications.png",
+                  }}
                   style={{ width: 32, height: 32 }}
                   resizeMode="contain"
                 />
                 <View
-                  style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}
+                  style={[
+                    styles.headerIconBadge,
+                    { backgroundColor: "#7c4dff" },
+                  ]}
                 >
                   <Text style={styles.headerIconBadgeText}>
                     {unreadNotifications.length}
@@ -2753,7 +2781,6 @@ const HomeHeader = memo(
               </TouchableOpacity>
             </View>
           </View>
-
 
           <View style={styles.activeRow}>
             <TouchableOpacity
@@ -2764,7 +2791,7 @@ const HomeHeader = memo(
               <Image
                 source={toImageSource(
                   stats?.featuredUserAvatar ??
-                  "https://randomuser.me/api/portraits/men/45.jpg",
+                    "https://randomuser.me/api/portraits/men/45.jpg",
                 )}
                 style={styles.matchAvatar}
                 cachePolicy="memory-disk"
@@ -2838,7 +2865,10 @@ const HomeHeader = memo(
                   }
                   style={[
                     styles.cardIllustration,
-                    card.imgSize && { width: card.imgSize, height: card.imgSize },
+                    card.imgSize && {
+                      width: card.imgSize,
+                      height: card.imgSize,
+                    },
                   ]}
                   contentFit="contain"
                   delay={card.gifDelay}
@@ -2864,8 +2894,8 @@ const HomeHeader = memo(
                 item.route
                   ? () => router.push(item.route)
                   : item.comingSoon
-                  ? () => onComingSoon?.(item.label.replace(/\n/g, " "))
-                  : undefined
+                    ? () => onComingSoon?.(item.label.replace(/\n/g, " "))
+                    : undefined
               }
             >
               <LinearGradient
@@ -2880,7 +2910,10 @@ const HomeHeader = memo(
                   }
                   style={[
                     styles.iconImg,
-                    item.imgSize && { width: item.imgSize, height: item.imgSize },
+                    item.imgSize && {
+                      width: item.imgSize,
+                      height: item.imgSize,
+                    },
                   ]}
                   contentFit="contain"
                 />
@@ -3056,7 +3089,7 @@ export default function Home() {
       .then((user) => {
         if (!user?.gender) setGenderPickerVisible(true);
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   // Saves gender + country from the "Who are you?" picker straight to the
@@ -3071,19 +3104,19 @@ export default function Home() {
           : null;
         const countryFields = match
           ? {
-            country: match.name,
-            countryCode: match.code,
-            countryName: match.name,
-          }
+              country: match.name,
+              countryCode: match.code,
+              countryName: match.name,
+            }
           : {};
         await updateUser({ gender, ...countryFields });
-        await updateUserProfile({ gender, ...countryFields }).catch(() => { });
+        await updateUserProfile({ gender, ...countryFields }).catch(() => {});
         if (match) {
-          await patchMyProfile(countryFields).catch(() => { });
+          await patchMyProfile(countryFields).catch(() => {});
           await syncUserCountryToServer({
             country: match.name,
             countryCode: match.code,
-          }).catch(() => { });
+          }).catch(() => {});
         }
       } finally {
         setGenderSaving(false);
@@ -3107,7 +3140,7 @@ export default function Home() {
         .then((activeUsers) => {
           setStats((prev) => ({ ...(prev ?? {}), activeUsers }));
         })
-        .catch(() => { });
+        .catch(() => {});
     }, []),
   );
 
@@ -3155,7 +3188,7 @@ export default function Home() {
   useEffect(() => {
     getAppUserId()
       .then((id) => setCurrentUserId(String(id)))
-      .catch(() => { });
+      .catch(() => {});
 
     syncSessionAvatar();
 
@@ -3210,7 +3243,7 @@ export default function Home() {
             setUnreadNotifications([]);
           }
         })
-        .catch(() => { });
+        .catch(() => {});
 
       // Load following + followers in parallel after home data
       Promise.all([loadFollowing(), loadFollowers()]).then(([followingArr]) => {
@@ -3290,14 +3323,20 @@ export default function Home() {
   );
 
   const handleMarkAllRead = useCallback(async () => {
+    // Optimistic clear; restore previous state if the request fails.
+    const prevUnread = unreadNotifications;
+    const prevCount = unreadCount;
     setUnreadNotifications([]);
     setUnreadCount(0);
     try {
-      await markNotificationsAsRead("all");
+      // POST /api/notifications/mark-read  { "notificationIds": "all" }
+      await markAllNotificationsAsRead();
     } catch (error) {
       console.error("[notifications] markAllRead failed:", error);
+      setUnreadNotifications(prevUnread);
+      setUnreadCount(prevCount);
     }
-  }, []);
+  }, [unreadNotifications, unreadCount]);
 
   const handleSearchQuery = useCallback(
     (text) => {
@@ -3406,10 +3445,12 @@ export default function Home() {
     fetchUserDecorations(result.userId)
       .then(({ badgeUrl }) => {
         setSearchProfile((prev) =>
-          prev?.userId === result.userId ? { ...prev, decorationBadgeUrl: badgeUrl } : prev,
+          prev?.userId === result.userId
+            ? { ...prev, decorationBadgeUrl: badgeUrl }
+            : prev,
         );
       })
-      .catch(() => { });
+      .catch(() => {});
     try {
       const detail = await homeService.getUserDetailById(result.userId);
       setSearchProfile((prev) => ({
@@ -3601,7 +3642,7 @@ export default function Home() {
       try {
         newPost = await createPost({ caption, photos, video, mediaType });
       } catch (e) {
-        await refreshFeed().catch(() => { });
+        await refreshFeed().catch(() => {});
         throw e;
       }
 
@@ -3663,7 +3704,7 @@ export default function Home() {
       setFeedPosts((prev) => [normalized, ...prev]);
 
       // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
-      await refreshFeed().catch(() => { });
+      await refreshFeed().catch(() => {});
     },
     [currentUserId],
   );
@@ -3727,7 +3768,9 @@ export default function Home() {
       if (Array.isArray(content)) {
         setNotifications(content);
         const unreadIds = content
-          .filter((n) => n.unread === true || n.read === false || n.isRead === false)
+          .filter(
+            (n) => n.unread === true || n.read === false || n.isRead === false,
+          )
           .map((n) => n.id);
         setUnreadNotifications(unreadIds);
       }
@@ -3735,7 +3778,10 @@ export default function Home() {
         setUnreadCount(count);
       }
     } catch (err) {
-      console.warn("[home] Failed to load notifications on open:", err?.message);
+      console.warn(
+        "[home] Failed to load notifications on open:",
+        err?.message,
+      );
       setNotificationsError(true);
     } finally {
       setNotificationsLoading(false);
@@ -3749,7 +3795,7 @@ export default function Home() {
       if (unreadNotifications.includes(notif.id)) {
         setUnreadNotifications((prev) => prev.filter((id) => id !== notif.id));
         setUnreadCount((prev) => Math.max(0, prev - 1));
-        markNotificationsAsRead([notif.id]).catch(() => { });
+        markNotificationsAsRead([notif.id]).catch(() => {});
       }
 
       setNotifVisible(false);
@@ -3996,98 +4042,104 @@ export default function Home() {
                         ? resolveVipTierFromAssetUrl(result.vipProfileFrameUrl)
                         : null;
                     const resultVipLogo =
-                      resultVipTier != null ? VIP_LOGO_BY_TIER[resultVipTier] : null;
+                      resultVipTier != null
+                        ? VIP_LOGO_BY_TIER[resultVipTier]
+                        : null;
                     return (
-                    <TouchableOpacity
-                      key={result.id}
-                      style={styles.searchResultItem}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        if (result.type === "user") {
-                          handleOpenSearchUser(result);
-                        } else if (result.partyRandom) {
-                          router.push({
-                            pathname: "/voice-party",
-                            params: { party: "true" },
-                          });
-                          closeSearch();
-                          setSearchResults([]);
-                        } else if (result.route) {
-                          router.push(result.route);
-                          closeSearch();
-                          setSearchResults([]);
-                        }
-                      }}
-                    >
-                      {result.type === "user" && result.avatar ? (
-                        <ProfileAvatarWithFrame
-                          avatarSource={toImageSource(result.avatar)}
-                          frameSource={result.vipProfileFrameUrl}
-                          size={44}
-                          avatarStyle={styles.resultIconBox}
-                          {...(result.vipProfileFrameUrl
-                            ? {
-                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                              frameResizeMode:
-                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                              frameOffsetX:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                              frameOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                              avatarBoost:
-                                VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                              avatarOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                            }
-                            : {})}
-                        />
-                      ) : (
-                        <LinearGradient
-                          colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
-                          style={styles.resultIconBox}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                        >
-                          <Text style={styles.resultIcon}>
-                            {result.type === "action"
-                              ? "🎮"
-                              : result.type === "user"
-                                ? "👤"
-                                : "✨"}
-                          </Text>
-                        </LinearGradient>
-                      )}
-                      <View style={styles.resultTextCol}>
-                        <View style={styles.resultTitleRow}>
-                          <Text style={styles.resultTitle}>{result.title}</Text>
-                          {result.type === "user" && result.level != null && (
-                            <Image
-                              source={resolveLocalLevelBadge(result.level)}
-                              style={styles.resultLevelBadge}
-                              contentFit="contain"
-                            />
-                          )}
-                          {resultVipLogo && (
-                            <Image
-                              source={{ uri: resultVipLogo }}
-                              style={styles.resultVipBadge}
-                              contentFit="contain"
-                            />
-                          )}
-                          {/* Decoration badge intentionally skipped here: search
+                      <TouchableOpacity
+                        key={result.id}
+                        style={styles.searchResultItem}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          if (result.type === "user") {
+                            handleOpenSearchUser(result);
+                          } else if (result.partyRandom) {
+                            router.push({
+                              pathname: "/voice-party",
+                              params: { party: "true" },
+                            });
+                            closeSearch();
+                            setSearchResults([]);
+                          } else if (result.route) {
+                            router.push(result.route);
+                            closeSearch();
+                            setSearchResults([]);
+                          }
+                        }}
+                      >
+                        {result.type === "user" && result.avatar ? (
+                          <ProfileAvatarWithFrame
+                            avatarSource={toImageSource(result.avatar)}
+                            frameSource={result.vipProfileFrameUrl}
+                            size={44}
+                            avatarStyle={styles.resultIconBox}
+                            {...(result.vipProfileFrameUrl
+                              ? {
+                                  frameScale:
+                                    VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                  frameResizeMode:
+                                    VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                  frameOffsetX:
+                                    VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                  frameOffsetY:
+                                    VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                  frameBleed:
+                                    VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                  avatarBoost:
+                                    VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                  avatarOffsetY:
+                                    VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                                }
+                              : {})}
+                          />
+                        ) : (
+                          <LinearGradient
+                            colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
+                            style={styles.resultIconBox}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                          >
+                            <Text style={styles.resultIcon}>
+                              {result.type === "action"
+                                ? "🎮"
+                                : result.type === "user"
+                                  ? "👤"
+                                  : "✨"}
+                            </Text>
+                          </LinearGradient>
+                        )}
+                        <View style={styles.resultTextCol}>
+                          <View style={styles.resultTitleRow}>
+                            <Text style={styles.resultTitle}>
+                              {result.title}
+                            </Text>
+                            {result.type === "user" && result.level != null && (
+                              <Image
+                                source={resolveLocalLevelBadge(result.level)}
+                                style={styles.resultLevelBadge}
+                                contentFit="contain"
+                              />
+                            )}
+                            {resultVipLogo && (
+                              <Image
+                                source={{ uri: resultVipLogo }}
+                                style={styles.resultVipBadge}
+                                contentFit="contain"
+                              />
+                            )}
+                            {/* Decoration badge intentionally skipped here: search
                               results can be a long, unbounded list, so firing
                               fetchUserDecorations per row would risk an N+1
                               request storm. */}
+                          </View>
+                          {result.subtitle && (
+                            <Text style={styles.resultSubtitle}>
+                              {result.subtitle}
+                            </Text>
+                          )}
                         </View>
-                        {result.subtitle && (
-                          <Text style={styles.resultSubtitle}>
-                            {result.subtitle}
-                          </Text>
-                        )}
-                      </View>
-                      <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
-                    </TouchableOpacity>
+                        <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
+                      </TouchableOpacity>
                     );
                   })}
                 </View>
@@ -4274,19 +4326,27 @@ export default function Home() {
                 {notificationsLoading ? (
                   <View style={styles.notifStateBox}>
                     <ActivityIndicator size="small" color="#7c4dff" />
-                    <Text style={styles.notifStateText}>Loading notifications...</Text>
+                    <Text style={styles.notifStateText}>
+                      Loading notifications...
+                    </Text>
                   </View>
                 ) : notifications.length === 0 ? (
                   <View style={styles.notifStateBox}>
                     <Text style={styles.notifStateEmoji}>🔔</Text>
-                    <Text style={styles.notifStateText}>No notifications yet</Text>
+                    <Text style={styles.notifStateText}>
+                      No notifications yet
+                    </Text>
                   </View>
                 ) : (
                   notifications.map((notif) => {
-                    const avatarUri = notif.avatar || notif.senderAvatar || notif.userAvatar;
-                    const rightImageUri = notif.imageUrl || notif.image || notif.mediaUrl;
-                    const displayAvatar = avatarUri || (rightImageUri ? null : notif.imageUrl);
-                    const displaySub = notif.message ?? notif.subtitle ?? notif.body ?? "";
+                    const avatarUri =
+                      notif.avatar || notif.senderAvatar || notif.userAvatar;
+                    const rightImageUri =
+                      notif.imageUrl || notif.image || notif.mediaUrl;
+                    const displayAvatar =
+                      avatarUri || (rightImageUri ? null : notif.imageUrl);
+                    const displaySub =
+                      notif.message ?? notif.subtitle ?? notif.body ?? "";
                     const displayTime = notif.time ?? notif.createdAt ?? "";
 
                     return (
@@ -4295,7 +4355,7 @@ export default function Home() {
                         style={[
                           styles.notifItem,
                           unreadNotifications.includes(notif.id) &&
-                          styles.notifItemUnread,
+                            styles.notifItemUnread,
                         ]}
                         activeOpacity={0.8}
                         onPress={() => handleNotificationPress(notif)}
@@ -4366,8 +4426,8 @@ export default function Home() {
         isFollowing={
           imageViewerData
             ? followingIds.some((id) =>
-              isSameUser(id, imageViewerData.post.userId),
-            )
+                isSameUser(id, imageViewerData.post.userId),
+              )
             : false
         }
         isLiked={
@@ -4438,7 +4498,7 @@ export default function Home() {
         visible={genderPickerVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => { }}
+        onRequestClose={() => {}}
       >
         <View style={styles.genderOverlay}>
           <LinearGradient
@@ -4502,7 +4562,7 @@ export default function Home() {
                       style={[
                         styles.countryRow,
                         selectedCountry === country.name &&
-                        styles.countryRowSelected,
+                          styles.countryRowSelected,
                       ]}
                       onPress={() => {
                         setSelectedCountry(country.name);
@@ -4514,7 +4574,7 @@ export default function Home() {
                         style={[
                           styles.countryRowText,
                           selectedCountry === country.name &&
-                          styles.countryRowTextSelected,
+                            styles.countryRowTextSelected,
                         ]}
                       >
                         {country.flag} {country.name}
@@ -4638,15 +4698,15 @@ export default function Home() {
                   avatarStyle={styles.searchProfileAvatar}
                   {...(searchProfile.vipProfileFrameUrl
                     ? {
-                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                      frameResizeMode:
-                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                    }
+                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                        frameResizeMode:
+                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                      }
                     : {})}
                 />
               ) : (
@@ -5378,7 +5438,6 @@ const styles = StyleSheet.create({
   },
   tabsScroll: {
     gap: 20,
-
   },
   tabItem: {
     alignItems: "center",

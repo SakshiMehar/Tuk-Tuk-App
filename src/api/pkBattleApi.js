@@ -44,21 +44,29 @@ const buildAuthedConfig = async (label) => {
   };
 };
 
-/** POST /api/app/pk-battles — room owner/host challenges another host.
- *  `teamAMemberIds` is optional; the caller (Host A) is auto-included. */
+/** POST /api/app/pk-battles — the room host sets up a battle between any two
+ *  people present in the room; the host doesn't have to be either one.
+ *  `teamAMemberIds`/`teamBMemberIds` are optional (each side's teammates,
+ *  "Team gift PK" — the organizer sets both full rosters up front). */
 export const createPkBattle = async ({
   roomId,
-  opponentHostId,
+  participantAId,
+  participantBId,
   durationSeconds,
   teamAMemberIds,
+  teamBMemberIds,
 }) => {
   const path = "/api/app/pk-battles";
   const body = {
     roomId: String(roomId).trim(),
-    opponentHostId,
+    participantAId,
+    participantBId,
     durationSeconds,
     ...(Array.isArray(teamAMemberIds) && teamAMemberIds.length
       ? { teamAMemberIds }
+      : {}),
+    ...(Array.isArray(teamBMemberIds) && teamBMemberIds.length
+      ? { teamBMemberIds }
       : {}),
   };
 
@@ -74,8 +82,10 @@ export const createPkBattle = async ({
   }
 };
 
-/** POST /api/app/pk-battles/{battleId}/respond — the challenged host
- *  accepts (optionally naming teamBMemberIds) or rejects. */
+/** POST /api/app/pk-battles/{battleId}/respond — whichever participant is
+ *  calling (identified by their auth token) accepts (optionally naming
+ *  teamBMemberIds, side B only) or rejects. Both participants must accept
+ *  before the battle goes LIVE. */
 export const respondToPkBattle = async (battleId, { accepted, teamBMemberIds }) => {
   const path = `/api/app/pk-battles/${battleId}/respond`;
   const body = accepted

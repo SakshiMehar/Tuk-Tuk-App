@@ -4,6 +4,7 @@ import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { loadMyPremiumAssets } from "../src/services/premiumService";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { VIP_XP_THRESHOLD, VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
@@ -30,6 +31,7 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
   const [gamificationXp, setGamificationXp] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
   const [vipLogo, setVipLogo] = useState(null);
+  const [premiumLogo, setPremiumLogo] = useState(null);
   const [decorationBadgeUrl, setDecorationBadgeUrl] = useState(null);
   const [decorationFrameUrl, setDecorationFrameUrl] = useState(null);
 
@@ -49,6 +51,9 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
       if (cancelled) return;
       setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
       setVipLogo(vipAssets?.unlocked ? vipAssets.logo : null);
+
+      const premiumAssets = await loadMyPremiumAssets().catch(() => null);
+      if (!cancelled) setPremiumLogo(premiumAssets?.logo ?? null);
 
       // Decoration/verified badge — a single per-user GET for this one card
       // (the logged-in user), not a per-row list, so it's safe here.
@@ -116,6 +121,9 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
           />
           {vipLogo && (
             <Image source={{ uri: vipLogo }} style={styles.vipBadge} resizeMode="contain" />
+          )}
+          {premiumLogo && (
+            <Image source={{ uri: premiumLogo }} style={styles.vipBadge} resizeMode="contain" />
           )}
           {decorationBadgeUrl && (
             <Image

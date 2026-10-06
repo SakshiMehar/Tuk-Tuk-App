@@ -28,6 +28,7 @@ import { loadMyProfile } from "../src/services/meProfileService";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { loadMyPremiumAssets } from "../src/services/premiumService";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { VIP_XP_THRESHOLD, VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
@@ -140,6 +141,7 @@ export default function DiamondRechargeModal({
   const [gamificationXp, setGamificationXp] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
   const [vipLogo, setVipLogo] = useState(null);
+  const [premiumLogo, setPremiumLogo] = useState(null);
   const [decorationBadgeUrl, setDecorationBadgeUrl] = useState(null);
 
   const [detailsVisible, setDetailsVisible] = useState(false);
@@ -181,6 +183,9 @@ export default function DiamondRechargeModal({
       const vipAssets = await loadMyVipAssets(totalXp).catch(() => null);
       setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
       setVipLogo(vipAssets?.unlocked ? vipAssets.logo : null);
+
+      const premiumAssets = await loadMyPremiumAssets().catch(() => null);
+      setPremiumLogo(premiumAssets?.logo ?? null);
 
       const myUserId = mergedUser?.id ?? mergedUser?.userId ?? (await getAppUserId().catch(() => null));
       if (myUserId) {
@@ -549,6 +554,9 @@ export default function DiamondRechargeModal({
                   />
                   {vipLogo && (
                     <Image source={{ uri: vipLogo }} style={styles.vipBadge} resizeMode="contain" />
+                  )}
+                  {premiumLogo && (
+                    <Image source={{ uri: premiumLogo }} style={styles.vipBadge} resizeMode="contain" />
                   )}
                   {decorationBadgeUrl && (
                     <Image
