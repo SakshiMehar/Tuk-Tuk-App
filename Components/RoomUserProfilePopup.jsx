@@ -1,14 +1,20 @@
-import React, { useEffect, useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   AlertCircle,
   Gift,
   Home,
+  LogOut,
   MessageCircle,
+  Mic,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
   UserCheck,
-  UserPlus
+  UserPlus,
+  UserX,
 } from "lucide-react-native";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -23,18 +29,22 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ms, s, vs } from "react-native-size-matters";
-import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
-import { resolveImageSource } from "../src/utils/videoSource";
-import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
+import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { fetchVipProfileFrameForUser } from "../src/services/vipService";
-import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
+import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
+import { resolveImageSource } from "../src/utils/videoSource";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 
 const { width: W } = Dimensions.get("window");
 
-const NEW_START_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/newstart-batch.png" };
-const VERIFIED_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/verified-batch.png" };
+const NEW_START_BADGE = {
+  uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/newstart-batch.png",
+};
+const VERIFIED_BADGE = {
+  uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/verified-batch.png",
+};
 
 const VIP_LOGO_BY_TIER = Object.fromEntries(
   VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
@@ -52,13 +62,17 @@ const AVATAR_SIZE = s(74);
 
 function ProfileBadge({ source, aspectRatio = 1, style }) {
   if (!source) return null;
-  const imageSource = typeof source === "string" ? resolveImageSource(source) : source;
+  const imageSource =
+    typeof source === "string" ? resolveImageSource(source) : source;
   if (!imageSource) return null;
   return (
     <Image
       source={imageSource}
       style={[
-        { height: PROFILE_BADGE_HEIGHT, width: PROFILE_BADGE_HEIGHT * aspectRatio },
+        {
+          height: PROFILE_BADGE_HEIGHT,
+          width: PROFILE_BADGE_HEIGHT * aspectRatio,
+        },
         style,
       ]}
       resizeMode="contain"
@@ -81,19 +95,29 @@ export default function RoomUserProfilePopup({
   followLoading = false,
   isSelf = false,
   isOwner = false,
+  isViewerOwner = false,
+  isViewerAdmin = false,
+  canManage = false,
+  targetIsAdmin = false,
   role = null,
   countryFlag = null,
   onClose,
   onFollowToggle,
   onChat,
   onSendGift,
+  onMention,
   onReport,
+  onToggleAdmin,
+  onAdminPress,
+  onInviteMic,
+  onKickOut,
 }) {
   const insets = useSafeAreaInsets();
   const [fetchedBadgeUrl, setFetchedBadgeUrl] = useState(null);
   const [fetchedVipFrameUrl, setFetchedVipFrameUrl] = useState(null);
 
-  const displayName = user?.name ?? user?.displayName ?? user?.username ?? "User";
+  const displayName =
+    user?.name ?? user?.displayName ?? user?.username ?? "User";
   const username = user?.username ?? user?.handle ?? displayName;
   const userId = user?.id ?? user?.userId ?? "—";
   const userAge = user?.age != null ? user?.age : null;
@@ -105,8 +129,13 @@ export default function RoomUserProfilePopup({
     : "Male";
   const genderIcon = isFemale ? "♀" : "♂";
   const userLevel = level ?? user?.level ?? user?.userLevel ?? 1;
-  const isUserOwner = Boolean(isOwner || user?.isOwner || role?.toLowerCase() === "owner");
-  const displayRole = role ?? (isUserOwner ? "Owner" : user?.role ?? "Owner");
+  const isUserOwner = Boolean(
+    isOwner || user?.isOwner || role?.toLowerCase() === "owner"
+  );
+  const isUserAdmin = Boolean(
+    targetIsAdmin || user?.isAdmin || role?.toLowerCase() === "admin"
+  );
+  const displayRole = role ?? (isUserOwner ? "Owner" : isUserAdmin ? "Admin" : user?.role ?? "Owner");
   const flagUrl = user?.flagUrl ?? null;
   const countryName = user?.countryName ?? null;
 
@@ -129,7 +158,12 @@ export default function RoomUserProfilePopup({
         .catch(() => {});
     }
 
-    if (!logoSource && !user?.vipLogo && !user?.vipProfileFrameUrl && !frameSource) {
+    if (
+      !logoSource &&
+      !user?.vipLogo &&
+      !user?.vipProfileFrameUrl &&
+      !frameSource
+    ) {
       fetchVipProfileFrameForUser(userId)
         .then((url) => {
           if (active && url) {
@@ -162,9 +196,15 @@ export default function RoomUserProfilePopup({
     (user?.vipTier ? VIP_LOGO_BY_TIER[Number(user.vipTier)] : null) ??
     (user?.vip ? VIP_LOGO_BY_TIER[Number(user.vip)] : null) ??
     (user?.vipLevel ? VIP_LOGO_BY_TIER[Number(user.vipLevel)] : null) ??
-    (frameUrlString ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(frameUrlString)] : null) ??
-    (user?.vipProfileFrameUrl ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(user.vipProfileFrameUrl)] : null) ??
-    (fetchedVipFrameUrl ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(fetchedVipFrameUrl)] : null) ??
+    (frameUrlString
+      ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(frameUrlString)]
+      : null) ??
+    (user?.vipProfileFrameUrl
+      ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(user.vipProfileFrameUrl)]
+      : null) ??
+    (fetchedVipFrameUrl
+      ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(fetchedVipFrameUrl)]
+      : null) ??
     null;
 
   const resolvedBadgeSource =
@@ -176,8 +216,8 @@ export default function RoomUserProfilePopup({
 
   const hasNewStar = Boolean(
     user?.hasNewUserFrame ||
-    user?.newUserFrameUrl ||
-    user?.newUserFrameSource
+      user?.newUserFrameUrl ||
+      user?.newUserFrameSource
   );
 
   const resolvedAvatarSource =
@@ -202,6 +242,36 @@ export default function RoomUserProfilePopup({
       Alert.alert("Copied!", `User ID (${userId}) copied to clipboard.`);
     } catch {
       // safe fallback
+    }
+  };
+
+  const showManagement = Boolean(
+    (canManage || isViewerOwner || isViewerAdmin) && !isSelf
+  );
+
+  const handleAdminAction = () => {
+    if (onToggleAdmin) {
+      onToggleAdmin(user);
+    } else if (onAdminPress) {
+      onAdminPress(user);
+    } else {
+      Alert.alert("Admin", "Admin access management");
+    }
+  };
+
+  const handleInviteMicAction = () => {
+    if (onInviteMic) {
+      onInviteMic(user);
+    } else {
+      Alert.alert("Invite Mic", `Sent mic invitation to ${displayName}`);
+    }
+  };
+
+  const handleKickOutAction = () => {
+    if (onKickOut) {
+      onKickOut(user);
+    } else {
+      Alert.alert("Kick Out", `Removed ${displayName} from room`);
     }
   };
 
@@ -243,20 +313,20 @@ export default function RoomUserProfilePopup({
                 imageComponent={Image}
                 {...(frameLayout
                   ? {
-                    frameScale: frameLayout.frameScale,
-                    frameResizeMode: frameLayout.frameResizeMode,
-                    frameOffsetX: frameLayout.frameOffsetX,
-                    frameOffsetY: frameLayout.frameOffsetY,
-                    frameBleed: frameLayout.frameBleed,
-                    avatarBoost: frameLayout.avatarBoost,
-                    avatarOffsetY: frameLayout.avatarOffsetY,
-                  }
+                      frameScale: frameLayout.frameScale,
+                      frameResizeMode: frameLayout.frameResizeMode,
+                      frameOffsetX: frameLayout.frameOffsetX,
+                      frameOffsetY: frameLayout.frameOffsetY,
+                      frameBleed: frameLayout.frameBleed,
+                      avatarBoost: frameLayout.avatarBoost,
+                      avatarOffsetY: frameLayout.avatarOffsetY,
+                    }
                   : {})}
               />
             </View>
           </View>
 
-          {/* Top Actions: Left (Report Button Only) */}
+          {/* Top Actions: Left (Report Button) & Right (@ Mention Button) */}
           <View style={styles.topActionsRow}>
             <TouchableOpacity
               style={styles.circleActionBtn}
@@ -266,6 +336,17 @@ export default function RoomUserProfilePopup({
             >
               <AlertCircle size={20} color="#94A3B8" />
             </TouchableOpacity>
+
+            {onMention ? (
+              <TouchableOpacity
+                style={[styles.circleActionBtn, styles.mentionBtn]}
+                activeOpacity={0.75}
+                onPress={onMention}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.mentionAtText}>@</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           {loading && !user ? (
@@ -274,7 +355,7 @@ export default function RoomUserProfilePopup({
             </View>
           ) : (
             <>
-              {/* Name (Blue checkmark removed) */}
+              {/* Name */}
               <View style={styles.nameRow}>
                 <Text style={styles.nameText} numberOfLines={1}>
                   {displayName}
@@ -295,6 +376,14 @@ export default function RoomUserProfilePopup({
 
               {/* Row 1: Attribute & Role Badges */}
               <View style={styles.badgePillsRow}>
+                {/* Role Pill: Admin pill if user is room admin */}
+                {isUserAdmin && !isUserOwner && (
+                  <View style={styles.adminRolePill}>
+                    <Shield size={12} color="#FFFFFF" fill="#FFFFFF" />
+                    <Text style={styles.adminRolePillText}>Admin</Text>
+                  </View>
+                )}
+
                 {/* Role Pill: ONLY displayed if user is the room owner */}
                 {isUserOwner && (
                   <View style={styles.rolePill}>
@@ -349,7 +438,9 @@ export default function RoomUserProfilePopup({
               {/* Row 2: User Badges (Level badge + New Star badge + VIP Logo + Decoration Badge + Verified badge) */}
               <View style={styles.userBadgesRow}>
                 <ProfileBadge
-                  source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel ?? 1)}
+                  source={
+                    levelBadgeSource ?? resolveLocalLevelBadge(userLevel ?? 1)
+                  }
                   aspectRatio={PROFILE_BADGE_ASPECT.level}
                 />
                 {hasNewStar && (
@@ -426,7 +517,11 @@ export default function RoomUserProfilePopup({
                     end={{ x: 1, y: 0 }}
                     style={styles.actionButtonGradient}
                   >
-                    <MessageCircle size={16} color="#FFFFFF" fill="rgba(255,255,255,0.3)" />
+                    <MessageCircle
+                      size={16}
+                      color="#FFFFFF"
+                      fill="rgba(255,255,255,0.3)"
+                    />
                     <Text style={styles.actionButtonText}>Chat</Text>
                   </LinearGradient>
                 </TouchableOpacity>
@@ -448,6 +543,53 @@ export default function RoomUserProfilePopup({
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
+
+              {/* Bottom 3 Management Buttons (Admin, Invite mic, Kick out) */}
+              {showManagement && (
+                <View style={styles.managementRow}>
+                  {/* 1. Admin button */}
+                  <TouchableOpacity
+                    style={styles.managementItem}
+                    activeOpacity={0.7}
+                    onPress={handleAdminAction}
+                  >
+                    <View style={styles.managementIconWrap}>
+                      <ShieldAlert size={22} color="#64748B" />
+                    </View>
+                    <Text style={styles.managementLabel} numberOfLines={1}>
+                      {isUserAdmin ? "Remove Admin" : "Admin"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* 2. Invite mic button */}
+                  <TouchableOpacity
+                    style={styles.managementItem}
+                    activeOpacity={0.7}
+                    onPress={handleInviteMicAction}
+                  >
+                    <View style={styles.managementIconWrap}>
+                      <Mic size={22} color="#64748B" />
+                    </View>
+                    <Text style={styles.managementLabel} numberOfLines={1}>
+                      Invite mic
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* 3. Kick out button */}
+                  <TouchableOpacity
+                    style={styles.managementItem}
+                    activeOpacity={0.7}
+                    onPress={handleKickOutAction}
+                  >
+                    <View style={styles.managementIconWrap}>
+                      <LogOut size={22} color="#64748B" />
+                    </View>
+                    <Text style={styles.managementLabel} numberOfLines={1}>
+                      Kick out
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </>
           )}
         </View>
@@ -517,11 +659,13 @@ const styles = StyleSheet.create({
   topActionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-start",
+    justifyContent: "space-between",
     width: "100%",
     position: "absolute",
     top: vs(12),
     left: s(16),
+    right: s(16),
+    paddingRight: s(32),
     zIndex: 10,
   },
   circleActionBtn: {
@@ -533,6 +677,16 @@ const styles = StyleSheet.create({
     borderColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
+  },
+  mentionBtn: {
+    backgroundColor: "#EFF6FF",
+    borderColor: "#DBEAFE",
+  },
+  mentionAtText: {
+    color: "#3B82F6",
+    fontSize: ms(18),
+    fontWeight: "800",
+    lineHeight: ms(22),
   },
   loadingWrap: {
     paddingVertical: vs(40),
@@ -579,6 +733,20 @@ const styles = StyleSheet.create({
     gap: s(6),
     marginTop: vs(8),
     width: "100%",
+  },
+  adminRolePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(4),
+    backgroundColor: "#8B5CF6",
+    paddingHorizontal: s(8),
+    paddingVertical: vs(3),
+    borderRadius: s(12),
+  },
+  adminRolePillText: {
+    color: "#FFFFFF",
+    fontSize: ms(11),
+    fontWeight: "800",
   },
   rolePill: {
     flexDirection: "row",
@@ -691,5 +859,35 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: ms(13),
     fontWeight: "800",
+  },
+  managementRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    width: "100%",
+    marginTop: vs(16),
+    paddingTop: vs(12),
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+  },
+  managementItem: {
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: s(72),
+    gap: vs(4),
+  },
+  managementIconWrap: {
+    width: s(38),
+    height: s(38),
+    borderRadius: s(19),
+    backgroundColor: "#F8FAFC",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  managementLabel: {
+    color: "#94A3B8",
+    fontSize: ms(11.5),
+    fontWeight: "600",
+    textAlign: "center",
   },
 });

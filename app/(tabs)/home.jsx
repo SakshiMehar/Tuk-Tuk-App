@@ -198,7 +198,7 @@ const iconItems = [
     img: { uri: `${HOME_S3_BASE}/blindpick.png` },
     colors: ["#080334ff", "#ac4dffff"],
     imgSize: 60,
-    comingSoon: true,
+    route: "/personality-test",
   },
   {
     label: "Truth & Dare",
@@ -2861,7 +2861,9 @@ const HomeHeader = memo(
               style={styles.iconItem}
               activeOpacity={0.8}
               onPress={
-                item.comingSoon
+                item.route
+                  ? () => router.push(item.route)
+                  : item.comingSoon
                   ? () => onComingSoon?.(item.label.replace(/\n/g, " "))
                   : undefined
               }
@@ -3291,7 +3293,7 @@ export default function Home() {
     setUnreadNotifications([]);
     setUnreadCount(0);
     try {
-      await markNotificationsRead("all");
+      await markNotificationsAsRead("all");
     } catch (error) {
       console.error("[notifications] markAllRead failed:", error);
     }

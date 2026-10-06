@@ -51,6 +51,7 @@ export default function TopGiftingRanking({
   users,
   title = "Calculator ranking",
   onUserPress,
+  onClose,
   visible = true,
   refreshInterval = 15000,
 }) {
@@ -180,6 +181,16 @@ export default function TopGiftingRanking({
       {/* ── HEADER — Octagonal SVG badge overflows above card ── */}
       <View style={styles.headerOverflow}>
         <OctagonHeader title={title} width={WIDGET_WIDTH - 16} height={30} />
+        {Boolean(onClose) && (
+          <TouchableOpacity
+            style={styles.closeBtn}
+            activeOpacity={0.75}
+            onPress={onClose}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.closeBtnText}>✕</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* ── CARD BODY ── */}
@@ -506,6 +517,32 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 6,
     elevation: 8,
+  },
+  closeBtn: {
+    position: "absolute",
+    right: -2,
+    top: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(35, 15, 75, 0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(220, 210, 255, 0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+    elevation: 4,
+  },
+  closeBtnText: {
+    color: "#ffffff",
+    fontSize: 9.5,
+    fontWeight: "900",
+    lineHeight: 11,
+    textAlign: "center",
   },
 
   // Card outer border (the violet/purple glow border)

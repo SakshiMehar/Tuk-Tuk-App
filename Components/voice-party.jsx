@@ -1,13 +1,15 @@
+import { FontAwesome, Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
+import { useKeepAwake } from "expo-keep-awake";
 import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
 import {
   AlertCircle,
-  BadgeCheck,
   Ban,
+  Check,
   Crown,
   LayoutGrid,
   MessageCircle,
@@ -20,6 +22,7 @@ import {
   Play,
   Plus,
   Power,
+  Search,
   Share2,
   Smile,
   Sparkles,
@@ -38,6 +41,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -67,6 +71,7 @@ import {
   getClaimedSeats,
   getRoomChatMessages,
   getRoomState,
+  kickRoomUser,
   postRoomHeartbeat,
   postSeatHeartbeat,
   unfollowRoom
@@ -74,7 +79,6 @@ import {
 import { reportUser } from "../src/api/postApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
 import { getUserProfile } from "../src/api/userApi";
-import { getRoomShareUrl } from "../src/config/env";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
 import {
   VIP_CHAT_FRAME_FITTED_BY_TIER,
@@ -145,6 +149,8 @@ import {
   blockUser,
   followUser,
   isSameUser,
+  loadFollowers,
+  loadFollowing,
   loadRelationshipStatus,
   unfollowUser,
 } from "../src/services/relationshipService";
@@ -155,6 +161,7 @@ import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
 import { applyWalletFromSources, refreshWalletBalance } from "../src/store/walletStore";
 import { openUserChat } from "../src/utils/chatNavigation";
+import { createRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import { resolveProfileAvatarSource, resolveProfileAvatarUri } from "../src/utils/profileAvatar";
@@ -1325,6 +1332,7 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
 };
 
 export default function VoiceParty() {
+  useKeepAwake();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   // const insets = useSafeAreaInsets();
@@ -1513,7 +1521,7 @@ export default function VoiceParty() {
       list.map((u) => String(u?.id ?? u?.userId ?? "")).filter(Boolean),
     );
 
-    // Include seated users if not already in onlineUsers list
+    // Include seated users if not already in list
     (seats || []).forEach((seat) => {
       const u = seat?.user;
       const uId = u?.id != null ? String(u.id) : u?.userId != null ? String(u.userId) : null;
@@ -1529,24 +1537,46 @@ export default function VoiceParty() {
     });
 
     // Include local session user / self if not in list
-    if (myUserId && !seenIds.has(String(myUserId)) && localSessionUser) {
+    if (myUserId && !seenIds.has(String(myUserId))) {
       seenIds.add(String(myUserId));
       list.push({
-        ...localSessionUser,
+        ...(localSessionUser || {}),
         id: String(myUserId),
         userId: String(myUserId),
-        name: localSessionUser.name || localSessionUser.username || "You",
+        name: localSessionUser?.name || localSessionUser?.username || "You",
+        avatar: localSessionUser?.avatar || localSessionUser?.profilePicUrl || localSessionUser?.profileImageUrl || null,
+        profileImageUrl: localSessionUser?.profileImageUrl || localSessionUser?.profilePicUrl || null,
       });
-    } else if (hostId && !seenIds.has(String(hostId)) && roomInfo) {
+    }
+
+    // Include room host/owner if not in list
+    if (hostId && !seenIds.has(String(hostId))) {
       seenIds.add(String(hostId));
       list.push({
         id: String(hostId),
         userId: String(hostId),
-        name: roomInfo.name || "Host",
-        avatar: roomInfo.profileImageUrl || null,
-        profileImageUrl: roomInfo.profileImageUrl || null,
+        name: roomInfo?.hostName || roomInfo?.name || "Host",
+        avatar: roomInfo?.profileImageUrl || roomInfo?.avatar || null,
+        profileImageUrl: roomInfo?.profileImageUrl || null,
       });
     }
+
+    // Sort order: Owner/Host first, then Seated users, then Audience members
+    list.sort((a, b) => {
+      const aId = String(a?.userId ?? a?.id ?? "");
+      const bId = String(b?.userId ?? b?.id ?? "");
+      const aIsHost = hostId && aId === String(hostId);
+      const bIsHost = hostId && bId === String(hostId);
+      if (aIsHost && !bIsHost) return -1;
+      if (!aIsHost && bIsHost) return 1;
+
+      const aSeated = (seats || []).some((s) => s?.user && String(s.user.id || s.user.userId) === aId);
+      const bSeated = (seats || []).some((s) => s?.user && String(s.user.id || s.user.userId) === bId);
+      if (aSeated && !bSeated) return -1;
+      if (!aSeated && bSeated) return 1;
+
+      return 0;
+    });
 
     return list;
   }, [onlineUsers, seats, myUserId, localSessionUser, hostId, roomInfo]);
@@ -1587,6 +1617,7 @@ export default function VoiceParty() {
   const fetchedUiAssetIdsRef = useRef(new Set());
   const { keyboardHeight, safeBottom, idleBottom } = useKeyboardInset();
   const [showPlayCenter, setShowPlayCenter] = useState(false);
+  const [showTopGiftingRanking, setShowTopGiftingRanking] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGiftPanel, setShowGiftPanel] = useState(false);
   const [listenSeconds, setListenSeconds] = useState(0);
@@ -1733,6 +1764,9 @@ export default function VoiceParty() {
   const myCountryFlag = useMyCountryFlag();
   const hostId = roomInfo?.hostId ?? null;
   const isHostSelf = isSameUser(hostId, myUserId);
+  const [roomAdminIds, setRoomAdminIds] = useState(new Set());
+  const isViewerAdmin = Boolean(myUserId && roomAdminIds.has(String(myUserId)));
+  const canManageRoomUsers = isHostSelf || isViewerAdmin;
   const { treasureState, selectChest, updateTreasureState, refreshTreasureState } = useTreasureBoxProgress(
     roomId,
     !roomLoading && Boolean(roomId),
@@ -3189,8 +3223,172 @@ export default function VoiceParty() {
             break;
           }
 
+          case "USER_KICKED":
+          case "KICKED": {
+            const kickedUserId =
+              payload.userId != null
+                ? String(payload.userId)
+                : payload.targetUserId != null
+                  ? String(payload.targetUserId)
+                  : null;
+            if (kickedUserId) {
+              if (myUserId && kickedUserId === String(myUserId)) {
+                Alert.alert(
+                  "Removed from Room",
+                  "You have been removed from this room by the host or an administrator.",
+                  [{ text: "OK", onPress: () => handleExitRoom() }],
+                  { cancelable: false },
+                );
+                handleExitRoom();
+                return;
+              }
+
+              // Another user was kicked
+              setSeats((prev) =>
+                prev.map((seat) => {
+                  if (
+                    seat.user &&
+                    String(seat.user.id ?? seat.user.userId) === kickedUserId
+                  ) {
+                    return { ...seat, user: null };
+                  }
+                  return seat;
+                }),
+              );
+              setOnlineUsers((prev) =>
+                prev.filter((u) => String(u?.id ?? u?.userId) !== kickedUserId),
+              );
+              setOnlineCount((prev) => Math.max(0, prev - 1));
+
+              enqueueActivityEvent({
+                id: `ws-kick-${kickedUserId}-${Date.now()}`,
+                type: "exit",
+                user: {
+                  id: kickedUserId,
+                  userId: kickedUserId,
+                  name: uName,
+                  avatar: uAvatar,
+                },
+              });
+            }
+            break;
+          }
+
           default:
             break;
+        }
+      },
+    );
+
+    const unsubKicked = wsService.onRoomKicked(String(roomId), (payload) => {
+      if (!payload) return;
+      const kickedUserId =
+        payload.userId != null
+          ? String(payload.userId)
+          : payload.targetUserId != null
+            ? String(payload.targetUserId)
+            : null;
+      const kickedUserName =
+        payload.userName || payload.targetUserName || payload.name || "User";
+      if (!kickedUserId) return;
+
+      if (myUserId && kickedUserId === String(myUserId)) {
+        Alert.alert(
+          "Removed from Room",
+          "You have been removed from this room by the host or an administrator.",
+          [{ text: "OK", onPress: () => handleExitRoom() }],
+          { cancelable: false },
+        );
+        handleExitRoom();
+        return;
+      }
+
+      setSeats((prev) =>
+        prev.map((seat) => {
+          if (
+            seat.user &&
+            String(seat.user.id ?? seat.user.userId) === kickedUserId
+          ) {
+            return { ...seat, user: null };
+          }
+          return seat;
+        }),
+      );
+      setOnlineUsers((prev) =>
+        prev.filter((u) => String(u?.id ?? u?.userId) !== kickedUserId),
+      );
+      setOnlineCount((prev) => Math.max(0, prev - 1));
+
+      enqueueActivityEvent({
+        id: `ws-kicked-${kickedUserId}-${Date.now()}`,
+        type: "exit",
+        user: { id: kickedUserId, userId: kickedUserId, name: kickedUserName },
+      });
+    });
+
+    const unsubModeration = wsService.onRoomModeration(
+      String(roomId),
+      (payload) => {
+        if (!payload) return;
+        const eventType = String(
+          payload.type || payload.eventType || "",
+        ).toUpperCase();
+        if (
+          eventType === "USER_KICKED" ||
+          eventType === "KICKED" ||
+          payload.action === "KICK"
+        ) {
+          const kickedUserId =
+            payload.userId != null
+              ? String(payload.userId)
+              : payload.targetUserId != null
+                ? String(payload.targetUserId)
+                : null;
+          if (!kickedUserId) return;
+          if (myUserId && kickedUserId === String(myUserId)) {
+            Alert.alert(
+              "Removed from Room",
+              "You have been removed from this room by the host or an administrator.",
+              [{ text: "OK", onPress: () => handleExitRoom() }],
+              { cancelable: false },
+            );
+            handleExitRoom();
+            return;
+          }
+
+          setSeats((prev) =>
+            prev.map((seat) => {
+              if (
+                seat.user &&
+                String(seat.user.id ?? seat.user.userId) === kickedUserId
+              ) {
+                return { ...seat, user: null };
+              }
+              return seat;
+            }),
+          );
+          setOnlineUsers((prev) =>
+            prev.filter((u) => String(u?.id ?? u?.userId) !== kickedUserId),
+          );
+          setOnlineCount((prev) => Math.max(0, prev - 1));
+        }
+      },
+    );
+
+    const subUserKicked = DeviceEventEmitter.addListener(
+      "userKickedFromRoom",
+      (payload) => {
+        if (!payload) return;
+        const kickedRoomId =
+          payload.roomId != null ? String(payload.roomId) : null;
+        if (!kickedRoomId || kickedRoomId === String(roomId)) {
+          Alert.alert(
+            "Removed from Room",
+            "You have been removed from this room by the host or an administrator.",
+            [{ text: "OK", onPress: () => handleExitRoom() }],
+            { cancelable: false },
+          );
+          handleExitRoom();
         }
       },
     );
@@ -3238,6 +3436,9 @@ export default function VoiceParty() {
       unsubGiftAnimation();
       unsubPk();
       unsubNotifications();
+      unsubKicked();
+      unsubModeration();
+      subUserKicked.remove();
       unsubReconnect();
       if (!isNavigatingToInboxRef.current) {
         wsService.leaveRoom(activeRoomId);
@@ -3804,6 +4005,19 @@ export default function VoiceParty() {
     }
   };
 
+  const getSharePayload = useCallback(() => {
+    const activeRoomId = String(
+      roomInfo?.roomId ?? roomInfo?.id ?? roomIdRef.current ?? roomId ?? ""
+    ).trim();
+    if (!activeRoomId) return null;
+    const roomTitle = roomInfo?.name?.trim() || "Newbie Welcome Room";
+    const playStoreUrl = "https://play.google.com/store/apps/details?id=tuk.tuk.app";
+
+    const shareMessage = `We have funny conversation in here! Come to Tuk-Tuk to join 「${roomTitle}」${activeRoomId}!\n${playStoreUrl}`;
+
+    return { activeRoomId, playStoreUrl, roomTitle, shareMessage };
+  }, [roomId, roomInfo?.roomId, roomInfo?.id, roomInfo?.name]);
+
   const handleShareToChatList = useCallback(() => {
     const activeRoomId = roomIdRef.current || roomId;
     if (!activeRoomId) return;
@@ -3820,8 +4034,8 @@ export default function VoiceParty() {
   }, [roomId, roomInfo?.name, router]);
 
   const handleShareRoom = useCallback(async () => {
-    const activeRoomId = roomIdRef.current || roomId;
-    if (!activeRoomId) {
+    const payload = getSharePayload();
+    if (!payload) {
       Alert.alert(
         "Share Room",
         "Cannot share room because room ID is unavailable.",
@@ -3829,30 +4043,18 @@ export default function VoiceParty() {
       return;
     }
 
-    const deepLink = getRoomShareUrl(activeRoomId); // https://tuktuk.live/room/:id
-    const roomTitle = roomInfo?.name?.trim()
-      ? `"${roomInfo.name.trim()}"`
-      : "voice party room";
-
-    // The message contains the room invite link that opens the app directly,
-    // plus a Play Store fallback for users who don't have the app installed.
-    const shareMessage =
-      `Join me in ${roomTitle} on Tuk-Tuk! 🎉\n` +
-      `Room link: ${deepLink}\n` +
-      `Don't have Tuk-Tuk? Download: https://play.google.com/store/apps/details?id=tuk.tuk.app`;
-
     try {
       await Share.share(
         Platform.select({
           ios: {
-            message: shareMessage,
-            url: deepLink,
+            message: payload.shareMessage,
+            url: payload.playStoreUrl,
           },
           default: {
-            title: `Join ${roomInfo?.name ?? "Voice Room"} on Tuk-Tuk`,
-            message: shareMessage,
+            title: `Join ${payload.roomTitle} on Tuk-Tuk`,
+            message: payload.shareMessage,
           },
-        }),
+        })
       );
     } catch (err) {
       if (err?.name !== "AbortError" && !err?.message?.includes("dismiss")) {
@@ -3860,11 +4062,58 @@ export default function VoiceParty() {
         Alert.alert("Share", "Could not open share options. Please try again.");
       }
     }
-  }, [roomId, roomInfo?.name]);
+  }, [getSharePayload]);
+
+  const handleShareWhatsApp = useCallback(async () => {
+    const payload = getSharePayload();
+    if (!payload) return;
+    const waUrl = `whatsapp://send?text=${encodeURIComponent(payload.shareMessage)}`;
+    try {
+      const supported = await Linking.canOpenURL(waUrl);
+      if (supported) {
+        await Linking.openURL(waUrl);
+      } else {
+        await Linking.openURL(
+          `https://api.whatsapp.com/send?text=${encodeURIComponent(payload.shareMessage)}`
+        );
+      }
+    } catch {
+      handleShareRoom();
+    }
+  }, [getSharePayload, handleShareRoom]);
+
+  const handleShareFacebook = useCallback(async () => {
+    const payload = getSharePayload();
+    if (!payload) return;
+    const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+      payload.playStoreUrl
+    )}&quote=${encodeURIComponent(payload.shareMessage)}`;
+    try {
+      await Linking.openURL(fbUrl);
+    } catch {
+      handleShareRoom();
+    }
+  }, [getSharePayload, handleShareRoom]);
+
+  const handleShareInstagram = useCallback(async () => {
+    const payload = getSharePayload();
+    if (!payload) return;
+    try {
+      const igUrl = "instagram://app";
+      const supported = await Linking.canOpenURL(igUrl);
+      if (supported) {
+        await Linking.openURL(igUrl);
+      } else {
+        handleShareRoom();
+      }
+    } catch {
+      handleShareRoom();
+    }
+  }, [getSharePayload, handleShareRoom]);
 
   const handleCopyRoomLink = useCallback(async () => {
-    const activeRoomId = roomIdRef.current || roomId;
-    if (!activeRoomId) {
+    const payload = getSharePayload();
+    if (!payload?.activeRoomId) {
       Alert.alert(
         "Copy Link",
         "Cannot copy link because room ID is unavailable.",
@@ -3872,16 +4121,110 @@ export default function VoiceParty() {
       return;
     }
     try {
-      const deepLink = getRoomShareUrl(activeRoomId); // tuktuk://room/:id
-      await Clipboard.setStringAsync(deepLink);
-      Alert.alert("Copied", "Room link copied to clipboard!");
+      await Clipboard.setStringAsync(payload.playStoreUrl);
+      Alert.alert("Copied", "Play Store link copied to clipboard!");
     } catch (err) {
       console.warn("[VoiceParty] Copy link failed:", err);
-      Alert.alert("Copy Link", "Failed to copy room link.");
+      Alert.alert("Copy Link", "Failed to copy link.");
     }
-  }, [roomId]);
+  }, [getSharePayload]);
 
   const [shareTab, setShareTab] = useState("Recently");
+  const [shareSearch, setShareSearch] = useState("");
+  const [shareChatUsers, setShareChatUsers] = useState([]);
+  const [shareFollowingUsers, setShareFollowingUsers] = useState([]);
+  const [shareFollowersUsers, setShareFollowersUsers] = useState([]);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [sentUserIds, setSentUserIds] = useState({});
+  const [sendingUserIds, setSendingUserIds] = useState({});
+
+  const loadShareUsers = useCallback(async () => {
+    setShareLoading(true);
+    try {
+      const [convosRes, followingRes, followersRes] = await Promise.allSettled([
+        loadConversations(),
+        loadFollowing(),
+        loadFollowers(),
+      ]);
+
+      if (convosRes.status === "fulfilled" && Array.isArray(convosRes.value)) {
+        setShareChatUsers(convosRes.value);
+      }
+      if (followingRes.status === "fulfilled" && Array.isArray(followingRes.value)) {
+        setShareFollowingUsers(followingRes.value);
+      }
+      if (followersRes.status === "fulfilled" && Array.isArray(followersRes.value)) {
+        setShareFollowersUsers(followersRes.value);
+      }
+    } catch (err) {
+      console.warn("[VoiceParty] Failed to load share users:", err);
+    } finally {
+      setShareLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showShareMenu) {
+      loadShareUsers();
+    } else {
+      setShareSearch("");
+    }
+  }, [showShareMenu, loadShareUsers]);
+
+  const handleSendDirectInvite = useCallback(
+    async (user) => {
+      const targetId = String(user?.userId ?? user?.id ?? "");
+      const targetName = user?.name ?? user?.username ?? "Friend";
+      if (!targetId || sentUserIds[targetId] || sendingUserIds[targetId]) return;
+
+      const activeRoomId = roomIdRef.current || roomId;
+      if (!activeRoomId) {
+        Alert.alert("Invite", "Room ID is currently unavailable.");
+        return;
+      }
+
+      setSendingUserIds((prev) => ({ ...prev, [targetId]: true }));
+      try {
+        await wsService.connect();
+        const inviteMsg = createRoomInviteMessage({
+          roomId: String(activeRoomId),
+          roomTitle: String(roomInfo?.name || "Voice Party Room"),
+        });
+        wsService.sendMessage(targetId, inviteMsg);
+        setSentUserIds((prev) => ({ ...prev, [targetId]: true }));
+      } catch (err) {
+        console.warn("[VoiceParty] Failed to send direct invite:", err);
+        Alert.alert("Invite Failed", `Could not send room invite to ${targetName}.`);
+      } finally {
+        setSendingUserIds((prev) => {
+          const next = { ...prev };
+          delete next[targetId];
+          return next;
+        });
+      }
+    },
+    [roomId, roomInfo?.name, sentUserIds, sendingUserIds]
+  );
+
+  const displayedShareUsers = useMemo(() => {
+    let list = [];
+    if (shareTab === "Recently") {
+      list = shareChatUsers;
+    } else if (shareTab === "Friends") {
+      list = shareFollowingUsers;
+    } else if (shareTab === "Followers") {
+      list = shareFollowersUsers;
+    }
+
+    if (!shareSearch.trim()) return list;
+    const q = shareSearch.trim().toLowerCase();
+    return list.filter((u) => {
+      const name = String(u?.name ?? u?.username ?? "").toLowerCase();
+      const handle = String(u?.handle ?? "").toLowerCase();
+      return name.includes(q) || handle.includes(q);
+    });
+  }, [shareTab, shareChatUsers, shareFollowingUsers, shareFollowersUsers, shareSearch]);
+
   const scrollRef = useRef(null);
   const messageCountRef = useRef(0);
   // Total historical message count on the server at the moment this session
@@ -3889,15 +4232,45 @@ export default function VoiceParty() {
   // re-syncs messages sent DURING this session, never replays pre-entry history.
   const sessionMessageBaselineRef = useRef(0);
 
-  const shareTabs = ["Recently", "Friends", "Followers", "Room Followers"];
+  const shareTabs = ["Recently", "Friends", "Followers"];
 
   const sharePlatforms = [
-    { label: "Friends", bg: "#8b5cf6", icon: "💬", onPress: handleShareToChatList },
-    { label: "Share", bg: "#7c4dff", icon: "🪐", onPress: handleShareRoom },
-    { label: "Copy Link", bg: "#4f46e5", icon: "🔗", onPress: handleCopyRoomLink },
-    { label: "WhatsApp", bg: "#25d366", icon: "💬", onPress: handleShareRoom },
-    { label: "Facebook", bg: "#1877f2", icon: "f", onPress: handleShareRoom },
-    { label: "Instagram", bg: "#e1306c", icon: "📸", onPress: handleShareRoom },
+    {
+      label: "Share",
+      bg: "#7c4dff",
+      icon: <Ionicons name="share-social" size={23} color="#ffffff" />,
+      onPress: handleShareRoom,
+    },
+    {
+      label: "Copy Link",
+      bg: "#4f46e5",
+      icon: <Ionicons name="link-outline" size={24} color="#ffffff" />,
+      onPress: handleCopyRoomLink,
+    },
+    {
+      label: "WhatsApp",
+      bg: "#25d366",
+      icon: <FontAwesome name="whatsapp" size={25} color="#ffffff" />,
+      onPress: handleShareWhatsApp,
+    },
+    {
+      label: "Facebook",
+      bg: "#1877f2",
+      icon: <FontAwesome name="facebook" size={23} color="#ffffff" />,
+      onPress: handleShareFacebook,
+    },
+    {
+      label: "Instagram",
+      bg: "#e1306c",
+      icon: <FontAwesome name="instagram" size={24} color="#ffffff" />,
+      onPress: handleShareInstagram,
+    },
+    {
+      label: "Chat Inbox",
+      bg: "#8b5cf6",
+      icon: <Ionicons name="chatbubbles-outline" size={23} color="#ffffff" />,
+      onPress: handleShareToChatList,
+    },
   ];
 
   const handleReportRoomSubmit = async (reason) => {
@@ -4713,6 +5086,156 @@ export default function VoiceParty() {
     closeProfilePopup();
     setShowReportModal(true);
   }, [profilePopupUser]);
+
+  const handlePopupToggleAdmin = useCallback(
+    (targetUser) => {
+      const targetId = String(targetUser?.id ?? targetUser?.userId ?? "");
+      const targetName = targetUser?.name ?? targetUser?.username ?? "User";
+      if (!targetId || isSameUser(targetId, myUserId)) return;
+
+      if (!isHostSelf && !isViewerAdmin) {
+        Alert.alert(
+          "Unauthorized",
+          "Only the room owner or admin can manage admin permissions.",
+        );
+        return;
+      }
+
+      const isCurrentlyAdmin = roomAdminIds.has(targetId);
+      if (isCurrentlyAdmin) {
+        setRoomAdminIds((prev) => {
+          const next = new Set(prev);
+          next.delete(targetId);
+          return next;
+        });
+        if (roomId) {
+          wsService.sendRoomMessage(
+            String(roomId),
+            `🛡️ ${targetName} is no longer a room admin.`,
+          );
+        }
+        Alert.alert("Admin Removed", `${targetName} is no longer a room admin.`);
+      } else {
+        setRoomAdminIds((prev) => {
+          const next = new Set(prev);
+          next.add(targetId);
+          return next;
+        });
+        if (roomId) {
+          wsService.sendRoomMessage(
+            String(roomId),
+            `🛡️ ${targetName} has been appointed as a room admin!`,
+          );
+        }
+        Alert.alert("Admin Granted", `${targetName} is now a room admin.`);
+      }
+      closeProfilePopup();
+    },
+    [roomId, myUserId, isHostSelf, isViewerAdmin, roomAdminIds, closeProfilePopup],
+  );
+
+  const handlePopupInviteMic = useCallback(
+    (targetUser) => {
+      const targetId = String(targetUser?.id ?? targetUser?.userId ?? "");
+      const targetName = targetUser?.name ?? targetUser?.username ?? "User";
+      if (!targetId || isSameUser(targetId, myUserId)) return;
+
+      if (isUserSeated(targetId)) {
+        Alert.alert("Already on Mic", `${targetName} is already on a mic seat.`);
+        return;
+      }
+
+      if (roomId) {
+        wsService.sendRoomMessage(
+          String(roomId),
+          `🎙️ @${targetName} you have been invited to join the mic!`,
+        );
+      }
+      Alert.alert("Mic Invitation Sent", `Invited ${targetName} to join the mic.`);
+      closeProfilePopup();
+    },
+    [roomId, myUserId, isUserSeated, closeProfilePopup],
+  );
+
+  const handlePopupKickOut = useCallback(
+    (targetUser) => {
+      const targetId = String(targetUser?.id ?? targetUser?.userId ?? "");
+      const targetName = targetUser?.name ?? targetUser?.username ?? "User";
+      if (!targetId || isSameUser(targetId, myUserId)) return;
+
+      if (!isHostSelf && !isViewerAdmin) {
+        Alert.alert(
+          "Unauthorized",
+          "Only the room owner or admin can kick users out of the room.",
+        );
+        return;
+      }
+
+      if (hostId && isSameUser(targetId, hostId)) {
+        Alert.alert("Action Not Allowed", "The room host cannot be kicked out.");
+        return;
+      }
+
+      Alert.alert(
+        "Kick out user?",
+        `Are you sure you want to remove ${targetName} from the room?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Kick Out",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                // Call POST /api/v1/tuktuk/rooms/{roomId}/kick
+                await kickRoomUser(String(roomId), targetId);
+
+                // 1. Clear from mic seats if seated
+                setSeats((prev) =>
+                  prev.map((seat) => {
+                    if (
+                      seat?.user &&
+                      isSameUser(seat.user.id ?? seat.user.userId, targetId)
+                    ) {
+                      return { ...seat, user: null };
+                    }
+                    return seat;
+                  }),
+                );
+
+                // 2. Remove from online audience
+                setOnlineUsers((prev) =>
+                  prev.filter((u) => !isSameUser(u?.id ?? u?.userId, targetId)),
+                );
+                setOnlineCount((prev) => Math.max(0, prev - 1));
+
+                // 3. Broadcast removal to room chat
+                if (roomId) {
+                  wsService.sendRoomMessage(
+                    String(roomId),
+                    `🚪 ${targetName} was removed from the room.`,
+                  );
+                }
+
+                closeProfilePopup();
+                Alert.alert(
+                  "User Kicked",
+                  `${targetName} has been removed from the room.`,
+                );
+              } catch (err) {
+                const errMsg =
+                  err?.response?.data?.message ||
+                  err?.response?.data?.error ||
+                  err?.message ||
+                  "Could not kick user from room.";
+                Alert.alert("Kick Failed", errMsg);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [roomId, myUserId, isHostSelf, isViewerAdmin, hostId, closeProfilePopup],
+  );
 
   const handleUserAvatarPress = (userLike) => {
     if (!userLike) return;
@@ -6078,6 +6601,10 @@ export default function VoiceParty() {
         followLoading={profileFollowLoading}
         isSelf={isSameUser(profilePopupUser?.id, myUserId)}
         isOwner={isSameUser(profilePopupUser?.id, hostId)}
+        isViewerOwner={isHostSelf}
+        isViewerAdmin={isViewerAdmin}
+        canManage={canManageRoomUsers}
+        targetIsAdmin={Boolean(profilePopupUser?.id && roomAdminIds.has(String(profilePopupUser.id)))}
         countryFlag={
           isSameUser(profilePopupUser?.id, myUserId) ? myCountryFlag : null
         }
@@ -6087,6 +6614,9 @@ export default function VoiceParty() {
         onSendGift={handlePopupSendGift}
         onMention={handlePopupMention}
         onReport={handlePopupReport}
+        onToggleAdmin={handlePopupToggleAdmin}
+        onInviteMic={handlePopupInviteMic}
+        onKickOut={handlePopupKickOut}
       />
 
       {/* ── EMOJI PICKER MODAL ── */}
@@ -6353,6 +6883,23 @@ export default function VoiceParty() {
                 <Text style={styles.playCenterLabel}>Lucky bag</Text>
               </TouchableOpacity>
 
+              {/* Ranking / Calculator ranking */}
+              <TouchableOpacity
+                style={styles.playCenterItem}
+                activeOpacity={0.75}
+                onPress={() => {
+                  setShowPlayCenter(false);
+                  setTimeout(() => {
+                    setShowTopGiftingRanking(true);
+                  }, 200);
+                }}
+              >
+                <View style={styles.playCenterIconWrap}>
+                  <Text style={styles.playCenterEmoji}>🏆</Text>
+                </View>
+                <Text style={styles.playCenterLabel}>Ranking</Text>
+              </TouchableOpacity>
+
               {/* PK — opens the PK battle setup sheet */}
               <TouchableOpacity
                 style={styles.playCenterItem}
@@ -6616,17 +7163,17 @@ export default function VoiceParty() {
                       : null;
                   const rowVipLogoSource = rowVipLogo
                     ? (typeof rowVipLogo === "string" && rowVipLogo.trim().length > 0
-                        ? { uri: rowVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
-                        : (typeof rowVipLogo === "number" || (typeof rowVipLogo === "object" && rowVipLogo?.uri))
-                          ? rowVipLogo
-                          : null)
+                      ? { uri: rowVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
+                      : (typeof rowVipLogo === "number" || (typeof rowVipLogo === "object" && rowVipLogo?.uri))
+                        ? rowVipLogo
+                        : null)
                     : null;
                   const rowDecorationBadgeSource = rowDecorationBadge
                     ? (typeof rowDecorationBadge === "string" && rowDecorationBadge.trim().length > 0
-                        ? { uri: rowDecorationBadge.trim() }
-                        : (typeof rowDecorationBadge === "number" || (typeof rowDecorationBadge === "object" && rowDecorationBadge?.uri))
-                          ? rowDecorationBadge
-                          : null)
+                      ? { uri: rowDecorationBadge.trim() }
+                      : (typeof rowDecorationBadge === "number" || (typeof rowDecorationBadge === "object" && rowDecorationBadge?.uri))
+                        ? rowDecorationBadge
+                        : null)
                     : null;
                   return (
                     <TouchableOpacity
@@ -6696,14 +7243,20 @@ export default function VoiceParty() {
                         </View>
                         <Text style={styles.activeUserStatus}>
                           {uId != null && String(uId) === String(hostId)
-                            ? "👑 Host"
+                            ? seated
+                              ? "👑 Owner (Seated)"
+                              : "👑 Owner"
                             : seated
                               ? "🎙️ Seated"
-                              : "🎧 Listening"}
+                              : "🎧 Audience"}
                         </Text>
                       </View>
                       <View style={styles.activeUserActionsRow}>
-                        {seated ? (
+                        {uId != null && String(uId) === String(hostId) ? (
+                          <View style={styles.ownerStatusBadge}>
+                            <Text style={styles.ownerStatusText}>Owner</Text>
+                          </View>
+                        ) : seated ? (
                           <View style={styles.seatStatusBadge}>
                             <Text style={styles.seatStatusText}>Seated</Text>
                           </View>
@@ -6739,7 +7292,7 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── SHARE MODAL ── */}
+      {/* ── SHARE MODAL (Instagram-style) ── */}
       <Modal
         visible={showShareMenu}
         transparent
@@ -6755,41 +7308,33 @@ export default function VoiceParty() {
             activeOpacity={1}
             style={[
               styles.shareBox,
-              { paddingBottom: Math.max(30, safeBottom + 16) },
+              { paddingBottom: Math.max(24, safeBottom + 12) },
             ]}
           >
             {/* Handle bar */}
             <View style={styles.shareHandle} />
 
-            <Text style={styles.shareTitle}>Invite your friends</Text>
+            <Text style={styles.shareTitle}>Share Room</Text>
 
-            {/* Platform icons */}
-            <View style={styles.sharePlatformRow}>
-              {sharePlatforms.map((p) => (
+            {/* Search Input */}
+            <View style={styles.shareSearchBox}>
+              <Search size={16} color="rgba(255,255,255,0.45)" style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.shareSearchInput}
+                placeholder="Search friends & chats..."
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                value={shareSearch}
+                onChangeText={setShareSearch}
+                autoCapitalize="none"
+              />
+              {shareSearch.length > 0 && (
                 <TouchableOpacity
-                  key={p.label}
-                  style={styles.sharePlatformItem}
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    setShowShareMenu(false);
-                    p.onPress?.();
-                  }}
+                  onPress={() => setShareSearch("")}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <View
-                    style={[
-                      styles.sharePlatformIcon,
-                      { backgroundColor: p.bg },
-                    ]}
-                  >
-                    {typeof p.icon === "string" ? (
-                      <Text style={styles.sharePlatformEmoji}>{p.icon}</Text>
-                    ) : (
-                      p.icon
-                    )}
-                  </View>
-                  <Text style={styles.sharePlatformLabel}>{p.label}</Text>
+                  <X size={15} color="rgba(255,255,255,0.6)" />
                 </TouchableOpacity>
-              ))}
+              )}
             </View>
 
             {/* Tabs */}
@@ -6814,6 +7359,134 @@ export default function VoiceParty() {
                   )}
                 </TouchableOpacity>
               ))}
+            </View>
+
+            {/* User List Section */}
+            <View style={styles.shareUsersSection}>
+              {shareLoading ? (
+                <View style={styles.shareLoadingWrap}>
+                  <ActivityIndicator size="small" color="#a78bfa" />
+                  <Text style={styles.shareLoadingText}>Loading users...</Text>
+                </View>
+              ) : displayedShareUsers.length === 0 ? (
+                <View style={styles.shareEmptyWrap}>
+                  <Text style={styles.shareEmptyText}>
+                    {shareSearch.trim()
+                      ? "No users matching your search"
+                      : shareTab === "Recently"
+                        ? "No recent chats found"
+                        : shareTab === "Friends"
+                          ? "No following users found"
+                          : "No followers found"}
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView
+                  style={styles.shareUsersScroll}
+                  contentContainerStyle={styles.shareUsersScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                >
+                  {displayedShareUsers.map((u, idx) => {
+                    const uId = String(u.userId ?? u.id ?? idx);
+                    const isSent = Boolean(sentUserIds[uId]);
+                    const isSending = Boolean(sendingUserIds[uId]);
+                    const displayName = u.name || u.username || "User";
+                    const subtitle =
+                      u.handle ||
+                      (u.lastMsg ? u.lastMsg.slice(0, 26) : `@${u.username || "user"}`);
+
+                    return (
+                      <View key={uId} style={styles.shareUserRow}>
+                        <View style={styles.shareUserAvatarWrap}>
+                          {u.avatar ? (
+                            <Image
+                              source={{ uri: u.avatar }}
+                              style={styles.shareUserAvatar}
+                            />
+                          ) : (
+                            <View style={styles.shareUserAvatarFallback}>
+                              <Text style={styles.shareUserAvatarInitials}>
+                                {displayName.slice(0, 2).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          {Boolean(u.online || u.isOnline) && (
+                            <View style={styles.shareUserOnlineDot} />
+                          )}
+                        </View>
+
+                        <View style={styles.shareUserInfoCol}>
+                          <Text style={styles.shareUserName} numberOfLines={1}>
+                            {displayName}
+                          </Text>
+                          <Text style={styles.shareUserHandle} numberOfLines={1}>
+                            {subtitle}
+                          </Text>
+                        </View>
+
+                        {isSent ? (
+                          <View style={styles.shareUserSentBadge}>
+                            <Check size={12} color="#4ade80" />
+                            <Text style={styles.shareUserSentText}>Sent</Text>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.shareUserSendBtn}
+                            activeOpacity={0.8}
+                            disabled={isSending}
+                            onPress={() => handleSendDirectInvite(u)}
+                          >
+                            {isSending ? (
+                              <ActivityIndicator size="small" color="white" />
+                            ) : (
+                              <Text style={styles.shareUserSendBtnText}>Send</Text>
+                            )}
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
+
+            {/* Platform Sharing Row */}
+            <View style={styles.sharePlatformSection}>
+              <Text style={styles.sharePlatformSectionTitle}>
+                Share to other apps
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.sharePlatformRow}
+              >
+                {sharePlatforms.map((p) => (
+                  <TouchableOpacity
+                    key={p.label}
+                    style={styles.sharePlatformItem}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setShowShareMenu(false);
+                      p.onPress?.();
+                    }}
+                  >
+                    <View
+                      style={[
+                        styles.sharePlatformIcon,
+                        { backgroundColor: p.bg },
+                      ]}
+                    >
+                      {typeof p.icon === "string" ? (
+                        <Text style={styles.sharePlatformEmoji}>{p.icon}</Text>
+                      ) : (
+                        p.icon
+                      )}
+                    </View>
+                    <Text style={styles.sharePlatformLabel}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
 
             {/* Cancel */}
@@ -7241,7 +7914,7 @@ export default function VoiceParty() {
             <TouchableOpacity
               style={styles.headerBtn}
               activeOpacity={0.8}
-              onPress={handleShareRoom}
+              onPress={() => setShowShareMenu(true)}
             >
               <Share2 size={20} color="white" />
             </TouchableOpacity>
@@ -7276,11 +7949,12 @@ export default function VoiceParty() {
           </View>
           <View style={styles.badgesRowRight}>
             <View style={styles.audienceAvatarGroup}>
-              {(onlineUsers.length > 0 ? onlineUsers : displayActiveUsers)
-                .slice(0, 3)
-                .map((user, index) => (
+              {displayActiveUsers.slice(0, 3).map((user, index) => {
+                const uId = user.userId || user.id;
+                const seated = isUserSeated(uId);
+                return (
                   <TouchableOpacity
-                    key={user.userId || user.id || `user-${index}`}
+                    key={uId || `user-${index}`}
                     style={[
                       styles.audienceItem,
                       index > 0 && styles.audienceItemOverlap,
@@ -7302,13 +7976,14 @@ export default function VoiceParty() {
                         <MicOff size={8} color="#f87171" />
                       ) : user.isSpeaking ? (
                         <Mic size={8} color="#4ade80" />
-                      ) : (
-                        <Mic size={8} color="rgba(255,255,255,0.5)" />
-                      )}
+                      ) : seated ? (
+                        <Mic size={8} color="#a78bfa" />
+                      ) : null}
                     </View>
                   </TouchableOpacity>
-                ))}
-              {(onlineCount || displayActiveUsers.length) > 3 && (
+                );
+              })}
+              {Math.max(onlineCount || 0, displayActiveUsers.length) > 3 && (
                 <TouchableOpacity
                   style={[
                     styles.audienceItem,
@@ -7322,7 +7997,7 @@ export default function VoiceParty() {
                   }}
                 >
                   <Text style={styles.audienceCountText}>
-                    +{(onlineCount || displayActiveUsers.length) - 3}
+                    +{Math.max(onlineCount || 0, displayActiveUsers.length) - 3}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -7529,7 +8204,7 @@ export default function VoiceParty() {
                   <TouchableOpacity
                     style={styles.pinnedShareBtn}
                     activeOpacity={0.8}
-                    onPress={handleShareToChatList}
+                    onPress={() => setShowShareMenu(true)}
                   >
                     <Text style={styles.pinnedShareBtnText}>Share</Text>
                   </TouchableOpacity>
@@ -7593,17 +8268,17 @@ export default function VoiceParty() {
                       : null;
                   const senderVipLogoSource = senderVipLogo
                     ? (typeof senderVipLogo === "string" && senderVipLogo.trim().length > 0
-                        ? { uri: senderVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
-                        : (typeof senderVipLogo === "number" || (typeof senderVipLogo === "object" && senderVipLogo?.uri))
-                          ? senderVipLogo
-                          : null)
+                      ? { uri: senderVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
+                      : (typeof senderVipLogo === "number" || (typeof senderVipLogo === "object" && senderVipLogo?.uri))
+                        ? senderVipLogo
+                        : null)
                     : null;
                   const senderDecorationBadgeSource = senderDecorationBadge
                     ? (typeof senderDecorationBadge === "string" && senderDecorationBadge.trim().length > 0
-                        ? { uri: senderDecorationBadge.trim() }
-                        : (typeof senderDecorationBadge === "number" || (typeof senderDecorationBadge === "object" && senderDecorationBadge?.uri))
-                          ? senderDecorationBadge
-                          : null)
+                      ? { uri: senderDecorationBadge.trim() }
+                      : (typeof senderDecorationBadge === "number" || (typeof senderDecorationBadge === "object" && senderDecorationBadge?.uri))
+                        ? senderDecorationBadge
+                        : null)
                     : null;
                   // Trimmed whole-image chat frame for this sender's tier (keyed
                   // by tier number, not by URL — the URL can vary once the real
@@ -8080,8 +8755,12 @@ export default function VoiceParty() {
         </View>
 
         {/* ── TOP 3 GIFTING RANKING FLOATING WIDGET ── */}
-        {!roomLoading && (
-          <TopGiftingRanking roomId={roomId} onUserPress={handleOnlineUserPress} />
+        {!roomLoading && showTopGiftingRanking && (
+          <TopGiftingRanking
+            roomId={roomId}
+            onUserPress={handleOnlineUserPress}
+            onClose={() => setShowTopGiftingRanking(false)}
+          />
         )}
       </KeyboardAvoidingView>
 
@@ -9044,12 +9723,13 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   shareBox: {
-    backgroundColor: "#1a0a2e",
+    backgroundColor: "#160728",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+    maxHeight: Dimensions.get("window").height * 0.85,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.4,
@@ -9057,83 +9737,235 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   shareHandle: {
-    width: 40,
+    width: 38,
     height: 4,
     borderRadius: 2,
     backgroundColor: "rgba(167,139,250,0.4)",
     alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 16,
+    marginTop: 10,
+    marginBottom: 12,
   },
   shareTitle: {
     color: "white",
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "700",
     textAlign: "center",
-    marginBottom: 20,
+    marginBottom: 14,
   },
-  sharePlatformRow: {
+  shareSearchBox: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 24,
-  },
-  sharePlatformItem: { alignItems: "center", gap: 6 },
-  sharePlatformIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
     alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
-  sharePlatformEmoji: { fontSize: 26 },
-  sharePlatformLabel: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 12,
-    fontWeight: "500",
+  shareSearchInput: {
+    flex: 1,
+    color: "white",
+    fontSize: 13.5,
+    padding: 0,
   },
   shareTabRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(167,139,250,0.15)",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   shareTabItem: {
+    flex: 1,
     paddingVertical: 8,
-    paddingHorizontal: 10,
     alignItems: "center",
   },
   shareTabText: {
-    color: "rgba(255,255,255,0.5)",
+    color: "rgba(255,255,255,0.45)",
     fontSize: 13,
     fontWeight: "600",
   },
-  shareTabTextActive: { color: "white" },
+  shareTabTextActive: {
+    color: "white",
+    fontWeight: "700",
+  },
   shareTabUnderline: {
     height: 2,
-    width: "100%",
+    width: "70%",
     backgroundColor: "#7c4dff",
     borderRadius: 2,
     marginTop: 4,
   },
-  shareBtn: {
-    backgroundColor: "#7c4dff",
-    borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
+  shareUsersSection: {
+    height: 190,
+    marginBottom: 12,
   },
-  shareBtnText: { color: "white", fontSize: 14, fontWeight: "700" },
+  shareUsersScroll: {
+    flex: 1,
+  },
+  shareUsersScrollContent: {
+    paddingVertical: 2,
+    gap: 10,
+  },
+  shareLoadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  shareLoadingText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12.5,
+  },
+  shareEmptyWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  shareEmptyText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 12.5,
+    textAlign: "center",
+  },
+  shareUserRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  shareUserAvatarWrap: {
+    position: "relative",
+    marginRight: 12,
+  },
+  shareUserAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  shareUserAvatarFallback: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#4c1d95",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareUserAvatarInitials: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  shareUserOnlineDot: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+    backgroundColor: "#22c55e",
+    borderWidth: 2,
+    borderColor: "#160728",
+  },
+  shareUserInfoCol: {
+    flex: 1,
+    marginRight: 10,
+  },
+  shareUserName: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  shareUserHandle: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 11.5,
+  },
+  shareUserSendBtn: {
+    backgroundColor: "#7c4dff",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    minWidth: 64,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareUserSendBtnText: {
+    color: "white",
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  shareUserSentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(34, 197, 94, 0.18)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(74, 222, 128, 0.4)",
+  },
+  shareUserSentText: {
+    color: "#4ade80",
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  sharePlatformSection: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+    paddingTop: 12,
+    marginBottom: 4,
+  },
+  sharePlatformSectionTitle: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+  sharePlatformRow: {
+    flexDirection: "row",
+    gap: 14,
+    paddingHorizontal: 4,
+  },
+  sharePlatformItem: {
+    alignItems: "center",
+    gap: 6,
+  },
+  sharePlatformIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  sharePlatformEmoji: {
+    fontSize: 22,
+  },
+  sharePlatformLabel: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 11,
+    fontWeight: "500",
+  },
   shareCancelBtn: {
-    marginTop: 16,
+    marginTop: 10,
     backgroundColor: "rgba(255,255,255,0.08)",
     borderRadius: 14,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.15)",
   },
   shareCancelText: {
     color: "rgba(255,255,255,0.7)",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
   },
 
@@ -10988,6 +11820,21 @@ const styles = StyleSheet.create({
     color: "#e9d5ff",
     fontSize: 10,
     fontWeight: "600",
+  },
+  ownerStatusBadge: {
+    backgroundColor: "rgba(234, 179, 8, 0.2)",
+    borderWidth: 1,
+    borderColor: "#eab308",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ownerStatusText: {
+    color: "#fef08a",
+    fontSize: 10,
+    fontWeight: "700",
   },
   audienceStatusBadge: {
     backgroundColor: "rgba(167, 139, 250, 0.12)",

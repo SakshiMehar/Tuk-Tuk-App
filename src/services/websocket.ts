@@ -17,12 +17,22 @@
  *   wsService.leaveRoom(roomId);
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DeviceEventEmitter } from 'react-native';
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { API_BASE_URL } from '../config/env';
 import { getToken, getUser } from '../store/authStore';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+export interface AccountStatusPayload {
+  type: 'USER_BANNED' | 'USER_UNBANNED' | 'ACCOUNT_SUSPENDED' | string;
+  userId?: number | string;
+  reason?: string;
+  message?: string;
+  [key: string]: unknown;
+}
 
 export type MessageStatus = 'MESSAGE_SENT' | 'MESSAGE_DELIVERED' | 'MESSAGE_READ';
 
@@ -176,7 +186,8 @@ export type RoomTopic =
   | 'moderation'
   | 'notifications'
   | 'treasure'
-  | 'pk';
+  | 'pk'
+  | 'kicked';
 
 export type FamilyTopic = 'chat' | 'chat-summary';
 
@@ -193,6 +204,7 @@ const ROOM_TOPICS: RoomTopic[] = [
   'notifications',
   'treasure',
   'pk',
+  'kicked',
 ];
 
 const FAMILY_TOPICS: FamilyTopic[] = ['chat', 'chat-summary'];
@@ -206,6 +218,8 @@ class WebSocketService {
   private joinedRooms = new Set<string>();
 
   private messageHandlers = new Set<Handler<ChatMessage>>();
+  private accountStatusHandlers = new Set<Handler<AccountStatusPayload>>();
+  private userKickedHandlers = new Set<Handler<unknown>>();
   private typingHandlers = new Set<Handler<TypingPayload>>();
   private presenceHandlers = new Set<Handler<PresencePayload>>();
   private receiptHandlers = new Set<Handler<ReadReceiptPayload>>();
@@ -320,6 +334,8 @@ class WebSocketService {
     this.hasConnectedOnce = true;
 
     this._subscribeUserChats();
+    this._subscribeAccountStatus();
+    this._subscribeUserKicked();
     this._sub('rooms-live', '/topic/rooms/live', this.liveRoomsHandlers);
 
     this.joinedRooms.forEach((roomId) => this._subscribeRoomTopics(roomId));
@@ -352,6 +368,77 @@ class WebSocketService {
         const payload: ChatMessage = JSON.parse(frame.body);
         console.log("[WS] Received user chat payload raw:", frame.body);
         this.messageHandlers.forEach((h) => h(payload));
+      });
+      this.subscriptions.set(key, sub);
+    });
+  }
+
+  private _subscribeAccountStatus(): void {
+    getUser().then((user) => {
+      const userId = user?.id ?? user?.userId ?? user?._id;
+      if (!userId || !this.client || !this.connected) return;
+
+      const key = 'user-account-status';
+      if (this.subscriptions.has(key)) return;
+
+      const destination = `/topic/users/${userId}/account-status`;
+
+      const sub = this.client.subscribe(destination, async (message: IMessage) => {
+        try {
+          const event: AccountStatusPayload = JSON.parse(message.body);
+          console.log("[WS] Account status event:", event);
+
+          if (event.type === 'USER_BANNED') {
+            console.log("[WS] User has been banned:", event.reason || event.message);
+
+            // 1. Clear access + refresh tokens and local auth session
+            await AsyncStorage.multiRemove([
+              '@auth_token',
+              '@refresh_token',
+              '@auth_user',
+              '@terms_accepted',
+              'accessToken',
+              'refreshToken',
+            ]).catch(() => {});
+
+            // 2. Perform clean local logout (ws disconnect, push unregister, token cache clear)
+            try {
+              const { endLocalSession } = await import('./authSessionService');
+              await endLocalSession().catch(() => {});
+            } catch {}
+
+            // 3. Emit global event to trigger UI alert & navigation to Login screen
+            DeviceEventEmitter.emit('userBanned', event);
+          }
+
+          this.accountStatusHandlers.forEach((h) => h(event));
+        } catch (error) {
+          console.error("[WS] Failed to process account status event:", error);
+        }
+      });
+      this.subscriptions.set(key, sub);
+    });
+  }
+
+  private _subscribeUserKicked(): void {
+    getUser().then((user) => {
+      const userId = user?.id ?? user?.userId ?? user?._id;
+      if (!userId || !this.client || !this.connected) return;
+
+      const key = 'user-kicked';
+      if (this.subscriptions.has(key)) return;
+
+      const destination = `/topic/users/${userId}/kicked`;
+
+      const sub = this.client.subscribe(destination, async (message: IMessage) => {
+        try {
+          const event = JSON.parse(message.body);
+          console.log("[WS] User kicked event received:", event);
+          DeviceEventEmitter.emit('userKickedFromRoom', event);
+          this.userKickedHandlers.forEach((h) => h(event));
+        } catch (error) {
+          console.error("[WS] Failed to process user kicked event:", error);
+        }
       });
       this.subscriptions.set(key, sub);
     });
@@ -566,6 +653,15 @@ class WebSocketService {
     return this._onRoomTopic(roomId, 'moderation', handler);
   }
 
+  onRoomKicked(roomId: string, handler: Handler<unknown>): () => void {
+    return this._onRoomTopic(roomId, 'kicked', handler);
+  }
+
+  onUserKicked(handler: Handler<unknown>): () => void {
+    this.userKickedHandlers.add(handler);
+    return () => this.userKickedHandlers.delete(handler);
+  }
+
   onRoomNotifications(roomId: string, handler: Handler<RoomNotificationPayload>): () => void {
     return this._onRoomTopic(roomId, 'notifications', handler as Handler<unknown>);
   }
@@ -756,6 +852,11 @@ class WebSocketService {
   onCallSignal(handler: Handler<CallSignalPayload>): () => void {
     this.callSignalHandlers.add(handler);
     return () => this.callSignalHandlers.delete(handler);
+  }
+
+  onAccountStatus(handler: Handler<AccountStatusPayload>): () => void {
+    this.accountStatusHandlers.add(handler);
+    return () => this.accountStatusHandlers.delete(handler);
   }
 }
 

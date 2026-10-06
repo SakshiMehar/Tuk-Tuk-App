@@ -45,9 +45,9 @@ export const extractRoomIdFromUrl = (url) => {
  */
 export const createRoomInviteMessage = ({ roomId, roomTitle }) => {
   const safeId = String(roomId ?? "").trim();
-  const safeTitle = String(roomTitle ?? "Voice Party Room").trim();
-  const shareUrl = getRoomShareUrl(safeId);
-  return `[VOICE_ROOM_INVITE:roomId=${safeId},title=${encodeURIComponent(safeTitle)}]\n🎙️ Join my Voice Party Room: "${safeTitle}"!\n${shareUrl}`;
+  const safeTitle = String(roomTitle ?? "Newbie Welcome Room").trim();
+  const playStoreUrl = "https://play.google.com/store/apps/details?id=tuk.tuk.app";
+  return `[VOICE_ROOM_INVITE:roomId=${safeId},title=${encodeURIComponent(safeTitle)}]\nWe have funny conversation in here! Come to Tuk-Tuk to join 「${safeTitle}」${safeId}!\n${playStoreUrl}`;
 };
 
 /**
@@ -85,14 +85,15 @@ export const parseRoomInviteMessage = (text) => {
   const roomId = extractRoomIdFromUrl(trimmed);
   if (
     roomId &&
-    (/voice party|join my room|join (?:the )?room|room invite|tuktuk\.live\/room/i.test(
+    (/voice party|join my room|join (?:the )?room|room invite|tuktuk\.live\/room|funny conversation/i.test(
       trimmed,
     ) ||
       trimmed.startsWith("https://tuktuk.live/room/") ||
       trimmed.startsWith("http://tuktuk.live/room/"))
   ) {
-    const titleMatch = trimmed.match(/["“]([^"”]+)["”]/);
-    const roomTitle = titleMatch ? titleMatch[1] : "Voice Party Room";
+    const bracketMatch = trimmed.match(/「([^」]+)」/);
+    const quoteMatch = trimmed.match(/["“]([^"”]+)["”]/);
+    const roomTitle = (bracketMatch ? bracketMatch[1] : (quoteMatch ? quoteMatch[1] : "Voice Party Room"));
     return {
       isRoomInvite: true,
       roomId,
