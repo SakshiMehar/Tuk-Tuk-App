@@ -55,7 +55,6 @@ const VIP_LOGO_BY_TIER = Object.fromEntries(
   VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
 );
 
-const VERIFIED_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/verified-batch.png" };
 const BADGE_HEIGHT = 20;
 const BADGE_ASPECT = { level: 142 / 149, verified: 438 / 179 };
 
@@ -448,8 +447,11 @@ export default function UserProfileView({ user, onBack }) {
                         aspectRatio={BADGE_ASPECT.verified}
                       />
                     )}
-                    {profile?.verified && (
-                      <Badge source={VERIFIED_BADGE} aspectRatio={BADGE_ASPECT.verified} />
+                    {profile?.verifiedBadgeUrl && (
+                      <Badge
+                        source={resolveImageSource(profile.verifiedBadgeUrl)}
+                        aspectRatio={BADGE_ASPECT.verified}
+                      />
                     )}
                   </View>
                 </View>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { View, Text, Image, ImageBackground, TouchableOpacity, ScrollView, StyleSheet, Alert, Dimensions, Animated, Easing } from "react-native";
+import { View, Text, Image, ImageBackground, TouchableOpacity, ScrollView, StyleSheet, Alert, Dimensions, Animated, Easing, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Defs, RadialGradient, Stop, Circle, Ellipse, Polygon } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { loadMyPremiumAssets, purchasePremiumTier } from "../src/services/premiumService";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
@@ -247,6 +248,14 @@ export default function PremiumPanel({ onClose }) {
   const [selfUser, setSelfUser] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
   const [decorationFrameUrl, setDecorationFrameUrl] = useState(null);
+  const [premiumLogo, setPremiumLogo] = useState(null);
+
+  const refreshPremiumAssets = () => {
+    loadMyPremiumAssets().then((assets) => {
+      setPremiumLogo(assets.logo);
+    }).catch(() => {});
+  };
+
   useEffect(() => {
     let cancelled = false;
     getUser().then((u) => {
@@ -264,6 +273,7 @@ export default function PremiumPanel({ onClose }) {
     loadMyVipAssets().then((vipAssets) => {
       if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
     }).catch(() => {});
+    refreshPremiumAssets();
     return () => {
       cancelled = true;
     };
@@ -275,6 +285,25 @@ export default function PremiumPanel({ onClose }) {
   const [slideWidth, setSlideWidth] = useState(TIER_SLIDE_WIDTH);
   const tierScrollRef = useRef(null);
   const activeTier = PREMIUM_TIERS[activeTierIndex];
+
+  const [purchasing, setPurchasing] = useState(false);
+  const handlePurchase = async () => {
+    if (purchasing) return;
+    setPurchasing(true);
+    try {
+      // Tiers are 1-indexed on the backend (1 = Knight ... 7 = Sovereign).
+      await purchasePremiumTier(activeTierIndex + 1);
+      Alert.alert("Purchased", `You are now ${activeTier.label}!`);
+      refreshPremiumAssets();
+    } catch (err) {
+      Alert.alert(
+        "Couldn't purchase",
+        err?.responseData?.error ?? err?.message ?? "Please try again.",
+      );
+    } finally {
+      setPurchasing(false);
+    }
+  };
 
   const handleTierScrollLayout = (e) => {
     // Use the ScrollView's own measured width directly — it no longer has
@@ -454,6 +483,9 @@ export default function PremiumPanel({ onClose }) {
                     : {})}
               />
             </View>
+            {premiumLogo && (
+              <Image source={{ uri: premiumLogo }} style={styles.notYetPremiumLogo} resizeMode="contain" />
+            )}
             <Text
               style={styles.notYetText}
               numberOfLines={1}
@@ -601,12 +633,23 @@ export default function PremiumPanel({ onClose }) {
               <Text style={styles.bottomBtnSub}>depends on the user</Text>
             </LinearGradient>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomBtnWrap} activeOpacity={0.85} onPress={notWiredYet}>
+          <TouchableOpacity
+            style={styles.bottomBtnWrap}
+            activeOpacity={0.85}
+            onPress={handlePurchase}
+            disabled={purchasing}
+          >
             <LinearGradient colors={["rgba(232,121,249,0.3)", "rgba(192,38,211,0.3)"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.bottomBtn}>
-              <Text style={styles.purchaseBtnTitle}>
-                Purchase {activeTier.coins.toLocaleString("en-IN")} 🪙
-              </Text>
-              <Text style={styles.purchaseBtnSub}>/30days</Text>
+              {purchasing ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <>
+                  <Text style={styles.purchaseBtnTitle}>
+                    Purchase {activeTier.coins.toLocaleString("en-IN")} 🪙
+                  </Text>
+                  <Text style={styles.purchaseBtnSub}>/30days</Text>
+                </>
+              )}
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -792,6 +835,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.18)",
     borderWidth: 3,
     borderColor: "rgba(255,255,255,0.5)",
+  },
+  notYetPremiumLogo: {
+    width: 24,
+    height: 24,
   },
   notYetText: {
     flex: 1,

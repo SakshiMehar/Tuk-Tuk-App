@@ -1,7 +1,6 @@
 import axios from "axios";
-
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
+import { DeviceEventEmitter } from "react-native";
 import { API_BASE_URL, API_TIMEOUT_MS } from "../config/env";
 
 const API = axios.create({
@@ -171,6 +170,54 @@ API.interceptors.response.use(
         "message:", error?.message,
         "timedOut:", error?.request?._timedOut
       );
+    }
+
+    // ── Handle USER_BANNED response (WebSocket disconnected fallback) ───
+    const responseData = error?.response?.data;
+    const isUserBanned =
+      responseData?.message === "USER_BANNED" ||
+      responseData?.error === "USER_BANNED" ||
+      responseData?.type === "USER_BANNED" ||
+      responseData?.code === "USER_BANNED" ||
+      /USER_BANNED/i.test(String(responseData?.message || responseData?.error || ""));
+
+    if (isUserBanned) {
+      console.warn("[axios] User banned response detected:", responseData);
+      _s.token = null;
+      _s.refreshToken = null;
+      _s.refreshPromise = null;
+
+      await AsyncStorage.multiRemove([
+        "@auth_token",
+        "@refresh_token",
+        "@auth_user",
+        "@terms_accepted",
+        "accessToken",
+        "refreshToken",
+      ]).catch(() => {});
+      clearTokenCache();
+
+      try {
+        const { endLocalSession } = require("../services/authSessionService");
+        await endLocalSession().catch(() => {});
+      } catch {}
+
+      const banReason = responseData?.reason || responseData?.message || "Your account has been banned.";
+      DeviceEventEmitter.emit("userBanned", {
+        type: "USER_BANNED",
+        reason: banReason,
+      });
+
+      if (!_s.handlingUnauth) {
+        _s.handlingUnauth = true;
+        _s.onSessionExpired?.("USER_BANNED", banReason);
+      }
+
+      const banErr = new Error(banReason);
+      banErr.status = status;
+      banErr.isUserBanned = true;
+      banErr.responseData = responseData;
+      return Promise.reject(banErr);
     }
 
     // ── 401: Automatic Token Refresh ────────────────────────────

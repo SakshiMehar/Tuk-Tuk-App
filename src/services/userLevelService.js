@@ -68,12 +68,16 @@ export const applyInitialUserLevelForLogin = async (authData) => {
  *  { level, badgeSource } shape every caller (profile.jsx, WalletUserCard, UserLevelPanel)
  *  already expects. `xp` is the full gamification profile, only populated when that
  *  endpoint succeeded — extra data for callers that want it (e.g. UserLevelPanel's XP
- *  gauge), ignored by callers that don't. */
+ *  gauge), ignored by callers that don't.
+ *  Fetches GET /api/app/ui-assets/level/:level for this level's real badge
+ *  art on every call — the static LOCAL_LEVEL_BADGES map only covers a
+ *  handful of levels and would otherwise silently show the wrong (or a
+ *  level-1) badge for everyone else. */
 const persistAndBuildResult = async (user, level, xp = null) => {
   const needsUpdate = user?.level !== level;
-  if (needsUpdate) {
-    // Clear any stale remote badge URL — we use local assets now
-    await updateUser({ level, levelBadgeUrl: null });
+  const badgeUrl = await fetchLevelBadgeAssetUrl(level);
+  if (needsUpdate || badgeUrl !== user?.levelBadgeUrl) {
+    await updateUser({ level, levelBadgeUrl: badgeUrl });
   }
   const updated = await getUser();
   return {

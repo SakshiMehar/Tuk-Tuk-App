@@ -103,6 +103,7 @@ function Avatar({ uri, name, size = 42 }) {
 export default function PkLiveBanner({
   battle,
   role,
+  myAccepted = false,
   onAccept,
   onReject,
   onDismiss,
@@ -190,6 +191,19 @@ export default function PkLiveBanner({
         ? battle.teamBScore
         : null;
 
+  // Both participants must accept before the battle goes LIVE — neither
+  // side is auto-accepted just because the room host set the match up. The
+  // backend only reports a single `status` (no per-side accepted flags), so
+  // "have I already accepted" is tracked by the caller and passed in as
+  // `myAccepted`; we can't tell which specific side a bystander is still
+  // waiting on, only that the battle overall hasn't gone LIVE yet.
+  const otherName = role === "hostA" ? nameB : role === "hostB" ? nameA : null;
+  const needsMyResponse = isPending && (role === "hostA" || role === "hostB") && !myAccepted;
+  const waitingText =
+    role === "hostA" || role === "hostB"
+      ? `Waiting for ${otherName} to accept…`
+      : `Waiting for ${nameA} and ${nameB} to accept…`;
+
   return (
     <Animated.View
       style={[styles.outerWrapper, { transform: pan.getTranslateTransform(), opacity: fadeAnim }]}
@@ -201,11 +215,11 @@ export default function PkLiveBanner({
 
       <View style={styles.cardOuter}>
         <LinearGradient colors={["#16233f", "#0c1526"]} style={styles.cardBg}>
-          {/* I'm the challenged host — Accept / Reject prompt */}
-          {isPending && role === "hostB" && (
+          {/* I'm one of the two participants and haven't responded yet */}
+          {needsMyResponse && (
             <View style={styles.promptBody}>
               <Text style={styles.subtitle} numberOfLines={2}>
-                {nameA} wants to battle you!
+                {otherName} wants to battle you!
               </Text>
               <View style={styles.actionRow}>
                 <TouchableOpacity
@@ -232,12 +246,12 @@ export default function PkLiveBanner({
             </View>
           )}
 
-          {/* Challenge sent — waiting on the other host */}
-          {isPending && role !== "hostB" && (
+          {/* Already accepted (or just watching) — waiting on whoever's left */}
+          {isPending && !needsMyResponse && (
             <View style={styles.waitingRow}>
               <ActivityIndicator color="#a78bfa" size="small" />
               <Text style={styles.waitingText} numberOfLines={2}>
-                Waiting for {nameB} to accept…
+                {waitingText}
               </Text>
             </View>
           )}
@@ -297,7 +311,7 @@ export default function PkLiveBanner({
               <View style={{ flex: 1 }}>
                 <Text style={styles.subtitle} numberOfLines={2}>
                   {battle.status === "REJECTED"
-                    ? `${nameB} declined the PK challenge.`
+                    ? "The PK challenge was declined."
                     : battle.status === "CANCELLED"
                       ? "The PK battle was cancelled."
                       : battle.winner === "DRAW"

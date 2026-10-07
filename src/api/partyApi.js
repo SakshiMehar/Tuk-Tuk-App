@@ -523,3 +523,25 @@ export const unfollowRoom = async (roomId) => {
     throw error;
   }
 };
+
+/** POST /api/v1/tuktuk/rooms/{roomId}/kick — kick out user from room */
+export const kickRoomUser = async (roomId, targetUserId, reason = "") => {
+  if (!roomId) throw new Error("Room ID is required to kick user");
+  if (!targetUserId) throw new Error("Target user ID is required");
+  const path = `/api/v1/tuktuk/rooms/${roomId}/kick`;
+  const payload = {
+    targetUserId: String(targetUserId),
+    userId: String(targetUserId),
+    ...(reason ? { reason: String(reason) } : {}),
+  };
+  logRequest("POST", path, payload);
+  try {
+    const response = await API.post(path, payload, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+

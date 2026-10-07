@@ -111,6 +111,10 @@ export const parseMeProfile = (data) => {
   return {
     id: firstValue(raw.id, raw.userId, raw.user_id, raw.memberId),
     name: firstText(raw.name, raw.nickname, raw.displayName) ?? "",
+    // Backend sends the checkmark as an asset URL (present = verified,
+    // null = not), same convention as levelBadgeUrl/newUserFrameUrl above —
+    // there is no separate boolean flag.
+    verifiedBadgeUrl: firstText(raw.verifiedBadgeUrl),
     email: raw.email ?? null,
     phoneNumber: raw.phoneNumber ?? null,
     gender: firstText(raw.gender, raw.sex) ?? null,

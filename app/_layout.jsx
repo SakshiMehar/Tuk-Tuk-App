@@ -47,13 +47,33 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    // When any API call returns 401 (expired / missing token), clear the
-    // session and return the user to the login screen.
-    setSessionExpiredHandler(() => {
-      router.replace("/login");
+    // When any API call returns 401 (expired / missing token) or USER_BANNED,
+    // clear the session and return the user to the login screen.
+    setSessionExpiredHandler((reason, message) => {
+      if (reason === "USER_BANNED") {
+        Alert.alert(
+          "Account Banned",
+          message || "Your account has been banned by the administrator.",
+          [{ text: "OK", onPress: () => router.replace("/login") }],
+          { cancelable: false }
+        );
+      } else {
+        router.replace("/login");
+      }
     });
+
+    const userBannedSub = DeviceEventEmitter.addListener("userBanned", (event) => {
+      Alert.alert(
+        "Account Banned",
+        event?.reason || event?.message || "Your account has been banned by the administrator.",
+        [{ text: "OK", onPress: () => router.replace("/login") }],
+        { cancelable: false }
+      );
+    });
+
     return () => {
       setSessionExpiredHandler(null);
+      userBannedSub.remove();
     };
   }, []);
 
@@ -170,6 +190,7 @@ export default function RootLayout() {
         <Stack.Screen name="user-profile" />
         <Stack.Screen name="blocked-accounts" />
         <Stack.Screen name="message-notification" />
+        <Stack.Screen name="personality-test" />
         <Stack.Screen name="room/[roomId]" />
         </Stack>
       </CallProvider>

@@ -68,13 +68,17 @@ export const resolveLocalLevelBadge = (level = DEFAULT_USER_LEVEL) =>
 export const resolveLevelBadgeSource = (user, levelOverride = null) => {
   const level = normalizeUserLevel(levelOverride ?? user?.level, DEFAULT_USER_LEVEL);
 
-  // Prefer the CDN-hosted badge for this level.
-  const badge = resolveLocalLevelBadge(level);
-  if (badge) return badge;
-
-  // Only fall back to the user's own badge URL if no CDN asset exists for this level
+  // GET /api/app/ui-assets/level/:level (fetched in userLevelService and
+  // persisted onto the user record as levelBadgeUrl) is the source of
+  // truth — it covers every level and reflects whatever art the backend
+  // currently has for it. The static map below only covers a handful of
+  // levels and is just a fallback for when that fetch hasn't happened yet
+  // or failed (e.g. offline).
   const remote = resolveRemoteProfilePicUrl(user?.levelBadgeUrl);
   if (remote) return resolveImageSource(remote);
+
+  const badge = resolveLocalLevelBadge(level);
+  if (badge) return badge;
 
   return resolveLocalLevelBadge(DEFAULT_USER_LEVEL);
 };
