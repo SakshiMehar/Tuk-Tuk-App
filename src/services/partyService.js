@@ -125,45 +125,95 @@ export const normalizeRoom = (rawRoom) => {
 };
 
 const normalizeSeatUser = (seatValue) => {
-  if (!seatValue || seatValue === "EMPTY") return null;
+  if (!seatValue) return null;
   if (typeof seatValue === "string") {
-    if (seatValue === "LOCKED") return null;
+    const upper = seatValue.trim().toUpperCase();
+    if (
+      !upper ||
+      upper === "EMPTY" ||
+      upper === "LOCKED" ||
+      upper === "AVAILABLE" ||
+      upper === "FREE" ||
+      upper === "OPEN" ||
+      upper === "UNCLAIMED" ||
+      upper === "VACANT" ||
+      upper === "NONE" ||
+      upper === "NULL" ||
+      upper === "UNDEFINED"
+    ) {
+      return null;
+    }
     return { name: seatValue, avatar: null, active: false, muted: true };
   }
-  const user = seatValue?.user ?? seatValue?.profile ?? seatValue;
+
+  // Check seat-level boolean flags indicating empty seat
+  if (
+    seatValue?.occupied === false ||
+    seatValue?.isOccupied === false ||
+    seatValue?.isTaken === false ||
+    seatValue?.claimed === false ||
+    seatValue?.isClaimed === false
+  ) {
+    return null;
+  }
+
+  // Check status strings
+  const status = typeof seatValue?.status === "string" ? seatValue.status.trim().toUpperCase() : "";
+  if (
+    status === "EMPTY" ||
+    status === "LOCKED" ||
+    status === "AVAILABLE" ||
+    status === "FREE" ||
+    status === "OPEN" ||
+    status === "UNCLAIMED" ||
+    status === "VACANT" ||
+    status === "NONE" ||
+    status === "NULL"
+  ) {
+    return null;
+  }
+
+  const user = seatValue?.user ?? seatValue?.profile;
+  const target = user && typeof user === "object" ? user : seatValue;
+  const userId = firstValue(target?.id, target?.userId, target?.uid, seatValue?.userId, seatValue?.uid);
+  const name = firstText(target?.name, target?.username, target?.displayName, seatValue?.name);
   const rawAvatar = firstText(
-    user?.avatar,
-    user?.avatarUrl,
-    user?.profilePicUrl,
-    user?.profileImageUrl,
-    user?.profileImage,
-    user?.photoUrl,
+    target?.avatar,
+    target?.avatarUrl,
+    target?.profilePicUrl,
+    target?.profileImageUrl,
+    target?.profileImage,
+    target?.photoUrl,
     seatValue?.avatarUrl,
     seatValue?.profileImageUrl,
     seatValue?.avatar,
   );
+
+  // If there is no user identifier (no user id, no name, no avatar), the seat is empty
+  if (userId == null && !name && !rawAvatar) {
+    return null;
+  }
+  // If userId is null, rawAvatar is null and name is empty / "Guest" on a dummy seat object, it's empty
+  if (userId == null && !rawAvatar && (!name || name === "Guest" || name === "…")) {
+    return null;
+  }
+
   return {
-    name:
-      firstText(
-        user?.name,
-        user?.username,
-        user?.displayName,
-        seatValue?.name,
-      ) ?? "Guest",
+    name: name ?? "User",
     username: firstText(
-      user?.username,
-      user?.handle,
-      user?.nickname,
-      user?.name,
+      target?.username,
+      target?.handle,
+      target?.nickname,
+      target?.name,
     ),
     avatar: normalizeAvatarField(rawAvatar),
     active: Boolean(
-      user?.isSpeaking ?? user?.active ?? user?.onMic ?? seatValue?.onMic,
+      target?.isSpeaking ?? target?.active ?? target?.onMic ?? seatValue?.onMic,
     ),
-    muted: Boolean(user?.muted ?? user?.isMuted ?? seatValue?.muted),
-    id: firstValue(user?.id, user?.userId, user?.uid, seatValue?.userId),
-    level: firstNumber(user?.level, seatValue?.level),
-    verifiedBadgeUrl: firstText(user?.verifiedBadgeUrl, seatValue?.verifiedBadgeUrl),
+    muted: Boolean(target?.muted ?? target?.isMuted ?? seatValue?.muted),
+    id: userId,
+    level: firstNumber(target?.level, seatValue?.level),
+    verifiedBadgeUrl: firstText(target?.verifiedBadgeUrl, seatValue?.verifiedBadgeUrl),
   };
 };
 
@@ -197,11 +247,22 @@ export const parseSeats = (seatsSource, stateData) => {
       locked: false,
     }));
   }
-  return entries.map(([seatNum, value]) => {
+  const mapById = new Map();
+  entries.forEach(([seatNum, value]) => {
     const id = Number(seatNum);
-    const locked = value === "LOCKED" || value?.locked === true;
+    if (!Number.isFinite(id) || id <= 0) return;
+    const locked =
+      value === "LOCKED" ||
+      value?.locked === true ||
+      (typeof value?.status === "string" && value.status.trim().toUpperCase() === "LOCKED");
     const user = locked ? null : normalizeSeatUser(value);
-    return { id, user, locked };
+    mapById.set(id, { id, user, locked });
+  });
+
+  const totalSeats = Math.max(15, ...Array.from(mapById.keys()));
+  return Array.from({ length: totalSeats }, (_, i) => {
+    const seatId = i + 1;
+    return mapById.get(seatId) ?? { id: seatId, user: null, locked: false };
   });
 };
 

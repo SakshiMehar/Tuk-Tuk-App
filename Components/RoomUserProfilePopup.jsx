@@ -35,7 +35,6 @@ import { fetchVipProfileFrameForUser } from "../src/services/vipService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { resolveImageSource } from "../src/utils/videoSource";
-import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
 import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 

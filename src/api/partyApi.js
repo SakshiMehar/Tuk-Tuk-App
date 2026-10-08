@@ -391,6 +391,23 @@ export const lockSeat = async (roomId, seatNumber) => {
   }
 };
 
+/** POST .../seat/{seatNumber}/unlock — host unlocks a locked seat */
+export const unlockSeat = async (roomId, seatNumber) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/unlock`;
+  logRequest("POST", path);
+  try {
+    const response = await API.post(path, {}, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+export const lockRoomSeat = lockSeat;
+export const unlockRoomSeat = unlockSeat;
+
 /** POST .../toggle-mute?isMuted=true|false */
 export const toggleSeatMute = async (roomId, seatNumber, isMuted) => {
   const muted = isMuted === true || isMuted === "true";
