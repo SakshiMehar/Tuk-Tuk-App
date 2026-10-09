@@ -1,8 +1,8 @@
 import { FontAwesome, Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
-import { useKeepAwake } from "expo-keep-awake";
 import { Image as ExpoImage } from "expo-image";
+import { useKeepAwake } from "expo-keep-awake";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
@@ -18,7 +18,6 @@ import {
   MicOff,
   Minimize2,
   MoreVertical,
-  Pause,
   Play,
   Plus,
   Power,
@@ -65,7 +64,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { refreshTokenCache } from "../src/api/axios";
+import GiftPurchaseModal from "../Modal/GiftPurchaseModal";
+import API, { refreshTokenCache } from "../src/api/axios";
 import {
   followRoom,
   getClaimedSeats,
@@ -106,7 +106,6 @@ import { loadConversations } from "../src/services/chatService";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import {
   adjustInventoryQty,
-  buyGiftToBackpack,
   claimRewardToBackpack,
   findInventoryGift,
   giftsMatch,
@@ -115,10 +114,9 @@ import {
   loadListenRewardStatus,
   loadPartyGiftCatalog,
   normalizeGiftAnimation,
-  parseBuyResultInventory,
   reconcileInventory,
   sendPartyRoomGift,
-  syncListenRewardProgress,
+  syncListenRewardProgress
 } from "../src/services/giftCatalogService";
 import { loadUserDetail } from "../src/services/nearbyService";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
@@ -148,6 +146,7 @@ import {
   respondPkBattle,
   startPkBattle,
 } from "../src/services/pkBattleService";
+import { loadMyPremiumAssets } from "../src/services/premiumService";
 import { loadPublicProfile } from "../src/services/publicProfileService";
 import {
   blockUser,
@@ -161,7 +160,6 @@ import {
 import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
-import { loadMyPremiumAssets } from "../src/services/premiumService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
 import { applyWalletFromSources, refreshWalletBalance } from "../src/store/walletStore";
@@ -176,6 +174,7 @@ import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import { resolveVoiceUidForUserId } from "../src/utils/voiceUid";
 import DiamondRechargeModal from "./DiamondRechargeModal";
+import MiniMusicPlayer from "./MiniMusicPlayer";
 import PkAcceptTeamModal from "./PkAcceptTeamModal";
 import PkBattleModal from "./PkBattleModal";
 import PkLiveBanner from "./PkLiveBanner";
@@ -186,7 +185,6 @@ import TopGiftingRanking from "./TopGiftingRanking";
 import TreasureAnimationModal from "./TreasureAnimationModal";
 import TreasureBoxModal from "./TreasureBoxModal";
 import TreasureWinnersModal from "./TreasureWinnersModal";
-import MiniMusicPlayer from "./MiniMusicPlayer";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
@@ -1654,7 +1652,13 @@ export default function VoiceParty() {
   const roomIdRef = useRef(roomIdParam);
   const isNavigatingToInboxRef = useRef(false);
   const fetchedUiAssetIdsRef = useRef(new Set());
-  const { keyboardHeight, safeBottom, idleBottom } = useKeyboardInset();
+  const { keyboardHeight, safeBottom, idleBottom, composerBottom, isKeyboardVisible } = useKeyboardInset();
+
+  useEffect(() => {
+    if (isKeyboardVisible) {
+      setShowEmojiPicker(false);
+    }
+  }, [isKeyboardVisible]);
   const [showPlayCenter, setShowPlayCenter] = useState(false);
   const [showTopGiftingRanking, setShowTopGiftingRanking] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -1702,6 +1706,10 @@ export default function VoiceParty() {
   const [backpackSelectedGifts, setBackpackSelectedGifts] = useState([]);
   const [giftQty, setGiftQty] = useState(1);
   const [purchaseGift, setPurchaseGift] = useState(null);
+  const [showSendGiftOptions, setShowSendGiftOptions] = useState(false);
+  const [sendGiftQuantity, setSendGiftQuantity] = useState("1");
+  const [sendGiftReceiverId, setSendGiftReceiverId] = useState(null);
+  const [sendingGift, setSendingGift] = useState(false);
   const [backpackGifts, setBackpackGifts] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
@@ -1751,11 +1759,11 @@ export default function VoiceParty() {
   const welcomeKeyboardHeight =
     welcomeKeyboardRaw > 0 && Platform.OS === "android"
       ? welcomeKeyboardRaw +
-        Math.max(
-          welcomeSafeBottom,
-          // screen - window also includes the status bar; strip it out
-          getAndroidNavBarInset() - (StatusBar.currentHeight || 0),
-        )
+      Math.max(
+        welcomeSafeBottom,
+        // screen - window also includes the status bar; strip it out
+        getAndroidNavBarInset() - (StatusBar.currentHeight || 0),
+      )
       : welcomeKeyboardRaw;
 
   useEffect(() => {
@@ -1763,8 +1771,8 @@ export default function VoiceParty() {
     const unsub = agoraVoice.subscribeAudioMixing(({ state, reason }) => {
       // state 713 = Stopped. reason 721 = OneLoopCompleted, 723 = AllLoopsCompleted, 724 = StoppedByUser
       if (
-        reason === 721 || 
-        reason === 723 || 
+        reason === 721 ||
+        reason === 723 ||
         ((state === 713 || state === 'COMPLETED' || state === 'STOPPED') && reason !== 724)
       ) {
         DeviceEventEmitter.emit('AUDIO_MIXING_COMPLETED');
@@ -2793,9 +2801,9 @@ export default function VoiceParty() {
   useEffect(() => {
     myDisplayNameRef.current = String(
       localSessionUser?.name ??
-        localSessionUser?.username ??
-        localSessionUser?.nickname ??
-        "",
+      localSessionUser?.username ??
+      localSessionUser?.nickname ??
+      "",
     ).trim();
   }, [localSessionUser]);
 
@@ -4509,6 +4517,7 @@ export default function VoiceParty() {
   };
 
   const handleOpenMediaPicker = () => {
+    Keyboard.dismiss();
     setShowChatInput(true);
     setShowEmojiPicker(true);
   };
@@ -4568,6 +4577,7 @@ export default function VoiceParty() {
     setInputText("");
     setTaggedUser(null);
     setShowChatInput(false);
+    setShowEmojiPicker(false);
     Keyboard.dismiss();
     await appendOutgoingMessage(text);
 
@@ -4672,6 +4682,57 @@ export default function VoiceParty() {
     setPurchaseGift(gift);
   };
 
+  const confirmSendGift = async () => {
+    if (!purchaseGift || !giftReceiverId || !sendGiftQuantity) {
+      Alert.alert("Error", "Please select a receiver and quantity.");
+      return;
+    }
+
+    const price = Math.max(0, Number(purchaseGift.price ?? 0)) * Number(sendGiftQuantity);
+    if (price > 0 && walletDiamonds < price) {
+      Alert.alert(
+        "Not enough diamonds",
+        `You need 💎 ${formatGiftPrice(price)} but only have 💎 ${formatGiftPrice(walletDiamonds)}. Recharge to continue.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Recharge",
+            onPress: () => {
+              setRechargeInitialTab("diamonds");
+              setShowDiamondRecharge(true);
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    setSendingGift(true);
+    try {
+      const payload = {
+        receiverId: Number(giftReceiverId),
+        giftId: String(purchaseGift.databaseId || purchaseGift.id || ""),
+        giftCode: Number(purchaseGift.giftCode || 0),
+        quantity: Number(sendGiftQuantity),
+      };
+      const response = await API.post(`/api/v1/tuktuk/rooms/${roomId}/buy/and/send/gift`, payload);
+
+      if (response?.data?.wallet) {
+        applyWalletFromSources({ walletData: response.data.wallet });
+      } else {
+        await refreshWalletBalance();
+      }
+
+      setShowSendGiftOptions(false);
+      setPurchaseGift(null);
+      setShowBackpack(false);
+    } catch (err) {
+      Alert.alert("Failed", err?.response?.data?.message || err?.message || "Could not send gift");
+    } finally {
+      setSendingGift(false);
+    }
+  };
+
   const handleBuyGift = async () => {
     if (!purchaseGift || buyingGiftRef.current || catalogLoading) return;
     const giftCode = String(purchaseGift.giftCode ?? purchaseGift.id ?? "");
@@ -4707,6 +4768,8 @@ export default function VoiceParty() {
     buyingGiftRef.current = true;
     setCatalogLoading(true);
     try {
+      // API call commented out as per request
+      /*
       const result = await buyGiftToBackpack({
         giftCode,
         giftId: purchaseGift.databaseId,
@@ -4737,9 +4800,8 @@ export default function VoiceParty() {
       setBackpackMainTab("Backpack");
       setBackpackSubTab("Gift");
       Alert.alert(
-        "Purchased",
-        `${bought.emoji} ${bought.name} was added to your backpack.`,
-      );
+      */
+      // Just do nothing for now (no API call, no closing popup)
     } catch (err) {
       Alert.alert(
         "Purchase failed",
@@ -4913,10 +4975,10 @@ export default function VoiceParty() {
     let totalCost = 0;
     let allInStock = true;
     for (const g of backpackSelectedGifts) {
-       const owned = findInventoryGift(backpackGifts, g);
-       const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
-       if (ownedQty < qty) allInStock = false;
-       totalCost += Math.max(0, Number(g.price ?? 0)) * qty;
+      const owned = findInventoryGift(backpackGifts, g);
+      const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
+      if (ownedQty < qty) allInStock = false;
+      totalCost += Math.max(0, Number(g.price ?? 0)) * qty;
     }
 
     if (!allInStock && totalCost > 0 && walletDiamonds < totalCost) {
@@ -4959,12 +5021,12 @@ export default function VoiceParty() {
           : null;
 
       let optimisticInventory = [...backpackGifts];
-      
+
       for (const g of backpackSelectedGifts) {
         const owned = findInventoryGift(backpackGifts, g);
         const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
         const hasBackpackStock = ownedQty >= qty;
-        
+
         const giftText = buildGiftChatText({
           emoji: g.emoji,
           name: g.name,
@@ -5014,7 +5076,7 @@ export default function VoiceParty() {
         });
 
         setMessages((prev) => [...prev, localMsg]);
-        
+
         if (roomId) {
           mySentGiftTextsRef.current.set(giftText, Date.now());
           try {
@@ -5032,8 +5094,8 @@ export default function VoiceParty() {
       setBackpackGifts(inventory);
 
       const newSelected = backpackSelectedGifts.filter(g => {
-         const rem = findInventoryGift(inventory, g);
-         return rem?.qty > 0;
+        const rem = findInventoryGift(inventory, g);
+        return rem?.qty > 0;
       });
       setBackpackSelectedGifts(newSelected);
 
@@ -5927,88 +5989,27 @@ export default function VoiceParty() {
       </Modal>
 
       {/* ── GIFT PURCHASE MODAL ── */}
-      <Modal
-        visible={Boolean(purchaseGift)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPurchaseGift(null)}
-      >
-        <TouchableOpacity
-          style={styles.giftPurchaseOverlay}
-          activeOpacity={1}
-          onPress={() => setPurchaseGift(null)}
-        >
-          <TouchableOpacity activeOpacity={1} style={styles.giftPurchaseBox}>
-            {purchaseGift &&
-              (() => {
-                const purchasePrice = Math.max(
-                  0,
-                  Number(purchaseGift.price ?? 0),
-                );
-                const canAfford =
-                  purchasePrice <= 0 || walletDiamonds >= purchasePrice;
-                return (
-                  <>
-                    <LinearGradient
-                      colors={["#2a0d50", "#4a1d80"]}
-                      style={styles.giftPurchaseEmojiWrap}
-                    >
-                      <Text style={styles.giftPurchaseEmoji}>
-                        {purchaseGift.emoji}
-                      </Text>
-                    </LinearGradient>
-                    <Text style={styles.giftPurchaseName}>
-                      {purchaseGift.name}
-                    </Text>
-                    <Text style={styles.giftPurchasePrice}>
-                      💎 {formatGiftPrice(purchasePrice)}
-                    </Text>
-                    <Text style={styles.giftPurchaseBalance}>
-                      Your balance: 💎 {formatGiftPrice(walletDiamonds)}
-                    </Text>
-                    {!canAfford ? (
-                      <Text style={styles.giftPurchaseWarning}>
-                        Not enough diamonds to buy this gift.
-                      </Text>
-                    ) : null}
-                    <View style={styles.giftPurchaseActions}>
-                      <TouchableOpacity
-                        style={styles.giftPurchaseCloseBtn}
-                        activeOpacity={0.85}
-                        onPress={() => setPurchaseGift(null)}
-                      >
-                        <Text style={styles.giftPurchaseCloseText}>Close</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.giftPurchaseBuyBtn,
-                          (!canAfford || catalogLoading) &&
-                          styles.giftPurchaseBuyBtnDisabled,
-                        ]}
-                        activeOpacity={0.85}
-                        disabled={!canAfford || catalogLoading}
-                        onPress={handleBuyGift}
-                      >
-                        <LinearGradient
-                          colors={
-                            canAfford && !catalogLoading
-                              ? ["#7c4dff", "#4a6cf7"]
-                              : ["#4a4a5a", "#3a3a4a"]
-                          }
-                          style={styles.giftPurchaseBuyGrad}
-                        >
-                          <Text style={styles.giftPurchaseBuyText}>
-                            {catalogLoading ? "Buying..." : "Buy"}
-                          </Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                );
-              })()}
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+      <GiftPurchaseModal
+        purchaseGift={purchaseGift}
+        setPurchaseGift={setPurchaseGift}
+        showSendGiftOptions={showSendGiftOptions}
+        setShowSendGiftOptions={setShowSendGiftOptions}
+        walletDiamonds={walletDiamonds}
+        sendGiftQuantity={sendGiftQuantity}
+        setSendGiftQuantity={setSendGiftQuantity}
+        selectedGiftRecipient={selectedGiftRecipient}
+        giftReceiverName={giftReceiverName}
+        openGiftReceiverPicker={openGiftReceiverPicker}
+        giftReceiverId={giftReceiverId}
+        sendingGift={sendingGift}
+        catalogLoading={catalogLoading}
+        confirmSendGift={confirmSendGift}
+        handleBuyGift={handleBuyGift}
+        renderGiftRecipientAvatar={renderGiftRecipientAvatar}
+        formatGiftPrice={formatGiftPrice}
+        giftRecipientOptions={giftRecipientOptions}
+        renderGiftRecipientPickerOverlay={renderGiftRecipientPickerOverlay}
+      />
 
 
 
@@ -6946,220 +6947,7 @@ export default function VoiceParty() {
         onKickOut={handlePopupKickOut}
       />
 
-      {/* ── EMOJI PICKER MODAL ── */}
-      <Modal
-        visible={showEmojiPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowEmojiPicker(false)}
-      >
-        <TouchableOpacity
-          style={styles.shareOverlay}
-          activeOpacity={1}
-          onPress={() => setShowEmojiPicker(false)}
-        >
-          <View style={styles.emojiBox} onStartShouldSetResponder={() => true}>
-            <View style={styles.shareHandle} />
 
-            <View style={styles.emojiBoxBody}>
-              <View style={styles.mediaSectionRow}>
-                {MEDIA_SECTIONS.map((section) => (
-                  <TouchableOpacity
-                    key={section.id}
-                    style={[
-                      styles.mediaSectionTab,
-                      mediaSection === section.id &&
-                      styles.mediaSectionTabActive,
-                    ]}
-                    onPress={() => setMediaSection(section.id)}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.mediaSectionTabText,
-                        mediaSection === section.id &&
-                        styles.mediaSectionTabTextActive,
-                      ]}
-                    >
-                      {section.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {mediaSection === "emoji" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaSubTabScroll}
-                  contentContainerStyle={styles.mediaSubTabContent}
-                >
-                  {emojiCategories.map((cat) => (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[
-                        styles.mediaSubTabItem,
-                        emojiTab === cat.id && styles.mediaSubTabItemActive,
-                      ]}
-                      onPress={() => setEmojiTab(cat.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
-                      <Text
-                        style={[
-                          styles.mediaSubTabLabel,
-                          emojiTab === cat.id && styles.mediaSubTabLabelActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {cat.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
-              {mediaSection === "stickers" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaSubTabScroll}
-                  contentContainerStyle={styles.mediaSubTabContent}
-                >
-                  {stickerPacks.map((pack) => (
-                    <TouchableOpacity
-                      key={pack.id}
-                      style={[
-                        styles.mediaSubTabItem,
-                        stickerTab === pack.id && styles.mediaSubTabItemActive,
-                      ]}
-                      onPress={() => setStickerTab(pack.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.mediaSubTabIcon}>{pack.tab}</Text>
-                      <Text
-                        style={[
-                          styles.mediaSubTabLabel,
-                          stickerTab === pack.id &&
-                          styles.mediaSubTabLabelActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {pack.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
-              {mediaSection === "gif" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaSubTabScroll}
-                  contentContainerStyle={styles.mediaSubTabContent}
-                >
-                  {gifCategories.map((cat) => (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[
-                        styles.mediaSubTabItem,
-                        gifTab === cat.id && styles.mediaSubTabItemActive,
-                      ]}
-                      onPress={() => setGifTab(cat.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
-                      <Text
-                        style={[
-                          styles.mediaSubTabLabel,
-                          gifTab === cat.id && styles.mediaSubTabLabelActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {cat.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                style={styles.emojiGrid}
-                contentContainerStyle={styles.emojiGridContent}
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled
-              >
-                {mediaSection === "emoji" && (
-                  <View style={styles.emojiGridInner}>
-                    {emojiCategories
-                      .find((c) => c.id === emojiTab)
-                      ?.emojis.map((emoji, i) => (
-                        <TouchableOpacity
-                          key={`${emoji}-${i}`}
-                          style={styles.emojiCell}
-                          activeOpacity={0.7}
-                          onPress={() => handleEmojiPick(emoji)}
-                        >
-                          <Text style={styles.emojiCellText}>{emoji}</Text>
-                        </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
-
-                {mediaSection === "stickers" && (
-                  <View style={styles.stickerGridInner}>
-                    {stickerPacks
-                      .find((p) => p.id === stickerTab)
-                      ?.stickers.map((sticker) => (
-                        <TouchableOpacity
-                          key={sticker.id}
-                          style={styles.stickerCell}
-                          activeOpacity={0.7}
-                          onPress={() => handleStickerPick(sticker)}
-                        >
-                          {sticker.image ? (
-                            <Image
-                              source={{ uri: sticker.image }}
-                              style={styles.stickerCellImg}
-                              resizeMode="contain"
-                            />
-                          ) : (
-                            <Text style={styles.stickerCellEmoji}>
-                              {sticker.emoji}
-                            </Text>
-                          )}
-                        </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
-
-                {mediaSection === "gif" && (
-                  <View style={styles.gifGridInner}>
-                    {gifCategories
-                      .find((c) => c.id === gifTab)
-                      ?.gifs.map((gif) => (
-                        <TouchableOpacity
-                          key={gif.id}
-                          style={styles.gifCell}
-                          activeOpacity={0.7}
-                          onPress={() => handleGifPick(gif)}
-                        >
-                          <Image
-                            source={{ uri: gif.url }}
-                            style={styles.gifCellImg}
-                            resizeMode="cover"
-                          />
-                        </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
-              </ScrollView>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* ── PLAY CENTER MODAL ── */}
       <Modal
@@ -8396,10 +8184,11 @@ export default function VoiceParty() {
         </View>
 
         {/* ── CHAT + RIGHT PANEL ── */}
-        <ScrollView
+        <View
           style={{ flex: 1 }}
-          contentContainerStyle={{
-            flexGrow: 1,
+          onTouchStart={() => {
+            Keyboard.dismiss();
+            if (showEmojiPicker) setShowEmojiPicker(false);
           }}
         >
           {/* Bottom-to-Top Floating Gift Emoji Animation */}
@@ -8817,84 +8606,86 @@ export default function VoiceParty() {
             </View>
 
             {/* Right panel */}
-            <View style={styles.chatRight}>
-              <TouchableOpacity
-                style={styles.treasureBoxBtn}
-                activeOpacity={0.85}
-                onPress={() => setShowTreasureBox(true)}
-              >
-                <ExpoImage
-                  source={TREASURE_BOX_GIF}
-                  style={styles.treasureBoxImage}
-                  contentFit="contain"
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.rightIconBtn}
-                onPress={() => setShowGiftPanel(true)}
-              >
-                <View style={styles.giftPanelCropWrap}>
-                  <Image
-                    source={{ uri: GIFT_PANEL_ICON }}
-                    style={styles.giftPanelCropImage}
-                  />
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.chatIconBtn}
-                onPress={handleOpenChatTab}
-              >
-                <View style={styles.chatCropWrap}>
-                  <Image
-                    source={{ uri: CHAT_ICON }}
-                    style={styles.chatCropImage}
-                  />
-                </View>
-                {chatUnreadCount > 0 && (
-                  <View style={styles.chatBadge}>
-                    <Text style={styles.chatBadgeText}>
-                      {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.takeMicBtn}
-                onPress={handleTakeMic}
-                disabled={voiceConnecting}
-              >
-                {voiceConnecting ? (
-                  <ActivityIndicator size="small" color="white" />
-                ) : (
-                  <>
-                    <View style={styles.micCropWrap}>
-                      <Image
-                        source={{ uri: MIC_ICON }}
-                        style={styles.micCropImage}
-                      />
-                    </View>
-                    <Text style={styles.takeMicText}>
-                      {onMic ? "Leave Mic" : "Take seat"}
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              {onMic ? (
+            {!(isKeyboardVisible || showEmojiPicker) && (
+              <View style={styles.chatRight}>
                 <TouchableOpacity
-                  style={styles.micMuteBtn}
-                  onPress={handleToggleMic}
-                  disabled={voiceConnecting}
+                  style={styles.treasureBoxBtn}
+                  activeOpacity={0.85}
+                  onPress={() => setShowTreasureBox(true)}
                 >
-                  {isMicMuted ? (
-                    <MicOff size={20} color="#ff6b6b" />
-                  ) : (
-                    <Mic size={20} color="white" />
+                  <ExpoImage
+                    source={TREASURE_BOX_GIF}
+                    style={styles.treasureBoxImage}
+                    contentFit="contain"
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.rightIconBtn}
+                  onPress={() => setShowGiftPanel(true)}
+                >
+                  <View style={styles.giftPanelCropWrap}>
+                    <Image
+                      source={{ uri: GIFT_PANEL_ICON }}
+                      style={styles.giftPanelCropImage}
+                    />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.chatIconBtn}
+                  onPress={handleOpenChatTab}
+                >
+                  <View style={styles.chatCropWrap}>
+                    <Image
+                      source={{ uri: CHAT_ICON }}
+                      style={styles.chatCropImage}
+                    />
+                  </View>
+                  {chatUnreadCount > 0 && (
+                    <View style={styles.chatBadge}>
+                      <Text style={styles.chatBadgeText}>
+                        {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                      </Text>
+                    </View>
                   )}
                 </TouchableOpacity>
-              ) : null}
-            </View>
+                <TouchableOpacity
+                  style={styles.takeMicBtn}
+                  onPress={handleTakeMic}
+                  disabled={voiceConnecting}
+                >
+                  {voiceConnecting ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <>
+                      <View style={styles.micCropWrap}>
+                        <Image
+                          source={{ uri: MIC_ICON }}
+                          style={styles.micCropImage}
+                        />
+                      </View>
+                      <Text style={styles.takeMicText}>
+                        {onMic ? "Leave Mic" : "Take seat"}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                {onMic ? (
+                  <TouchableOpacity
+                    style={styles.micMuteBtn}
+                    onPress={handleToggleMic}
+                    disabled={voiceConnecting}
+                  >
+                    {isMicMuted ? (
+                      <MicOff size={20} color="#ff6b6b" />
+                    ) : (
+                      <Mic size={20} color="white" />
+                    )}
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            )}
           </View>
-        </ScrollView>
+        </View>
         {/* {(voiceListenStatus !== "idle" || voiceDiagnostics?.joined) && (
           <Text style={styles.voiceDebugText} numberOfLines={2}>
             Audio: {voiceListenStatus}
@@ -8913,7 +8704,7 @@ export default function VoiceParty() {
           style={[
             styles.bottomDock,
             {
-              paddingBottom: safeBottom > 0 ? safeBottom : 4,
+              paddingBottom: showEmojiPicker ? 0 : (Platform.OS === "ios" ? (safeBottom > 0 ? safeBottom : 4) : Math.max(composerBottom, 4)),
             },
           ]}
         >
@@ -8957,7 +8748,7 @@ export default function VoiceParty() {
                   }}
                   onSubmitEditing={sendMessage}
                   returnKeyType="send"
-                  autoFocus
+                  autoFocus={!showEmojiPicker}
                 />
               </View>
 
@@ -9040,7 +8831,7 @@ export default function VoiceParty() {
           )}
 
           {isHostSelf && isMusicPlaying && (
-            <MiniMusicPlayer 
+            <MiniMusicPlayer
               isPlaying={!isMusicPaused}
               onTogglePlay={() => {
                 if (isMusicPaused) {
@@ -9062,51 +8853,53 @@ export default function VoiceParty() {
             />
           )}
 
-          {/* Bottom icon bar — always visible except on Android when typing to avoid adjustPan overlay issues */}
-          <View style={styles.bottomBar}>
-            <TouchableOpacity
-              style={styles.bottomIconBtn}
-              onPress={handleToggleSpeaker}
-            >
-              {isSpeakerMuted ? (
-                <VolumeX size={20} color="white" />
-              ) : (
-                <Volume2 size={20} color="white" />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.bottomIconBtn}
-              onPress={handleOpenMediaPicker}
-            >
-              <Smile size={20} color="white" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.bottomIconBtn}
-              onPress={handleOpenPartyChat}
-            >
-              <MessageSquare
-                size={20}
-                color={showChatInput ? "#4dc8ff" : "white"}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.giftShortcutHighlight}
-              onPress={() => setShowBackpack(true)}
-            >
-              <View style={styles.rechargeBonusCropWrap}>
-                <Image
-                  source={{ uri: RECHARGE_BONUS_ICON }}
-                  style={styles.rechargeBonusCropImage}
+          {/* Bottom icon bar — hide when keyboard or emoji picker is visible */}
+          {!isKeyboardVisible && !showEmojiPicker && (
+            <View style={styles.bottomBar}>
+              <TouchableOpacity
+                style={styles.bottomIconBtn}
+                onPress={handleToggleSpeaker}
+              >
+                {isSpeakerMuted ? (
+                  <VolumeX size={20} color="white" />
+                ) : (
+                  <Volume2 size={20} color="white" />
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bottomIconBtn}
+                onPress={handleOpenMediaPicker}
+              >
+                <Smile size={20} color="white" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bottomIconBtn}
+                onPress={handleOpenPartyChat}
+              >
+                <MessageSquare
+                  size={20}
+                  color={showChatInput ? "#4dc8ff" : "white"}
                 />
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.bottomIconBtn}
-              onPress={() => setShowPlayCenter(true)}
-            >
-              <LayoutGrid size={20} color="white" />
-            </TouchableOpacity>
-          </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.giftShortcutHighlight}
+                onPress={() => setShowBackpack(true)}
+              >
+                <View style={styles.rechargeBonusCropWrap}>
+                  <Image
+                    source={{ uri: RECHARGE_BONUS_ICON }}
+                    style={styles.rechargeBonusCropImage}
+                  />
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bottomIconBtn}
+                onPress={() => setShowPlayCenter(true)}
+              >
+                <LayoutGrid size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* ── TOP 3 GIFTING RANKING FLOATING WIDGET ── */}
@@ -9117,6 +8910,209 @@ export default function VoiceParty() {
             onClose={() => setShowTopGiftingRanking(false)}
           />
         )}
+      {/* ── EMOJI PICKER INLINE ── */}
+      {showEmojiPicker && (
+<View style={[styles.emojiBox, { width: '100%', alignSelf: 'center', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, marginBottom: 0 }]} onStartShouldSetResponder={() => true}>
+            <View style={styles.shareHandle} />
+
+            <View style={styles.emojiBoxBody}>
+              <View style={styles.mediaSectionRow}>
+                {MEDIA_SECTIONS.map((section) => (
+                  <TouchableOpacity
+                    key={section.id}
+                    style={[
+                      styles.mediaSectionTab,
+                      mediaSection === section.id &&
+                      styles.mediaSectionTabActive,
+                    ]}
+                    onPress={() => setMediaSection(section.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.mediaSectionTabText,
+                        mediaSection === section.id &&
+                        styles.mediaSectionTabTextActive,
+                      ]}
+                    >
+                      {section.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {mediaSection === "emoji" && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.mediaSubTabScroll}
+                  contentContainerStyle={styles.mediaSubTabContent}
+                >
+                  {emojiCategories.map((cat) => (
+                    <TouchableOpacity
+                      key={cat.id}
+                      style={[
+                        styles.mediaSubTabItem,
+                        emojiTab === cat.id && styles.mediaSubTabItemActive,
+                      ]}
+                      onPress={() => setEmojiTab(cat.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
+                      <Text
+                        style={[
+                          styles.mediaSubTabLabel,
+                          emojiTab === cat.id && styles.mediaSubTabLabelActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {cat.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              {mediaSection === "stickers" && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.mediaSubTabScroll}
+                  contentContainerStyle={styles.mediaSubTabContent}
+                >
+                  {stickerPacks.map((pack) => (
+                    <TouchableOpacity
+                      key={pack.id}
+                      style={[
+                        styles.mediaSubTabItem,
+                        stickerTab === pack.id && styles.mediaSubTabItemActive,
+                      ]}
+                      onPress={() => setStickerTab(pack.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.mediaSubTabIcon}>{pack.tab}</Text>
+                      <Text
+                        style={[
+                          styles.mediaSubTabLabel,
+                          stickerTab === pack.id &&
+                          styles.mediaSubTabLabelActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {pack.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              {mediaSection === "gif" && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.mediaSubTabScroll}
+                  contentContainerStyle={styles.mediaSubTabContent}
+                >
+                  {gifCategories.map((cat) => (
+                    <TouchableOpacity
+                      key={cat.id}
+                      style={[
+                        styles.mediaSubTabItem,
+                        gifTab === cat.id && styles.mediaSubTabItemActive,
+                      ]}
+                      onPress={() => setGifTab(cat.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
+                      <Text
+                        style={[
+                          styles.mediaSubTabLabel,
+                          gifTab === cat.id && styles.mediaSubTabLabelActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {cat.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                style={styles.emojiGrid}
+                contentContainerStyle={styles.emojiGridContent}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+              >
+                {mediaSection === "emoji" && (
+                  <View style={styles.emojiGridInner}>
+                    {emojiCategories
+                      .find((c) => c.id === emojiTab)
+                      ?.emojis.map((emoji, i) => (
+                        <TouchableOpacity
+                          key={`${emoji}-${i}`}
+                          style={styles.emojiCell}
+                          activeOpacity={0.7}
+                          onPress={() => handleEmojiPick(emoji)}
+                        >
+                          <Text style={styles.emojiCellText}>{emoji}</Text>
+                        </TouchableOpacity>
+                      ))}
+                  </View>
+                )}
+
+                {mediaSection === "stickers" && (
+                  <View style={styles.stickerGridInner}>
+                    {stickerPacks
+                      .find((p) => p.id === stickerTab)
+                      ?.stickers.map((sticker) => (
+                        <TouchableOpacity
+                          key={sticker.id}
+                          style={styles.stickerCell}
+                          activeOpacity={0.7}
+                          onPress={() => handleStickerPick(sticker)}
+                        >
+                          {sticker.image ? (
+                            <Image
+                              source={{ uri: sticker.image }}
+                              style={styles.stickerCellImg}
+                              resizeMode="contain"
+                            />
+                          ) : (
+                            <Text style={styles.stickerCellEmoji}>
+                              {sticker.emoji}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                  </View>
+                )}
+
+                {mediaSection === "gif" && (
+                  <View style={styles.gifGridInner}>
+                    {gifCategories
+                      .find((c) => c.id === gifTab)
+                      ?.gifs.map((gif) => (
+                        <TouchableOpacity
+                          key={gif.id}
+                          style={styles.gifCell}
+                          activeOpacity={0.7}
+                          onPress={() => handleGifPick(gif)}
+                        >
+                          <Image
+                            source={{ uri: gif.url }}
+                            style={styles.gifCellImg}
+                            resizeMode="cover"
+                          />
+                        </TouchableOpacity>
+                      ))}
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+      )}
       </KeyboardAvoidingView>
 
       {/* ── CUSTOM REWARD CLAIMED MODAL ── */}
@@ -9863,28 +9859,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: s(10),
-    paddingBottom: Platform.OS === "android" ? 0 : vs(5),
-    paddingTop: vs(6),
+    paddingBottom: vs(8),
+    paddingTop: vs(8),
     gap: s(8),
     borderBottomWidth: Platform.OS === "android" ? 0 : 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
   input: {
     flex: 1,
-    height: Platform.OS === "android" ? vs(46) : vs(34),
+    height: Platform.OS === "android" ? vs(38) : vs(34),
     backgroundColor: "transparent",
     borderRadius: 0,
     paddingHorizontal: s(6),
     paddingVertical: 0,
-    paddingBottom: Platform.OS === "android" ? vs(12) : 0,
     color: "white",
-    fontSize: ms(14),
+    fontSize: ms(12),
     borderWidth: 0,
   },
   sendBtn: {
     backgroundColor: "#7c4dff",
     borderRadius: s(18),
-    height: vs(36),
+    height: Platform.OS === "android" ? vs(38) : vs(36),
     paddingHorizontal: s(14),
     justifyContent: "center",
     alignItems: "center",
@@ -9893,9 +9888,9 @@ const styles = StyleSheet.create({
 
   // Tag / @mention styles
   tagBtn: {
-    width: s(34),
-    height: s(34),
-    borderRadius: s(17),
+    width: Platform.OS === "android" ? vs(38) : s(34),
+    height: Platform.OS === "android" ? vs(38) : s(34),
+    borderRadius: Platform.OS === "android" ? vs(19) : s(17),
     backgroundColor: "rgba(124,77,255,0.25)",
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.6)",
@@ -9916,7 +9911,7 @@ const styles = StyleSheet.create({
     borderRadius: s(18),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
-    height: Platform.OS === "android" ? vs(46) : vs(36),
+    height: Platform.OS === "android" ? vs(38) : vs(36),
     paddingHorizontal: s(8),
     overflow: "hidden",
   },

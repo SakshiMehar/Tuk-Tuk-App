@@ -1,5 +1,6 @@
 import notifee, { AndroidCategory, AndroidImportance, EventType } from '@notifee/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { rejectCall as apiRejectCall } from '../api/callApi';
 
 // 1. Process FCM Background Messages
 export const handleBackgroundCallSignal = async (payload) => {
@@ -7,9 +8,9 @@ export const handleBackgroundCallSignal = async (payload) => {
 
     if (type === 'CALL_INCOMING') {
         const channelId = await notifee.createChannel({
-            id: 'incoming-calls-v2',
+            id: 'incoming-calls-v3',
             name: 'Incoming Calls',
-            sound: 'default',
+            sound: 'ringtone',
             vibration: true,
             importance: AndroidImportance.HIGH,
         });
@@ -40,11 +41,11 @@ export const handleBackgroundCallSignal = async (payload) => {
                 },
                 actions: [
                     {
-                        title: 'Reject',
+                        title: '❌ Decline',
                         pressAction: { id: 'reject-call' },
                     },
                     {
-                        title: 'Accept',
+                        title: '✅ Answer',
                         pressAction: { id: 'accept-call', launchActivity: 'default' },
                     },
                 ],
@@ -62,7 +63,14 @@ export const handleNotifeeBackgroundEvent = async ({ type, detail }) => {
 
     if (type === EventType.ACTION_PRESS) {
         if (pressAction.id === 'reject-call') {
-            // Logic to reject call via API if possible (needs token)
+            // Reject call via API so the caller's UI updates
+            if (notification.data && notification.data.callId) {
+                try {
+                    await apiRejectCall(notification.data.callId);
+                } catch (err) {
+                    console.log("Failed to reject call in background", err);
+                }
+            }
             await notifee.cancelNotification(notification.id);
         } else if (pressAction.id === 'accept-call') {
             // Save pending acceptance so the foreground app can pick it up instantly

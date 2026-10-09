@@ -16,5 +16,17 @@ export default function ChatBoxScreen() {
 
 
 
-  return <ChatBox user={user} onBack={() => router.back()} />;
+  const isColdStart = params.isColdStart === "true";
+  const handleBack = () => {
+    if (isColdStart) {
+      router.dismissAll();
+      router.replace("/(tabs)/home");
+    } else if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.push("/(tabs)/home");
+    }
+  };
+
+  return <ChatBox user={user} onBack={handleBack} />;
 }

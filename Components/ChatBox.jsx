@@ -1189,7 +1189,7 @@ export default function ChatBox({ user = {}, onBack }) {
                 </View>
                 <Text style={{ color: Colors.textDark, fontSize: 28, fontWeight: "700", marginBottom: 8 }}>{name}</Text>
                 <Text style={{ color: Colors.textDarkMuted, fontSize: 16 }}>
-                  {callState.status === "INCOMING" ? "Incoming Call..." : callState.status === "OUTGOING" ? "Calling..." : formatCallDuration(callDuration)}
+                  {callState.status === "INCOMING" ? "Incoming Call..." : callState.status === "ACCEPTING" ? "Connecting..." : callState.status === "OUTGOING" ? "Calling..." : formatCallDuration(callDuration)}
                 </Text>
               </View>
 
@@ -1197,10 +1197,10 @@ export default function ChatBox({ user = {}, onBack }) {
               <View style={{ position: "absolute", bottom: 50, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 30, paddingHorizontal: 40 }}>
                 {callState.status === "INCOMING" ? (
                   <>
-                    <TouchableOpacity onPress={rejectCall} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.errorBg, alignItems: "center", justifyContent: "center" }}>
+                    <TouchableOpacity onPress={() => rejectCall()} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.errorBg, alignItems: "center", justifyContent: "center" }}>
                       <PhoneOff size={30} color="white" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={acceptCall} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.success, alignItems: "center", justifyContent: "center" }}>
+                    <TouchableOpacity onPress={() => acceptCall()} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.success, alignItems: "center", justifyContent: "center" }}>
                       <PhoneCall size={30} color="white" />
                     </TouchableOpacity>
                   </>
@@ -1217,9 +1217,12 @@ export default function ChatBox({ user = {}, onBack }) {
 
                       </>
                     )}
-                    <TouchableOpacity onPress={endCall} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.errorBg, alignItems: "center", justifyContent: "center" }}>
-                      <PhoneOff size={30} color="white" />
-                    </TouchableOpacity>
+                    )}
+                    {callState.status !== "ACCEPTING" && (
+                        <TouchableOpacity onPress={() => endCall()} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.errorBg, alignItems: "center", justifyContent: "center" }}>
+                          <PhoneOff size={30} color="white" />
+                        </TouchableOpacity>
+                    )}
                   </>
                 )}
               </View>

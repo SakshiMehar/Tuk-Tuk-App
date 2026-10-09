@@ -1,5 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useRouter, usePathname } from "expo-router";
 import { useEffect, useRef } from "react";
 import {
   Animated,
@@ -28,6 +28,12 @@ const splashIcon = require("../assets/images/splash-icon.png");
 
 export default function Index() {
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
 
   const logoScale = useRef(new Animated.Value(0)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
@@ -144,29 +150,37 @@ export default function Index() {
         .then(async (token) => {
           if (token) {
             if (initialRoomId) {
-              router.replace({
-                pathname: "/voice-party",
-                params: { roomId: String(initialRoomId) },
-              });
+              if (pathnameRef.current === "/") {
+                router.replace({
+                  pathname: "/voice-party",
+                  params: { roomId: String(initialRoomId) },
+                });
+              }
               return;
             }
 
             const pending = consumePendingNotification();
-            router.replace("/(tabs)/home");
-            if (pending) {
-              setTimeout(() => {
-                navigateFromNotification(router, pending);
-              }, 300);
+            if (pathnameRef.current === "/") {
+              router.replace("/(tabs)/home");
+              if (pending) {
+                setTimeout(() => {
+                  navigateFromNotification(router, pending);
+                }, 300);
+              }
             }
           } else {
             if (initialUrl) {
               await setPendingDeepLink(initialUrl);
             }
-            router.replace("/login");
+            if (pathnameRef.current === "/") {
+              router.replace("/login");
+            }
           }
         })
         .catch(() => {
-          router.replace("/login");
+          if (pathnameRef.current === "/") {
+            router.replace("/login");
+          }
         });
     });
   };

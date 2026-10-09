@@ -194,7 +194,7 @@ const menuPages = [
     { icon: "home", label: "Family", badge: false },
     { icon: "heart", label: "Matchmaker", badge: true },
     { icon: "briefcase", label: "Backpack", badge: false },
-    { icon: "crown", label: "Room Premium", badge: true },
+    { icon: "crown", label: "Room\nPremium", badge: true },
     { icon: "id-badge", label: "TukTuk Pass", badge: true },
   ],
   [
@@ -209,6 +209,7 @@ const menuPages = [
   ],
   [
     { icon: "comment-dots", label: "Feedback", badge: false },
+    { icon: "briefcase", label: "Job", badge: false },
   ],
 ];
 
@@ -1838,7 +1839,7 @@ export default function Profile() {
     }
 
     // ── ROOM PREMIUM ─────────────────────────────────────────────────────────
-    if (label === "Room Premium") {
+    if (label === "Room\nPremium") {
       return <RoomPremiumPanel />;
     }
 
@@ -2338,10 +2339,16 @@ export default function Profile() {
                   {page.slice(0, 4).map((item) => (
                     <MenuGridButton key={item.label} item={item} onPress={() => setActiveMenu(item)} />
                   ))}
+                  {Array.from({ length: 4 - page.slice(0, 4).length }).map((_, i) => (
+                    <View key={`dummy-1-${i}`} style={{ width: (screen.width - 32) / 4 }} />
+                  ))}
                 </View>
                 <View style={styles.menuRow}>
                   {page.slice(4, 8).map((item) => (
                     <MenuGridButton key={item.label} item={item} onPress={() => setActiveMenu(item)} />
+                  ))}
+                  {Array.from({ length: 4 - page.slice(4, 8).length }).map((_, i) => (
+                    <View key={`dummy-2-${i}`} style={{ width: (screen.width - 32) / 4 }} />
                   ))}
                 </View>
               </View>
@@ -3238,7 +3245,6 @@ const styles = StyleSheet.create({
   },
   menuPage: {
     width: screen.width - 32,
-    paddingHorizontal: 4,
   },
 
   // Saved users list (menu modal)
@@ -3333,6 +3339,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: "center",
     fontWeight: "600",
+    width: "100%",
   },
   menuGridLabelPressed: {
     color: "#5b21b6",

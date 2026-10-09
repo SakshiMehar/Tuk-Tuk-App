@@ -3,8 +3,9 @@ import { Audio } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
 import { usePathname, useRouter } from "expo-router";
 import { Phone, PhoneOff } from "lucide-react-native";
+import notifee, { EventType } from '@notifee/react-native';
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View, AppState, Platform } from "react-native";
 
 import {
     acceptCall as apiAcceptCall,
@@ -32,6 +33,10 @@ const { width, height } = Dimensions.get("window");
 export const CallProvider = ({ children }) => {
     const router = useRouter();
     const pathname = usePathname();
+    const pathnameRef = useRef(pathname);
+    useEffect(() => {
+        pathnameRef.current = pathname;
+    }, [pathname]);
     const isChatScreen = pathname && pathname.includes("chat-box");
     const [callState, setCallState] = useState({
         status: "IDLE", // IDLE, INCOMING, OUTGOING, CONNECTED
@@ -44,6 +49,7 @@ export const CallProvider = ({ children }) => {
         agoraState: { joined: false, localAudioEnabled: true, localVideoEnabled: true, remoteUid: 0 }
     });
 
+    const acceptingCallsRef = useRef(new Set());
     const callStateRef = useRef(callState);
     useEffect(() => {
         callStateRef.current = callState;
@@ -86,6 +92,9 @@ export const CallProvider = ({ children }) => {
 
     const endCallLocal = () => {
         agoraLeaveCall();
+        if (callStateRef.current.callId) {
+            notifee.cancelNotification(`call_${callStateRef.current.callId}`).catch(() => {});
+        }
         setCallState({
             status: "IDLE",
             callId: null,
@@ -150,32 +159,69 @@ export const CallProvider = ({ children }) => {
     useEffect(() => {
         const checkPendingCall = async () => {
             try {
-                const pending = await AsyncStorage.getItem('pending_call_accept');
-                if (pending) {
-                    const callData = JSON.parse(pending);
-                    await AsyncStorage.removeItem('pending_call_accept');
+                let callData = null;
+                let notificationId = null;
+                let isColdStart = false;
 
-                    if (callData.callId) {
-                        setCallState(prev => ({
-                            ...prev,
-                            status: "INCOMING",
-                            callType: 'audio',
-                            callId: Number(callData.callId),
-                            callerId: Number(callData.senderId),
-                            callerName: callData.senderName,
-                        }));
+                // 1. Check Notifee initial notification (if launched via Accept button)
+                const initialNotification = await notifee.getInitialNotification();
+                if (initialNotification && initialNotification.pressAction?.id === 'accept-call') {
+                    callData = initialNotification.notification.data;
+                    notificationId = initialNotification.notification.id;
+                    isColdStart = true;
+                }
 
-                        // Automatically trigger accept flow
-                        setTimeout(() => {
-                            acceptCall();
-                        }, 500);
+                // 2. Fallback to AsyncStorage (if set by background handler)
+                if (!callData) {
+                    const pending = await AsyncStorage.getItem('pending_call_accept');
+                    if (pending) {
+                        callData = JSON.parse(pending);
                     }
+                }
+
+                if (callData && callData.callId) {
+                    // Clear pending state
+                    await AsyncStorage.removeItem('pending_call_accept');
+                    if (notificationId) {
+                        await notifee.cancelNotification(notificationId);
+                    } else {
+                        await notifee.cancelNotification(`call_${callData.callId}`);
+                    }
+
+                    const cid = Number(callData.callId);
+                    const sid = Number(callData.senderId);
+                    const sname = callData.senderName;
+                    
+                    setCallState(prev => ({
+                        ...prev,
+                        status: "ACCEPTING", // Prevents WS from rendering INCOMING overlay
+                        callType: 'audio',
+                        callId: cid,
+                        callerId: sid,
+                        callerName: sname,
+                    }));
+
+                    // Delay longer (1500ms) for killed-state cold start so the phone's network layer has time to initialize
+                    setTimeout(() => {
+                        acceptCall(cid, 'audio', sid, sname, null, isColdStart);
+                    }, 1500);
                 }
             } catch (err) {
                 console.warn("Failed to parse pending call", err);
             }
         };
+
         checkPendingCall();
+
+        const subscription = AppState.addEventListener("change", nextAppState => {
+            if (nextAppState === "active") {
+                checkPendingCall();
+            }
+        });
+
+        return () => {
+            subscription.remove();
+        };
     }, []);
 
     const initiateCall = async (type, userId) => {
@@ -190,52 +236,130 @@ export const CallProvider = ({ children }) => {
         }
     };
 
-    const acceptCall = async () => {
-        const currentCall = callStateRef.current;
-        if (!currentCall.callId) return;
+    const acceptCall = async (forceCallId, forceCallType, forceCallerId, forceCallerName, forceCallerAvatar, isColdStart = false) => {
+        const callId = forceCallId || callStateRef.current.callId;
+        const callType = forceCallType || callStateRef.current.callType || 'audio';
+        
+        if (!callId) return;
+        
+        if (acceptingCallsRef.current.has(callId)) {
+            console.log("Duplicate acceptCall ignored for", callId);
+            return;
+        }
+        acceptingCallsRef.current.add(callId);
 
-        const granted = await requestPermissions(currentCall.callType === 'video');
+        const granted = await requestPermissions(callType === 'video');
         if (!granted) {
-            apiRejectCall(currentCall.callId).catch(() => { });
+            apiRejectCall(callId).catch(() => { });
             endCallLocal();
             return Alert.alert("Permission required", "Microphone and Camera access are needed for calling.");
         }
 
         try {
-            await apiAcceptCall(currentCall.callId);
-            const tokenData = await apiGetAgoraToken(currentCall.callId);
-            setCallState(prev => ({ ...prev, status: "CONNECTED" }));
-            agoraStartCall({ appId: tokenData.appId, channelId: tokenData.channelName, uid: tokenData.uid, token: tokenData.token, isVideo: currentCall.callType === 'video' });
+            await apiAcceptCall(callId);
+        } catch (err) {
+            console.error("acceptCall API error", err);
+            const errData = typeof err?.response?.data === 'string' ? err.response.data : JSON.stringify(err?.response?.data || {});
+            Alert.alert("API Error: Accept", `callId: ${callId}. Code: ${err?.response?.status}. Msg: ${err.message}. Data: ${errData}`);
+            endCallLocal();
+            return;
+        }
+
+        let tokenData;
+        try {
+            tokenData = await apiGetAgoraToken(callId);
+        } catch (err) {
+            console.error("agoraToken API error", err);
+            const errData = typeof err?.response?.data === 'string' ? err.response.data : JSON.stringify(err?.response?.data || {});
+            Alert.alert("API Error: Token", `callId: ${callId}. Code: ${err?.response?.status}. Msg: ${err.message}. Data: ${errData}`);
+            endCallLocal();
+            return;
+        }
+
+        try {
+            setCallState(prev => ({ ...prev, status: "CONNECTED", callId, callType, callerId: forceCallerId || prev.callerId, callerName: forceCallerName || prev.callerName }));
+            agoraStartCall({ appId: tokenData.appId, channelId: tokenData.channelName, uid: tokenData.uid, token: tokenData.token, isVideo: callType === 'video' });
+
+            const targetCallerId = forceCallerId || callStateRef.current.callerId;
+            const targetCallerName = forceCallerName || callStateRef.current.callerName;
+            const targetCallerAvatar = forceCallerAvatar || callStateRef.current.callerAvatar;
 
             // Navigate to chat box to view the active call if not already there
-            if (currentCall.callerId) {
-                // Using push to ensure we land on the correct chat screen
-                const chatParams = { userId: currentCall.callerId };
-                if (currentCall.callerName) chatParams.name = currentCall.callerName;
-                if (currentCall.callerAvatar) chatParams.avatar = encodeURIComponent(currentCall.callerAvatar);
+            if (targetCallerId) {
+                const chatParams = { userId: targetCallerId };
+                if (targetCallerName) chatParams.name = targetCallerName;
+                if (targetCallerAvatar) chatParams.avatar = encodeURIComponent(targetCallerAvatar);
+                if (isColdStart) chatParams.isColdStart = "true";
 
-                router.push({
-                    pathname: "/chat-box",
-                    params: chatParams
-                });
+                const currentlyInChat = pathnameRef.current?.includes("chat-box");
+                if (!currentlyInChat) {
+                    router.push({
+                        pathname: "/chat-box",
+                        params: chatParams
+                    });
+                }
             }
         } catch (err) {
-            Alert.alert("Call error", "Could not accept call");
+            console.error("acceptCall logic error", err);
+            Alert.alert("Call error", err?.message || "Could not start call engine");
             endCallLocal();
         }
     };
 
     const rejectCall = () => {
         const currentCall = callStateRef.current;
-        if (currentCall.callId) apiRejectCall(currentCall.callId).catch(() => { });
+        if (currentCall.callId) {
+            apiRejectCall(currentCall.callId).catch((err) => {
+                console.error("apiRejectCall error", err);
+                Alert.alert("Reject Error", `Failed to reject: ${err.message}`);
+            });
+        }
         endCallLocal();
     };
 
     const endCall = () => {
         const currentCall = callStateRef.current;
-        if (currentCall.callId) apiEndCall(currentCall.callId).catch(() => { });
+        if (currentCall.callId) {
+            apiEndCall(currentCall.callId).catch((err) => {
+                console.error("apiEndCall error", err);
+                Alert.alert("End Error", `Failed to end: ${err.message}`);
+            });
+        }
         endCallLocal();
     };
+
+    useEffect(() => {
+        const unsubscribeNotifee = notifee.onForegroundEvent(async ({ type, detail }) => {
+            const { notification, pressAction } = detail;
+            if (type === EventType.ACTION_PRESS) {
+                if (pressAction.id === 'reject-call') {
+                    if (notification.data && notification.data.callId) {
+                        try { await apiRejectCall(notification.data.callId); } catch (err) {}
+                    }
+                    await notifee.cancelNotification(notification.id);
+                    endCallLocal();
+                } else if (pressAction.id === 'accept-call') {
+                    await notifee.cancelNotification(notification.id);
+                    const callData = notification.data;
+                    if (callData && callData.callId) {
+                        const cid = Number(callData.callId);
+                        const sid = Number(callData.senderId);
+                        const sname = callData.senderName;
+                        setCallState(prev => ({
+                            ...prev,
+                            status: "ACCEPTING",
+                            callType: 'audio',
+                            callId: cid,
+                            callerId: sid,
+                            callerName: sname,
+                        }));
+                        acceptCall(cid, 'audio', sid, sname);
+                    }
+                }
+            }
+        });
+        return () => unsubscribeNotifee();
+    }, []);
 
     return (
         <CallContext.Provider value={{ callState, initiateCall, acceptCall, rejectCall, endCall }}>
@@ -251,10 +375,10 @@ export const CallProvider = ({ children }) => {
                         </View>
 
                         <View style={styles.headsUpActions}>
-                            <TouchableOpacity style={[styles.miniBtn, styles.rejectBtn]} onPress={rejectCall}>
+                            <TouchableOpacity style={[styles.miniBtn, styles.rejectBtn]} onPress={() => rejectCall()}>
                                 <PhoneOff color="white" size={20} />
                             </TouchableOpacity>
-                            <TouchableOpacity style={[styles.miniBtn, styles.acceptBtn]} onPress={acceptCall}>
+                            <TouchableOpacity style={[styles.miniBtn, styles.acceptBtn]} onPress={() => acceptCall()}>
                                 <Phone color="white" size={20} />
                             </TouchableOpacity>
                         </View>

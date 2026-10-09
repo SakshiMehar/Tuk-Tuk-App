@@ -89,7 +89,15 @@ export default function RootLayout() {
 
     const unsubscribePush = initPushNotificationListeners({
       onForegroundMessage: ({ title, body, data }) => {
-        if (!body && !title) return;
+        // Suppress generic alert for incoming call signals (handled natively by CallContext)
+        const type = data?.type?.toUpperCase();
+        if (type && type.startsWith('CALL_')) {
+          return;
+        }
+        
+        // title defaults to "Tuk-Tuk" in service, so body check is more reliable
+        // Sometimes backends send " " (space) to force a push, so we trim it.
+        if (!body || body.trim() === '') return;
         Alert.alert(
           title || "Tuk-Tuk",
           body || "",
