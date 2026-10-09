@@ -232,6 +232,24 @@ export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fiel
   return sendRoomMultipart("PATCH", path, fields, { imageUri, mimeType, fileName });
 };
 
+/** GET /api/v1/tuktuk/rooms/{roomId} — fetch room details / status by room ID */
+export const getRoomById = async (roomId) => {
+  const cleanId = String(roomId).trim();
+  const path = `/api/v1/tuktuk/rooms/${encodeURIComponent(cleanId)}`;
+  logRequest("GET", path);
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    if (error?.response?.data) {
+      return error.response.data;
+    }
+    throw error;
+  }
+};
+
 /** GET /api/v1/tuktuk/rooms/{roomId}/announcement — fetch the room's pinned announcement */
 export const getRoomAnnouncement = async (roomId) => {
   const path = `/api/v1/tuktuk/rooms/${roomId}/announcement`;
@@ -559,6 +577,18 @@ export const kickRoomUser = async (roomId, targetUserId, reason = "") => {
   } catch (error) {
     logError("POST", path, error);
     throw error;
+  }
+};
+
+/** GET /api/v1/tuktuk/rooms/{roomId}/badges — fetch dynamic room badge wall data */
+export const getRoomBadges = async (roomId) => {
+  if (!roomId) return null;
+  const path = `/api/v1/tuktuk/rooms/${roomId}/badges`;
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    return response.data?.data ?? response.data;
+  } catch (error) {
+    return null;
   }
 };
 

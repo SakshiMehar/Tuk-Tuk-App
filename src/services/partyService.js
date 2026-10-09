@@ -8,6 +8,7 @@ import {
     getPartyRanking as getPartyRankingApi,
     getRecentlyRooms,
     getRoomAnnouncement as getRoomAnnouncementApi,
+    getRoomById,
     getRoomChatMessages,
     getRoomRecommendations,
     getRoomState,
@@ -456,6 +457,67 @@ export const loadFollowingRooms = () =>
 
 export const loadManagedRooms = () =>
   loadRoomsFromApi(getManagedRooms, "managed rooms");
+
+export const searchRoomById = async (roomId) => {
+  const query = String(roomId || "").trim();
+  if (!query) {
+    return { success: false, message: "Please enter a Room ID", room: null };
+  }
+
+  try {
+    const data = await getRoomById(query);
+    if (!data) {
+      return { success: false, status: "ROOM_NOT_FOUND", message: "Room is not live or does not exist", room: null };
+    }
+
+    if (
+      data?.status === "ROOM_NOT_LIVE" ||
+      data?.status === "NOT_LIVE" ||
+      data?.message?.toLowerCase()?.includes("not live") ||
+      data?.message?.toLowerCase()?.includes("does not exist")
+    ) {
+      return {
+        success: false,
+        status: data?.status || "ROOM_NOT_LIVE",
+        message: data?.message || "Room is not live or does not exist",
+        room: null,
+      };
+    }
+
+    const raw = data?.data ?? data?.room ?? data;
+    if (raw && (raw.id || raw.roomId || raw.name || raw.title)) {
+      return {
+        success: true,
+        status: "LIVE",
+        message: null,
+        room: normalizeRoom(raw),
+      };
+    }
+
+    return {
+      success: false,
+      status: data?.status || "ROOM_NOT_FOUND",
+      message: data?.message || "Room is not live or does not exist",
+      room: null,
+    };
+  } catch (err) {
+    const resData = err?.response?.data;
+    if (resData?.status === "ROOM_NOT_LIVE" || resData?.message) {
+      return {
+        success: false,
+        status: resData?.status || "ROOM_NOT_LIVE",
+        message: resData?.message || "Room is not live or does not exist",
+        room: null,
+      };
+    }
+    return {
+      success: false,
+      status: "ERROR",
+      message: err?.message || "Could not search room. Please try again.",
+      room: null,
+    };
+  }
+};
 
 export const enterRandomPartySession = async (payload = {}) => {
   await syncUserFromToken().catch(() => {});

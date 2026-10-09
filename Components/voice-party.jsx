@@ -83,6 +83,7 @@ import { refreshTokenCache } from "../src/api/axios";
 import {
   followRoom,
   getClaimedSeats,
+  getRoomBadges,
   getRoomChatMessages,
   getRoomState,
   kickRoomUser,
@@ -410,6 +411,19 @@ const RoomBadgeEmblem = ({ badge }) => {
   const isUnlocked = Boolean(badge?.unlocked);
   const iconType = badge?.iconType || "room_level";
   const levelNum = badge?.level ?? 6;
+  const imageSource = badge?.imageUrl || badge?.iconUrl || badge?.badgeUrl || badge?.image;
+
+  if (imageSource) {
+    return (
+      <View style={[styles.badgeEmblemContainer, !isUnlocked && { opacity: 0.45 }]}>
+        <Image
+          source={{ uri: imageSource }}
+          style={{ width: 78, height: 78 }}
+          resizeMode="contain"
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.badgeEmblemContainer}>
@@ -3001,16 +3015,60 @@ export default function VoiceParty() {
     });
   }, [roomFollowersList, followerSearchQuery]);
 
+  const [roomBadgesData, setRoomBadgesData] = useState(null);
+
+  useEffect(() => {
+    if (!showRoomProfileModal) return;
+    let cancelled = false;
+    const activeRoomId = String(roomId || roomInfo?.id || roomInfo?.roomId || "");
+    if (activeRoomId) {
+      getRoomBadges(activeRoomId)
+        .then((res) => {
+          if (!cancelled && res) {
+            setRoomBadgesData(res);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [showRoomProfileModal, roomId, roomInfo?.id, roomInfo?.roomId]);
+
   const roomLevel = hostProfileDetails?.level ?? roomInfo?.level ?? 1;
-  const roomGiftCount = roomInfo?.giftCount ?? roomInfo?.totalGifts ?? 0;
-  const roomPkWins = roomInfo?.pkWins ?? 0;
+  const roomGiftCount = roomInfo?.giftCount ?? roomInfo?.totalGifts ?? roomInfo?.giftTotal ?? 0;
+  const roomPkWins = roomInfo?.pkWins ?? roomInfo?.pkWinCount ?? roomInfo?.pkWinsCount ?? 0;
+  const roomFollowerCount = hostProfileDetails?.followersCount ?? roomInfo?.followersCount ?? roomInfo?.followerCount ?? (Array.isArray(roomFollowersList) ? roomFollowersList.length : 0);
 
   const achievementBadges = useMemo(() => {
+    // 1. Dynamic backend achievement badges if returned by API
+    const backendAchievements =
+      roomBadgesData?.achievementBadges ||
+      roomBadgesData?.achievements ||
+      roomInfo?.achievementBadges ||
+      roomInfo?.achievements;
+
+    if (Array.isArray(backendAchievements) && backendAchievements.length > 0) {
+      return backendAchievements.map((b, idx) => ({
+        id: b.id || b.code || `achievement_${idx}`,
+        title: b.title || b.name || "Achievement",
+        grade: b.grade || (b.level >= 20 ? "S" : b.level >= 10 ? "A" : "C"),
+        iconType: b.iconType || b.type || "room_level",
+        level: b.level ?? roomLevel,
+        unlocked: Boolean(b.unlocked ?? b.isUnlocked ?? (b.status === "UNLOCKED")),
+        desc: b.desc || b.description || `Achievement badge for room milestones.`,
+        imageUrl: b.imageUrl || b.iconUrl || b.badgeUrl || null,
+        progress: b.progress,
+        target: b.target,
+      }));
+    }
+
+    // 2. Dynamically computed system achievement badges based on real-time room metrics
     return [
       {
         id: "room_level",
         title: "Room level",
-        grade: "C",
+        grade: roomLevel >= 30 ? "S" : roomLevel >= 15 ? "A" : "C",
         iconType: "room_level",
         level: roomLevel,
         unlocked: roomLevel >= 1,
@@ -3019,55 +3077,84 @@ export default function VoiceParty() {
       {
         id: "pk_gift",
         title: "Receive gift in PK",
-        grade: "C",
+        grade: roomPkWins >= 10 ? "S" : roomPkWins >= 3 ? "A" : "C",
         iconType: "pk_gift",
-        unlocked: Boolean(roomInfo?.hasPkGiftBadge || roomPkWins > 0),
-        desc: "Receive gifts during PK battles to unlock this badge.",
+        unlocked: Boolean(roomInfo?.hasPkGiftBadge || roomPkWins > 0 || roomInfo?.pkGiftCount > 0),
+        desc: roomPkWins > 0
+          ? `Receive gifts during PK battles (${roomPkWins} PK wins recorded).`
+          : "Receive gifts during PK battles to unlock this badge.",
       },
       {
         id: "room_receive_gift",
         title: "Room receive gift",
-        grade: "C",
+        grade: roomGiftCount >= 100 ? "S" : roomGiftCount >= 20 ? "A" : "C",
         iconType: "receive_gift",
         unlocked: Boolean(roomInfo?.hasReceiveGiftBadge || roomGiftCount > 0),
-        desc: "Receive gifts in the voice room to unlock this badge.",
+        desc: roomGiftCount > 0
+          ? `Receive gifts in the voice room (Total gifts received: ${roomGiftCount}).`
+          : "Receive gifts in the voice room to unlock this badge.",
       },
       {
         id: "room_pk_gift",
-        title: "Receive gift in Room ...",
-        grade: "C",
+        title: "Receive gift in Room PK",
+        grade: (roomInfo?.roomPkGifts ?? 0) >= 20 ? "S" : "C",
         iconType: "room_pk",
-        unlocked: Boolean(roomInfo?.hasRoomPkBadge),
+        unlocked: Boolean(roomInfo?.hasRoomPkBadge || (roomInfo?.roomPkGifts ?? 0) > 0),
         desc: "Receive gifts in Room PK battles to unlock this badge.",
       },
       {
         id: "lucky_gift",
         title: "Receive lucky gift",
-        grade: "C",
+        grade: (roomInfo?.luckyGiftCount ?? 0) >= 10 ? "S" : "C",
         iconType: "lucky_gift",
-        unlocked: Boolean(roomInfo?.hasLuckyGiftBadge),
+        unlocked: Boolean(roomInfo?.hasLuckyGiftBadge || (roomInfo?.luckyGiftCount ?? 0) > 0),
         desc: "Receive lucky 777 gifts to unlock this badge.",
       },
       {
         id: "high_value_gift",
-        title: "Receive high value gif...",
-        grade: "C",
+        title: "Receive high value gift",
+        grade: (roomInfo?.highValueGiftCount ?? 0) >= 5 ? "S" : "C",
         iconType: "high_value_gift",
-        unlocked: Boolean(roomInfo?.hasHighValueGiftBadge),
+        unlocked: Boolean(roomInfo?.hasHighValueGiftBadge || (roomInfo?.highValueGiftCount ?? 0) > 0),
         desc: "Receive high-value luxury gifts to unlock this badge.",
       },
     ];
-  }, [roomLevel, roomGiftCount, roomPkWins, roomInfo]);
+  }, [roomBadgesData, roomLevel, roomGiftCount, roomPkWins, roomInfo]);
 
   const honorBadges = useMemo(() => {
-    const customHonors = Array.isArray(roomInfo?.honorBadges) ? roomInfo.honorBadges : [];
+    // 1. Dynamic backend honor badges if returned by API
+    const backendHonors =
+      roomBadgesData?.honorBadges ||
+      roomBadgesData?.honors ||
+      roomInfo?.honorBadges ||
+      roomInfo?.honors;
+
+    if (Array.isArray(backendHonors) && backendHonors.length > 0) {
+      return backendHonors.map((h, idx) => ({
+        id: h.id || h.code || `honor_${idx}`,
+        title: h.title || h.name || "Honor Badge",
+        grade: h.grade || "S",
+        iconType: h.iconType || h.type || "dragon_top1",
+        unlocked: Boolean(h.unlocked ?? h.isUnlocked ?? (h.status === "UNLOCKED")),
+        desc: h.desc || h.description || "Prestigious room honor badge awarded for tournament and seasonal achievements.",
+        imageUrl: h.imageUrl || h.iconUrl || h.badgeUrl || null,
+      }));
+    }
+
+    // 2. Dynamically evaluated honor badges based on custom honor records and tournaments
+    const customHonors = Array.isArray(roomInfo?.honorBadges)
+      ? roomInfo.honorBadges
+      : Array.isArray(hostProfileDetails?.honorBadges)
+        ? hostProfileDetails.honorBadges
+        : [];
+
     return [
       {
         id: "imperial_aqua",
         title: "Imperial Aqua",
         grade: "A",
         iconType: "aqua",
-        unlocked: customHonors.some((h) => h?.id === "imperial_aqua" || h?.name === "Imperial Aqua"),
+        unlocked: customHonors.some((h) => h?.id === "imperial_aqua" || h?.name === "Imperial Aqua" || h?.code === "imperial_aqua"),
         desc: "Imperial Aqua Honor badge awarded to outstanding aquatic themed rooms.",
       },
       {
@@ -3075,7 +3162,7 @@ export default function VoiceParty() {
         title: "Sapphire Crest",
         grade: "S",
         iconType: "dragon_top3",
-        unlocked: customHonors.some((h) => h?.id === "sapphire_crest"),
+        unlocked: customHonors.some((h) => h?.id === "sapphire_crest" || h?.name === "Sapphire Crest" || h?.code === "sapphire_crest"),
         desc: "Top 3 Room ranking in the Sapphire League.",
       },
       {
@@ -3083,7 +3170,7 @@ export default function VoiceParty() {
         title: "Golden Glory",
         grade: "S",
         iconType: "dragon_top2",
-        unlocked: customHonors.some((h) => h?.id === "golden_glory"),
+        unlocked: customHonors.some((h) => h?.id === "golden_glory" || h?.name === "Golden Glory" || h?.code === "golden_glory"),
         desc: "Top 2 Room ranking in the Golden Glory League.",
       },
       {
@@ -3091,7 +3178,7 @@ export default function VoiceParty() {
         title: "Ruby Supreme",
         grade: "S",
         iconType: "dragon_top1",
-        unlocked: customHonors.some((h) => h?.id === "ruby_supreme"),
+        unlocked: customHonors.some((h) => h?.id === "ruby_supreme" || h?.name === "Ruby Supreme" || h?.code === "ruby_supreme"),
         desc: "Top 1 Champion Room ranking in the Ruby Supreme Tournament.",
       },
       {
@@ -3099,7 +3186,7 @@ export default function VoiceParty() {
         title: "Pisces Champion",
         grade: "S",
         iconType: "pisces_top1",
-        unlocked: customHonors.some((h) => h?.id === "pisces_champion"),
+        unlocked: customHonors.some((h) => h?.id === "pisces_champion" || h?.name === "Pisces Champion" || h?.code === "pisces_champion"),
         desc: "Top 1 Pisces Champion in seasonal constellation events.",
       },
       {
@@ -3107,7 +3194,7 @@ export default function VoiceParty() {
         title: "Pisces Runner-up",
         grade: "S",
         iconType: "pisces_top2",
-        unlocked: customHonors.some((h) => h?.id === "pisces_runner_up"),
+        unlocked: customHonors.some((h) => h?.id === "pisces_runner_up" || h?.name === "Pisces Runner-up" || h?.code === "pisces_runner_up"),
         desc: "Top 2 Pisces Runner-up in seasonal constellation events.",
       },
       {
@@ -3115,7 +3202,7 @@ export default function VoiceParty() {
         title: "Pisces Third",
         grade: "S",
         iconType: "pisces_top3",
-        unlocked: customHonors.some((h) => h?.id === "pisces_third"),
+        unlocked: customHonors.some((h) => h?.id === "pisces_third" || h?.name === "Pisces Third" || h?.code === "pisces_third"),
         desc: "Top 3 Pisces Finalist in seasonal constellation events.",
       },
       {
@@ -3123,11 +3210,11 @@ export default function VoiceParty() {
         title: "Gilded Holy Egg",
         grade: "S",
         iconType: "holy_egg",
-        unlocked: customHonors.some((h) => h?.id === "gilded_holy_egg"),
+        unlocked: customHonors.some((h) => h?.id === "gilded_holy_egg" || h?.name === "Gilded Holy Egg" || h?.code === "gilded_holy_egg"),
         desc: "Honor badge for special Gilded Holy Egg event champions.",
       },
     ];
-  }, [roomInfo]);
+  }, [roomBadgesData, roomInfo, hostProfileDetails]);
 
   const handleBadgePress = useCallback((badge) => {
     if (!badge) return;
