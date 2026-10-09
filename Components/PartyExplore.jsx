@@ -2,10 +2,14 @@ import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
+  AlertCircle,
+  ArrowLeft,
   Home,
   MessageCircle,
   Mic,
-  Plus
+  Plus,
+  Search,
+  X
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,11 +17,13 @@ import {
   Alert,
   Dimensions,
   Image,
+  Keyboard,
   Modal,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from "react-native";
@@ -39,7 +45,8 @@ import {
   loadPartyRanking,
   loadRecentlyRooms,
   loadRoomRecommendations,
-  normalizeRoom
+  normalizeRoom,
+  searchRoomById
 } from "../src/services/partyService";
 import { resolveCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
@@ -309,10 +316,31 @@ export default function PartyExplore() {
   // ── Search ──
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
+  const [searchResult, setSearchResult] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState(null);
-  const searchDebounceRef = useRef(null);
+
+  const handleSearchRoom = async (textToSearch) => {
+    const q = String(textToSearch ?? searchQuery ?? "").trim();
+    if (!q) {
+      setSearchResult(null);
+      return;
+    }
+    Keyboard.dismiss();
+    setSearchLoading(true);
+    try {
+      const res = await searchRoomById(q);
+      setSearchResult(res);
+    } catch (err) {
+      setSearchResult({
+        success: false,
+        status: "ERROR",
+        message: err?.message || "Room is not live or does not exist",
+        room: null,
+      });
+    } finally {
+      setSearchLoading(false);
+    }
+  };
 
   // ── Ranking modal ──
   const [rankingVisible, setRankingVisible] = useState(false);
@@ -577,7 +605,15 @@ export default function PartyExplore() {
             ))}
           </View>
           <View style={styles.topActions}>
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                setSearchQuery("");
+                setSearchResult(null);
+                setSearchVisible(true);
+              }}
+            >
               <LinearGradient colors={["rgba(124,77,255,0.2)", "rgba(74,108,247,0.2)"]} style={styles.iconBtnGrad}>
                 <Image source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/search.png" }} style={styles.searchIcon} resizeMode="contain" />
               </LinearGradient>
@@ -1079,6 +1115,124 @@ export default function PartyExplore() {
         currentLevel={myLevel}
         onClose={() => setLevelGateVisible(false)}
       />
+
+      {/* ══════════ SEARCH ROOM MODAL ══════════ */}
+      <Modal
+        visible={searchVisible}
+        animationType="slide"
+        onRequestClose={() => setSearchVisible(false)}
+      >
+        <View style={styles.modalRoot}>
+          <SafeAreaView style={styles.safe} edges={["top"]}>
+            {/* Header Search Bar */}
+            <View style={styles.searchHeader}>
+              <TouchableOpacity
+                style={styles.searchBackBtn}
+                onPress={() => setSearchVisible(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <ArrowLeft size={22} color={THEME.text} />
+              </TouchableOpacity>
+
+              <View style={styles.searchBarWrap}>
+                <Search size={18} color="#9ca3af" style={{ marginLeft: 10 }} />
+                <TextInput
+                  style={styles.searchBarInput}
+                  placeholder="Enter Room ID (e.g. 100014)"
+                  placeholderTextColor="#9ca3af"
+                  value={searchQuery}
+                  onChangeText={(text) => {
+                    setSearchQuery(text);
+                    if (!text.trim()) setSearchResult(null);
+                  }}
+                  onSubmitEditing={() => handleSearchRoom(searchQuery)}
+                  returnKeyType="search"
+                  autoFocus
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity
+                    style={{ padding: 6, marginRight: 4 }}
+                    onPress={() => {
+                      setSearchQuery("");
+                      setSearchResult(null);
+                    }}
+                  >
+                    <X size={16} color="#9ca3af" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={styles.searchActionBtn}
+                activeOpacity={0.8}
+                onPress={() => handleSearchRoom(searchQuery)}
+              >
+                <LinearGradient
+                  colors={["#7c4dff", "#4a6cf7"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.searchActionBtnGrad}
+                >
+                  <Text style={styles.searchActionBtnText}>Search</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+
+            {/* Results Area */}
+            <ScrollView
+              style={styles.searchResultsScroll}
+              contentContainerStyle={styles.searchResultsContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {searchLoading ? (
+                <View style={styles.searchStateContainer}>
+                  <ActivityIndicator color={THEME.purple} size="large" />
+                  <Text style={styles.searchStateText}>Searching room...</Text>
+                </View>
+              ) : searchResult ? (
+                searchResult.success && searchResult.room ? (
+                  <View style={styles.searchFoundSection}>
+                    <Text style={styles.searchSectionTitle}>Live Room Found</Text>
+                    <ExploreRoomItem
+                      room={searchResult.room}
+                      onPress={() => {
+                        setSearchVisible(false);
+                        openRoom(searchResult.room.id);
+                      }}
+                    />
+                  </View>
+                ) : (
+                  <View style={styles.searchStateContainer}>
+                    <View style={styles.searchErrorIconWrap}>
+                      <AlertCircle size={36} color="#ef4444" />
+                    </View>
+                    <Text style={styles.searchErrorTitle}>
+                      {searchResult.message || "Room is not live or does not exist"}
+                    </Text>
+                    {searchQuery ? (
+                      <Text style={styles.searchErrorSubtitle}>
+                        Room ID: {searchQuery}
+                      </Text>
+                    ) : null}
+                  </View>
+                )
+              ) : (
+                <View style={styles.searchStateContainer}>
+                  <View style={styles.searchIntroIconWrap}>
+                    <Mic size={32} color={THEME.purpleLight} />
+                  </View>
+                  <Text style={styles.searchIntroTitle}>Search Party Room</Text>
+                  <Text style={styles.searchIntroSubtitle}>
+                    Enter a Room ID above to find and join live voice rooms instantly.
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1984,5 +2138,127 @@ const styles = StyleSheet.create({
     color: THEME.textDim,
     fontSize: 9,
     fontWeight: "600",
+  },
+
+  // ── Search modal styles ──
+  searchHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(167,139,250,0.12)",
+  },
+  searchBackBtn: {
+    padding: 4,
+  },
+  searchBarWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(124,77,255,0.08)",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(124,77,255,0.25)",
+    height: 42,
+  },
+  searchBarInput: {
+    flex: 1,
+    fontSize: 14,
+    color: THEME.text,
+    paddingHorizontal: 8,
+    paddingVertical: 0,
+  },
+  searchActionBtn: {
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  searchActionBtnGrad: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  searchActionBtnText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  searchResultsScroll: {
+    flex: 1,
+  },
+  searchResultsContent: {
+    paddingVertical: 20,
+  },
+  searchStateContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  searchStateText: {
+    marginTop: 14,
+    fontSize: 14,
+    fontWeight: "600",
+    color: THEME.textMuted,
+  },
+  searchFoundSection: {
+    paddingTop: 8,
+  },
+  searchSectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: THEME.textMuted,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  searchErrorIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "rgba(239,68,68,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(239,68,68,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  searchErrorTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: THEME.text,
+    textAlign: "center",
+  },
+  searchErrorSubtitle: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: THEME.textMuted,
+    marginTop: 6,
+    textAlign: "center",
+  },
+  searchIntroIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "rgba(124,77,255,0.12)",
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  searchIntroTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: THEME.text,
+    textAlign: "center",
+  },
+  searchIntroSubtitle: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: THEME.textMuted,
+    marginTop: 6,
+    textAlign: "center",
+    lineHeight: 18,
   },
 });

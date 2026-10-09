@@ -6,12 +6,24 @@ import { useKeepAwake } from "expo-keep-awake";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
+import Svg, {
+  Defs,
+  Ellipse,
+  G,
+  LinearGradient as SvgLinearGradient,
+  Path,
+  Polygon,
+  Rect,
+  Stop,
+  Text as SvgText,
+} from "react-native-svg";
 import {
   AlertCircle,
   Ban,
   Check,
   Crown,
   LayoutGrid,
+  Lock,
   MessageCircle,
   MessageSquare,
   Mic,
@@ -25,6 +37,7 @@ import {
   Share2,
   Smile,
   Sparkles,
+  Unlock,
   Users,
   Volume2,
   VolumeX,
@@ -50,6 +63,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  ToastAndroid,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -69,12 +83,15 @@ import API, { refreshTokenCache } from "../src/api/axios";
 import {
   followRoom,
   getClaimedSeats,
+  getRoomBadges,
   getRoomChatMessages,
   getRoomState,
   kickRoomUser,
+  lockSeat,
   postRoomHeartbeat,
   postSeatHeartbeat,
-  unfollowRoom
+  unfollowRoom,
+  unlockSeat
 } from "../src/api/partyApi";
 import { reportUser } from "../src/api/postApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
@@ -240,6 +257,479 @@ const AutoBadgeImage = ({ source, style, resizeMode = "contain" }) => {
   );
 };
 
+const EventsEmptyIllustration = () => (
+  <View style={styles.eventsEmptyIllustrationWrap}>
+    <Svg width={200} height={145} viewBox="0 0 200 145">
+      <Defs>
+        <SvgLinearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <Stop offset="0%" stopColor="#ede9fe" stopOpacity="0.85" />
+          <Stop offset="100%" stopColor="#f5f3ff" stopOpacity="0.1" />
+        </SvgLinearGradient>
+        <SvgLinearGradient id="frontGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <Stop offset="0%" stopColor="#c4b5fd" />
+          <Stop offset="100%" stopColor="#a78bfa" />
+        </SvgLinearGradient>
+        <SvgLinearGradient id="topGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <Stop offset="0%" stopColor="#f3e8ff" />
+          <Stop offset="100%" stopColor="#ddd6fe" />
+        </SvgLinearGradient>
+        <SvgLinearGradient id="sideGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <Stop offset="0%" stopColor="#a78bfa" />
+          <Stop offset="100%" stopColor="#8b5cf6" />
+        </SvgLinearGradient>
+      </Defs>
+
+      {/* Ground soft glowing ellipse */}
+      <Ellipse cx="100" cy="115" rx="75" ry="20" fill="url(#glowGrad)" />
+
+      {/* Floating soft petal left */}
+      <Path
+        d="M 45 74 C 40 68, 48 60, 54 66 C 60 72, 50 80, 45 74 Z"
+        fill="#f3e8ff"
+        opacity={0.8}
+      />
+
+      {/* Floating soft petal top right */}
+      <Path
+        d="M 152 46 C 148 40, 156 34, 162 38 C 168 42, 160 52, 152 46 Z"
+        fill="#e9d5ff"
+        opacity={0.8}
+      />
+
+      {/* Floating leaf right */}
+      <Path
+        d="M 148 82 C 162 66, 172 82, 165 106 C 154 110, 142 98, 148 82 Z"
+        fill="#c4b5fd"
+        opacity={0.7}
+      />
+
+      {/* 3D Box Top Face */}
+      <Path
+        d="M 72 58 L 88 42 L 148 42 L 132 58 Z"
+        fill="url(#topGrad)"
+      />
+
+      {/* 3D Box Right Face */}
+      <Path
+        d="M 132 58 L 148 42 L 148 90 L 132 106 Z"
+        fill="url(#sideGrad)"
+      />
+
+      {/* 3D Box Front Face */}
+      <Rect
+        x="68"
+        y="58"
+        width="64"
+        height="48"
+        rx="6"
+        fill="url(#frontGrad)"
+      />
+
+      {/* Sad Face: Left Eye */}
+      <Rect x="83" y="73" width="4.5" height="9" rx="2.25" fill="#ffffff" />
+
+      {/* Sad Face: Right Eye */}
+      <Rect x="112" y="73" width="4.5" height="9" rx="2.25" fill="#ffffff" />
+
+      {/* Sad Face: Frown Mouth */}
+      <Path
+        d="M 85 95 Q 100 86 115 95"
+        stroke="#ffffff"
+        strokeWidth="4"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </Svg>
+  </View>
+);
+
+const GradeCornerBadge = ({ grade = "C" }) => {
+  const isS = grade === "S";
+  const isA = grade === "A";
+
+  return (
+    <View style={styles.gradeBadgeWrap}>
+      <Svg width={22} height={22} viewBox="0 0 24 24">
+        <Defs>
+          <SvgLinearGradient id="gradeCGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor="#94a3b8" />
+            <Stop offset="50%" stopColor="#475569" />
+            <Stop offset="100%" stopColor="#334155" />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="gradeAGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor="#38bdf8" />
+            <Stop offset="50%" stopColor="#0284c7" />
+            <Stop offset="100%" stopColor="#0369a1" />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="gradeSGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor="#3b82f6" />
+            <Stop offset="50%" stopColor="#1d4ed8" />
+            <Stop offset="100%" stopColor="#1e3a8a" />
+          </SvgLinearGradient>
+        </Defs>
+
+        {isS ? (
+          <Polygon
+            points="12,2 21,5.5 18,18 12,22 6,18 3,5.5"
+            fill="url(#gradeSGrad)"
+            stroke="#fbbf24"
+            strokeWidth="1.6"
+          />
+        ) : isA ? (
+          <Polygon
+            points="12,2 20,6.5 20,16 12,20.5 4,16 4,6.5"
+            fill="url(#gradeAGrad)"
+            stroke="#7dd3fc"
+            strokeWidth="1.2"
+          />
+        ) : (
+          <Polygon
+            points="12,2 20,6.5 20,16 12,20.5 4,16 4,6.5"
+            fill="url(#gradeCGrad)"
+            stroke="#cbd5e1"
+            strokeWidth="1.2"
+          />
+        )}
+
+        <SvgText
+          x="12"
+          y={isS ? "15" : "14.5"}
+          fontSize={isS ? "11" : "10"}
+          fontWeight="900"
+          textAnchor="middle"
+          fill={isS ? "#fbbf24" : "#ffffff"}
+        >
+          {grade}
+        </SvgText>
+      </Svg>
+    </View>
+  );
+};
+
+const RoomBadgeEmblem = ({ badge }) => {
+  const isUnlocked = Boolean(badge?.unlocked);
+  const iconType = badge?.iconType || "room_level";
+  const levelNum = badge?.level ?? 6;
+  const imageSource = badge?.imageUrl || badge?.iconUrl || badge?.badgeUrl || badge?.image;
+
+  if (imageSource) {
+    return (
+      <View style={[styles.badgeEmblemContainer, !isUnlocked && { opacity: 0.45 }]}>
+        <Image
+          source={{ uri: imageSource }}
+          style={{ width: 78, height: 78 }}
+          resizeMode="contain"
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.badgeEmblemContainer}>
+      <Svg width={96} height={96} viewBox="0 0 100 100">
+        <Defs>
+          {/* Gold Shield Gradient for unlocked room level */}
+          <SvgLinearGradient id="goldShieldOuter" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor="#fef08a" />
+            <Stop offset="25%" stopColor="#f59e0b" />
+            <Stop offset="65%" stopColor="#b45309" />
+            <Stop offset="100%" stopColor="#78350f" />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="goldShieldInner" x1="0%" y1="0%" x2="0%" y2="100%">
+            <Stop offset="0%" stopColor="#92400e" />
+            <Stop offset="50%" stopColor="#78350f" />
+            <Stop offset="100%" stopColor="#451a03" />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="houseGold" x1="0%" y1="0%" x2="0%" y2="100%">
+            <Stop offset="0%" stopColor="#fde047" stopOpacity="0.4" />
+            <Stop offset="100%" stopColor="#d97706" stopOpacity="0.7" />
+          </SvgLinearGradient>
+
+          {/* Silver / Metal Shield Gradient for standard & locked badges */}
+          <SvgLinearGradient id="silverShieldOuter" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor="#f8fafc" />
+            <Stop offset="30%" stopColor="#cbd5e1" />
+            <Stop offset="70%" stopColor="#64748b" />
+            <Stop offset="100%" stopColor="#334155" />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="silverShieldInner" x1="0%" y1="0%" x2="0%" y2="100%">
+            <Stop offset="0%" stopColor="#475569" />
+            <Stop offset="50%" stopColor="#334155" />
+            <Stop offset="100%" stopColor="#1e293b" />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="silverRibbon" x1="0%" y1="0%" x2="100%" y2="0%">
+            <Stop offset="0%" stopColor="#334155" />
+            <Stop offset="50%" stopColor="#1e293b" />
+            <Stop offset="100%" stopColor="#334155" />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="gemDiamond" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor="#ffffff" />
+            <Stop offset="50%" stopColor="#cbd5e1" />
+            <Stop offset="100%" stopColor="#94a3b8" />
+          </SvgLinearGradient>
+        </Defs>
+
+        {iconType === "room_level" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill={isUnlocked ? "url(#goldShieldOuter)" : "url(#silverShieldOuter)"}
+            />
+            {/* Inner Shield */}
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill={isUnlocked ? "url(#goldShieldInner)" : "url(#silverShieldInner)"}
+            />
+            {/* House Outline / Graphic */}
+            <Path
+              d="M 50 26 L 74 44 L 68 44 L 68 74 L 32 74 L 32 44 L 26 44 Z"
+              fill={isUnlocked ? "url(#houseGold)" : "rgba(255,255,255,0.15)"}
+              stroke={isUnlocked ? "#fde047" : "#cbd5e1"}
+              strokeWidth="1.2"
+            />
+            {/* Level Texts */}
+            <SvgText
+              x="50"
+              y="40"
+              fontSize="9"
+              fontWeight="700"
+              textAnchor="middle"
+              fill={isUnlocked ? "#fef08a" : "#cbd5e1"}
+            >
+              Lv.
+            </SvgText>
+            <SvgText
+              x="50"
+              y="66"
+              fontSize="24"
+              fontWeight="900"
+              textAnchor="middle"
+              fill={isUnlocked ? "#ffffff" : "#cbd5e1"}
+            >
+              {levelNum}
+            </SvgText>
+          </G>
+        ) : iconType === "pk_gift" || iconType === "room_pk" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Wings on Sides */}
+            <Path
+              d="M 22 56 C 14 52 14 62 26 66 Z"
+              fill="#e2e8f0"
+            />
+            <Path
+              d="M 78 56 C 86 52 86 62 74 66 Z"
+              fill="#e2e8f0"
+            />
+            {/* Gift Box */}
+            <Rect x="36" y="32" width="28" height="26" rx="2" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" />
+            <Path d="M 50 32 L 50 58 M 36 44 L 64 44" stroke="#64748b" strokeWidth="3" />
+            <Path d="M 44 26 C 44 32 50 32 50 32 C 50 32 56 32 56 26 C 56 22 44 22 44 26 Z" fill="#cbd5e1" />
+            {/* Banner */}
+            <Path
+              d="M 24 64 L 76 64 L 72 74 L 50 78 L 28 74 Z"
+              fill="url(#silverRibbon)"
+              stroke="#64748b"
+              strokeWidth="0.8"
+            />
+            <SvgText
+              x="50"
+              y="72"
+              fontSize={iconType === "room_pk" ? "8" : "9"}
+              fontWeight="900"
+              textAnchor="middle"
+              fill="#ffffff"
+            >
+              {iconType === "room_pk" ? "Room PK" : "PK"}
+            </SvgText>
+          </G>
+        ) : iconType === "receive_gift" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Open Envelope */}
+            <Path
+              d="M 30 44 L 50 32 L 70 44 L 70 66 L 30 66 Z"
+              fill="#cbd5e1"
+              stroke="#64748b"
+              strokeWidth="1"
+            />
+            <Path d="M 30 44 L 50 56 L 70 44" fill="none" stroke="#64748b" strokeWidth="1" />
+            {/* Diamond Inside */}
+            <Polygon
+              points="50,34 60,42 50,54 40,42"
+              fill="url(#gemDiamond)"
+              stroke="#ffffff"
+              strokeWidth="1.2"
+            />
+          </G>
+        ) : iconType === "lucky_gift" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Gift Box with 777 Slot Display */}
+            <Rect x="34" y="32" width="32" height="34" rx="4" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" />
+            <Rect x="38" y="44" width="24" height="14" rx="2" fill="#1e293b" />
+            <SvgText x="50" y="55" fontSize="10" fontWeight="900" textAnchor="middle" fill="#fde047">
+              777
+            </SvgText>
+            {/* Bow on Top */}
+            <Path d="M 44 26 C 44 32 50 32 50 32 C 50 32 56 32 56 26 Z" fill="#cbd5e1" />
+          </G>
+        ) : iconType === "high_value_gift" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Luxury Gift Box */}
+            <Rect x="34" y="36" width="32" height="32" rx="3" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1" />
+            <Path d="M 50 36 L 50 68 M 34 50 L 66 50" stroke="#cbd5e1" strokeWidth="4" />
+            {/* Big Fancy Bow */}
+            <Path d="M 42 26 C 34 26 42 36 50 36 C 58 36 66 26 58 26 C 50 26 50 34 50 36 Z" fill="#e2e8f0" />
+          </G>
+        ) : iconType === "aqua" ? (
+          <G>
+            {/* Ornate Wreath Frame */}
+            <Path
+              d="M 50 10 C 72 10 90 28 90 50 C 90 72 72 90 50 90 C 28 90 10 72 10 50 C 10 28 28 10 50 10 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 16 C 68 16 84 32 84 50 C 84 68 68 84 50 84 C 32 84 16 68 16 50 C 16 32 32 16 50 16 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Amphora / Water Vase */}
+            <Path
+              d="M 44 32 L 56 32 L 60 42 C 64 52 58 64 50 64 C 42 64 36 52 40 42 Z"
+              fill="#e2e8f0"
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
+            <Path d="M 52 42 C 60 42 66 50 62 60 C 58 70 42 74 36 78" stroke="#38bdf8" strokeWidth="3" strokeLinecap="round" fill="none" />
+          </G>
+        ) : iconType.startsWith("dragon_") ? (
+          <G>
+            {/* Dragon / Heraldic Ornate Shield */}
+            <Path
+              d="M 50 8 L 86 16 L 90 46 C 90 72 70 88 50 96 C 30 88 10 72 10 46 L 14 16 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 82 22 L 84 46 C 84 68 66 82 50 90 C 34 82 16 68 16 46 L 18 22 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Center Gemstone */}
+            <Polygon
+              points="50,30 64,44 50,58 36,44"
+              fill="url(#gemDiamond)"
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
+            {/* Banner with Rank */}
+            <Path
+              d="M 22 66 L 78 66 L 74 76 L 50 80 L 26 76 Z"
+              fill="#1e293b"
+              stroke="#cbd5e1"
+              strokeWidth="0.8"
+            />
+            <SvgText
+              x="50"
+              y="74"
+              fontSize="9"
+              fontWeight="900"
+              textAnchor="middle"
+              fill="#ffffff"
+            >
+              {iconType === "dragon_top1" ? "TOP 1" : iconType === "dragon_top2" ? "TOP 2" : "TOP 3"}
+            </SvgText>
+          </G>
+        ) : iconType.startsWith("pisces_") ? (
+          <G>
+            {/* Pisces Koi Circle */}
+            <Path
+              d="M 50 8 C 74 8 92 26 92 50 C 92 74 74 92 50 92 C 26 92 8 74 8 50 C 8 26 26 8 50 8 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 C 70 14 86 30 86 50 C 86 70 70 86 50 86 C 30 86 14 70 14 50 C 14 30 30 14 50 14 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Two Koi Fish */}
+            <Path
+              d="M 36 34 C 44 26 60 36 50 48 C 42 42 36 40 36 34 Z"
+              fill="#e2e8f0"
+            />
+            <Path
+              d="M 64 66 C 56 74 40 64 50 52 C 58 58 64 60 64 66 Z"
+              fill="#cbd5e1"
+            />
+            {/* Top Ribbon Banner */}
+            <Path
+              d="M 28 20 L 72 20 L 68 28 L 50 32 L 32 28 Z"
+              fill="#1e293b"
+              stroke="#cbd5e1"
+              strokeWidth="0.8"
+            />
+            <SvgText
+              x="50"
+              y="27"
+              fontSize="8"
+              fontWeight="900"
+              textAnchor="middle"
+              fill="#ffffff"
+            >
+              {iconType === "pisces_top1" ? "Top 1" : iconType === "pisces_top2" ? "Top 2" : "Top 3"}
+            </SvgText>
+          </G>
+        ) : (
+          <G>
+            {/* Holy Egg / Monument Emblem */}
+            <Path
+              d="M 50 10 L 84 20 L 84 72 L 50 92 L 16 72 L 16 20 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 16 L 78 24 L 78 68 L 50 84 L 22 68 L 22 24 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Glowing Egg */}
+            <Ellipse cx="50" cy="50" rx="14" ry="18" fill="url(#gemDiamond)" stroke="#ffffff" strokeWidth="1.5" />
+          </G>
+        )}
+      </Svg>
+    </View>
+  );
+};
+
 // Listen Rewards — countdown thresholds in seconds
 const LISTEN_THRESHOLDS = [60, 3600, 18000]; // 1 min, 1 hr, 5 hr
 const LISTEN_THRESHOLD_LABELS = ["1 min", "1 hr", "5 hr"];
@@ -326,10 +816,22 @@ const reconcileSeatAssignments = (
     activeVoiceUids = null,
   } = {},
 ) => {
-  const next = parsedSeats.map((seat) => ({
-    ...seat,
-    user: seat.user ? { ...seat.user } : null,
-  }));
+  const next = parsedSeats.map((seat) => {
+    const user = seat.user ? { ...seat.user } : null;
+    if (
+      user &&
+      user.id == null &&
+      user.userId == null &&
+      !user.avatar &&
+      (!user.name || user.name === "Guest" || user.name === "…")
+    ) {
+      return { ...seat, user: null };
+    }
+    return {
+      ...seat,
+      user,
+    };
+  });
 
   const onlineIds =
     Array.isArray(onlineUsers) && onlineUsers.length > 0
@@ -343,8 +845,17 @@ const reconcileSeatAssignments = (
   // If room presence is known, clear seats for users who already left.
   if (onlineIds) {
     for (let i = 0; i < next.length; i += 1) {
-      const userId = next[i]?.user?.id != null ? String(next[i].user.id) : null;
-      if (!userId) continue;
+      if (!next[i]?.user) continue;
+      const userId =
+        next[i].user.id != null
+          ? String(next[i].user.id)
+          : next[i].user.userId != null
+            ? String(next[i].user.userId)
+            : null;
+      if (!userId) {
+        next[i] = { ...next[i], user: null };
+        continue;
+      }
       if (onlineIds.has(userId)) {
         staleSeatTracker?.delete(userId);
         continue;
@@ -1551,6 +2062,13 @@ export default function VoiceParty() {
   const [claimedRewardModal, setClaimedRewardModal] = useState(null);
   const [showActiveUsersModal, setShowActiveUsersModal] = useState(false);
   const [showFollowModal, setShowFollowModal] = useState(false);
+  const [showRoomProfileModal, setShowRoomProfileModal] = useState(false);
+  const [roomModalTab, setRoomModalTab] = useState("profile");
+  const [roomBadgeSubTab, setRoomBadgeSubTab] = useState("achievement");
+  const [hostProfileDetails, setHostProfileDetails] = useState(null);
+  const [followerSearchQuery, setFollowerSearchQuery] = useState("");
+  const [roomFollowersList, setRoomFollowersList] = useState([]);
+  const [followersLoading, setFollowersLoading] = useState(false);
 
   const displayActiveUsers = useMemo(() => {
     const list = Array.isArray(onlineUsers) ? [...onlineUsers] : [];
@@ -1737,6 +2255,9 @@ export default function VoiceParty() {
   // Empty-seat action sheet
   const [seatActionSheet, setSeatActionSheet] = useState(null); // { seatId }
   const [seatActionLoading, setSeatActionLoading] = useState(false);
+  const [adminSeatModal, setAdminSeatModal] = useState(null); // { seatId }
+  const [adminUnlockModal, setAdminUnlockModal] = useState(null); // { seatId }
+  const [lockedSeatNoticeModal, setLockedSeatNoticeModal] = useState(null); // { seatId }
   // Mic permission warning popup (stores pending seatId)
   const [micPermWarning, setMicPermWarning] = useState(null); // seatId | null
   // Pinned welcome message (editable by the host)
@@ -2459,6 +2980,301 @@ export default function VoiceParty() {
       cancelled = true;
     };
   }, [roomId, isHostSelf]);
+
+  useEffect(() => {
+    if (!showFollowModal && !showRoomProfileModal) return;
+    let cancelled = false;
+    const targetUserId = hostId || roomInfo?.hostId || roomInfo?.creatorId;
+    if (targetUserId) {
+      loadPublicProfile(targetUserId)
+        .then((res) => {
+          if (!cancelled && res?.profile) {
+            setHostProfileDetails(res.profile);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [showFollowModal, showRoomProfileModal, hostId, roomInfo?.hostId, roomInfo?.creatorId]);
+
+  useEffect(() => {
+    if (!showRoomProfileModal) return;
+    let cancelled = false;
+    const targetUserId = hostId || roomInfo?.hostId || roomInfo?.creatorId || roomInfo?.userId || roomInfo?.ownerId;
+    if (targetUserId) {
+      setFollowersLoading(true);
+      loadFollowers(targetUserId)
+        .then((res) => {
+          if (!cancelled) {
+            setRoomFollowersList(Array.isArray(res) ? res : []);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRoomFollowersList([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setFollowersLoading(false);
+          }
+        });
+    } else {
+      setRoomFollowersList([]);
+      setFollowersLoading(false);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [showRoomProfileModal, hostId, roomInfo?.hostId, roomInfo?.creatorId, roomInfo?.userId, roomInfo?.ownerId]);
+
+  const displayFollowersList = useMemo(() => {
+    const baseList = Array.isArray(roomFollowersList) ? roomFollowersList : [];
+    if (!followerSearchQuery.trim()) {
+      return baseList;
+    }
+    const q = followerSearchQuery.trim().toLowerCase();
+    return baseList.filter((u) => {
+      const name = String(u?.name || u?.username || "").toLowerCase();
+      const id = String(u?.id || u?.userId || "").toLowerCase();
+      return name.includes(q) || id.includes(q);
+    });
+  }, [roomFollowersList, followerSearchQuery]);
+
+  const [roomBadgesData, setRoomBadgesData] = useState(null);
+
+  useEffect(() => {
+    if (!showRoomProfileModal) return;
+    let cancelled = false;
+    const activeRoomId = String(roomId || roomInfo?.id || roomInfo?.roomId || "");
+    if (activeRoomId) {
+      getRoomBadges(activeRoomId)
+        .then((res) => {
+          if (!cancelled && res) {
+            setRoomBadgesData(res);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [showRoomProfileModal, roomId, roomInfo?.id, roomInfo?.roomId]);
+
+  const roomLevel = hostProfileDetails?.level ?? roomInfo?.level ?? 1;
+  const roomGiftCount = roomInfo?.giftCount ?? roomInfo?.totalGifts ?? roomInfo?.giftTotal ?? 0;
+  const roomPkWins = roomInfo?.pkWins ?? roomInfo?.pkWinCount ?? roomInfo?.pkWinsCount ?? 0;
+  const roomFollowerCount = hostProfileDetails?.followersCount ?? roomInfo?.followersCount ?? roomInfo?.followerCount ?? (Array.isArray(roomFollowersList) ? roomFollowersList.length : 0);
+
+  const achievementBadges = useMemo(() => {
+    // 1. Dynamic backend achievement badges if returned by API
+    const backendAchievements =
+      roomBadgesData?.achievementBadges ||
+      roomBadgesData?.achievements ||
+      roomInfo?.achievementBadges ||
+      roomInfo?.achievements;
+
+    if (Array.isArray(backendAchievements) && backendAchievements.length > 0) {
+      return backendAchievements.map((b, idx) => ({
+        id: b.id || b.code || `achievement_${idx}`,
+        title: b.title || b.name || "Achievement",
+        grade: b.grade || (b.level >= 20 ? "S" : b.level >= 10 ? "A" : "C"),
+        iconType: b.iconType || b.type || "room_level",
+        level: b.level ?? roomLevel,
+        unlocked: Boolean(b.unlocked ?? b.isUnlocked ?? (b.status === "UNLOCKED")),
+        desc: b.desc || b.description || `Achievement badge for room milestones.`,
+        imageUrl: b.imageUrl || b.iconUrl || b.badgeUrl || null,
+        progress: b.progress,
+        target: b.target,
+      }));
+    }
+
+    // 2. Dynamically computed system achievement badges based on real-time room metrics
+    return [
+      {
+        id: "room_level",
+        title: "Room level",
+        grade: roomLevel >= 30 ? "S" : roomLevel >= 15 ? "A" : "C",
+        iconType: "room_level",
+        level: roomLevel,
+        unlocked: roomLevel >= 1,
+        desc: `Level ${roomLevel} Achievement badge. Level up your room to increase its status!`,
+      },
+      {
+        id: "pk_gift",
+        title: "Receive gift in PK",
+        grade: roomPkWins >= 10 ? "S" : roomPkWins >= 3 ? "A" : "C",
+        iconType: "pk_gift",
+        unlocked: Boolean(roomInfo?.hasPkGiftBadge || roomPkWins > 0 || roomInfo?.pkGiftCount > 0),
+        desc: roomPkWins > 0
+          ? `Receive gifts during PK battles (${roomPkWins} PK wins recorded).`
+          : "Receive gifts during PK battles to unlock this badge.",
+      },
+      {
+        id: "room_receive_gift",
+        title: "Room receive gift",
+        grade: roomGiftCount >= 100 ? "S" : roomGiftCount >= 20 ? "A" : "C",
+        iconType: "receive_gift",
+        unlocked: Boolean(roomInfo?.hasReceiveGiftBadge || roomGiftCount > 0),
+        desc: roomGiftCount > 0
+          ? `Receive gifts in the voice room (Total gifts received: ${roomGiftCount}).`
+          : "Receive gifts in the voice room to unlock this badge.",
+      },
+      {
+        id: "room_pk_gift",
+        title: "Receive gift in Room PK",
+        grade: (roomInfo?.roomPkGifts ?? 0) >= 20 ? "S" : "C",
+        iconType: "room_pk",
+        unlocked: Boolean(roomInfo?.hasRoomPkBadge || (roomInfo?.roomPkGifts ?? 0) > 0),
+        desc: "Receive gifts in Room PK battles to unlock this badge.",
+      },
+      {
+        id: "lucky_gift",
+        title: "Receive lucky gift",
+        grade: (roomInfo?.luckyGiftCount ?? 0) >= 10 ? "S" : "C",
+        iconType: "lucky_gift",
+        unlocked: Boolean(roomInfo?.hasLuckyGiftBadge || (roomInfo?.luckyGiftCount ?? 0) > 0),
+        desc: "Receive lucky 777 gifts to unlock this badge.",
+      },
+      {
+        id: "high_value_gift",
+        title: "Receive high value gift",
+        grade: (roomInfo?.highValueGiftCount ?? 0) >= 5 ? "S" : "C",
+        iconType: "high_value_gift",
+        unlocked: Boolean(roomInfo?.hasHighValueGiftBadge || (roomInfo?.highValueGiftCount ?? 0) > 0),
+        desc: "Receive high-value luxury gifts to unlock this badge.",
+      },
+    ];
+  }, [roomBadgesData, roomLevel, roomGiftCount, roomPkWins, roomInfo]);
+
+  const honorBadges = useMemo(() => {
+    // 1. Dynamic backend honor badges if returned by API
+    const backendHonors =
+      roomBadgesData?.honorBadges ||
+      roomBadgesData?.honors ||
+      roomInfo?.honorBadges ||
+      roomInfo?.honors;
+
+    if (Array.isArray(backendHonors) && backendHonors.length > 0) {
+      return backendHonors.map((h, idx) => ({
+        id: h.id || h.code || `honor_${idx}`,
+        title: h.title || h.name || "Honor Badge",
+        grade: h.grade || "S",
+        iconType: h.iconType || h.type || "dragon_top1",
+        unlocked: Boolean(h.unlocked ?? h.isUnlocked ?? (h.status === "UNLOCKED")),
+        desc: h.desc || h.description || "Prestigious room honor badge awarded for tournament and seasonal achievements.",
+        imageUrl: h.imageUrl || h.iconUrl || h.badgeUrl || null,
+      }));
+    }
+
+    // 2. Dynamically evaluated honor badges based on custom honor records and tournaments
+    const customHonors = Array.isArray(roomInfo?.honorBadges)
+      ? roomInfo.honorBadges
+      : Array.isArray(hostProfileDetails?.honorBadges)
+        ? hostProfileDetails.honorBadges
+        : [];
+
+    return [
+      {
+        id: "imperial_aqua",
+        title: "Imperial Aqua",
+        grade: "A",
+        iconType: "aqua",
+        unlocked: customHonors.some((h) => h?.id === "imperial_aqua" || h?.name === "Imperial Aqua" || h?.code === "imperial_aqua"),
+        desc: "Imperial Aqua Honor badge awarded to outstanding aquatic themed rooms.",
+      },
+      {
+        id: "sapphire_crest",
+        title: "Sapphire Crest",
+        grade: "S",
+        iconType: "dragon_top3",
+        unlocked: customHonors.some((h) => h?.id === "sapphire_crest" || h?.name === "Sapphire Crest" || h?.code === "sapphire_crest"),
+        desc: "Top 3 Room ranking in the Sapphire League.",
+      },
+      {
+        id: "golden_glory",
+        title: "Golden Glory",
+        grade: "S",
+        iconType: "dragon_top2",
+        unlocked: customHonors.some((h) => h?.id === "golden_glory" || h?.name === "Golden Glory" || h?.code === "golden_glory"),
+        desc: "Top 2 Room ranking in the Golden Glory League.",
+      },
+      {
+        id: "ruby_supreme",
+        title: "Ruby Supreme",
+        grade: "S",
+        iconType: "dragon_top1",
+        unlocked: customHonors.some((h) => h?.id === "ruby_supreme" || h?.name === "Ruby Supreme" || h?.code === "ruby_supreme"),
+        desc: "Top 1 Champion Room ranking in the Ruby Supreme Tournament.",
+      },
+      {
+        id: "pisces_champion",
+        title: "Pisces Champion",
+        grade: "S",
+        iconType: "pisces_top1",
+        unlocked: customHonors.some((h) => h?.id === "pisces_champion" || h?.name === "Pisces Champion" || h?.code === "pisces_champion"),
+        desc: "Top 1 Pisces Champion in seasonal constellation events.",
+      },
+      {
+        id: "pisces_runner_up",
+        title: "Pisces Runner-up",
+        grade: "S",
+        iconType: "pisces_top2",
+        unlocked: customHonors.some((h) => h?.id === "pisces_runner_up" || h?.name === "Pisces Runner-up" || h?.code === "pisces_runner_up"),
+        desc: "Top 2 Pisces Runner-up in seasonal constellation events.",
+      },
+      {
+        id: "pisces_third",
+        title: "Pisces Third",
+        grade: "S",
+        iconType: "pisces_top3",
+        unlocked: customHonors.some((h) => h?.id === "pisces_third" || h?.name === "Pisces Third" || h?.code === "pisces_third"),
+        desc: "Top 3 Pisces Finalist in seasonal constellation events.",
+      },
+      {
+        id: "gilded_holy_egg",
+        title: "Gilded Holy Egg",
+        grade: "S",
+        iconType: "holy_egg",
+        unlocked: customHonors.some((h) => h?.id === "gilded_holy_egg" || h?.name === "Gilded Holy Egg" || h?.code === "gilded_holy_egg"),
+        desc: "Honor badge for special Gilded Holy Egg event champions.",
+      },
+    ];
+  }, [roomBadgesData, roomInfo, hostProfileDetails]);
+
+  const handleBadgePress = useCallback((badge) => {
+    if (!badge) return;
+    const statusText = badge.unlocked ? "Status: Unlocked ✨" : "Status: Locked 🔒";
+    const gradeText = badge.grade ? `Grade: [${badge.grade}]` : "";
+    Alert.alert(
+      badge.title,
+      `${gradeText ? gradeText + "\n" : ""}${statusText}\n\n${badge.desc || "Earn badges by actively hosting and receiving gifts in your voice room."}`
+    );
+  }, []);
+
+  const handleBadgeWallHelp = useCallback(() => {
+    Alert.alert(
+      "Room Badge Wall Rules",
+      "1. Achievement Badges: Earned by leveling up the room, PK participation, and receiving lucky or special gifts.\n\n2. Honor Badges: Exclusive prestige badges awarded to top-ranking rooms in seasonal tournaments and events.\n\n3. Badges are dynamic and reflect your room's active accomplishments."
+    );
+  }, []);
+
+  const handleCopyRoomId = async () => {
+    const targetId = String(roomId || roomInfo?.id || roomInfo?.roomId || "");
+    if (!targetId) return;
+    try {
+      await Clipboard.setStringAsync(targetId);
+      if (Platform.OS === "android") {
+        ToastAndroid.show(`ID: ${targetId} copied`, ToastAndroid.SHORT);
+      } else {
+        Alert.alert("Copied", `Room ID ${targetId} copied to clipboard`);
+      }
+    } catch {
+      Alert.alert("Copied", `Room ID: ${targetId}`);
+    }
+  };
 
   const handleFollowToggle = async () => {
     const targetRoomId = roomIdRef.current || roomId;
@@ -3762,6 +4578,10 @@ export default function VoiceParty() {
         setShowPowerMenu(false);
         return true;
       }
+      if (showRoomProfileModal) {
+        setShowRoomProfileModal(false);
+        return true;
+      }
       if (showFollowModal) {
         setShowFollowModal(false);
         return true;
@@ -3789,6 +4609,18 @@ export default function VoiceParty() {
       }
       if (seatActionSheet) {
         setSeatActionSheet(null);
+        return true;
+      }
+      if (adminSeatModal) {
+        setAdminSeatModal(null);
+        return true;
+      }
+      if (adminUnlockModal) {
+        setAdminUnlockModal(null);
+        return true;
+      }
+      if (lockedSeatNoticeModal) {
+        setLockedSeatNoticeModal(null);
         return true;
       }
       if (micPermWarning) {
@@ -3825,6 +4657,9 @@ export default function VoiceParty() {
     profilePopupUser,
     profilePopupLoading,
     seatActionSheet,
+    adminSeatModal,
+    adminUnlockModal,
+    lockedSeatNoticeModal,
     micPermWarning,
     showWelcomeEdit,
     closeProfilePopup,
@@ -5557,11 +6392,25 @@ export default function VoiceParty() {
   };
 
   const handleSeatPress = async (seat) => {
-    if (seat?.user) {
+    if (!seat) return;
+    if (seat.user) {
       handleUserAvatarPress(seat.user);
       return;
     }
-    if (!seat?.locked) {
+
+    if (seat.locked) {
+      if (canManageRoomUsers) {
+        setAdminUnlockModal({ seatId: seat.id });
+      } else {
+        setLockedSeatNoticeModal({ seatId: seat.id });
+      }
+      return;
+    }
+
+    // Seat is empty and unlocked
+    if (canManageRoomUsers) {
+      setAdminSeatModal({ seatId: seat.id });
+    } else {
       let micGranted = false;
       try {
         if (Platform.OS === "android") {
@@ -5581,6 +6430,71 @@ export default function VoiceParty() {
       } else {
         setMicPermWarning(seat.id);
       }
+    }
+  };
+
+  const handleAdminClaimOption = async (seatId) => {
+    setAdminSeatModal(null);
+    let micGranted = false;
+    try {
+      if (Platform.OS === "android") {
+        micGranted = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        );
+      } else {
+        const { status } = await Audio.getPermissionsAsync();
+        micGranted = status === "granted";
+      }
+    } catch {
+      micGranted = false;
+    }
+
+    if (micGranted) {
+      setSeatActionSheet({ seatId });
+    } else {
+      setMicPermWarning(seatId);
+    }
+  };
+
+  const handleLockSeat = async (seatId) => {
+    if (!roomId || seatActionLoading) return;
+    setSeatActionLoading(true);
+    try {
+      await lockSeat(String(roomId), seatId);
+      setSeats((prev) =>
+        prev.map((s) => (s.id === seatId ? { ...s, locked: true, user: null } : s)),
+      );
+      setAdminSeatModal(null);
+    } catch (err) {
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Could not lock this seat. Please try again.";
+      Alert.alert("Lock Seat Failed", errMsg);
+    } finally {
+      setSeatActionLoading(false);
+    }
+  };
+
+  const handleUnlockSeat = async (seatId) => {
+    if (!roomId || seatActionLoading) return;
+    setSeatActionLoading(true);
+    try {
+      await unlockSeat(String(roomId), seatId);
+      setSeats((prev) =>
+        prev.map((s) => (s.id === seatId ? { ...s, locked: false } : s)),
+      );
+      setAdminUnlockModal(null);
+    } catch (err) {
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Could not unlock this seat. Please try again.";
+      Alert.alert("Unlock Seat Failed", errMsg);
+    } finally {
+      setSeatActionLoading(false);
     }
   };
 
@@ -7102,7 +8016,7 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── FOLLOW / ROOM INFO MODAL ── */}
+      {/* ── COMPACT FOLLOW MODAL (Triggered by + icon) ── */}
       <Modal
         visible={showFollowModal}
         transparent
@@ -7110,14 +8024,14 @@ export default function VoiceParty() {
         onRequestClose={() => setShowFollowModal(false)}
       >
         <TouchableOpacity
-          style={styles.followModalOverlay}
+          style={styles.compactFollowModalOverlay}
           activeOpacity={1}
           onPress={() => setShowFollowModal(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.followModalBox}>
+          <TouchableOpacity activeOpacity={1} style={styles.compactFollowModalBox}>
             {/* Close button */}
             <TouchableOpacity
-              style={styles.followModalCloseBtn}
+              style={styles.compactFollowModalCloseBtn}
               onPress={() => setShowFollowModal(false)}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
@@ -7125,44 +8039,46 @@ export default function VoiceParty() {
             </TouchableOpacity>
 
             {/* Room / Host Avatar (Dynamic - Half Inside / Half Outside) */}
-            <View style={styles.followModalAvatarWrap}>
-              {hostUserLike ? (
+            <View style={styles.compactFollowModalAvatarWrap}>
+              {roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl ? (
+                <Image
+                  source={{ uri: roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl }}
+                  style={styles.compactFollowModalAvatar}
+                  resizeMode="cover"
+                />
+              ) : hostUserLike ? (
                 renderRoomUserAvatar(
                   hostUserLike,
-                  styles.followModalAvatar,
-                  [styles.followModalAvatar, styles.ownerAvatarPlaceholder],
+                  styles.compactFollowModalAvatar,
+                  [styles.compactFollowModalAvatar, styles.ownerAvatarPlaceholder],
                   styles.ownerInitial,
                 )
-              ) : roomInfo?.profileImageUrl ? (
-                <Image
-                  source={{ uri: roomInfo.profileImageUrl }}
-                  style={styles.followModalAvatar}
-                />
               ) : (
                 <Image
                   source={{
                     uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                      roomInfo?.name || "Host",
+                      roomInfo?.name || hostProfileDetails?.name || "Host",
                     )}&background=7c4dff&color=fff`,
                   }}
-                  style={styles.followModalAvatar}
+                  style={styles.compactFollowModalAvatar}
+                  resizeMode="cover"
                 />
               )}
             </View>
 
             {/* Room Name & ID */}
-            <Text style={styles.followModalRoomName} numberOfLines={1}>
+            <Text style={styles.compactFollowModalRoomName} numberOfLines={1}>
               {roomInfo?.name ?? "Voice Room"}
             </Text>
-            <Text style={styles.followModalRoomId} numberOfLines={1}>
+            <Text style={styles.compactFollowModalRoomId} numberOfLines={1}>
               ID: {roomId ?? "—"}
             </Text>
 
             {/* Follow / Following Button */}
             <TouchableOpacity
               style={[
-                styles.followModalActionBtn,
-                isFollowing && styles.followModalActionBtnFollowing,
+                styles.compactFollowModalActionBtn,
+                isFollowing && styles.compactFollowModalActionBtnFollowing,
               ]}
               onPress={handleFollowToggle}
               disabled={followLoading}
@@ -7174,7 +8090,7 @@ export default function VoiceParty() {
                   color={isFollowing ? "#7c4dff" : "#ffffff"}
                 />
               ) : (
-                <View style={styles.followModalActionBtnContent}>
+                <View style={styles.compactFollowModalActionBtnContent}>
                   <Plus
                     size={16}
                     color={isFollowing ? "#7c4dff" : "#ffffff"}
@@ -7182,8 +8098,8 @@ export default function VoiceParty() {
                   />
                   <Text
                     style={[
-                      styles.followModalActionBtnText,
-                      isFollowing && styles.followModalActionBtnTextFollowing,
+                      styles.compactFollowModalActionBtnText,
+                      isFollowing && styles.compactFollowModalActionBtnTextFollowing,
                     ]}
                   >
                     {isFollowing ? "Following" : "Follow"}
@@ -7191,6 +8107,624 @@ export default function VoiceParty() {
                 </View>
               )}
             </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── ROOM PROFILE MODAL (Triggered by Avatar click) ── */}
+      <Modal
+        visible={showRoomProfileModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRoomProfileModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.followModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowRoomProfileModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.followModalBox}>
+            {/* Top Header Bar: Close Icon + Tabs */}
+            <View style={styles.followModalHeaderBar}>
+              <TouchableOpacity
+                style={styles.followModalCloseBtn}
+                onPress={() => setShowRoomProfileModal(false)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <X size={22} color="#6b7280" />
+              </TouchableOpacity>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.followModalTabsRow}
+              >
+                {/* Profile Tab */}
+                <TouchableOpacity
+                  onPress={() => setRoomModalTab("profile")}
+                  style={styles.followModalTabItem}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.followModalTabText,
+                      roomModalTab === "profile" && styles.followModalTabTextActive,
+                    ]}
+                  >
+                    Profile
+                  </Text>
+                  {roomModalTab === "profile" && (
+                    <View style={styles.followModalActiveIndicator} />
+                  )}
+                </TouchableOpacity>
+
+                {/* Follower Tab */}
+                <TouchableOpacity
+                  onPress={() => setRoomModalTab("followers")}
+                  style={styles.followModalTabItem}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.followModalTabText,
+                      roomModalTab === "followers" && styles.followModalTabTextActive,
+                    ]}
+                  >
+                    Follower ({hostProfileDetails?.followersCount ?? roomInfo?.followersCount ?? roomInfo?.followerCount ?? (Array.isArray(roomFollowersList) ? roomFollowersList.length : 0)})
+                  </Text>
+                  {roomModalTab === "followers" && (
+                    <View style={styles.followModalActiveIndicator} />
+                  )}
+                </TouchableOpacity>
+
+                {/* Events Tab */}
+                <TouchableOpacity
+                  onPress={() => setRoomModalTab("events")}
+                  style={styles.followModalTabItem}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.followModalTabText,
+                      roomModalTab === "events" && styles.followModalTabTextActive,
+                    ]}
+                  >
+                    Events
+                  </Text>
+                  {roomModalTab === "events" && (
+                    <View style={styles.followModalActiveIndicator} />
+                  )}
+                </TouchableOpacity>
+
+                {/* Room badge wall Tab */}
+                <TouchableOpacity
+                  onPress={() => setRoomModalTab("rooms")}
+                  style={styles.followModalTabItem}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.followModalTabText,
+                      roomModalTab === "rooms" && styles.followModalTabTextActive,
+                    ]}
+                  >
+                    Room badge wall
+                  </Text>
+                  {roomModalTab === "rooms" && (
+                    <View style={styles.followModalActiveIndicator} />
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+
+            {/* Modal Content Based on Active Tab */}
+            {roomModalTab === "profile" ? (
+              <View style={styles.followModalTabContainer}>
+                <ScrollView
+                  style={styles.followModalScroll}
+                  contentContainerStyle={styles.followModalContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {/* Top Profile Card: Avatar + Name + ID */}
+                  <View style={styles.followModalProfileCard}>
+                    {/* Avatar */}
+                    <View style={styles.followModalAvatarWrap}>
+                      {roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl ? (
+                        <Image
+                          source={{ uri: roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl }}
+                          style={styles.followModalAvatar}
+                          resizeMode="cover"
+                        />
+                      ) : hostUserLike ? (
+                        renderRoomUserAvatar(
+                          hostUserLike,
+                          styles.followModalAvatar,
+                          [styles.followModalAvatar, styles.ownerAvatarPlaceholder],
+                          styles.ownerInitial,
+                        )
+                      ) : (
+                        <Image
+                          source={{
+                            uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                              roomInfo?.name || hostProfileDetails?.name || "Host",
+                            )}&background=7c4dff&color=fff`,
+                          }}
+                          style={styles.followModalAvatar}
+                          resizeMode="cover"
+                        />
+                      )}
+                    </View>
+
+                    {/* Name & ID Column */}
+                    <View style={styles.followModalInfoCol}>
+                      <Text style={styles.followModalRoomName} numberOfLines={2}>
+                        {roomInfo?.name || roomInfo?.title || hostProfileDetails?.name || "Voice Room"}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.followModalIdRow}
+                        onPress={handleCopyRoomId}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.followModalRoomId}>
+                          ID:{roomId || roomInfo?.id || roomInfo?.roomId || hostProfileDetails?.userId || "—"}
+                        </Text>
+                        <Ionicons name="copy-outline" size={15} color="#9ca3af" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* Level Section */}
+                  <View style={styles.followModalSection}>
+                    <Text style={styles.followModalSectionLabel}>Level</Text>
+                    <Text style={styles.followModalLevelValue}>
+                      LV.{hostProfileDetails?.level ?? roomInfo?.level ?? 1}
+                    </Text>
+                  </View>
+
+                  <View style={styles.followModalDivider} />
+
+                  {/* Tag Section */}
+                  <View style={styles.followModalRow}>
+                    <Text style={styles.followModalRowLabel}>Tag</Text>
+                    <Text style={styles.followModalRowValue}>
+                      {roomInfo?.category || roomInfo?.tag || "Chat"}
+                    </Text>
+                  </View>
+
+                  {/* Announcement Section */}
+                  <View style={styles.followModalAnnouncementSection}>
+                    <View style={styles.followModalRowHeader}>
+                      <Text style={styles.followModalRowLabel}>Announcement</Text>
+                      <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
+                    </View>
+                    <Text style={styles.followModalAnnouncementText}>
+                      {welcomeMessage || roomInfo?.body || roomInfo?.announcement || "Welcome everyone! Let's chat and have fun together!"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.followModalDivider} />
+
+                  {/* Follower Section */}
+                  <View style={styles.followModalRow}>
+                    <Text style={styles.followModalRowLabel}>Follower</Text>
+                    <Text style={styles.followModalRowValue}>
+                      {hostProfileDetails?.followersCount ?? roomInfo?.followersCount ?? roomInfo?.followerCount ?? 16}
+                    </Text>
+                  </View>
+
+                  {/* Country Section */}
+                  <View style={styles.followModalRow}>
+                    <Text style={styles.followModalRowLabel}>Country</Text>
+                    <Text style={styles.followModalRowValue}>
+                      {hostProfileDetails?.countryName || hostProfileDetails?.countryCode || roomInfo?.country || "India"}
+                    </Text>
+                  </View>
+                </ScrollView>
+
+                {/* Follow Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.followModalActionBtn,
+                    isFollowing && styles.followModalActionBtnFollowing,
+                  ]}
+                  onPress={handleFollowToggle}
+                  disabled={followLoading}
+                  activeOpacity={0.88}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.followModalActionBtnText,
+                        isFollowing && styles.followModalActionBtnTextFollowing,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : roomModalTab === "followers" ? (
+              <View style={styles.followModalTabContainer}>
+                {/* Search Bar */}
+                <View style={styles.followerSearchContainer}>
+                  <Ionicons
+                    name="search-outline"
+                    size={17}
+                    color="#9ca3af"
+                    style={styles.followerSearchIcon}
+                  />
+                  <TextInput
+                    style={styles.followerSearchInput}
+                    placeholder="Search by username or ID"
+                    placeholderTextColor="#9ca3af"
+                    value={followerSearchQuery}
+                    onChangeText={setFollowerSearchQuery}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {followerSearchQuery ? (
+                    <TouchableOpacity
+                      onPress={() => setFollowerSearchQuery("")}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#9ca3af" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {/* Followers List */}
+                <ScrollView
+                  style={styles.followerListScroll}
+                  contentContainerStyle={styles.followerListContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {followersLoading ? (
+                    <View style={styles.followerNotFoundWrap}>
+                      <ActivityIndicator size="small" color="#7c4dff" />
+                      <Text style={[styles.followerNotFoundText, { marginTop: 10 }]}>
+                        Loading followers...
+                      </Text>
+                    </View>
+                  ) : displayFollowersList && displayFollowersList.length > 0 ? (
+                    displayFollowersList.map((follower, idx) => {
+                      const isMale = follower?.gender !== "female";
+                      const userAge = follower?.age ?? follower?.profile?.age ?? (isMale ? 24 : 21);
+                      const userLevel = follower?.level ?? follower?.profile?.level ?? 1;
+                      const diamondCount = follower?.diamond ?? follower?.diamonds ?? follower?.wealth ?? 0;
+                      const leafCount = follower?.leaf ?? follower?.charm ?? 0;
+                      const isNew = follower?.statusBadge === "New." || follower?.isNew;
+                      const isReturn = follower?.statusBadge === "Return" || follower?.isReturn;
+
+                      return (
+                        <View
+                          key={follower?.id || follower?.userId || idx}
+                          style={styles.followerListItem}
+                        >
+                          {/* User Avatar */}
+                          <View style={styles.followerItemAvatarWrap}>
+                            {follower?.avatar || follower?.avatarUrl || follower?.profilePicUrl || follower?.profileImageUrl ? (
+                              <Image
+                                source={{ uri: follower?.avatar || follower?.avatarUrl || follower?.profilePicUrl || follower?.profileImageUrl }}
+                                style={styles.followerItemAvatar}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <Image
+                                source={{
+                                  uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                    follower?.name || follower?.username || "User",
+                                  )}&background=7c4dff&color=fff`,
+                                }}
+                                style={styles.followerItemAvatar}
+                                resizeMode="cover"
+                              />
+                            )}
+                          </View>
+
+                          {/* Info Column */}
+                          <View style={styles.followerItemInfoCol}>
+                            {/* Name & Badges Row */}
+                            <View style={styles.followerItemTopRow}>
+                              <Text style={styles.followerItemName} numberOfLines={1}>
+                                {follower?.name || follower?.username || "User"}
+                              </Text>
+
+                              {/* Gender & Age Badge */}
+                              <View
+                                style={[
+                                  styles.followerGenderBadge,
+                                  isMale
+                                    ? styles.followerGenderBadgeMale
+                                    : styles.followerGenderBadgeFemale,
+                                ]}
+                              >
+                                <Ionicons
+                                  name={isMale ? "male" : "female"}
+                                  size={10}
+                                  color="#ffffff"
+                                />
+                                <Text style={styles.followerGenderBadgeText}>
+                                  {userAge}
+                                </Text>
+                              </View>
+
+                              {/* Home Badge */}
+                              {follower?.hasHomeBadge && (
+                                <View style={styles.followerHomeBadge}>
+                                  <Ionicons name="home" size={10} color="#ffffff" />
+                                </View>
+                              )}
+
+                              {/* New. Status Badge */}
+                              {isNew && (
+                                <View style={styles.followerNewBadge}>
+                                  <Sparkles size={10} color="#ffffff" />
+                                  <Text style={styles.followerNewBadgeText}>New.</Text>
+                                </View>
+                              )}
+
+                              {/* Return Status Badge */}
+                              {isReturn && (
+                                <View style={styles.followerReturnBadge}>
+                                  <Text style={styles.followerReturnBadgeText}>Return</Text>
+                                </View>
+                              )}
+
+                              {/* Medallion Badge */}
+                              {follower?.medallion !== undefined && (
+                                <View style={styles.followerMedallionBadge}>
+                                  <Ionicons
+                                    name="shield-checkmark"
+                                    size={10}
+                                    color="#10b981"
+                                  />
+                                  <Text style={styles.followerMedallionText}>
+                                    {follower.medallion}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+
+                            {/* Level & Attribute Badges Row */}
+                            <View style={styles.followerItemBottomRow}>
+                              {/* Rank Shield */}
+                              {follower?.rankBadge !== undefined && (
+                                <View style={styles.followerRankShield}>
+                                  <Ionicons name="shield" size={9} color="#d1d5db" />
+                                  <Text style={styles.followerRankText}>
+                                    {follower.rankBadge}
+                                  </Text>
+                                </View>
+                              )}
+
+                              {/* Level Badge */}
+                              <View
+                                style={[
+                                  styles.followerLevelPill,
+                                  userLevel >= 10
+                                    ? styles.followerLevelPillBlue
+                                    : styles.followerLevelPillGold,
+                                ]}
+                              >
+                                <Text style={styles.followerLevelPillText}>
+                                  Lv.{userLevel}
+                                </Text>
+                              </View>
+
+                              {/* Diamond Badge */}
+                              <View
+                                style={[
+                                  styles.followerDiamondPill,
+                                  diamondCount > 0
+                                    ? styles.followerDiamondPillBlue
+                                    : styles.followerDiamondPillBrown,
+                                ]}
+                              >
+                                <Ionicons name="diamond" size={9} color="#ffffff" />
+                                <Text style={styles.followerDiamondPillText}>
+                                  {diamondCount}
+                                </Text>
+                              </View>
+
+                              {/* Leaf Badge */}
+                              <View style={styles.followerLeafPill}>
+                                <Ionicons name="water" size={9} color="#ffffff" />
+                                <Text style={styles.followerLeafPillText}>
+                                  {leafCount}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <View style={styles.followerNotFoundWrap}>
+                      <Text style={styles.followerNotFoundText}>
+                        {followerSearchQuery ? "No followers match your search" : "No followers found"}
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+
+                {/* Follow Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.followModalActionBtn,
+                    isFollowing && styles.followModalActionBtnFollowing,
+                  ]}
+                  onPress={handleFollowToggle}
+                  disabled={followLoading}
+                  activeOpacity={0.88}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.followModalActionBtnText,
+                        isFollowing && styles.followModalActionBtnTextFollowing,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : roomModalTab === "events" ? (
+              <View style={styles.followModalTabContainer}>
+                <View style={styles.eventsEmptyTabContainer}>
+                  <EventsEmptyIllustration />
+                  <Text style={styles.eventsEmptyText}>No content here</Text>
+                </View>
+                {/* Follow Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.followModalActionBtn,
+                    isFollowing && styles.followModalActionBtnFollowing,
+                  ]}
+                  onPress={handleFollowToggle}
+                  disabled={followLoading}
+                  activeOpacity={0.88}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.followModalActionBtnText,
+                        isFollowing && styles.followModalActionBtnTextFollowing,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.followModalTabContainer}>
+                {/* Sub-Header: Achievement | Honor and (?) Help */}
+                <View style={styles.badgeWallSubHeader}>
+                  <View style={styles.badgeWallSubTabsRow}>
+                    <TouchableOpacity
+                      style={styles.badgeWallSubTabItem}
+                      onPress={() => setRoomBadgeSubTab("achievement")}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.badgeWallSubTabText,
+                          roomBadgeSubTab === "achievement" && styles.badgeWallSubTabTextActive,
+                        ]}
+                      >
+                        Achievement
+                      </Text>
+                      {roomBadgeSubTab === "achievement" && (
+                        <View style={styles.badgeWallSubActiveIndicator} />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.badgeWallSubTabItem}
+                      onPress={() => setRoomBadgeSubTab("honor")}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.badgeWallSubTabText,
+                          roomBadgeSubTab === "honor" && styles.badgeWallSubTabTextActive,
+                        ]}
+                      >
+                        Honor
+                      </Text>
+                      {roomBadgeSubTab === "honor" && (
+                        <View style={styles.badgeWallSubActiveIndicator} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.badgeWallHelpBtn}
+                    onPress={handleBadgeWallHelp}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="help-circle-outline" size={24} color="#374151" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Badges Grid ScrollView */}
+                <ScrollView
+                  style={styles.badgeWallScroll}
+                  contentContainerStyle={styles.badgeWallGrid}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {(roomBadgeSubTab === "achievement" ? achievementBadges : honorBadges).map((badge) => {
+                    return (
+                      <TouchableOpacity
+                        key={badge.id}
+                        style={styles.badgeWallCard}
+                        onPress={() => handleBadgePress(badge)}
+                        activeOpacity={0.75}
+                      >
+                        <View style={styles.badgeEmblemWrap}>
+                          <RoomBadgeEmblem badge={badge} />
+                          {badge.grade ? <GradeCornerBadge grade={badge.grade} /> : null}
+                        </View>
+                        <Text
+                          style={[
+                            styles.badgeWallCardTitle,
+                            badge.unlocked && styles.badgeWallCardTitleUnlocked,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {badge.title}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Follow Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.followModalActionBtn,
+                    isFollowing && styles.followModalActionBtnFollowing,
+                  ]}
+                  onPress={handleFollowToggle}
+                  disabled={followLoading}
+                  activeOpacity={0.88}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.followModalActionBtnText,
+                        isFollowing && styles.followModalActionBtnTextFollowing,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -7793,6 +9327,219 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
+      {/* ── ADMIN SEAT ACTIONS POPUP (Claim / Lock) ── */}
+      <Modal
+        visible={Boolean(adminSeatModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAdminSeatModal(null)}
+      >
+        <TouchableOpacity
+          style={styles.seatActionOverlay}
+          activeOpacity={1}
+          onPress={() => setAdminSeatModal(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            {/* ── Header section ── */}
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                <View style={styles.micPermMicCircle}>
+                  <Lock size={16} color="#c084fc" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+
+              <View style={styles.micPermBadge}>
+                <View style={styles.micPermBadgeDot} />
+                <View style={styles.micPermBadgeLine} />
+              </View>
+            </LinearGradient>
+
+            {/* ── Body ── */}
+            <View style={styles.micPermBody}>
+              <Text style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}>
+                Seat {adminSeatModal?.seatId}
+              </Text>
+              <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
+                Choose an action for this seat:
+              </Text>
+            </View>
+
+            {/* ── Action buttons ── */}
+            <View style={styles.adminSeatBtnRow}>
+              <TouchableOpacity
+                style={styles.adminSeatActionBtn}
+                activeOpacity={0.7}
+                disabled={seatActionLoading}
+                onPress={() => handleAdminClaimOption(adminSeatModal?.seatId)}
+              >
+                <Mic size={15} color="#c084fc" style={{ marginRight: 5 }} />
+                <Text style={styles.adminSeatActionClaimText}>Claim Seat</Text>
+              </TouchableOpacity>
+
+              <View style={styles.micPermBtnDivider} />
+
+              <TouchableOpacity
+                style={styles.adminSeatActionBtn}
+                activeOpacity={0.7}
+                disabled={seatActionLoading}
+                onPress={() => handleLockSeat(adminSeatModal?.seatId)}
+              >
+                {seatActionLoading ? (
+                  <ActivityIndicator color="#f87171" size="small" />
+                ) : (
+                  <>
+                    <Lock size={15} color="#f87171" style={{ marginRight: 5 }} />
+                    <Text style={styles.adminSeatActionLockText}>Lock Seat</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.adminSeatCancelBtn}
+              activeOpacity={0.7}
+              onPress={() => setAdminSeatModal(null)}
+            >
+              <Text style={styles.micPermCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── ADMIN UNLOCK SEAT POPUP ── */}
+      <Modal
+        visible={Boolean(adminUnlockModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAdminUnlockModal(null)}
+      >
+        <TouchableOpacity
+          style={styles.seatActionOverlay}
+          activeOpacity={1}
+          onPress={() => setAdminUnlockModal(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                <View style={styles.micPermMicCircle}>
+                  <Unlock size={16} color="#4ade80" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+            </LinearGradient>
+
+            <View style={styles.micPermBody}>
+              <Text style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}>
+                Seat {adminUnlockModal?.seatId}
+              </Text>
+              <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
+                This seat is locked. Do you want to unlock it?
+              </Text>
+            </View>
+
+            <View style={styles.micPermBtnRow}>
+              <TouchableOpacity
+                style={styles.micPermCancelBtn}
+                activeOpacity={0.7}
+                onPress={() => setAdminUnlockModal(null)}
+              >
+                <Text style={styles.micPermCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <View style={styles.micPermBtnDivider} />
+
+              <TouchableOpacity
+                style={styles.micPermOkBtn}
+                activeOpacity={0.7}
+                disabled={seatActionLoading}
+                onPress={() => handleUnlockSeat(adminUnlockModal?.seatId)}
+              >
+                {seatActionLoading ? (
+                  <ActivityIndicator color="#4ade80" size="small" />
+                ) : (
+                  <Text style={[styles.micPermOkText, { color: "#4ade80" }]}>Unlock Seat</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── NORMAL USER LOCKED SEAT NOTICE POPUP ── */}
+      <Modal
+        visible={Boolean(lockedSeatNoticeModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLockedSeatNoticeModal(null)}
+      >
+        <TouchableOpacity
+          style={styles.seatActionOverlay}
+          activeOpacity={1}
+          onPress={() => setLockedSeatNoticeModal(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                <View style={styles.micPermMicCircle}>
+                  <Lock size={16} color="#fbbf24" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+            </LinearGradient>
+
+            <View style={styles.micPermBody}>
+              <Text style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}>
+                Seat {lockedSeatNoticeModal?.seatId}
+              </Text>
+              <Text style={[styles.micPermMsg, { marginTop: 4, color: "#fef08a" }]}>
+                This seat is locked by owner
+              </Text>
+            </View>
+
+            <View style={styles.micPermBtnRow}>
+              <TouchableOpacity
+                style={[styles.micPermOkBtn, { flex: 1 }]}
+                activeOpacity={0.7}
+                onPress={() => setLockedSeatNoticeModal(null)}
+              >
+                <Text style={styles.micPermOkText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ── WELCOME MESSAGE EDIT MODAL ── */}
       <Modal
         visible={showWelcomeEdit}
@@ -7941,11 +9688,7 @@ export default function VoiceParty() {
         {/* ── HEADER ── */}
         <View style={styles.header}>
           {/* Room info capsule with integrated + follow button and diamond accent */}
-          <TouchableOpacity
-            activeOpacity={0.88}
-            onPress={() => setShowFollowModal(true)}
-            style={styles.ownerSectionWrapper}
-          >
+          <View style={styles.ownerSectionWrapper}>
             <View style={styles.ownerSection}>
               {/* Capsule Frame Background Image */}
               <Image
@@ -7954,8 +9697,12 @@ export default function VoiceParty() {
                 resizeMode="stretch"
               />
 
-              {/* Dynamic Host / Room Avatar inside left crest spot */}
-              <View style={styles.ownerAvatarSpot}>
+              {/* Dynamic Host / Room Avatar inside left crest spot (Opens Room Profile Modal) */}
+              <TouchableOpacity
+                style={styles.ownerAvatarSpot}
+                activeOpacity={0.8}
+                onPress={() => setShowRoomProfileModal(true)}
+              >
                 {roomInfo?.profileImageUrl ? (
                   <Image
                     source={{ uri: roomInfo.profileImageUrl }}
@@ -7980,7 +9727,7 @@ export default function VoiceParty() {
                     resizeMode="cover"
                   />
                 )}
-              </View>
+              </TouchableOpacity>
 
               {/* Dynamic Room Name & Room ID */}
               <View style={styles.ownerTextCol}>
@@ -8005,7 +9752,7 @@ export default function VoiceParty() {
                 </Text>
               </View>
 
-              {/* + Follow Button inside capsule */}
+              {/* + Follow Button inside capsule (Opens Follow / Unfollow Modal) */}
               <TouchableOpacity
                 style={styles.capsulePlusBtn}
                 onPress={() => setShowFollowModal(true)}
@@ -8014,7 +9761,7 @@ export default function VoiceParty() {
                 <Plus size={13} color="white" strokeWidth={3} />
               </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          </View>
 
           <View style={styles.headerRight}>
             <TouchableOpacity
@@ -8128,7 +9875,6 @@ export default function VoiceParty() {
               style={styles.seatItem}
               activeOpacity={0.8}
               onPress={() => handleSeatPress(seat)}
-              disabled={seat.locked && !seat.user}
             >
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
@@ -8166,7 +9912,7 @@ export default function VoiceParty() {
                 </View>
               ) : seat.locked ? (
                 <View style={styles.seatEmpty}>
-                  <Text style={styles.lockIcon}>🔒</Text>
+                  <Lock size={18} color="#cbd5e1" />
                 </View>
               ) : (
                 <View style={styles.seatEmpty}>
@@ -11776,6 +13522,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  adminSeatBtnRow: {
+    flexDirection: "row",
+    width: "100%",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  adminSeatActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  adminSeatActionClaimText: {
+    color: "#c084fc",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  adminSeatActionLockText: {
+    color: "#f87171",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  adminSeatCancelBtn: {
+    width: "100%",
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(255,255,255,0.02)",
+  },
 
   // ── Pinned room message cards ──
   pinnedRulesCard: {
@@ -12263,22 +14041,530 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "flex-end",
+  },
+  followModalBox: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    height: Math.min(Dimensions.get("window").height * 0.80, 620),
+    width: "100%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 12,
+  },
+  followModalTabContainer: {
+    flex: 1,
+    justifyContent: "space-between",
+  },
+  followModalHeaderBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  followModalCloseBtn: {
+    paddingRight: 12,
+    paddingVertical: 4,
+  },
+  followModalTabsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 20,
+  },
+  followModalTabItem: {
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  followModalTabText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#6b7280",
+  },
+  followModalTabTextActive: {
+    fontWeight: "700",
+    color: "#111827",
+  },
+  followModalActiveIndicator: {
+    marginTop: 6,
+    width: 26,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#7c4dff",
+  },
+  followModalScroll: {
+    flex: 1,
+    width: "100%",
+  },
+  followModalContent: {
+    paddingTop: 6,
+    paddingBottom: 16,
+  },
+  followModalProfileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  followModalAvatarWrap: {
+    width: 86,
+    height: 86,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#f3f4f6",
+  },
+  followModalAvatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 16,
+  },
+  followModalInfoCol: {
+    flex: 1,
+    marginLeft: 16,
+    justifyContent: "center",
+  },
+  followModalRoomName: {
+    color: "#111827",
+    fontSize: 17,
+    fontWeight: "700",
+    marginBottom: 8,
+    lineHeight: 22,
+  },
+  followModalIdRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  followModalRoomId: {
+    color: "#6b7280",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  followModalSection: {
+    marginBottom: 10,
+  },
+  followModalSectionLabel: {
+    color: "#9ca3af",
+    fontSize: 14,
+    fontWeight: "500",
+    marginBottom: 6,
+  },
+  followModalLevelValue: {
+    color: "#7c4dff",
+    fontSize: 16,
+    fontWeight: "800",
+    fontStyle: "italic",
+  },
+  followModalDivider: {
+    height: 1,
+    backgroundColor: "#f3f4f6",
+    marginVertical: 12,
+  },
+  followModalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  followModalAnnouncementSection: {
+    paddingVertical: 10,
+  },
+  followModalRowHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  followModalRowLabel: {
+    color: "#9ca3af",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  followModalRowValue: {
+    color: "#111827",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  followModalAnnouncementText: {
+    color: "#111827",
+    fontSize: 14,
+    fontWeight: "400",
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  followModalActionBtn: {
+    backgroundColor: "#7c4dff",
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 12,
+    marginBottom: 4,
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+    width: "100%",
+  },
+  followModalActionBtnFollowing: {
+    backgroundColor: "rgba(124, 77, 255, 0.12)",
+    borderWidth: 1.5,
+    borderColor: "rgba(124, 77, 255, 0.4)",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  followModalActionBtnText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  followModalActionBtnTextFollowing: {
+    color: "#7c4dff",
+  },
+  followModalEmptyTab: {
+    flex: 1,
+    paddingVertical: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  followModalEmptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 8,
+  },
+  followModalEmptySub: {
+    fontSize: 13,
+    color: "#6b7280",
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  eventsEmptyTabContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 40,
+  },
+  eventsEmptyIllustrationWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  eventsEmptyText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#9ca3af",
+    textAlign: "center",
+    letterSpacing: 0.2,
+  },
+
+  // ── Follower Tab Styles (Matching uploaded image) ──
+  followerSearchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f3f4f6",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    height: 38,
+    marginBottom: 10,
+  },
+  followerSearchIcon: {
+    marginRight: 8,
+  },
+  followerSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#111827",
+    paddingVertical: 0,
+  },
+  followerListScroll: {
+    flex: 1,
+    width: "100%",
+  },
+  followerListContent: {
+    paddingVertical: 4,
+  },
+  followerListItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#f3f4f6",
+  },
+  followerItemAvatarWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    overflow: "hidden",
+    backgroundColor: "#f3f4f6",
+  },
+  followerItemAvatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 24,
+  },
+  followerItemInfoCol: {
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: "center",
+  },
+  followerItemTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  followerItemName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    maxWidth: 130,
+  },
+  followerGenderBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 10,
+  },
+  followerGenderBadgeMale: {
+    backgroundColor: "#38bdf8",
+  },
+  followerGenderBadgeFemale: {
+    backgroundColor: "#ec4899",
+  },
+  followerGenderBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerHomeBadge: {
+    backgroundColor: "#f59e0b",
+    borderRadius: 3,
+    padding: 2.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  followerNewBadge: {
+    backgroundColor: "#38bdf8",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  followerNewBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerReturnBadge: {
+    backgroundColor: "#f59e0b",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+  },
+  followerReturnBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerMedallionBadge: {
+    backgroundColor: "#ecfdf5",
+    borderWidth: 1.2,
+    borderColor: "#10b981",
+    borderRadius: 10,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  followerMedallionText: {
+    color: "#10b981",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerItemBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6,
+  },
+  followerRankShield: {
+    backgroundColor: "#374151",
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  followerRankText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerLevelPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+  },
+  followerLevelPillBlue: {
+    backgroundColor: "#60a5fa",
+  },
+  followerLevelPillGold: {
+    backgroundColor: "#d97706",
+  },
+  followerLevelPillText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerDiamondPill: {
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  followerDiamondPillBlue: {
+    backgroundColor: "#3b82f6",
+  },
+  followerDiamondPillBrown: {
+    backgroundColor: "#78716c",
+  },
+  followerDiamondPillText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerLeafPill: {
+    backgroundColor: "#8b5cf6",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  followerLeafPillText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerNotFoundWrap: {
+    paddingVertical: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  followerNotFoundText: {
+    color: "#9ca3af",
+    fontSize: 14,
+  },
+
+  // ── Room Badge Wall Tab Styles ──
+  badgeWallSubHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f3f4f6",
+    marginBottom: 6,
+  },
+  badgeWallSubTabsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 28,
+  },
+  badgeWallSubTabItem: {
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  badgeWallSubTabText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#9ca3af",
+  },
+  badgeWallSubTabTextActive: {
+    fontWeight: "700",
+    color: "#111827",
+  },
+  badgeWallSubActiveIndicator: {
+    marginTop: 4,
+    width: 22,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#7c4dff",
+  },
+  badgeWallHelpBtn: {
+    padding: 4,
+  },
+  badgeWallScroll: {
+    flex: 1,
+    width: "100%",
+  },
+  badgeWallGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-around",
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  badgeWallCard: {
+    width: "48%",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  badgeEmblemWrap: {
+    width: 104,
+    height: 104,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  badgeWallCardTitle: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#9ca3af",
+    textAlign: "center",
+    marginTop: 6,
+    maxWidth: 130,
+  },
+  badgeWallCardTitleUnlocked: {
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  // ── Compact Follow Modal (Triggered by + icon) ──
+  compactFollowModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
     alignItems: "center",
     paddingHorizontal: 0,
   },
-  followModalBox: {
-    backgroundColor: "rgba(255, 255, 255, 0.92)",
+  compactFollowModalBox: {
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
     borderTopWidth: 3,
     borderColor: "#F8C8DC",
     paddingHorizontal: 24,
     paddingTop: 44,
     paddingBottom: 32,
     width: "100%",
-    maxWidth: "100%",
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
@@ -12287,7 +14573,7 @@ const styles = StyleSheet.create({
     elevation: 10,
     position: "relative",
   },
-  followModalCloseBtn: {
+  compactFollowModalCloseBtn: {
     position: "absolute",
     top: 14,
     right: 16,
@@ -12299,40 +14585,39 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 15,
   },
-  followModalAvatarWrap: {
+  compactFollowModalAvatarWrap: {
     position: "absolute",
     top: -40,
     alignSelf: "center",
     zIndex: 10,
     elevation: 10,
-    backgroundColor: "transparent",
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
   },
-  followModalAvatar: {
+  compactFollowModalAvatar: {
     width: 68,
     height: 68,
     borderRadius: 34,
-    // borderWidth: 3.5,
-    // borderColor: "#ffffff",
+    borderWidth: 2.5,
+    borderColor: "#ffffff",
   },
-  followModalRoomName: {
+  compactFollowModalRoomName: {
     color: "#1a1a2e",
     fontSize: 16,
     fontWeight: "800",
     textAlign: "center",
     marginBottom: 4,
   },
-  followModalRoomId: {
+  compactFollowModalRoomId: {
     color: "rgba(26, 26, 46, 0.55)",
     fontSize: 12,
     fontWeight: "600",
     textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  followModalActionBtn: {
+  compactFollowModalActionBtn: {
     backgroundColor: "#7c4dff",
     paddingVertical: 11,
     paddingHorizontal: 36,
@@ -12345,27 +14630,26 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 6,
     marginBottom: 8,
-
   },
-  followModalActionBtnFollowing: {
+  compactFollowModalActionBtnFollowing: {
     backgroundColor: "rgba(124, 77, 255, 0.12)",
     borderWidth: 1,
     borderColor: "rgba(124, 77, 255, 0.35)",
     shadowOpacity: 0,
     elevation: 0,
   },
-  followModalActionBtnContent: {
+  compactFollowModalActionBtnContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
   },
-  followModalActionBtnText: {
+  compactFollowModalActionBtnText: {
     color: "#ffffff",
     fontSize: 14,
     fontWeight: "700",
   },
-  followModalActionBtnTextFollowing: {
+  compactFollowModalActionBtnTextFollowing: {
     color: "#7c4dff",
   },
 
