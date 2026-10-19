@@ -207,9 +207,12 @@ export const markNotInterested = async (targetUserId) => {
 };
 
 // ── Report a user ─────────────────────────────────────────────
-// POST /api/home/report
+// POST /api/home/users/{targetUserId}/report
 export const reportUser = async (targetUserId, reason) => {
-  const response = await API.post(`/api/home/report`, { targetUserId, reason });
+  const cleanId = encodeURIComponent(String(targetUserId || "").trim());
+  const response = await API.post(`/api/home/users/${cleanId}/report`, {
+    reason: String(reason || "").trim(),
+  });
   return response.data;
 };
 

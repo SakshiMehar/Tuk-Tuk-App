@@ -1,11 +1,14 @@
+
 import { AntDesign, FontAwesome, FontAwesome5 } from "@expo/vector-icons";
 import MaskedView from "@react-native-masked-view/masked-view";
+import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   ScrollView,
   StatusBar,
@@ -14,9 +17,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ms, s, vs } from "react-native-size-matters";
 import FacebookLoginWebViewModal from "../Components/FacebookLoginWebViewModal";
 import { googleLogin } from "../src/api/authApi";
 import { getUsersCount } from "../src/api/userApi";
+import { Colors } from "../src/constants/colors";
 import {
   configureGoogleSignIn,
   getGoogleAuthErrorMessage,
@@ -24,19 +30,16 @@ import {
 } from "../src/hooks/useGoogleSignIn";
 import { establishSessionFromApi } from "../src/services/authSessionService";
 import {
-  consumePendingDeepLink,
-  extractRoomIdFromUrl,
-} from "../src/utils/deepLinkUtils";
-import {
   configureFacebookSdk,
   getFacebookAuthErrorMessage,
   signInWithFacebook,
 } from "../src/services/facebookAuthService";
 import { hasAcceptedTerms, setPendingInviteCode, setTermsAccepted } from "../src/store/authStore";
-import { ms, s, vs } from "react-native-size-matters";
+import {
+  consumePendingDeepLink,
+  extractRoomIdFromUrl,
+} from "../src/utils/deepLinkUtils";
 import { wp } from "../src/utils/responsive";
-import { Colors } from "../src/constants/colors";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const logo = require("../assets/images/splash-icon.png");
 
@@ -50,6 +53,18 @@ export default function Login() {
   const [facebookWebView, setFacebookWebView] = useState(null);
   const [userCount, setUserCount] = useState(null);
   const [inviteCode, setInviteCode] = useState("");
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        // Prevent the user from reopening authenticated screens using the back button
+        BackHandler.exitApp();
+        return true;
+      };
+      const sub = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+      return () => sub.remove();
+    }, [])
+  );
 
   useEffect(() => {
     configureGoogleSignIn();

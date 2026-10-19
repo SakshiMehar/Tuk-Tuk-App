@@ -29,7 +29,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ms, s, vs } from "react-native-size-matters";
-import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
+import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl, VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { fetchVipProfileFrameForUser } from "../src/services/vipService";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
@@ -117,6 +117,7 @@ export default function RoomUserProfilePopup({
   const insets = useSafeAreaInsets();
   const [fetchedBadgeUrl, setFetchedBadgeUrl] = useState(null);
   const [fetchedVipFrameUrl, setFetchedVipFrameUrl] = useState(null);
+  const [fetchedDecorationFrameUrl, setFetchedDecorationFrameUrl] = useState(null);
 
   const displayName =
     user?.name ?? user?.displayName ?? user?.username ?? "User";
@@ -147,14 +148,16 @@ export default function RoomUserProfilePopup({
     if (!visible || !userId || userId === "—") {
       setFetchedBadgeUrl(null);
       setFetchedVipFrameUrl(null);
+      setFetchedDecorationFrameUrl(null);
       return;
     }
 
     if (!badgeSource && !user?.badgeUrl && !user?.decorationBadgeUrl) {
       fetchUserDecorations(userId)
         .then((res) => {
-          if (active && res?.badgeUrl) {
-            setFetchedBadgeUrl(res.badgeUrl);
+          if (active) {
+            if (res?.badgeUrl) setFetchedBadgeUrl(res.badgeUrl);
+            if (res?.frameUrl) setFetchedDecorationFrameUrl(res.frameUrl);
           }
         })
         .catch(() => {});
@@ -190,15 +193,45 @@ export default function RoomUserProfilePopup({
     frameSource,
   ]);
 
+  const resolvedFrameSource =
+    frameSource ??
+    user?.decorationFrameUrl ??
+    user?.frameUrl ??
+    fetchedDecorationFrameUrl ??
+    user?.vipProfileFrameUrl ??
+    fetchedVipFrameUrl ??
+    null;
+
   const frameUrlString =
-    typeof frameSource === "string" ? frameSource : frameSource?.uri ?? null;
-  // The decoration frame (banner above + flourish below the circular
-  // opening) renders much taller than a plain ring at frameScale 1.6 — push
-  // the avatar block up and give the card extra top padding so it clears
-  // the name/ID text below instead of overlapping it.
-  const isDecorationFrame = frameLayout === DECORATION_FRAME_LAYOUT;
-  const avatarTopOverflow = isDecorationFrame ? s(55) : 0;
-  const avatarBottomOverflow = isDecorationFrame ? s(48) : 0;
+    typeof resolvedFrameSource === "string"
+      ? resolvedFrameSource
+      : resolvedFrameSource?.uri ?? null;
+
+  const hasValidFrame = Boolean(
+    (frameUrlString && frameUrlString.trim().length > 0) ||
+      (resolvedFrameSource && typeof resolvedFrameSource === "number")
+  );
+
+  const isVipFrame = Boolean(
+    hasValidFrame &&
+      (resolveVipTierFromAssetUrl(frameUrlString) != null ||
+        (frameUrlString && frameUrlString.toLowerCase().includes("vip-frame")) ||
+        frameLayout === VIP_PROFILE_FRAME_LAYOUT)
+  );
+
+  // Decoration frames (e.g. Tuk Tuk Owner banner + lower flourish)
+  const isDecorationFrame = Boolean(hasValidFrame && !isVipFrame);
+
+  // Jab image simple ho tab pehle jaisa rahe (avatarTopOverflow = 0, avatarBottomOverflow = 0).
+  // Jab frame aaye tab name/content ko neeche karo taaki frame ke neeche name na chupe.
+  const avatarTopOverflow = 0;
+
+  const avatarBottomOverflow = isDecorationFrame
+    ? vs(62)
+    : isVipFrame
+    ? vs(16)
+    : 0;
+
   const resolvedVipLogo =
     logoSource ??
     user?.vipLogo ??
@@ -319,7 +352,7 @@ export default function RoomUserProfilePopup({
               <ProfileAvatarWithFrame
                 user={user}
                 avatarSource={resolvedAvatarSource}
-                frameSource={frameSource}
+                frameSource={resolvedFrameSource}
                 size={AVATAR_SIZE}
                 avatarStyle={styles.avatarImage}
                 placeholderStyle={styles.avatarFallback}
@@ -477,15 +510,15 @@ export default function RoomUserProfilePopup({
                     style={styles.premiumLogoBadge}
                   />
                 )}
-                {resolvedBadgeSource && (
-                  <ProfileBadge
-                    source={resolvedBadgeSource}
-                    aspectRatio={PROFILE_BADGE_ASPECT.verified}
-                  />
-                )}
                 {user?.verifiedBadgeUrl && (
                   <ProfileBadge
                     source={{ uri: user.verifiedBadgeUrl }}
+                    aspectRatio={PROFILE_BADGE_ASPECT.verified}
+                  />
+                )}
+                {resolvedBadgeSource && (
+                  <ProfileBadge
+                    source={resolvedBadgeSource}
                     aspectRatio={PROFILE_BADGE_ASPECT.verified}
                   />
                 )}

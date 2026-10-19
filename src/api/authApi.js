@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config/env";
+import { getDeviceHeaders } from "../utils/deviceHeaders";
 import API, { authRequestConfig } from "./axios";
 
 const maskToken = (value) => {
@@ -14,7 +15,7 @@ const logAuthRequest = (method, path, body) => {
     safeBody.accessToken = maskToken(safeBody.accessToken);
 };
 
-const logAuthResponse = (endpoint, data) => {};
+const logAuthResponse = (endpoint, data) => { };
 
 const logAuthError = (method, path, error) => {
   console.error(
@@ -31,12 +32,18 @@ const logAuthError = (method, path, error) => {
   );
 };
 
-const postAuthWithFallback = async (paths, body) => {
+const postAuthWithFallback = async (paths, body, extraHeaders = {}) => {
   let lastError;
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
   for (const path of paths) {
     try {
       logAuthRequest("POST", path, body);
-      const response = await API.post(path, body);
+      const response = await API.post(path, body, {
+        headers: {
+          ...deviceHeaders,
+          ...extraHeaders,
+        },
+      });
       logAuthResponse(`POST ${path}`, response.data);
       if (path !== paths[0]) {
       }
@@ -54,21 +61,42 @@ const postAuthWithFallback = async (paths, body) => {
 };
 
 export const guestLogin = async () => {
-  const response = await API.post("/api/auth/guest");
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await API.post("/api/auth/guest", {}, {
+    headers: deviceHeaders,
+  });
   logAuthResponse("POST /api/auth/guest", response.data);
   return response.data;
 };
 
 export const firebasePhoneAuth = async (idToken, phoneNumber, name) => {
   const body = { idToken, phoneNumber, ...(name ? { name } : {}) };
-  const response = await API.post("/api/auth/firebase-phone", body);
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await API.post("/api/auth/firebase-phone", body, {
+    headers: deviceHeaders,
+  });
   logAuthResponse("POST /api/auth/firebase-phone", response.data);
   return response.data;
 };
 
 export const googleLogin = async (idToken, name) => {
-  const response = await API.post("/api/auth/google-login", { idToken, name });
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await API.post(
+    "/api/auth/google-login",
+    { idToken, name },
+    { headers: deviceHeaders },
+  );
   logAuthResponse("POST /api/auth/google-login", response.data);
+  return response.data;
+};
+
+export const appleLogin = async (identityToken, name) => {
+  const body = { identityToken, ...(name ? { name } : {}) };
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await API.post("/api/auth/apple-login", body, {
+    headers: deviceHeaders,
+  });
+  logAuthResponse("POST /api/auth/apple-login", response.data);
   return response.data;
 };
 
@@ -90,8 +118,10 @@ export const refreshToken = async (refreshTokenValue) => {
       ? refreshTokenValue
       : refreshTokenValue?.refreshToken;
   const body = { refreshToken: token };
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
   const response = await API.post("/api/auth/refresh-token", body, {
     _skipAuthRefresh: true,
+    headers: deviceHeaders,
   });
   logAuthResponse("POST /api/auth/refresh-token", response.data);
   return response.data;
@@ -120,5 +150,3 @@ export const deleteAccount = async ({ reason, additionalComment } = {}) => {
   logAuthResponse("DELETE /api/auth/account", response.data);
   return response.data;
 };
-
-

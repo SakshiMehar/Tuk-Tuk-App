@@ -1,4 +1,5 @@
 import { FontAwesome, Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
 import { Image as ExpoImage } from "expo-image";
@@ -29,6 +30,7 @@ import {
   Mic,
   MicOff,
   Minimize2,
+  Minus,
   MoreVertical,
   Play,
   Plus,
@@ -39,6 +41,7 @@ import {
   Sparkles,
   Unlock,
   Users,
+  Volume1,
   Volume2,
   VolumeX,
   X
@@ -90,8 +93,10 @@ import {
   lockSeat,
   postRoomHeartbeat,
   postSeatHeartbeat,
+  reportRoomUser,
   unfollowRoom,
-  unlockSeat
+  unlockSeat,
+  updateRoom
 } from "../src/api/partyApi";
 import { reportUser } from "../src/api/postApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
@@ -814,6 +819,7 @@ const reconcileSeatAssignments = (
     // presence-sync glitch, not a real departure — clearing their seat here
     // would wipe their profile while their voice keeps playing.
     activeVoiceUids = null,
+    knownMuteStates = null,
   } = {},
 ) => {
   const next = parsedSeats.map((seat) => {
@@ -827,6 +833,14 @@ const reconcileSeatAssignments = (
     ) {
       return { ...seat, user: null };
     }
+    
+    if (user && knownMuteStates) {
+      const isMuted = knownMuteStates.get(String(user.id || user.userId));
+      if (isMuted !== undefined) {
+        user.muted = isMuted;
+      }
+    }
+
     return {
       ...seat,
       user,
@@ -2057,6 +2071,7 @@ export default function VoiceParty() {
   const [voiceDiagnostics, setVoiceDiagnostics] = useState(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [reportTarget, setReportTarget] = useState(null);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
   const [claimedRewardModal, setClaimedRewardModal] = useState(null);
@@ -2069,6 +2084,17 @@ export default function VoiceParty() {
   const [followerSearchQuery, setFollowerSearchQuery] = useState("");
   const [roomFollowersList, setRoomFollowersList] = useState([]);
   const [followersLoading, setFollowersLoading] = useState(false);
+  const [showEditRoomModal, setShowEditRoomModal] = useState(false);
+  const [editRoomName, setEditRoomName] = useState("");
+  const [editRoomImageUri, setEditRoomImageUri] = useState(null);
+  const [editRoomImageAsset, setEditRoomImageAsset] = useState(null);
+  const [isSavingRoomDetails, setIsSavingRoomDetails] = useState(false);
+  const [isUpdatingRoomPhoto, setIsUpdatingRoomPhoto] = useState(false);
+  const {
+    keyboardHeight: editRoomKeyboardRaw,
+    syncKeyboardHeight: syncEditRoomKeyboard,
+  } = useModalKeyboardInset(showEditRoomModal);
+  const editRoomKeyboardHeight = editRoomKeyboardRaw;
 
   const displayActiveUsers = useMemo(() => {
     const list = Array.isArray(onlineUsers) ? [...onlineUsers] : [];
@@ -2170,6 +2196,7 @@ export default function VoiceParty() {
   const roomIdRef = useRef(roomIdParam);
   const isNavigatingToInboxRef = useRef(false);
   const fetchedUiAssetIdsRef = useRef(new Set());
+  const knownMuteStatesRef = useRef(new Map());
   const { keyboardHeight, safeBottom, idleBottom, composerBottom, isKeyboardVisible } = useKeyboardInset();
 
   useEffect(() => {
@@ -2266,6 +2293,20 @@ export default function VoiceParty() {
   );
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [isMusicPaused, setIsMusicPaused] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(() => {
+    return typeof agoraVoice.getAudioMixingVolume === 'function'
+      ? agoraVoice.getAudioMixingVolume()
+      : 80;
+  });
+
+  const handleMusicVolumeChange = useCallback((vol) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(Number(vol) || 0)));
+    setMusicVolume(clamped);
+    if (typeof agoraVoice.setAudioMixingVolume === 'function') {
+      agoraVoice.setAudioMixingVolume(clamped);
+    }
+  }, []);
+
   const [musicPlaylist, setMusicPlaylist] = useState([]);
   const [currentMusicIndex, setCurrentMusicIndex] = useState(0);
   const [showMusicPlaylist, setShowMusicPlaylist] = useState(false);
@@ -2376,6 +2417,32 @@ export default function VoiceParty() {
   const [roomAdminIds, setRoomAdminIds] = useState(new Set());
   const isViewerAdmin = Boolean(myUserId && roomAdminIds.has(String(myUserId)));
   const canManageRoomUsers = isHostSelf || isViewerAdmin;
+
+  // Only the creator/owner of the room can edit room name & photo
+  const currentAppUserId =
+    myUserId ||
+    localSessionUser?.id ||
+    localSessionUser?.userId ||
+    null;
+
+  const roomCreatorId =
+    roomInfo?.creatorId ||
+    roomInfo?.createdBy ||
+    roomInfo?.ownerId ||
+    roomInfo?.hostId ||
+    hostId ||
+    null;
+
+  const canEditRoom = Boolean(
+    currentAppUserId &&
+    roomCreatorId &&
+    (
+      isSameUser(roomInfo?.creatorId, currentAppUserId) ||
+      isSameUser(roomInfo?.createdBy, currentAppUserId) ||
+      isSameUser(roomInfo?.ownerId, currentAppUserId) ||
+      isSameUser(roomCreatorId, currentAppUserId)
+    )
+  );
   const { treasureState, selectChest, updateTreasureState, refreshTreasureState } = useTreasureBoxProgress(
     roomId,
     !roomLoading && Boolean(roomId),
@@ -3276,6 +3343,169 @@ export default function VoiceParty() {
     }
   };
 
+  const handleOpenEditRoomModal = () => {
+    if (!canEditRoom) return;
+    const currentName =
+      roomInfo?.name || roomInfo?.title || hostProfileDetails?.name || "";
+    setEditRoomName(currentName);
+    setEditRoomImageUri(
+      roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl || null,
+    );
+    setEditRoomImageAsset(null);
+    setShowEditRoomModal(true);
+  };
+
+  const handlePickRoomImageForEdit = async () => {
+    if (!canEditRoom) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission needed",
+          "Gallery access is required to select a room photo.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images ?? ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        setEditRoomImageUri(asset.uri);
+        setEditRoomImageAsset(asset);
+      }
+    } catch (err) {
+      console.warn("[voice-party] Pick image failed:", err);
+    }
+  };
+
+  const handleSaveRoomDetails = async () => {
+    if (!canEditRoom) return;
+    const targetRoomId = String(roomId || roomInfo?.id || roomInfo?.roomId || "");
+    if (!targetRoomId) {
+      Alert.alert("Error", "Room ID not found.");
+      return;
+    }
+    const trimmedName = editRoomName.trim();
+    if (!trimmedName) {
+      Alert.alert("Invalid Name", "Room name cannot be empty.");
+      return;
+    }
+
+    setIsSavingRoomDetails(true);
+    try {
+      const payload = {
+        name: trimmedName,
+      };
+      if (editRoomImageAsset) {
+        payload.imageUri = editRoomImageAsset.uri;
+        payload.mimeType = editRoomImageAsset.mimeType;
+        payload.fileName = editRoomImageAsset.fileName ?? "room-cover.jpg";
+      }
+
+      const res = await updateRoom(targetRoomId, payload);
+
+      const newImageUrl =
+        res?.profileImageUrl ||
+        res?.imageUrl ||
+        res?.room?.profileImageUrl ||
+        res?.data?.profileImageUrl ||
+        (editRoomImageAsset ? editRoomImageAsset.uri : null);
+      const newName =
+        res?.name ||
+        res?.title ||
+        res?.room?.name ||
+        res?.data?.name ||
+        trimmedName;
+
+      setRoomInfo((prev) => ({
+        ...prev,
+        ...(res && typeof res === "object" ? res : {}),
+        name: newName,
+        title: newName,
+        profileImageUrl: newImageUrl || prev?.profileImageUrl,
+      }));
+
+      setShowEditRoomModal(false);
+      Alert.alert("Success", "Room updated successfully!");
+    } catch (err) {
+      console.error("[voice-party] Save room details failed:", err);
+      const msg =
+        err?.responseData?.message ||
+        err?.responseData?.error ||
+        err?.message ||
+        "Failed to update room details.";
+      Alert.alert("Update Failed", String(msg));
+    } finally {
+      setIsSavingRoomDetails(false);
+    }
+  };
+
+  const handlePickAndUploadRoomPhoto = async () => {
+    if (!canEditRoom) return;
+    const targetRoomId = String(roomId || roomInfo?.id || roomInfo?.roomId || "");
+    if (!targetRoomId) {
+      Alert.alert("Error", "Room ID not found.");
+      return;
+    }
+
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission needed",
+          "Gallery access is required to update room photo.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images ?? ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        setIsUpdatingRoomPhoto(true);
+
+        const res = await updateRoom(targetRoomId, {
+          imageUri: asset.uri,
+          mimeType: asset.mimeType,
+          fileName: asset.fileName ?? "room-cover.jpg",
+        });
+
+        const newImageUrl =
+          res?.profileImageUrl ||
+          res?.imageUrl ||
+          res?.room?.profileImageUrl ||
+          res?.data?.profileImageUrl ||
+          asset.uri;
+
+        setRoomInfo((prev) => ({
+          ...prev,
+          ...(res && typeof res === "object" ? res : {}),
+          profileImageUrl: newImageUrl,
+        }));
+
+        Alert.alert("Success", "Room photo updated successfully!");
+      }
+    } catch (err) {
+      console.error("[voice-party] Update room photo failed:", err);
+      const msg =
+        err?.responseData?.message ||
+        err?.responseData?.error ||
+        err?.message ||
+        "Failed to update room photo.";
+      Alert.alert("Upload Failed", String(msg));
+    } finally {
+      setIsUpdatingRoomPhoto(false);
+    }
+  };
+
   const handleFollowToggle = async () => {
     const targetRoomId = roomIdRef.current || roomId;
     if (!targetRoomId || isHostSelf) return;
@@ -3380,6 +3610,7 @@ export default function VoiceParty() {
             mySeatNumber: null,
             staleSeatTracker: staleSeatTrackerRef.current,
             activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
           }),
         );
         setOnlineUsers(session.onlineUsers);
@@ -3444,6 +3675,7 @@ export default function VoiceParty() {
                 mySeatNumber: mySeatNumberRef.current,
                 staleSeatTracker: staleSeatTrackerRef.current,
                 activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
               }),
             );
           } catch {
@@ -3555,6 +3787,48 @@ export default function VoiceParty() {
       }
     });
   }, [roomId]);
+
+  const lastSpeakingStatusRef = useRef(false);
+
+  useEffect(() => {
+    if (!roomId || !mySeatNumber || isMicMuted) {
+      if (lastSpeakingStatusRef.current) {
+         wsService.sendSpeakingStatus(String(roomId), false);
+         lastSpeakingStatusRef.current = false;
+      }
+      return;
+    }
+    
+    const unsub = agoraVoice.subscribeSpeaking(({ uid, isSpeaking }) => {
+      if (uid === 0) {
+         if (isSpeaking !== lastSpeakingStatusRef.current) {
+            lastSpeakingStatusRef.current = isSpeaking;
+            wsService.sendSpeakingStatus(String(roomId), isSpeaking);
+         }
+      }
+    });
+    return unsub;
+  }, [roomId, mySeatNumber, isMicMuted]);
+
+  useEffect(() => {
+    const unsub = agoraVoice.subscribeMuteState(({ uid, muted }) => {
+      const targetId = String(uid);
+      knownMuteStatesRef.current.set(targetId, muted);
+      setSeats((prev) =>
+        prev.map((seat) => {
+          if (!seat.user || String(seat.user.id) !== targetId) return seat;
+          return { ...seat, user: { ...seat.user, muted } };
+        }),
+      );
+      setOnlineUsers((prev) =>
+        prev.map((u) => {
+          if (String(u.id) !== targetId) return u;
+          return { ...u, muted };
+        }),
+      );
+    });
+    return unsub;
+  }, []);
 
   const autoOpenedFollowModalRef = useRef(false);
 
@@ -3783,6 +4057,7 @@ export default function VoiceParty() {
                 mySeatNumber,
                 staleSeatTracker: staleSeatTrackerRef.current,
                 activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
               }),
             ),
           );
@@ -3794,6 +4069,7 @@ export default function VoiceParty() {
               mySeatNumber,
               staleSeatTracker: staleSeatTrackerRef.current,
               activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
             }),
           );
         }
@@ -3848,16 +4124,25 @@ export default function VoiceParty() {
         if (!speakerId) return;
         const isSpeaking = Boolean(payload.isSpeaking);
         setOnlineUsers((prev) =>
-          prev.map((u) => ({
-            ...u,
-            isSpeaking: u.id === speakerId ? isSpeaking : u.isSpeaking,
-          })),
+          prev.map((u) => {
+            if (u.id !== speakerId) return u;
+            const updatedUser = { ...u, isSpeaking };
+            if (payload.isMuted !== undefined) {
+              updatedUser.muted = Boolean(payload.isMuted);
+            }
+            return updatedUser;
+          }),
         );
         setSeats((prev) =>
           prev.map((seat) => {
             if (!seat.user || String(seat.user.id) !== String(speakerId))
               return seat;
-            return { ...seat, user: { ...seat.user, active: isSpeaking } };
+            
+            const updatedUser = { ...seat.user, active: isSpeaking };
+            if (payload.isMuted !== undefined) {
+              updatedUser.muted = Boolean(payload.isMuted);
+            }
+            return { ...seat, user: updatedUser };
           }),
         );
         setSpeakingUserIds((prev) => {
@@ -4384,6 +4669,7 @@ export default function VoiceParty() {
               mySeatNumber: mySeatNumberRef.current,
               staleSeatTracker: staleSeatTrackerRef.current,
               activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
             }),
           );
         })
@@ -4596,6 +4882,7 @@ export default function VoiceParty() {
       }
       if (showReportModal) {
         setShowReportModal(false);
+        setReportTarget(null);
         return true;
       }
       if (showVideoModal) {
@@ -4812,6 +5099,7 @@ export default function VoiceParty() {
         mySeatNumber: seatNumber,
         staleSeatTracker: staleSeatTrackerRef.current,
         activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
       }),
     );
     if (typeof nextState?.onlineCount === "number") {
@@ -4839,6 +5127,7 @@ export default function VoiceParty() {
             mySeatNumber: null,
             staleSeatTracker: staleSeatTrackerRef.current,
             activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
           }),
         );
       } catch (err) {
@@ -4862,6 +5151,7 @@ export default function VoiceParty() {
           mySeatNumber,
           staleSeatTracker: staleSeatTrackerRef.current,
           activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
         }),
       );
 
@@ -4998,6 +5288,7 @@ export default function VoiceParty() {
               mySeatNumber: null,
               staleSeatTracker: staleSeatTrackerRef.current,
               activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
             }),
           );
         } catch (e) {
@@ -5281,12 +5572,20 @@ export default function VoiceParty() {
 
   const handleReportRoomSubmit = async (reason) => {
     try {
-      await reportUser(hostId, reason);
+      const targetUserId = reportTarget?.userId || hostId;
+      if (!roomId) {
+        throw new Error("Room ID is missing.");
+      }
+      if (!targetUserId) {
+        throw new Error("Target user ID is missing.");
+      }
+      await reportRoomUser(roomId, targetUserId, reason);
       setShowReportModal(false);
-      Alert.alert("Reported", "This room has been reported. Thank you.");
+      setReportTarget(null);
+      Alert.alert("Reported", "Your report has been submitted. Thank you.");
     } catch (e) {
       throw new Error(
-        e?.message || "Could not submit report. Please try again.",
+        e?.response?.data?.message || e?.message || "Could not submit report. Please try again.",
       );
     }
   };
@@ -5309,6 +5608,11 @@ export default function VoiceParty() {
           Alert.alert("Report", "Could not identify room host.");
           return;
         }
+        setReportTarget({
+          userId: hostId,
+          name: roomInfo?.name || "this room",
+          isRoom: true,
+        });
         setShowReportModal(true);
       },
     },
@@ -6232,7 +6536,14 @@ export default function VoiceParty() {
 
   const handlePopupReport = useCallback(() => {
     if (!profilePopupUser) return;
+    const targetId = profilePopupUser.id ?? profilePopupUser.userId;
+    const targetName = profilePopupUser.name ?? profilePopupUser.username ?? "user";
     closeProfilePopup();
+    setReportTarget({
+      userId: targetId,
+      name: targetName,
+      isRoom: false,
+    });
     setShowReportModal(true);
   }, [profilePopupUser]);
 
@@ -7698,6 +8009,75 @@ export default function VoiceParty() {
                 <X size={24} color="white" />
               </TouchableOpacity>
             </View>
+
+            {/* Music Volume Control Bar (Slow / Tez) */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#1a1f26',
+              borderRadius: 14,
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0.08)',
+              gap: 10,
+            }}>
+              <TouchableOpacity
+                onPress={() => {
+                  const nextVol = musicVolume === 0 ? 80 : 0;
+                  handleMusicVolumeChange(nextVol);
+                }}
+                style={{ padding: 4 }}
+              >
+                {musicVolume === 0 ? (
+                  <VolumeX size={18} color="#ff5722" />
+                ) : musicVolume < 50 ? (
+                  <Volume1 size={18} color="#aaa" />
+                ) : (
+                  <Volume2 size={18} color="#aaa" />
+                )}
+              </TouchableOpacity>
+
+              {/* Slow / Decrease */}
+              <TouchableOpacity
+                onPress={() => handleMusicVolumeChange(Math.max(0, musicVolume - 10))}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(255,255,255,0.12)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Minus size={14} color="white" />
+              </TouchableOpacity>
+
+              {/* Volume Progress Bar */}
+              <View style={{ flex: 1, height: 6, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 3, overflow: 'hidden' }}>
+                <View style={{ height: '100%', width: `${musicVolume}%`, backgroundColor: '#ff5722', borderRadius: 3 }} />
+              </View>
+
+              {/* Tez / Increase */}
+              <TouchableOpacity
+                onPress={() => handleMusicVolumeChange(Math.min(100, musicVolume + 10))}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(255,255,255,0.12)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Plus size={14} color="white" />
+              </TouchableOpacity>
+
+              <Text style={{ color: '#ff5722', fontWeight: 'bold', fontSize: 13, minWidth: 38, textAlign: 'right' }}>
+                {musicVolume}%
+              </Text>
+            </View>
             <ScrollView showsVerticalScrollIndicator={false}>
               {musicPlaylist.length === 0 ? (
                 <Text style={{ color: '#aaa', textAlign: 'center', padding: 20 }}>No songs selected.</Text>
@@ -8227,31 +8607,53 @@ export default function VoiceParty() {
                 >
                   {/* Top Profile Card: Avatar + Name + ID */}
                   <View style={styles.followModalProfileCard}>
-                    {/* Avatar */}
-                    <View style={styles.followModalAvatarWrap}>
-                      {roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl ? (
-                        <Image
-                          source={{ uri: roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl }}
-                          style={styles.followModalAvatar}
-                          resizeMode="cover"
-                        />
-                      ) : hostUserLike ? (
-                        renderRoomUserAvatar(
-                          hostUserLike,
-                          styles.followModalAvatar,
-                          [styles.followModalAvatar, styles.ownerAvatarPlaceholder],
-                          styles.ownerInitial,
-                        )
-                      ) : (
-                        <Image
-                          source={{
-                            uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                              roomInfo?.name || hostProfileDetails?.name || "Host",
-                            )}&background=7c4dff&color=fff`,
-                          }}
-                          style={styles.followModalAvatar}
-                          resizeMode="cover"
-                        />
+                    {/* Avatar with Outer wrapper for Badge (Orange circle) */}
+                    <View style={styles.followModalAvatarOuter}>
+                      <View style={styles.followModalAvatarWrap}>
+                        {roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl ? (
+                          <Image
+                            source={{ uri: roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl }}
+                            style={styles.followModalAvatar}
+                            resizeMode="cover"
+                          />
+                        ) : hostUserLike ? (
+                          renderRoomUserAvatar(
+                            hostUserLike,
+                            styles.followModalAvatar,
+                            [styles.followModalAvatar, styles.ownerAvatarPlaceholder],
+                            styles.ownerInitial,
+                          )
+                        ) : (
+                          <Image
+                            source={{
+                              uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                roomInfo?.name || hostProfileDetails?.name || "Host",
+                              )}&background=7c4dff&color=fff`,
+                            }}
+                            style={styles.followModalAvatar}
+                            resizeMode="cover"
+                          />
+                        )}
+
+                        {/* Loading overlay for direct avatar upload */}
+                        {isUpdatingRoomPhoto && (
+                          <View style={styles.followModalAvatarLoadingOverlay}>
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Edit Avatar Badge (Orange circle in image) */}
+                      {canEditRoom && (
+                        <TouchableOpacity
+                          style={styles.followModalAvatarEditBadge}
+                          onPress={handlePickAndUploadRoomPhoto}
+                          disabled={isUpdatingRoomPhoto}
+                          activeOpacity={0.8}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="camera" size={13} color="#ffffff" />
+                        </TouchableOpacity>
                       )}
                     </View>
 
@@ -8271,6 +8673,18 @@ export default function VoiceParty() {
                         <Ionicons name="copy-outline" size={15} color="#9ca3af" />
                       </TouchableOpacity>
                     </View>
+
+                    {/* Edit Room Details Icon Button (Red circle in image) */}
+                    {canEditRoom && (
+                      <TouchableOpacity
+                        style={styles.followModalEditBtn}
+                        onPress={handleOpenEditRoomModal}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="create-outline" size={20} color="#7c4dff" />
+                      </TouchableOpacity>
+                    )}
                   </View>
 
                   {/* Level Section */}
@@ -8292,7 +8706,21 @@ export default function VoiceParty() {
                   </View>
 
                   {/* Announcement Section */}
-                  <View style={styles.followModalAnnouncementSection}>
+                  <TouchableOpacity
+                    style={styles.followModalAnnouncementSection}
+                    onPress={() => {
+                      if (canEditRoom) {
+                        setWelcomeDraft(
+                          welcomeMessage ||
+                            roomInfo?.body ||
+                            roomInfo?.announcement ||
+                            "",
+                        );
+                        setShowWelcomeEdit(true);
+                      }
+                    }}
+                    activeOpacity={canEditRoom ? 0.7 : 1}
+                  >
                     <View style={styles.followModalRowHeader}>
                       <Text style={styles.followModalRowLabel}>Announcement</Text>
                       <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
@@ -8300,7 +8728,7 @@ export default function VoiceParty() {
                     <Text style={styles.followModalAnnouncementText}>
                       {welcomeMessage || roomInfo?.body || roomInfo?.announcement || "Welcome everyone! Let's chat and have fun together!"}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
 
                   <View style={styles.followModalDivider} />
 
@@ -8728,6 +9156,159 @@ export default function VoiceParty() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {/* ── EDIT ROOM MODAL ── */}
+      <Modal
+        visible={showEditRoomModal}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!isSavingRoomDetails) {
+            Keyboard.dismiss();
+            setShowEditRoomModal(false);
+          }
+        }}
+      >
+        <TouchableOpacity
+          style={styles.editRoomModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isSavingRoomDetails) {
+              Keyboard.dismiss();
+              setShowEditRoomModal(false);
+            }
+          }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[
+              styles.editRoomModalBox,
+              editRoomKeyboardHeight > 0 && {
+                marginBottom: editRoomKeyboardHeight,
+                paddingBottom: 12,
+              },
+            ]}
+          >
+            {/* Modal Header */}
+            <View style={styles.editRoomModalHeader}>
+              <Text style={styles.editRoomModalTitle}>Edit Room Info</Text>
+              <TouchableOpacity
+                style={styles.editRoomModalCloseBtn}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setShowEditRoomModal(false);
+                }}
+                disabled={isSavingRoomDetails}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <X size={20} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              bounces={false}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.editRoomScrollContent}
+            >
+              {/* Room Avatar Picker inside Modal */}
+              <View
+                style={[
+                  styles.editRoomAvatarSection,
+                  editRoomKeyboardHeight > 0 && styles.editRoomAvatarSectionCompact,
+                ]}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.editRoomAvatarWrap,
+                    editRoomKeyboardHeight > 0 && styles.editRoomAvatarWrapCompact,
+                  ]}
+                  onPress={handlePickRoomImageForEdit}
+                  activeOpacity={0.8}
+                  disabled={isSavingRoomDetails}
+                >
+                  {editRoomImageUri ? (
+                    <Image
+                      source={{ uri: editRoomImageUri }}
+                      style={styles.editRoomAvatarImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.editRoomAvatarPlaceholder}>
+                      <Ionicons
+                        name="image-outline"
+                        size={editRoomKeyboardHeight > 0 ? 26 : 34}
+                        color="#9ca3af"
+                      />
+                    </View>
+                  )}
+                  <View style={styles.editRoomAvatarCameraBadge}>
+                    <Ionicons name="camera" size={13} color="#ffffff" />
+                  </View>
+                </TouchableOpacity>
+                <Text style={styles.editRoomAvatarHint}>Tap to change cover photo</Text>
+              </View>
+
+              {/* Room Name Input */}
+              <View style={styles.editRoomInputGroup}>
+                <View style={styles.editRoomInputLabelRow}>
+                  <Text style={styles.editRoomInputLabel}>Room Name</Text>
+                  <Text style={styles.editRoomInputCounter}>
+                    {editRoomName.length}/30
+                  </Text>
+                </View>
+                <TextInput
+                  style={styles.editRoomTextInput}
+                  value={editRoomName}
+                  onChangeText={(t) => setEditRoomName(t.slice(0, 30))}
+                  placeholder="Enter room name"
+                  placeholderTextColor="#9ca3af"
+                  maxLength={30}
+                  editable={!isSavingRoomDetails}
+                  onFocus={syncEditRoomKeyboard}
+                />
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.editRoomActionsRow}>
+                <TouchableOpacity
+                  style={styles.editRoomCancelBtn}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setShowEditRoomModal(false);
+                  }}
+                  disabled={isSavingRoomDetails}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.editRoomCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.editRoomSaveBtn,
+                    (!editRoomName.trim() || isSavingRoomDetails) &&
+                      styles.editRoomSaveBtnDisabled,
+                  ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    handleSaveRoomDetails();
+                  }}
+                  disabled={!editRoomName.trim() || isSavingRoomDetails}
+                  activeOpacity={0.88}
+                >
+                  {isSavingRoomDetails ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={styles.editRoomSaveText}>Save Changes</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ── ACTIVE USERS MODAL ── */}
       <Modal
         visible={showActiveUsersModal}
@@ -9645,12 +10226,15 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── REPORT ROOM MODAL ── */}
+      {/* ── REPORT ROOM / USER MODAL ── */}
       <ReportReasonModal
         visible={showReportModal}
-        title="Report Room"
-        targetLabel="this room"
-        onClose={() => setShowReportModal(false)}
+        title={reportTarget?.isRoom ? "Report Room" : "Report User"}
+        targetLabel={reportTarget?.name ? reportTarget.name : "this room"}
+        onClose={() => {
+          setShowReportModal(false);
+          setReportTarget(null);
+        }}
         onSubmit={handleReportRoomSubmit}
       />
 
@@ -9898,15 +10482,10 @@ export default function VoiceParty() {
                   </View> */}
                   {/* Mic status badge in bottom-right corner */}
                   <View style={styles.seatMicIcon}>
-                    {seat.user.muted ? (
+                    {(seat.id === mySeatNumber ? isMicMuted : seat.user.muted) ? (
                       <MicOff size={12} color="#f87171" />
                     ) : (
-                      <Mic
-                        size={12}
-                        color={
-                          seat.user.active ? "#4ade80" : "rgba(255,255,255,0.8)"
-                        }
-                      />
+                      <Mic size={12} color="#4ade80" />
                     )}
                   </View>
                 </View>
@@ -10579,6 +11158,8 @@ export default function VoiceParty() {
           {isHostSelf && isMusicPlaying && (
             <MiniMusicPlayer
               isPlaying={!isMusicPaused}
+              volume={musicVolume}
+              onVolumeChange={handleMusicVolumeChange}
               onTogglePlay={() => {
                 if (isMusicPaused) {
                   if (typeof agoraVoice.resumeAudioForEveryone === 'function') agoraVoice.resumeAudioForEveryone();
@@ -14109,6 +14690,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
+  followModalAvatarOuter: {
+    position: "relative",
+    width: 86,
+    height: 86,
+  },
+  followModalAvatarLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+  },
+  followModalAvatarEditBadge: {
+    position: "absolute",
+    bottom: -3,
+    right: -3,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#7c4dff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#ffffff",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    zIndex: 3,
+  },
   followModalAvatarWrap: {
     width: 86,
     height: 86,
@@ -14126,6 +14739,17 @@ const styles = StyleSheet.create({
     marginLeft: 16,
     justifyContent: "center",
   },
+  followModalEditBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#f5f3ff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 10,
+    borderWidth: 1,
+    borderColor: "#ede9fe",
+  },
   followModalRoomName: {
     color: "#111827",
     fontSize: 17,
@@ -14142,6 +14766,171 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     fontSize: 13,
     fontWeight: "500",
+  },
+  editRoomModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "flex-end",
+  },
+  editRoomModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  editRoomModalBox: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    maxHeight: "88%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 12,
+  },
+  editRoomScrollContent: {
+    paddingBottom: 4,
+  },
+  editRoomModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  editRoomModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  editRoomModalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editRoomAvatarSection: {
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  editRoomAvatarSectionCompact: {
+    marginBottom: 10,
+  },
+  editRoomAvatarWrap: {
+    position: "relative",
+    width: 84,
+    height: 84,
+    borderRadius: 18,
+    backgroundColor: "#f3f4f6",
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#e5e7eb",
+  },
+  editRoomAvatarWrapCompact: {
+    width: 62,
+    height: 62,
+    borderRadius: 14,
+  },
+  editRoomAvatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 18,
+  },
+  editRoomAvatarPlaceholder: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f3f4f6",
+  },
+  editRoomAvatarCameraBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    left: 0,
+    height: 28,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editRoomAvatarHint: {
+    fontSize: 12,
+    color: "#7c4dff",
+    fontWeight: "600",
+    marginTop: 8,
+  },
+  editRoomInputGroup: {
+    marginBottom: 22,
+  },
+  editRoomInputLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  editRoomInputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  editRoomInputCounter: {
+    fontSize: 12,
+    color: "#9ca3af",
+  },
+  editRoomTextInput: {
+    height: 48,
+    backgroundColor: "#f9fafb",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: "#111827",
+  },
+  editRoomActionsRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 6,
+  },
+  editRoomCancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editRoomCancelText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#4b5563",
+  },
+  editRoomSaveBtn: {
+    flex: 2,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#7c4dff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  editRoomSaveBtnDisabled: {
+    opacity: 0.5,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  editRoomSaveText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#ffffff",
   },
   followModalSection: {
     marginBottom: 10,

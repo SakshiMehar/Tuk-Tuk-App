@@ -632,10 +632,10 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
-  sendSpeakingStatus(roomId: string, isSpeaking: boolean): void {
+  sendSpeakingStatus(roomId: string, isSpeaking: boolean, isMuted?: boolean): void {
     this._assertConnected();
     const destination = `/app/room/${roomId}/speaking`;
-    const body = JSON.stringify({ isSpeaking });
+    const body = JSON.stringify(isMuted !== undefined ? { isSpeaking, isMuted } : { isSpeaking });
     this.client!.publish({ destination, body });
   }
 

@@ -12,9 +12,38 @@ let remoteUid = 0;
 let speakerphoneEnabled = true;
 let statusListeners = new Set();
 
+let currentAudioMixingVolume = 80;
+
+export const setAudioMixingVolume = (volume) => {
+  const vol = Math.max(0, Math.min(100, Math.round(Number(volume) ?? 80)));
+  currentAudioMixingVolume = vol;
+  if (!engine) return currentAudioMixingVolume;
+  try {
+    if (typeof engine.adjustAudioMixingVolume === "function") {
+      engine.adjustAudioMixingVolume(vol);
+    }
+  } catch (err) {}
+  try {
+    if (typeof engine.adjustAudioMixingPlayoutVolume === "function") {
+      engine.adjustAudioMixingPlayoutVolume(vol);
+    }
+    if (typeof engine.adjustAudioMixingPublishVolume === "function") {
+      engine.adjustAudioMixingPublishVolume(vol);
+    }
+  } catch (err) {}
+  return currentAudioMixingVolume;
+};
+
+export const getAudioMixingVolume = () => currentAudioMixingVolume;
+
 export const playAudioForEveryone = (filePath) => {
   if (!engine) return;
   engine.startAudioMixing(filePath, false, 1, 0);
+  try {
+    if (typeof engine.adjustAudioMixingVolume === "function") {
+      engine.adjustAudioMixingVolume(currentAudioMixingVolume);
+    }
+  } catch (err) {}
 };
 
 export const stopAudioForEveryone = () => {
