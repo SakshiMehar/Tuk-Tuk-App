@@ -23,6 +23,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AppBackground from "../../Components/AppBackground";
 import BackpackPanel from "../../Components/BackpackPanel";
+import StorePanel from "../../Components/StorePanel";
 import HelpMenu from "../../Modal/HelpMenu";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import FamilyChatModal from "../../Components/FamilyChatModal";
@@ -1707,29 +1708,11 @@ export default function Profile() {
 
     // ── STORE ─────────────────────────────────────────────────────────────────
     if (label === "Store") {
-      const items = [
-        { emoji: "💎", label: "60 Diamonds", price: "₹59" },
-        { emoji: "💎", label: "300 Diamonds", price: "₹249" },
-        { emoji: "💎", label: "980 Diamonds", price: "₹799", tag: "Popular" },
-        { emoji: "🪙", label: "500 Coins", price: "₹49" },
-        { emoji: "🪙", label: "2500 Coins", price: "₹199", tag: "Best Value" },
-        { emoji: "⭐", label: "VIP 1 Month", price: "₹399" },
-      ];
       return (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mmScroll}>
-          <View style={styles.mmStoreGrid}>
-            {items.map((it) => (
-              <TouchableOpacity key={it.label} style={styles.mmStoreItem} activeOpacity={0.8}>
-                {it.tag && <View style={styles.mmStoreTag}><Text style={styles.mmStoreTagText}>{it.tag}</Text></View>}
-                <Text style={{ fontSize: 32, marginBottom: 6 }}>{it.emoji}</Text>
-                <Text style={styles.mmStoreLabel}>{it.label}</Text>
-                <LinearGradient colors={["#7c4dff", "#a855f7"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.mmStorePriceBtn}>
-                  <Text style={styles.mmStorePriceText}>{it.price}</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
+        <StorePanel
+          onClose={() => setActiveMenu(null)}
+          onNavigateBackpack={() => setActiveMenu({ label: "Backpack", icon: "backpack" })}
+        />
       );
     }
 
@@ -1835,7 +1818,12 @@ export default function Profile() {
 
     // ── BACKPACK ──────────────────────────────────────────────────────────────
     if (label === "Backpack") {
-      return <BackpackPanel onClose={() => setActiveMenu(null)} />;
+      return (
+        <BackpackPanel
+          onClose={() => setActiveMenu(null)}
+          onGoToStore={() => setActiveMenu({ label: "Store", icon: "store" })}
+        />
+      );
     }
 
     // ── ROOM PREMIUM ─────────────────────────────────────────────────────────
@@ -2236,8 +2224,7 @@ export default function Profile() {
                 )}
               </View>
 
-              {/* Row 3: Level badge + New Star badge + Verified badge — same height,
-                  same gap for every badge. Wraps automatically if more get added. */}
+              {/* Row 3: Level badge + New Star badge + Verified badge + Coin Seller badge */}
               <View style={styles.profileLevelWrap}>
                 <ProfileBadge
                   source={levelBadgeSource ?? resolveLocalLevelBadge(userLevel ?? 1)}
@@ -2256,11 +2243,11 @@ export default function Profile() {
                     style={styles.premiumLogoBadge}
                   />
                 )}
-                {decorations.badgeUrl && (
-                  <ProfileBadge source={{ uri: decorations.badgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
-                )}
                 {verifiedBadgeUrl && (
                   <ProfileBadge source={{ uri: verifiedBadgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
+                )}
+                {decorations.badgeUrl && (
+                  <ProfileBadge source={{ uri: decorations.badgeUrl }} aspectRatio={PROFILE_BADGE_ASPECT.verified} />
                 )}
               </View>
 
@@ -2623,16 +2610,16 @@ export default function Profile() {
       </ScrollView>
       {/* ── MENU DETAIL MODAL (full screen) ── */}
       <Modal visible={!!activeMenu} transparent={false} animationType="slide" onRequestClose={() => setActiveMenu(null)}>
-        <View style={[styles.mmPanel, { paddingBottom: activeMenu?.label === "Help" ? 0 : insets.bottom }]}>
-          {activeMenu?.label === "Task" || activeMenu?.label === "Honor Level" ? (
+        <View style={[styles.mmPanel, { paddingBottom: (activeMenu?.label === "Help" || activeMenu?.label === "Store") ? 0 : insets.bottom }]}>
+          {activeMenu?.label === "Task" || activeMenu?.label === "Honor Level" || activeMenu?.label === "Store" ? (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: "#ffffff" }]} />
           ) : activeMenu?.label === "Help" ? (
             <LinearGradient colors={["#f8f9fe", "#f0f4ff", "#ffffff"]} style={StyleSheet.absoluteFill} />
           ) : (
             <LinearGradient colors={["#1a0a2e", "#16082a", "#0d0618"]} style={StyleSheet.absoluteFill} />
           )}
-          {/* Header — Premium, TukTuk Pass, Backpack, and Help render their own custom headers */}
-          {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && activeMenu?.label !== "Backpack" && activeMenu?.label !== "Help" && (
+          {/* Header — Premium, TukTuk Pass, Backpack, Help, and Store render their own custom headers */}
+          {activeMenu?.label !== "Premium" && activeMenu?.label !== "TukTuk Pass" && activeMenu?.label !== "Backpack" && activeMenu?.label !== "Help" && activeMenu?.label !== "Store" && (
             <>
               <View style={[styles.mmHeader, { paddingTop: insets.top + 10 }]}>
                 <View style={styles.mmHeaderIcon}>
@@ -2680,7 +2667,7 @@ export default function Profile() {
             />
             <Text style={styles.taskRewardModalTitle}>Reward claimed!</Text>
             <Text style={styles.taskRewardModalSub}>
-              You earned <Text style={{ fontWeight: 'bold', color: '#fff' }}>{claimedTaskRewardModal?.reward} 💎</Text> for "{claimedTaskRewardModal?.label}".
+              You earned <Text style={{ fontWeight: 'bold', color: '#fff' }}>{claimedTaskRewardModal?.reward} 💎</Text> for &ldquo;{claimedTaskRewardModal?.label}&rdquo;.
             </Text>
 
             <View style={styles.taskRewardModalCard}>
@@ -3118,8 +3105,6 @@ const styles = StyleSheet.create({
     gap: s(4),
     rowGap: s(4),
     marginTop: 2,
-    // Leaves the row free to grow downward if more badges get added later
-    // instead of overflowing past the info card's edge.
     maxWidth: "100%",
   },
   statsRow: {
