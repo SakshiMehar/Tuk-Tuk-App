@@ -1,7 +1,6 @@
 import { API_BASE_URL } from "../config/env";
 import { getDeviceHeaders } from "../utils/deviceHeaders";
 import API, { authRequestConfig } from "./axios";
-import { getDeviceHeaders } from "../utils/deviceHeaders";
 
 const maskToken = (value) => {
   if (!value || typeof value !== "string") return value;
