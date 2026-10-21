@@ -1,4 +1,4 @@
-import notifee from '@notifee/react-native';
+import notifee from "./src/services/safeNotifee";
 import messaging from "@react-native-firebase/messaging";
 import { handleBackgroundCallSignal, handleNotifeeBackgroundEvent } from "./src/services/callBackgroundService";
 

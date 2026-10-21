@@ -1,4 +1,4 @@
-import notifee, { AndroidCategory, AndroidImportance, EventType } from '@notifee/react-native';
+import notifee, { AndroidCategory, AndroidImportance, EventType } from './safeNotifee';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { rejectCall as apiRejectCall } from '../api/callApi';
 
