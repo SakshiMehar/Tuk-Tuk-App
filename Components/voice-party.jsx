@@ -71,6 +71,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import Svg, {
   Defs,
   Ellipse,
@@ -5559,8 +5560,10 @@ export default function VoiceParty() {
 
   // Intercept Android hardware back button — close any open chat input /
   // pickers / modals in order; show confirmation popup before leaving room.
-  useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+  // ONLY active when the voice party room screen is focused.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (showTagPicker) {
         setShowTagPicker(false);
         return true;
@@ -5688,7 +5691,7 @@ export default function VoiceParty() {
     micPermWarning,
     showWelcomeEdit,
     closeProfilePopup,
-  ]);
+  ]));
 
   // Listen Rewards — tick every second while in the room.
   // Component unmounts on exit so counters reset automatically.

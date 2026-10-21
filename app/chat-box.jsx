@@ -1,4 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect } from "react";
+import { BackHandler } from "react-native";
 import ChatBox from "../Components/ChatBox";
 
 export default function ChatBoxScreen() {
@@ -22,19 +24,31 @@ export default function ChatBoxScreen() {
     officialSender: isOfficial,
   };
 
-
-
   const isColdStart = params.isColdStart === "true";
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
+    if (isOfficial) {
+      // Direct go back to chatlist without popping into voice-party or triggering Leave Room
+      router.replace("/(tabs)/chat");
+      return;
+    }
     if (isColdStart) {
       router.dismissAll();
-      router.replace("/(tabs)/home");
+      router.replace("/(tabs)/chat");
     } else if (router.canGoBack()) {
       router.back();
     } else {
-      router.push("/(tabs)/home");
+      router.replace("/(tabs)/chat");
     }
-  };
+  }, [isOfficial, isColdStart, router]);
+
+  useEffect(() => {
+    const onHardwareBack = () => {
+      handleBack();
+      return true;
+    };
+    const sub = BackHandler.addEventListener("hardwareBackPress", onHardwareBack);
+    return () => sub.remove();
+  }, [handleBack]);
 
   return <ChatBox user={user} onBack={handleBack} />;
 }

@@ -27,6 +27,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Dimensions,
   Image,
   Modal,
@@ -268,6 +269,31 @@ export default function ChatBox({ user = {}, onBack }) {
     String(userId) === "100005" ||
     messages.some((m) => m?.officialSender)
   );
+
+  const handleBackPress = useCallback(() => {
+    if (isOfficialChat) {
+      router.replace("/(tabs)/chat");
+      return;
+    }
+    if (onBack) {
+      onBack();
+      return;
+    }
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/chat");
+    }
+  }, [isOfficialChat, onBack, router]);
+
+  useEffect(() => {
+    const onHardwareBack = () => {
+      handleBackPress();
+      return true;
+    };
+    const sub = BackHandler.addEventListener("hardwareBackPress", onHardwareBack);
+    return () => sub.remove();
+  }, [handleBackPress]);
 
   const handleOfficialAction = (msg) => {
     Alert.alert(msg?.senderName || name || "Official Notice", msg?.text || "Check details");
@@ -758,7 +784,7 @@ export default function ChatBox({ user = {}, onBack }) {
         colors={[Colors.white, Colors.white]}
         style={[styles.header, isOfficialChat && styles.headerOfficial]}
       >
-        <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8} onPress={onBack}>
+        <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8} onPress={handleBackPress}>
           <ArrowLeft size={22} color={Colors.primary} />
         </TouchableOpacity>
         <View style={styles.headerNameRow}>
