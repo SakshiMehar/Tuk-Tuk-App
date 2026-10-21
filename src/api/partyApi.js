@@ -129,17 +129,24 @@ export const joinRandomParty = async (body = {}) => {
  * field name (image, profileImage, photo, roomImage, ...); "image" is kept
  * here for consistency across this file's endpoints.
  */
-const sendRoomMultipart = async (method, path, fields, { imageUri, mimeType, fileName }) => {
+const sendRoomMultipart = async (
+  method,
+  path,
+  fields = {},
+  { imageUri, mimeType, fileName } = {},
+) => {
   await refreshTokenCache();
   const token = await getBearerToken();
   if (!token) throw new Error("Please log in again to continue.");
 
   const form = new FormData();
-  form.append("image", {
-    uri: imageUri,
-    type: mimeType ?? fallbackMimeType(imageUri),
-    name: fileName ?? "room-cover.jpg",
-  });
+  if (imageUri) {
+    form.append("image", {
+      uri: imageUri,
+      type: mimeType ?? fallbackMimeType(imageUri),
+      name: fileName ?? "room-cover.jpg",
+    });
+  }
   Object.entries(fields).forEach(([key, value]) => {
     if (value != null) form.append(key, String(value));
   });
@@ -148,7 +155,10 @@ const sendRoomMultipart = async (method, path, fields, { imageUri, mimeType, fil
     Authorization: `Bearer ${token}`,
   };
 
-  logRequest(method, path, { image: fileName ?? imageUri, ...fields });
+  logRequest(method, path, {
+    ...(imageUri ? { image: fileName ?? imageUri } : {}),
+    ...fields,
+  });
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method,
@@ -157,7 +167,8 @@ const sendRoomMultipart = async (method, path, fields, { imageUri, mimeType, fil
     });
     const data = await parseResponseBody(response);
     if (!response.ok) {
-      const message = data?.message ?? data?.error ?? `Request failed (${response.status})`;
+      const message =
+        data?.message ?? data?.error ?? `Request failed (${response.status})`;
       const err = new Error(message);
       err.status = response.status;
       err.responseData = data;
@@ -211,25 +222,19 @@ export const createRoomForUser = async (roomId, body = {}) => {
 };
 
 /**
- * PATCH /api/v1/tuktuk/rooms/{roomId} — update room fields. Used here for
- * setting the room's profile/cover photo after creation.
+ * PATCH /api/v1/tuktuk/rooms/{roomId} — update room fields.
+ * Sends multipart/form-data supporting both image file and text fields (e.g. name).
  */
-export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fields } = {}) => {
+export const updateRoom = async (
+  roomId,
+  { imageUri, mimeType, fileName, ...fields } = {},
+) => {
   const path = `/api/v1/tuktuk/rooms/${roomId}`;
-
-  if (!imageUri) {
-    logRequest("PATCH", path, fields);
-    try {
-      const response = await API.patch(path, fields, await authRequestConfig());
-      logResponse("PATCH", path, response.data);
-      return response.data;
-    } catch (error) {
-      logError("PATCH", path, error);
-      throw error;
-    }
-  }
-
-  return sendRoomMultipart("PATCH", path, fields, { imageUri, mimeType, fileName });
+  return sendRoomMultipart("PATCH", path, fields, {
+    imageUri,
+    mimeType,
+    fileName,
+  });
 };
 
 /** GET /api/v1/tuktuk/rooms/{roomId} — fetch room details / status by room ID */
@@ -597,6 +602,25 @@ export const getRoomBadges = async (roomId) => {
     return response.data?.data ?? response.data;
   } catch (error) {
     return null;
+  }
+};
+
+/** POST /api/home/rooms/{roomId}/users/{userId}/report — report a user in a room */
+export const reportRoomUser = async (roomId, targetUserId, reason = "") => {
+  if (!roomId) throw new Error("Room ID is required to report");
+  if (!targetUserId) throw new Error("Target user ID is required to report");
+  const path = `/api/home/rooms/${encodeURIComponent(String(roomId))}/users/${encodeURIComponent(String(targetUserId))}/report`;
+  const payload = {
+    reason: String(reason || "").trim(),
+  };
+  logRequest("POST", path, payload);
+  try {
+    const response = await API.post(path, payload, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
   }
 };
 

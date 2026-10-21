@@ -1,7 +1,7 @@
 {
   "topTabs": ["Related", "Explore"],
   "relatedSubTabs": ["Recently", "Following", "Managed"],
-  "filterChips": ["Recommend", "New", "Blind date"],
+  "filterChips": ["Recommend", "New", "Blind date", "Official"],
   "featureCards": [
     {
       "id": "ranking",
@@ -138,6 +138,15 @@
       "hasChat": true,
       "verified": true,
       "category": "Blind date"
+    },
+    {
+      "id": "room-6",
+      "title": "🛡️ Tuk Tuk Official Verification",
+      "thumbnail": "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/verified-batch.png",
+      "participantCount": 18,
+      "hasChat": true,
+      "verified": true,
+      "category": "Official"
     }
   ]
 }

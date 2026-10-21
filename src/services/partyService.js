@@ -725,6 +725,19 @@ export const updateRoomCoverPhoto = async (
   );
 };
 
+/** Update room name, cover photo, and other fields via PATCH /api/v1/tuktuk/rooms/{roomId} */
+export const updateRoomDetails = async (
+  roomId,
+  { name, imageUri, mimeType, fileName, ...fields } = {},
+) => {
+  const updated = await updateRoomApi(roomId, {
+    ...(name ? { name } : {}),
+    ...(imageUri ? { imageUri, mimeType, fileName } : {}),
+    ...fields,
+  });
+  return updated;
+};
+
 /** Fetch the room's pinned announcement (shown on the voice room screen). */
 export const fetchRoomAnnouncement = async (roomId) => {
   const data = await getRoomAnnouncementApi(roomId);

@@ -1,12 +1,20 @@
+import notifee from '@notifee/react-native';
 import messaging from "@react-native-firebase/messaging";
+import { handleBackgroundCallSignal, handleNotifeeBackgroundEvent } from "./src/services/callBackgroundService";
 
-// Must run before the app registers — handles push messages that arrive
-// while the app is backgrounded or fully killed. FCM auto-displays the
-// system-tray notification in that state when the payload has a `notification`
-// block; this handler is where data-only background messages get processed.
-// Registered via require() (not `import`) so it truly runs first — Babel
-// hoists `import` statements above plain statements, which would otherwise
-// run expo-router/entry's app registration before this handler is set.
-messaging().setBackgroundMessageHandler(async () => {});
+notifee.onBackgroundEvent(handleNotifeeBackgroundEvent);
+
+messaging().setBackgroundMessageHandler(async (remoteMessage) => {
+    const payload = remoteMessage.data;
+    if (payload && payload.type === 'CALL_INCOMING' || payload?.type === 'CALL_ENDED' || payload?.type === 'CALL_REJECTED') {
+        await handleBackgroundCallSignal(payload);
+    }
+});
+
+messaging().onMessage(async (remoteMessage) => {
+    console.log("====== NEW PUSH NOTIFICATION RECEIVED ======");
+    console.log(JSON.stringify(remoteMessage, null, 2));
+    console.log("============================================");
+});
 
 require("expo-router/entry");

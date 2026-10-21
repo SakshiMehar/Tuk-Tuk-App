@@ -27,7 +27,7 @@ import { getActiveRoomId } from "../src/services/partyVoiceService";
 import { initPresenceManager } from "../src/services/presenceService";
 import DeviceBlockedModal from "../Components/DeviceBlockedModal";
 import { getDeviceHeaders } from "../src/utils/deviceHeaders";
-
+import { CallProvider } from "../src/context/CallContext";
 LogBox.ignoreAllLogs();
 // ── Global font-scale guard ────────────────────────────────────────────────
 
@@ -92,7 +92,15 @@ export default function RootLayout() {
 
     const unsubscribePush = initPushNotificationListeners({
       onForegroundMessage: ({ title, body, data }) => {
-        if (!body && !title) return;
+        // Suppress generic alert for incoming call signals (handled natively by CallContext)
+        const type = data?.type?.toUpperCase();
+        if (type && type.startsWith('CALL_')) {
+          return;
+        }
+        
+        // title defaults to "Tuk-Tuk" in service, so body check is more reliable
+        // Sometimes backends send " " (space) to force a push, so we trim it.
+        if (!body || body.trim() === '') return;
         Alert.alert(
           title || "Tuk-Tuk",
           body || "",
@@ -169,13 +177,14 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: Colors.background },
-          animation: "slide_from_right",
-        }}
-      >
+      <CallProvider>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: Colors.background },
+            animation: "slide_from_right",
+          }}
+        >
         <Stack.Screen name="index" />
         <Stack.Screen name="login" options={{ gestureEnabled: false }} />
         <Stack.Screen name="(tabs)" />
@@ -194,8 +203,9 @@ export default function RootLayout() {
         <Stack.Screen name="message-notification" />
         <Stack.Screen name="personality-test" />
         <Stack.Screen name="room/[roomId]" />
-      </Stack>
-      <DeviceBlockedModal />
+        </Stack>
+        <DeviceBlockedModal />
+      </CallProvider>
     </SafeAreaProvider>
   );
 }

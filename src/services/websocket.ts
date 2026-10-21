@@ -18,8 +18,8 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DeviceEventEmitter } from 'react-native';
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
+import { DeviceEventEmitter } from 'react-native';
 import SockJS from 'sockjs-client';
 import { API_BASE_URL } from '../config/env';
 import { getToken, getUser } from '../store/authStore';
@@ -403,6 +403,7 @@ class WebSocketService {
     this.hasConnectedOnce = true;
 
     this._subscribeUserChats();
+    this._subscribeUserCalls();
     this._subscribeAccountStatus();
     this._subscribeUserKicked();
     this._subscribeDeviceBlocked();
@@ -445,6 +446,24 @@ class WebSocketService {
     });
   }
 
+  private _subscribeUserCalls(): void {
+    const key = 'user-calls';
+    if (this.subscriptions.has(key) || !this.client || !this.connected) return;
+
+    const destination = `/user/queue/call`;
+
+    const sub = this.client.subscribe(destination, (frame: IMessage) => {
+      try {
+        const payload: CallSignalPayload = JSON.parse(frame.body);
+        console.log("[WS] Received call signal payload:", payload);
+        this.callSignalHandlers.forEach((h) => h(payload));
+      } catch (err) {
+        console.error("[WS] Error parsing call signal:", err);
+      }
+    });
+    this.subscriptions.set(key, sub);
+  }
+
   private _subscribeAccountStatus(): void {
     getUser().then((user) => {
       const userId = user?.id ?? user?.userId ?? user?._id;
@@ -471,13 +490,13 @@ class WebSocketService {
               '@terms_accepted',
               'accessToken',
               'refreshToken',
-            ]).catch(() => {});
+            ]).catch(() => { });
 
             // 2. Perform clean local logout (ws disconnect, push unregister, token cache clear)
             try {
               const { endLocalSession } = await import('./authSessionService');
-              await endLocalSession().catch(() => {});
-            } catch {}
+              await endLocalSession().catch(() => { });
+            } catch { }
 
             // 3. Emit global event to trigger UI popup modal instantly
             DeviceEventEmitter.emit('userBanned', {
@@ -795,16 +814,16 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
-  sendSpeakingStatus(roomId: string, isSpeaking: boolean): void {
+  sendSpeakingStatus(roomId: string, isSpeaking: boolean, isMuted?: boolean): void {
     this._assertConnected();
     const destination = `/app/room/${roomId}/speaking`;
-    const body = JSON.stringify({ isSpeaking });
+    const body = JSON.stringify(isMuted !== undefined ? { isSpeaking, isMuted } : { isSpeaking });
     this.client!.publish({ destination, body });
   }
 
-  sendSeatHeartbeat(roomId: string, seatNumber: number | string): void {
+  sendSeatHeartbeat(roomId: string): void {
     this._assertConnected();
-    const destination = `/app/room/${roomId}/seat/${seatNumber}/heartbeat`;
+    const destination = `/app/room/${roomId}/seat/heartbeat`;
     this.client!.publish({ destination, body: JSON.stringify({}) });
   }
 

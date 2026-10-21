@@ -1,5 +1,7 @@
-import axios from "axios";
+
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
 import { DeviceEventEmitter } from "react-native";
 import { API_BASE_URL, API_TIMEOUT_MS } from "../config/env";
 import { getDeviceHeaders } from "../utils/deviceHeaders";
@@ -36,7 +38,7 @@ AsyncStorage.multiGet(["@auth_token", "@refresh_token"])
     _s.token = map["@auth_token"] || null;
     _s.refreshToken = map["@refresh_token"] || null;
   })
-  .catch(() => {});
+  .catch(() => { });
 
 export const refreshTokenCache = async () => {
   try {
@@ -234,7 +236,7 @@ API.interceptors.request.use(
       const auth = `Bearer ${token}`;
       if (!config.headers) config.headers = {};
       if (typeof config.headers.set === "function") {
-        try { config.headers.set("Authorization", auth); } catch (_) {}
+        try { config.headers.set("Authorization", auth); } catch (_) { }
       }
       config.headers.Authorization = auth;
     }
@@ -327,13 +329,13 @@ API.interceptors.response.use(
         "@terms_accepted",
         "accessToken",
         "refreshToken",
-      ]).catch(() => {});
+      ]).catch(() => { });
       clearTokenCache();
 
       try {
         const { endLocalSession } = require("../services/authSessionService");
-        await endLocalSession().catch(() => {});
-      } catch {}
+        await endLocalSession().catch(() => { });
+      } catch { }
 
       const banReason =
         responseData?.reason ||
@@ -406,7 +408,7 @@ API.interceptors.response.use(
         const authHeader = `Bearer ${newAccessToken}`;
         if (!originalRequest.headers) originalRequest.headers = {};
         if (typeof originalRequest.headers.set === "function") {
-          try { originalRequest.headers.set("Authorization", authHeader); } catch (_) {}
+          try { originalRequest.headers.set("Authorization", authHeader); } catch (_) { }
         }
         originalRequest.headers.Authorization = authHeader;
         return API(originalRequest);
@@ -426,7 +428,7 @@ API.interceptors.response.use(
           "@refresh_token",
           "@auth_user",
           "@terms_accepted",
-        ]).catch(() => {});
+        ]).catch(() => { });
         _s.onSessionExpired?.();
       }
     }
@@ -453,4 +455,3 @@ API.interceptors.response.use(
 );
 
 export default API;
-

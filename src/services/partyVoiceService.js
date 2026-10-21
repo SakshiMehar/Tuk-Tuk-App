@@ -165,7 +165,7 @@ export const activateMicOnSeat = async (roomId, seatNumber) => {
     isSpeaker: true,
   });
   await toggleSeatMute(roomId, seatNumber, false);
-  wsService.sendSpeakingStatus(String(roomId), true);
+  wsService.sendSpeakingStatus(String(roomId), true, false);
 
   return { uid, seatNumber, tokenData };
 };
@@ -202,7 +202,7 @@ export const toggleMicMute = async (roomId, seatNumber, muted) => {
   await ensureAuthToken();
   await agoraVoice.toggleLocalMute(muted);
   await toggleSeatMute(roomId, seatNumber, muted);
-  wsService.sendSpeakingStatus(String(roomId), !muted);
+  wsService.sendSpeakingStatus(String(roomId), !muted, muted);
 };
 
 export const getVoiceSessionStatus = () => agoraVoice.getVoiceDiagnostics();

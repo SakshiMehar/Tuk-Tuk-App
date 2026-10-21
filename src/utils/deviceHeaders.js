@@ -1,6 +1,6 @@
-import { Platform, NativeModules } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
+import { NativeModules, Platform } from "react-native";
 
 let cachedHeaders = null;
 

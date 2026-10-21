@@ -323,6 +323,12 @@ export const navigateFromNotification = async (router, rawData) => {
     data.link ||
     data.redirectUrl;
 
+  const msgType = (data.type || data.notificationType || "").toUpperCase();
+  if (["CALL_INCOMING", "CALL_ACCEPTED", "CALL_REJECTED", "CALL_ENDED"].includes(msgType)) {
+      console.log("[notificationNavigation] Ignoring call signal payload");
+      return false;
+  }
+
   // 1. Resolve and execute targetUrl action
   if (rawTargetUrl) {
     const action = await resolveTargetAction(rawTargetUrl, data);

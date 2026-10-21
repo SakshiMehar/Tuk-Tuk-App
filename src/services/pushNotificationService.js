@@ -152,6 +152,9 @@ export const initPushNotificationListeners = ({
   const messagingInstance = getMessaging();
 
   const unsubscribeOnMessage = onMessage(messagingInstance, async (remoteMessage) => {
+    console.log("====== FOREGROUND PUSH (FROM SERVICE) ======");
+    console.log(JSON.stringify(remoteMessage, null, 2));
+    
     onForegroundMessage?.({
       title: remoteMessage?.notification?.title ?? "Tuk-Tuk",
       body: remoteMessage?.notification?.body ?? "",

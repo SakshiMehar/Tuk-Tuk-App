@@ -215,7 +215,7 @@ export default function UserProfileView({ user, onBack }) {
       setReportVisible(false);
       Alert.alert("Report submitted", "Thank you for letting us know.");
     } catch (err) {
-      throw new Error(err?.message || "Could not submit report. Please try again.");
+      throw new Error(err?.response?.data?.message || err?.message || "Could not submit report. Please try again.");
     }
   };
 
@@ -461,15 +461,15 @@ export default function UserProfileView({ user, onBack }) {
                         resizeMode="contain"
                       />
                     )}
-                    {decorations?.badgeUrl && (
-                      <Badge
-                        source={resolveImageSource(decorations.badgeUrl)}
-                        aspectRatio={BADGE_ASPECT.verified}
-                      />
-                    )}
                     {profile?.verifiedBadgeUrl && (
                       <Badge
                         source={resolveImageSource(profile.verifiedBadgeUrl)}
+                        aspectRatio={BADGE_ASPECT.verified}
+                      />
+                    )}
+                    {decorations?.badgeUrl && (
+                      <Badge
+                        source={resolveImageSource(decorations.badgeUrl)}
                         aspectRatio={BADGE_ASPECT.verified}
                       />
                     )}

@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config/env";
+import { getDeviceHeaders } from "../utils/deviceHeaders";
 import API, { authRequestConfig } from "./axios";
 import { getDeviceHeaders } from "../utils/deviceHeaders";
 
@@ -15,7 +16,7 @@ const logAuthRequest = (method, path, body) => {
     safeBody.accessToken = maskToken(safeBody.accessToken);
 };
 
-const logAuthResponse = (endpoint, data) => {};
+const logAuthResponse = (endpoint, data) => { };
 
 const logAuthError = (method, path, error) => {
   console.error(
@@ -150,5 +151,3 @@ export const deleteAccount = async ({ reason, additionalComment } = {}) => {
   logAuthResponse("DELETE /api/auth/account", response.data);
   return response.data;
 };
-
-

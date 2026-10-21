@@ -12,9 +12,38 @@ let remoteUid = 0;
 let speakerphoneEnabled = true;
 let statusListeners = new Set();
 
+let currentAudioMixingVolume = 80;
+
+export const setAudioMixingVolume = (volume) => {
+  const vol = Math.max(0, Math.min(100, Math.round(Number(volume) ?? 80)));
+  currentAudioMixingVolume = vol;
+  if (!engine) return currentAudioMixingVolume;
+  try {
+    if (typeof engine.adjustAudioMixingVolume === "function") {
+      engine.adjustAudioMixingVolume(vol);
+    }
+  } catch (err) {}
+  try {
+    if (typeof engine.adjustAudioMixingPlayoutVolume === "function") {
+      engine.adjustAudioMixingPlayoutVolume(vol);
+    }
+    if (typeof engine.adjustAudioMixingPublishVolume === "function") {
+      engine.adjustAudioMixingPublishVolume(vol);
+    }
+  } catch (err) {}
+  return currentAudioMixingVolume;
+};
+
+export const getAudioMixingVolume = () => currentAudioMixingVolume;
+
 export const playAudioForEveryone = (filePath) => {
   if (!engine) return;
   engine.startAudioMixing(filePath, false, 1, 0);
+  try {
+    if (typeof engine.adjustAudioMixingVolume === "function") {
+      engine.adjustAudioMixingVolume(currentAudioMixingVolume);
+    }
+  } catch (err) {}
 };
 
 export const stopAudioForEveryone = () => {
@@ -72,11 +101,11 @@ export const subscribeCallStatus = (listener) => {
   return () => statusListeners.delete(listener);
 };
 
-export const initializeCallEngine = () => {
+export const initializeCallEngine = (appId = AGORA_APP_ID) => {
   if (engine) return engine;
   engine = createAgoraRtcEngine();
   engine.initialize({
-    appId: AGORA_APP_ID,
+    appId: appId || AGORA_APP_ID,
     channelProfile: ChannelProfileType.ChannelProfileLiveBroadcasting
   });
 
@@ -113,9 +142,9 @@ export const initializeCallEngine = () => {
   return engine;
 };
 
-export const startCall = async ({ channelId, uid, isVideo = true }) => {
+export const startCall = async ({ appId, channelId, uid = 0, token = null, isVideo = true }) => {
   await configureAudioSession();
-  const rtc = initializeCallEngine();
+  const rtc = initializeCallEngine(appId);
 
   if (isVideo) {
     rtc.enableVideo();
@@ -137,9 +166,8 @@ export const startCall = async ({ channelId, uid, isVideo = true }) => {
   // Set the client role explicitly before joining
   rtc.setClientRole(ClientRoleType.ClientRoleBroadcaster);
 
-  // We are assuming Testing Mode allows null token.
-  // Use uid: 0 to let Agora dynamically assign a valid integer UID
-  rtc.joinChannel(null, channelId, 0, {
+  // Use uid and token provided by backend
+  rtc.joinChannel(token, channelId, uid, {
     clientRoleType: ClientRoleType.ClientRoleBroadcaster,
     publishMicrophoneTrack: true,
     autoSubscribeAudio: true,
