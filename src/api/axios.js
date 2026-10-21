@@ -2,6 +2,7 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DeviceEventEmitter } from "react-native";
 import { API_BASE_URL, API_TIMEOUT_MS } from "../config/env";
+import { getDeviceHeaders } from "../utils/deviceHeaders";
 
 const API = axios.create({
 
@@ -49,11 +50,130 @@ export const refreshTokenCache = async () => {
   }
 };
 
-export const getBearerToken = async () => {
+const decodeBase64 = (input) => {
+  if (typeof globalThis.atob === "function") {
+    return globalThis.atob(input);
+  }
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let str = input.replace(/=+$/, "");
+  let output = "";
+  for (let bc = 0, bs = 0, buffer, i = 0; (buffer = str.charAt(i++)); ) {
+    const idx = chars.indexOf(buffer);
+    if (idx === -1) continue;
+    bs = bc % 4 ? bs * 64 + idx : idx;
+    if (bc++ % 4) {
+      output += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6)));
+    }
+  }
+  return output;
+};
+
+export const isJwtExpired = (token, thresholdSeconds = 60) => {
+  if (!token || typeof token !== "string") return true;
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return true;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const decoded = decodeBase64(padded);
+    const payload = JSON.parse(decoded);
+    if (!payload?.exp) return false;
+    return Math.floor(Date.now() / 1000) >= payload.exp - thresholdSeconds;
+  } catch {
+    return false;
+  }
+};
+
+export const refreshAuthToken = async () => {
+  if (_s.refreshPromise) {
+    return _s.refreshPromise;
+  }
+  _s.refreshPromise = (async () => {
+    try {
+      let rToken = _s.refreshToken;
+      if (!rToken) {
+        rToken = await AsyncStorage.getItem("@refresh_token");
+      }
+      if (!rToken) {
+        throw new Error("No refresh token available");
+      }
+
+      const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+
+      const res = await axios.post(
+        `${API_BASE_URL}/api/auth/refresh-token`,
+        { refreshToken: rToken },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            ...deviceHeaders,
+          },
+          timeout: API_TIMEOUT_MS,
+        }
+      );
+
+      const data = res?.data || {};
+      const newAccessToken = data.accessToken || data.token;
+      const newRefreshToken = data.refreshToken;
+
+      if (!newAccessToken) {
+        throw new Error("Token refresh response missing accessToken");
+      }
+
+      const pairs = [["@auth_token", String(newAccessToken)]];
+      if (newRefreshToken) {
+        pairs.push(["@refresh_token", String(newRefreshToken)]);
+      }
+      await AsyncStorage.multiSet(pairs);
+
+      _s.token = String(newAccessToken);
+      if (newRefreshToken) {
+        _s.refreshToken = String(newRefreshToken);
+      }
+      _s.handlingUnauth = false;
+      return String(newAccessToken);
+    } catch (refreshErr) {
+      _s.token = null;
+      _s.refreshToken = null;
+      await AsyncStorage.multiRemove([
+        "@auth_token",
+        "@refresh_token",
+        "@auth_user",
+        "@terms_accepted",
+      ]).catch(() => {});
+      if (!_s.handlingUnauth) {
+        _s.handlingUnauth = true;
+        _s.onSessionExpired?.();
+      }
+      throw refreshErr;
+    } finally {
+      _s.refreshPromise = null;
+    }
+  })();
+  return _s.refreshPromise;
+};
+
+export const getValidAuthToken = async () => {
   if (!_s.token) {
     await refreshTokenCache();
   }
-  return _s.token;
+  let token = _s.token;
+  if (!token) return null;
+
+  if (isJwtExpired(token, 60)) {
+    console.log("[axios] Stored access token is expired, refreshing via refresh-token...");
+    try {
+      token = await refreshAuthToken();
+    } catch (err) {
+      console.warn("[axios] Proactive token refresh failed:", err?.message || err);
+      return null;
+    }
+  }
+  return token;
+};
+
+export const getBearerToken = async () => {
+  return getValidAuthToken();
 };
 
 /** Merge Authorization into axios/fetch config (RN-safe). */
@@ -93,6 +213,19 @@ API.interceptors.request.use(
       delete config.headers["Content-Type"];
       delete config.headers["content-type"];
     }
+
+    try {
+      const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+      if (!config.headers) config.headers = {};
+      Object.entries(deviceHeaders).forEach(([k, v]) => {
+        if (!config.headers[k]) {
+          if (typeof config.headers.set === "function") {
+            try { config.headers.set(k, v); } catch (_) {}
+          }
+          config.headers[k] = v;
+        }
+      });
+    } catch (_) {}
 
     const token = await getBearerToken();
     _s.token = token;
@@ -202,16 +335,23 @@ API.interceptors.response.use(
         await endLocalSession().catch(() => {});
       } catch {}
 
-      const banReason = responseData?.reason || responseData?.message || "Your account has been banned.";
+      const banReason =
+        responseData?.reason ||
+        responseData?.error ||
+        responseData?.message ||
+        "Violation of community guidelines";
+      const banMessage =
+        responseData?.message ||
+        "Your account has been banned due to a violation of our community guidelines.";
+
+      // Display popup modal instantly on screen
       DeviceEventEmitter.emit("userBanned", {
         type: "USER_BANNED",
+        message: banMessage,
         reason: banReason,
+        userId: responseData?.userId,
+        button: responseData?.button || responseData?.buttonText || "Close",
       });
-
-      if (!_s.handlingUnauth) {
-        _s.handlingUnauth = true;
-        _s.onSessionExpired?.("USER_BANNED", banReason);
-      }
 
       const banErr = new Error(banReason);
       banErr.status = status;
@@ -220,72 +360,49 @@ API.interceptors.response.use(
       return Promise.reject(banErr);
     }
 
+    // ── Handle HTTP 403 / DEVICE_BLOCKED response ────────────────
+    const isDeviceBlocked =
+      status === 403 ||
+      responseData?.code === "DEVICE_BLOCKED" ||
+      responseData?.error === "DEVICE_BLOCKED" ||
+      /device.*(block|ban|restrict|denied)/i.test(
+        String(responseData?.message || responseData?.error || "")
+      );
+
+    if (isDeviceBlocked) {
+      console.warn("[axios] Device blocked / 403 response detected:", responseData);
+      const blockedReason =
+        responseData?.reason ||
+        responseData?.error ||
+        responseData?.message ||
+        "Device blocked due to suspicious activity";
+      const blockedMessage =
+        responseData?.message ||
+        "Your device has been blocked by the administrator.";
+
+      // Display non-cancelable blocking modal on the current screen without navigating away
+      DeviceEventEmitter.emit("deviceBlockedModal", {
+        type: "DEVICE_BLOCKED",
+        deviceId: responseData?.deviceId,
+        message: blockedMessage,
+        reason: blockedReason,
+        button: responseData?.button || responseData?.buttonText || "Close",
+      });
+
+      const blockedErr = new Error(blockedReason);
+      blockedErr.status = status || 403;
+      blockedErr.isDeviceBlocked = true;
+      blockedErr.responseData = responseData;
+      blockedErr.requestUrl = requestUrl;
+      return Promise.reject(blockedErr);
+    }
+
     // ── 401: Automatic Token Refresh ────────────────────────────
     if (status === 401 && !skipRefresh && originalRequest) {
       originalRequest._retry = true;
 
-      if (!_s.refreshPromise) {
-        _s.refreshPromise = (async () => {
-          try {
-            let rToken = _s.refreshToken;
-            if (!rToken) {
-              rToken = await AsyncStorage.getItem("@refresh_token");
-            }
-            if (!rToken) {
-              throw new Error("No refresh token available");
-            }
-
-            const res = await axios.post(
-              `${API_BASE_URL}/api/auth/refresh-token`,
-              { refreshToken: rToken },
-              {
-                headers: { "Content-Type": "application/json" },
-                timeout: API_TIMEOUT_MS,
-              }
-            );
-
-            const data = res?.data || {};
-            const newAccessToken = data.accessToken || data.token;
-            const newRefreshToken = data.refreshToken;
-
-            if (!newAccessToken) {
-              throw new Error("Token refresh response missing accessToken");
-            }
-
-            const pairs = [["@auth_token", String(newAccessToken)]];
-            if (newRefreshToken) {
-              pairs.push(["@refresh_token", String(newRefreshToken)]);
-            }
-            await AsyncStorage.multiSet(pairs);
-
-            _s.token = String(newAccessToken);
-            if (newRefreshToken) {
-              _s.refreshToken = String(newRefreshToken);
-            }
-            _s.handlingUnauth = false;
-            return String(newAccessToken);
-          } catch (refreshErr) {
-            _s.token = null;
-            _s.refreshToken = null;
-            await AsyncStorage.multiRemove([
-              "@auth_token",
-              "@refresh_token",
-              "@auth_user",
-              "@terms_accepted",
-            ]).catch(() => {});
-            if (!_s.handlingUnauth) {
-              _s.handlingUnauth = true;
-              _s.onSessionExpired?.();
-            }
-            throw refreshErr;
-          } finally {
-            _s.refreshPromise = null;
-          }
-        })();
-      }
-
       try {
-        const newAccessToken = await _s.refreshPromise;
+        const newAccessToken = await refreshAuthToken();
         const authHeader = `Bearer ${newAccessToken}`;
         if (!originalRequest.headers) originalRequest.headers = {};
         if (typeof originalRequest.headers.set === "function") {

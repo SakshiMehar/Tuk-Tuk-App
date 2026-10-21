@@ -21,6 +21,8 @@ import { followUser } from "../src/services/relationshipService";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { VIP_TIER_THRESHOLDS, resolveVipTierFromAssetUrl } from "../src/constants/vip";
+import LiveBadge from "./LiveBadge";
+import { isUserLive } from "../src/utils/liveStatus";
 
 // Same per-tier VIP "logo" crest used as the small VIP badge on
 // UserProfileView / RoomUserProfilePopup — distinct from the profile-frame
@@ -516,12 +518,17 @@ export default function FindFriends() {
                 colors={["transparent", "rgba(13,6,24,0.95)"]}
                 style={styles.matchOverlay}
               />
-              {card.isOnline && (
+              {isUserLive(card) ? (
+                <View style={styles.matchOnlinePill}>
+                  <View style={[styles.matchOnlineDot, { backgroundColor: "#00e676" }]} />
+                  <Text style={[styles.matchOnlineText, { color: "#4eff91" }]}>Live</Text>
+                </View>
+              ) : card.isOnline ? (
                 <View style={styles.matchOnlinePill}>
                   <View style={styles.matchOnlineDot} />
                   <Text style={styles.matchOnlineText}>Online</Text>
                 </View>
-              )}
+              ) : null}
               {typeof card.matchScore === "number" && card.matchScore > 0 && (
                 <View style={styles.matchScorePill}>
                   <Text style={styles.matchScoreText}>✨ {card.matchScore} match{card.matchScore > 1 ? "es" : ""}</Text>

@@ -103,6 +103,7 @@ export default function RoomUserProfilePopup({
   targetIsAdmin = false,
   role = null,
   countryFlag = null,
+  isLive = null,
   onClose,
   onFollowToggle,
   onChat,
@@ -318,6 +319,7 @@ export default function RoomUserProfilePopup({
             <View style={styles.avatarGlowWrapper}>
               <ProfileAvatarWithFrame
                 user={user}
+                isLive={isLive}
                 avatarSource={resolvedAvatarSource}
                 frameSource={frameSource}
                 size={AVATAR_SIZE}

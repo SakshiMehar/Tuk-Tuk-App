@@ -61,10 +61,10 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
     try {
       const loader = LOADERS[type];
       const list = await loader();
+      console.log(`[ProfileConnectionsModal] Loaded ${type} users list (${list?.length ?? 0} users):`, list);
       setUsers(list);
-      
     } catch (err) {
-      
+      console.error(`[ProfileConnectionsModal] Failed to load ${type} users list:`, err);
       setError(err?.message || "Could not load list.");
       setUsers([]);
     } finally {
@@ -103,29 +103,25 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
         onPress={() => handleUserPress(item)}
       >
         <View style={styles.avatarWrap}>
-          {item.avatar ? (
-            <ProfileAvatarWithFrame
-              avatarSource={{ uri: item.avatar }}
-              frameSource={item.vipProfileFrameUrl}
-              size={48}
-              avatarStyle={styles.avatarImg}
-              {...(item.vipProfileFrameUrl
-                ? {
-                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                  }
-                : {})}
-            />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Ionicons name="person" size={22} color="#a78bfa" />
-            </View>
-          )}
+          <ProfileAvatarWithFrame
+            user={item}
+            avatarSource={item.avatar ? { uri: item.avatar } : undefined}
+            frameSource={item.vipProfileFrameUrl}
+            size={48}
+            avatarStyle={styles.avatarImg}
+            placeholderInitial={item.name?.[0]?.toUpperCase() ?? "?"}
+            {...(item.vipProfileFrameUrl
+              ? {
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
+              : {})}
+          />
           {item.online && <View style={styles.onlineDot} />}
         </View>
         <View style={styles.rowInfo}>

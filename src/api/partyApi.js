@@ -353,6 +353,14 @@ export const getRoomChatMessages = async (roomId) => {
   return response.data;
 };
 
+export const deleteRoomChatMessages = async (roomId) => {
+  const response = await API.delete(
+    `/api/v1/tuktuk/rooms/${roomId}/chat/messages`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
 export const claimSeat = async (roomId, seatNumber, profile) => {
   const body = { profile };
   const response = await API.post(

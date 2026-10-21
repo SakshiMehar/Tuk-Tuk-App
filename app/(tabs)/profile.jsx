@@ -3,7 +3,7 @@ import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -41,6 +41,8 @@ import { refreshTokenCache } from "../../src/api/axios";
 import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
 import { APP_BG, APP_CARD, APP_CARD_BORDER, APP_PURPLE, APP_TEXT, APP_TEXT_DIM, APP_TEXT_MUTED, DIAMOND_ICON_URL } from "../../src/constants/theme";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import { useUserOnlineOrLiveStatus } from "../../src/utils/liveStatus";
+import { wsService } from "../../src/services/websocket";
 import {
   avatarMap,
   DEFAULT_AVATAR_ID,
@@ -1100,6 +1102,7 @@ export default function Profile() {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [connectionsListType, setConnectionsListType] = useState(null);
   const [diamondRechargeVisible, setDiamondRechargeVisible] = useState(false);
+  const [rechargeInitialTab, setRechargeInitialTab] = useState("diamonds");
   const [menuPage, setMenuPage] = useState(0);
   const [activeTab, setActiveTab] = useState("Moment");
   const [giftTab, setGiftTab] = useState("Receive");
@@ -1137,6 +1140,15 @@ export default function Profile() {
     profilePicUrl,
   });
 
+  const localProfileUser = useMemo(() => ({ id: userId, userId, name }), [userId, name]);
+  const isOnline = useUserOnlineOrLiveStatus(localProfileUser);
+
+  useFocusEffect(
+    useCallback(() => {
+      wsService.connect().catch(() => {});
+    }, [])
+  );
+
   // Menu modal state
   const [activeMenu, setActiveMenu] = useState(null);
   const [profileFeedback, setProfileFeedback] = useState("");
@@ -1172,9 +1184,19 @@ export default function Profile() {
   }, [activeMenu, refreshSavedUsers]);
 
   useEffect(() => {
-    if (activeMenu?.label !== "Wallet") return;
+    if (activeMenu?.label !== "Wallet" && !diamondRechargeVisible) return;
     refreshWalletBalance();
-  }, [activeMenu]);
+  }, [activeMenu, diamondRechargeVisible]);
+
+  const handleMenuPress = useCallback((item) => {
+    if (item?.label === "Wallet") {
+      setRechargeInitialTab("diamonds");
+      refreshWalletBalance();
+      setDiamondRechargeVisible(true);
+      return;
+    }
+    setActiveMenu(item);
+  }, []);
 
   const loadMyPosts = useCallback(async () => {
     setMyPostsLoading(true);
@@ -1547,6 +1569,8 @@ export default function Profile() {
               >
                 {u.avatarUrl ? (
                   <ProfileAvatarWithFrame
+                    user={u}
+                    isOnline={u.isOnline}
                     avatarSource={{ uri: u.avatarUrl }}
                     frameSource={u.vipProfileFrameUrl}
                     size={48}
@@ -2082,7 +2106,10 @@ export default function Profile() {
             <TouchableOpacity
               style={styles.plusBtn}
               activeOpacity={0.85}
-              onPress={() => setDiamondRechargeVisible(true)}
+              onPress={() => {
+                setRechargeInitialTab("diamonds");
+                setDiamondRechargeVisible(true);
+              }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <FontAwesome name="plus" size={10} color="white" />
@@ -2090,7 +2117,15 @@ export default function Profile() {
           </View>
 
           {/* Coin counter */}
-          <TouchableOpacity style={styles.counterPill} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.counterPill}
+            activeOpacity={0.8}
+            onPress={() => {
+              setRechargeInitialTab("golds");
+              refreshWalletBalance();
+              setDiamondRechargeVisible(true);
+            }}
+          >
             <View style={[styles.counterIconWrap, styles.coinIconWrap]}>
               <Text style={styles.counterEmoji}>🪙</Text>
             </View>
@@ -2165,6 +2200,8 @@ export default function Profile() {
             {/* Avatar with frame */}
             <View style={styles.profilePicWrapper}>
               <ProfileAvatarWithFrame
+                user={localProfileUser}
+                isOnline={isOnline}
                 avatarSource={avatarSource}
                 frameSource={decorations.frameUrl ?? vipAssets.profileFrame ?? newUserFrameSource}
                 size={s(72)}
@@ -2223,6 +2260,12 @@ export default function Profile() {
                 <View style={styles.idPill}>
                   <Text allowFontScaling={false} style={styles.userId}>ID {userId ?? "—"}</Text>
                 </View>
+                {isOnline && (
+                  <View style={styles.onlineStatusPill}>
+                    <View style={styles.onlineStatusDot} />
+                    <Text style={styles.onlineStatusText}>Online</Text>
+                  </View>
+                )}
                 {userGender === "Male" && (
                   <View style={styles.genderPillMale}>
                     <Text style={styles.genderSymbolMale}>♂</Text>
@@ -2336,12 +2379,12 @@ export default function Profile() {
               <View key={pageIndex} style={styles.menuPage}>
                 <View style={styles.menuRow}>
                   {page.slice(0, 4).map((item) => (
-                    <MenuGridButton key={item.label} item={item} onPress={() => setActiveMenu(item)} />
+                    <MenuGridButton key={item.label} item={item} onPress={() => handleMenuPress(item)} />
                   ))}
                 </View>
                 <View style={styles.menuRow}>
                   {page.slice(4, 8).map((item) => (
-                    <MenuGridButton key={item.label} item={item} onPress={() => setActiveMenu(item)} />
+                    <MenuGridButton key={item.label} item={item} onPress={() => handleMenuPress(item)} />
                   ))}
                 </View>
               </View>
@@ -2697,8 +2740,13 @@ export default function Profile() {
 
       <DiamondRechargeModal
         visible={diamondRechargeVisible}
-        onClose={() => setDiamondRechargeVisible(false)}
+        onClose={() => {
+          setDiamondRechargeVisible(false);
+          refreshWalletBalance();
+        }}
         currentDiamonds={walletDiamonds}
+        currentCoins={walletCoins}
+        initialTab={rechargeInitialTab}
       />
 
       {/* Edit modal */}
@@ -3050,6 +3098,29 @@ const styles = StyleSheet.create({
   editText: {
     color: APP_PURPLE,
     fontSize: 12,
+    fontWeight: "600",
+  },
+  onlineStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 230, 118, 0.12)",
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(0, 230, 118, 0.35)",
+    gap: 4,
+    marginLeft: 6,
+  },
+  onlineStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#00e676",
+  },
+  onlineStatusText: {
+    color: "#00c853",
+    fontSize: 11,
     fontWeight: "600",
   },
   idRow: {

@@ -2,10 +2,11 @@ import { AntDesign, FontAwesome, FontAwesome5 } from "@expo/vector-icons";
 import MaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   ScrollView,
   StatusBar,
@@ -14,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import FacebookLoginWebViewModal from "../Components/FacebookLoginWebViewModal";
 import { googleLogin } from "../src/api/authApi";
 import { getUsersCount } from "../src/api/userApi";
@@ -50,6 +52,18 @@ export default function Login() {
   const [facebookWebView, setFacebookWebView] = useState(null);
   const [userCount, setUserCount] = useState(null);
   const [inviteCode, setInviteCode] = useState("");
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        // Prevent the user from reopening authenticated screens using the back button
+        BackHandler.exitApp();
+        return true;
+      };
+      const sub = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+      return () => sub.remove();
+    }, [])
+  );
 
   useEffect(() => {
     configureGoogleSignIn();

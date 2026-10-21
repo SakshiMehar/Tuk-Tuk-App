@@ -57,6 +57,8 @@ import ComingSoonModal from "./ComingSoonModal";
 import CreateRoomModal from "./CreateRoomModal";
 import LevelGateModal from "./LevelGateModal";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+import { isUserLive } from "../src/utils/liveStatus";
+import { wsService } from "../src/services/websocket";
 
 const MIN_CREATE_ROOM_LEVEL = 5;
 
@@ -423,6 +425,7 @@ export default function PartyExplore() {
     let cancelled = false;
     getRecommendedUsers()
       .then((users) => {
+        console.log(`[PartyExplore] Recommended users list response (${users?.length ?? 0} users):`, users);
         if (!cancelled) {
           setRecommendedUsers(users);
           (users ?? []).forEach((u) => {
@@ -439,8 +442,34 @@ export default function PartyExplore() {
           });
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error("[PartyExplore] Failed to fetch recommended users list:", err);
+      });
     return () => { cancelled = true; };
+  }, []);
+
+  // Real-time presence updates for recommended users (/topic/presence)
+  useEffect(() => {
+    const unsub = wsService.onPresence((event) => {
+      if (!event || event.userId == null) return;
+      const targetId = String(event.userId);
+      const isOnline = Boolean(event.isOnline ?? event.online);
+      setRecommendedUsers((prev) =>
+        prev.map((user) => {
+          const uid = String(user?.id ?? user?.userId ?? "");
+          if (uid === targetId) {
+            return {
+              ...user,
+              isOnline,
+              online: isOnline,
+              status: isOnline ? "ONLINE" : "OFFLINE",
+            };
+          }
+          return user;
+        })
+      );
+    });
+    return unsub;
   }, []);
 
   // Load ranking whenever the modal opens or the period changes.
@@ -450,9 +479,11 @@ export default function PartyExplore() {
     setRankingLoading(true);
     loadPartyRanking(rankingPeriod)
       .then((list) => {
+        console.log(`[PartyExplore] Party ranking users list response (${list?.length ?? 0} users):`, list);
         if (!cancelled) setRankingList(list);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[PartyExplore] Failed to fetch party ranking users list:", err);
         if (!cancelled) setRankingList([]);
       })
       .finally(() => {
@@ -840,34 +871,29 @@ export default function PartyExplore() {
                         end={{ x: 1, y: 1 }}
                         style={styles.recommendRing}
                       >
-                        {user.avatar ? (
-                          <ProfileAvatarWithFrame
-                            avatarSource={{ uri: user.avatar }}
-                            frameSource={user.vipProfileFrameUrl}
-                            size={53}
-                            avatarStyle={{ borderRadius: 26, borderWidth: 2, borderColor: THEME.bg }}
-                            {...(user.vipProfileFrameUrl
-                              ? {
-                                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                                }
-                              : {})}
-                          />
-                        ) : (
-                          <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
-                            <Text style={styles.recommendInitial}>
-                              {user.name?.[0]?.toUpperCase() ?? "?"}
-                            </Text>
-                          </View>
-                        )}
+                        <ProfileAvatarWithFrame
+                          user={user}
+                          isLive={isUserLive(user)}
+                          avatarSource={user.avatar ? { uri: user.avatar } : undefined}
+                          frameSource={user.vipProfileFrameUrl}
+                          size={53}
+                          avatarStyle={{ borderRadius: 26, borderWidth: 2, borderColor: THEME.bg }}
+                          placeholderInitial={user.name?.[0]?.toUpperCase() ?? "?"}
+                          {...(user.vipProfileFrameUrl
+                            ? {
+                                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                              }
+                            : {})}
+                        />
                       </LinearGradient>
                       <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
-                      {(levelBadge || vipLogo || decorationBadge || user?.verifiedBadgeUrl) && (
+                      {/* {(levelBadge || vipLogo || decorationBadge || user?.verifiedBadgeUrl) && (
                         <View style={styles.recommendBadgeRow}>
                           {levelBadge && (
                             <Image
@@ -898,7 +924,7 @@ export default function PartyExplore() {
                             />
                           )}
                         </View>
-                      )}
+                      )} */}
                     </TouchableOpacity>
                     );
                   })}
@@ -971,29 +997,26 @@ export default function PartyExplore() {
                       >
                         <Text style={styles.podiumMedal}>{cfg.medal}</Text>
                         <LinearGradient colors={cfg.ring} style={[styles.podiumRing, { width: cfg.size, height: cfg.size, borderRadius: cfg.size / 2 }]}>
-                          {entry.avatar ? (
-                            <ProfileAvatarWithFrame
-                              avatarSource={{ uri: entry.avatar }}
-                              frameSource={entry.vipProfileFrameUrl}
-                              size={cfg.size - 6}
-                              avatarStyle={{ borderRadius: 999, borderWidth: 2, borderColor: THEME.bg }}
-                              {...(entry.vipProfileFrameUrl
-                                ? {
-                                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                                  }
-                                : {})}
-                            />
-                          ) : (
-                            <View style={[styles.podiumAvatar, styles.avatarPlaceholder]}>
-                              <Text style={styles.avatarInitial}>{entry.name?.[0]?.toUpperCase() ?? "?"}</Text>
-                            </View>
-                          )}
+                          <ProfileAvatarWithFrame
+                            user={entry}
+                            isLive={isUserLive(entry)}
+                            avatarSource={entry.avatar ? { uri: entry.avatar } : undefined}
+                            frameSource={entry.vipProfileFrameUrl}
+                            size={cfg.size - 6}
+                            avatarStyle={{ borderRadius: 999, borderWidth: 2, borderColor: THEME.bg }}
+                            placeholderInitial={entry.name?.[0]?.toUpperCase() ?? "?"}
+                            {...(entry.vipProfileFrameUrl
+                              ? {
+                                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                                }
+                              : {})}
+                          />
                         </LinearGradient>
                         <Text style={styles.podiumName} numberOfLines={1}>{entry.name}</Text>
                         <Text style={styles.podiumScore}>{entry.score} 💎</Text>
@@ -1006,29 +1029,26 @@ export default function PartyExplore() {
                 {restRanking.map((entry) => (
                   <View key={String(entry.id)} style={styles.rankRow}>
                     <Text style={styles.rankNumber}>{entry.rank}</Text>
-                    {entry.avatar ? (
-                      <ProfileAvatarWithFrame
-                        avatarSource={{ uri: entry.avatar }}
-                        frameSource={entry.vipProfileFrameUrl}
-                        size={44}
-                        avatarStyle={styles.rankAvatar}
-                        {...(entry.vipProfileFrameUrl
-                          ? {
-                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                            }
-                          : {})}
-                      />
-                    ) : (
-                      <View style={[styles.rankAvatar, styles.avatarPlaceholder]}>
-                        <Text style={styles.avatarInitial}>{entry.name?.[0]?.toUpperCase() ?? "?"}</Text>
-                      </View>
-                    )}
+                    <ProfileAvatarWithFrame
+                      user={entry}
+                      isLive={isUserLive(entry)}
+                      avatarSource={entry.avatar ? { uri: entry.avatar } : undefined}
+                      frameSource={entry.vipProfileFrameUrl}
+                      size={44}
+                      avatarStyle={styles.rankAvatar}
+                      placeholderInitial={entry.name?.[0]?.toUpperCase() ?? "?"}
+                      {...(entry.vipProfileFrameUrl
+                        ? {
+                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                            frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                            frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                            frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                            avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                          }
+                        : {})}
+                    />
                     <View style={styles.rankInfo}>
                       <Text style={styles.rankName} numberOfLines={1}>{entry.name}</Text>
                       {entry.level != null && (
@@ -1873,8 +1893,8 @@ const styles = StyleSheet.create({
   recommendName: {
     marginTop: 6,
     fontSize: 11,
-    fontWeight: "600",
-    color: "rgba(255,255,255,0.75)",
+    fontWeight: "400",
+    color: "black",
     textAlign: "center",
     maxWidth: 72,
   },

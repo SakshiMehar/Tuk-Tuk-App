@@ -122,21 +122,61 @@ const normalizeConversation = (conversation) => {
       peer?.countryName,
       peer?.country
     ),
+    officialSender: Boolean(
+      conversation?.officialSender ||
+      conversation?.isOfficial ||
+      conversation?.official ||
+      lastMessage?.officialSender ||
+      lastMessage?.isOfficial ||
+      peer?.officialSender ||
+      peer?.isOfficial ||
+      peer?.official ||
+      peer?.name === "Tuk Tuk Team" ||
+      peer?.senderName === "Tuk Tuk Team" ||
+      conversation?.name === "Tuk Tuk Team" ||
+      conversation?.title === "Tuk Tuk Team" ||
+      conversation?.senderName === "Tuk Tuk Team" ||
+      String(peer?.userId ?? peer?.id ?? conversation?.userId ?? conversation?.peerId ?? "") === "100005"
+    ),
   };
 };
 
-const normalizeMessage = (message) => ({
-  ...message,
-  messageId: firstValue(message?.messageId, message?.id, message?._id),
-  senderId: firstValue(message?.senderId, message?.fromUserId),
-  receiverId: firstValue(message?.receiverId, message?.toUserId),
-  content: firstText(message?.content, message?.text, message?.message, message?.body) ?? "",
-  imageUrl: firstText(message?.imageUrl, message?.image, message?.mediaUrl, message?.attachmentUrl, message?.attachment) ?? null,
-  audioUrl: firstText(message?.audioUrl, message?.audio, message?.voiceUrl, message?.voiceNoteUrl) ?? null,
-  audioDuration: firstNumber(message?.audioDuration, message?.duration, message?.audioDurationMs) ?? 0,
-  timestamp: firstText(message?.timestamp, message?.createdAt, message?.sentAt) ?? "",
-  status: message?.status ?? "MESSAGE_SENT",
-});
+const normalizeMessage = (message) => {
+  const mediaList = Array.isArray(message?.media) ? message.media : [];
+  const imageMedia = mediaList.find((m) => m?.type === "IMAGE" || m?.mediaType === "IMAGE") ?? mediaList[0];
+  const audioMedia = mediaList.find((m) => m?.type === "AUDIO" || m?.mediaType === "AUDIO");
+
+  return {
+    ...message,
+    messageId: firstValue(message?.messageId, message?.id, message?._id),
+    senderId: firstValue(message?.senderId, message?.fromUserId),
+    receiverId: firstValue(message?.receiverId, message?.toUserId),
+    content: firstText(message?.content, message?.text, message?.message, message?.body) ?? "",
+    imageUrl:
+      firstText(
+        message?.imageUrl,
+        message?.image,
+        message?.mediaUrl,
+        imageMedia?.mediaUrl,
+        imageMedia?.url,
+        message?.attachmentUrl,
+        message?.attachment
+      ) ?? null,
+    audioUrl:
+      firstText(
+        message?.audioUrl,
+        message?.audio,
+        message?.voiceUrl,
+        audioMedia?.mediaUrl,
+        audioMedia?.url,
+        message?.voiceNoteUrl
+      ) ?? null,
+    audioDuration: firstNumber(message?.audioDuration, message?.duration, message?.audioDurationMs) ?? 0,
+    timestamp: firstText(message?.timestamp, message?.createdAt, message?.sentAt) ?? "",
+    status: message?.status ?? "MESSAGE_SENT",
+    officialSender: Boolean(message?.officialSender),
+  };
+};
 
 export const loadConversations = async () => {
   const data = await getChats();

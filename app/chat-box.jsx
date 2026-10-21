@@ -5,6 +5,13 @@ export default function ChatBoxScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
+  const isOfficial = Boolean(
+    params.officialSender === "true" ||
+    params.officialSender === true ||
+    params.name === "Tuk Tuk Team" ||
+    String(params.userId ?? params.id ?? "") === "100005"
+  );
+
   const user = {
     userId: params.userId ?? params.id ?? null,
     name: params.name ?? "User",
@@ -12,6 +19,7 @@ export default function ChatBoxScreen() {
     avatar: params.avatar ? decodeURIComponent(params.avatar) : null,
     lastMsg: params.lastMsg ?? "",
     level: params.level ? Number(params.level) : null,
+    officialSender: isOfficial,
   };
 
 

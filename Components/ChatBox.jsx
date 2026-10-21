@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
   ArrowLeft,
+  ChevronRight,
   Gift,
   HelpCircle,
   ImageIcon,
@@ -71,6 +72,47 @@ const resolveImageUriSource = (uri) => {
   return /ngrok-free\.dev|ngrok\.io/i.test(uri)
     ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
     : { uri };
+};
+
+const formatOfficialDateTime = (dateValue) => {
+  if (!dateValue) return "";
+  const d = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (isNaN(d.getTime())) return "";
+
+  const month = d.getMonth() + 1;
+  const day = d.getDate();
+  const year = d.getFullYear();
+
+  let hours = d.getHours();
+  const minutes = d.getMinutes().toString().padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+
+  return `${month}/${day}/${year} ${hours}:${minutes} ${ampm}`;
+};
+
+const parseOfficialMessage = (msg) => {
+  const directTitle = msg?.title ?? msg?.subject ?? msg?.heading;
+  const rawBody = msg?.body ?? msg?.text ?? msg?.message ?? "";
+  if (directTitle) {
+    const cleanTitle = String(directTitle).trim();
+    const cleanBody = rawBody && rawBody !== cleanTitle ? String(rawBody).trim() : "";
+    return { title: cleanTitle, body: cleanBody };
+  }
+
+  const raw = String(rawBody).trim();
+  const idx = raw.indexOf("\n");
+  if (idx !== -1) {
+    const title = raw.slice(0, idx).trim();
+    const body = raw.slice(idx).trim();
+    return { title, body };
+  }
+
+  if (raw.length <= 40) {
+    return { title: raw, body: "" };
+  }
+  return { title: "", body: raw };
 };
 
 const AudioPlayer = ({ uri, durationMs, fromMe }) => {
@@ -195,6 +237,7 @@ export default function ChatBox({ user = {}, onBack }) {
     name = "User",
     avatar = null,
     lastMsg = "",
+    officialSender = false,
   } = user;
   const router = useRouter();
   const handleAvatarPress = () => {
@@ -205,6 +248,22 @@ export default function ChatBox({ user = {}, onBack }) {
   const [showBanner, setShowBanner] = useState(true);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
+
+  const isOfficialChat = Boolean(
+    officialSender ||
+    user?.officialSender ||
+    user?.isOfficial ||
+    user?.official ||
+    name === "Tuk Tuk Team" ||
+    user?.name === "Tuk Tuk Team" ||
+    String(userId) === "100005" ||
+    messages.some((m) => m?.officialSender)
+  );
+
+  const handleOfficialAction = (msg) => {
+    Alert.alert(msg?.senderName || name || "Official Notice", msg?.text || "Check details");
+  };
+
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
@@ -374,15 +433,24 @@ export default function ChatBox({ user = {}, onBack }) {
     endCallLocal();
   };
 
-  const mapApiMessage = (m, currentUserId) => ({
-    id: String(m.messageId ?? m.id ?? Date.now()),
-    text: m.content ?? m.message ?? m.text ?? "",
-    image: m.imageUrl ?? m.image ?? m.media?.find(media => (media.type === 'IMAGE' || media.mediaType === 'IMAGE'))?.url ?? m.media?.find(media => (media.type === 'IMAGE' || media.mediaType === 'IMAGE'))?.mediaUrl ?? null,
-    audio: m.audioUrl ?? m.audio ?? m.media?.find(media => (media.type === 'AUDIO' || media.mediaType === 'AUDIO'))?.url ?? m.media?.find(media => (media.type === 'AUDIO' || media.mediaType === 'AUDIO'))?.mediaUrl ?? null,
-    audioDuration: m.audioDuration ?? 0,
-    fromMe: String(m.senderId) === String(currentUserId),
-    time: m.timestamp || m.createdAt ? new Date(m.timestamp || m.createdAt) : new Date(),
-  });
+  const mapApiMessage = (m, currentUserId) => {
+    const mediaList = Array.isArray(m?.media) ? m.media : [];
+    const imageMedia = mediaList.find((media) => (media?.type === 'IMAGE' || media?.mediaType === 'IMAGE')) ?? mediaList[0];
+    const audioMedia = mediaList.find((media) => (media?.type === 'AUDIO' || media?.mediaType === 'AUDIO'));
+    const isOfficial = Boolean(m?.officialSender || m?.isOfficial);
+
+    return {
+      id: String(m.messageId ?? m.id ?? Date.now()),
+      text: m.content ?? m.message ?? m.text ?? "",
+      image: m.imageUrl ?? m.image ?? imageMedia?.mediaUrl ?? imageMedia?.url ?? null,
+      audio: m.audioUrl ?? m.audio ?? audioMedia?.mediaUrl ?? audioMedia?.url ?? null,
+      audioDuration: m.audioDuration ?? 0,
+      fromMe: isOfficial ? false : String(m.senderId) === String(currentUserId),
+      officialSender: isOfficial,
+      senderName: m.senderName ?? null,
+      time: m.timestamp || m.createdAt ? new Date(m.timestamp || m.createdAt) : new Date(),
+    };
+  };
 
   // Loads the message history for this conversation from the server.
   // Extracted so both the initial mount and the "Retry" tap (shown when a
@@ -525,7 +593,8 @@ export default function ChatBox({ user = {}, onBack }) {
       if (!text && !image && !audio) return;
 
       const id = String(payload?.messageId ?? payload?.id ?? `ws-${Date.now()}`);
-      const fromMe = String(senderId) === String(myUserId);
+      const isOfficial = Boolean(payload?.officialSender || payload?.isOfficial);
+      const fromMe = isOfficial ? false : String(senderId) === String(myUserId);
 
       setMessages((prev) => {
         // Skip duplicate real IDs
@@ -550,7 +619,9 @@ export default function ChatBox({ user = {}, onBack }) {
             audio,
             audioDuration,
             fromMe,
-            time: payload?.timestamp ? new Date(payload.timestamp) : new Date(),
+            officialSender: isOfficial,
+            senderName: payload?.senderName ?? null,
+            time: payload?.timestamp || payload?.createdAt ? new Date(payload.timestamp || payload.createdAt) : new Date(),
           },
         ];
       });
@@ -565,6 +636,7 @@ export default function ChatBox({ user = {}, onBack }) {
   }, [userId, myUserId]);
 
   const sendMessageText = (rawText, { clearComposer = false } = {}) => {
+    if (isOfficialChat) return;
     const text = String(rawText ?? "").trim();
     if (!text || !userId) return;
 
@@ -591,6 +663,7 @@ export default function ChatBox({ user = {}, onBack }) {
   };
 
   const handleGalleryPick = async () => {
+    if (isOfficialChat) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -609,7 +682,7 @@ export default function ChatBox({ user = {}, onBack }) {
   };
 
   const sendImageMessage = async (localUri) => {
-    if (!userId) return;
+    if (!userId || isOfficialChat) return;
 
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setMessages((prev) => [
@@ -635,6 +708,7 @@ export default function ChatBox({ user = {}, onBack }) {
   };
 
   const startRecording = async () => {
+    if (isOfficialChat) return;
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status === "granted") {
@@ -685,7 +759,7 @@ export default function ChatBox({ user = {}, onBack }) {
   };
 
   const sendAudioMessage = async (localUri, durationMs) => {
-    if (!userId) return;
+    if (!userId || isOfficialChat) return;
 
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setMessages((prev) => [
@@ -732,17 +806,25 @@ export default function ChatBox({ user = {}, onBack }) {
   }, [isKeyboardVisible, message]);
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, isOfficialChat && { backgroundColor: "#f5f6fa" }]}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
 
       {/* ── HEADER ── */}
-      <LinearGradient colors={[Colors.white, Colors.white]} style={styles.header}>
+      <LinearGradient
+        colors={[Colors.white, Colors.white]}
+        style={[styles.header, isOfficialChat && styles.headerOfficial]}
+      >
         <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8} onPress={onBack}>
           <ArrowLeft size={22} color={Colors.primary} />
         </TouchableOpacity>
         <View style={styles.headerNameRow}>
-          <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
-          {otherUserDecorationBadge && (
+          <Text
+            style={[styles.headerName, isOfficialChat && styles.headerNameOfficial]}
+            numberOfLines={1}
+          >
+            {name}
+          </Text>
+          {otherUserDecorationBadge && !isOfficialChat && (
             <View style={styles.headerBadgeRow}>
               <Image
                 source={{ uri: otherUserDecorationBadge }}
@@ -753,12 +835,18 @@ export default function ChatBox({ user = {}, onBack }) {
           )}
         </View>
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
-            <UserPlus size={20} color={Colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
-            <MoreHorizontal size={22} color={Colors.primary} />
-          </TouchableOpacity>
+          {isOfficialChat ? (
+            <View style={{ width: 40 }} />
+          ) : (
+            <>
+              <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
+                <UserPlus size={20} color={Colors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
+                <MoreHorizontal size={22} color={Colors.primary} />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </LinearGradient>
 
@@ -801,15 +889,18 @@ export default function ChatBox({ user = {}, onBack }) {
 
         <ScrollView
           ref={scrollRef}
-          style={styles.body}
+          style={[styles.body, isOfficialChat && { backgroundColor: "#f5f6fa" }]}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
-            paddingBottom: composerHeight + (isKeyboardVisible ? keyboardHeight : 0) + 12,
+            paddingBottom: isOfficialChat
+              ? safeBottom + 24
+              : composerHeight + (isKeyboardVisible ? keyboardHeight : 0) + 12,
+            paddingTop: isOfficialChat ? 10 : 0,
           }}
           keyboardShouldPersistTaps="handled"
         >
           {/* ── NOTIFICATION BANNER ── */}
-          {showBanner && (
+          {!isOfficialChat && !historyLoading && showBanner && (
             <View style={styles.bannerWrap}>
               <LinearGradient
                 colors={[Colors.primaryAlpha08, Colors.secondaryAlpha08]}
@@ -838,51 +929,53 @@ export default function ChatBox({ user = {}, onBack }) {
           )}
 
           {/* ── USER PROFILE CARD ── */}
-          <View style={styles.matchCardWrap}>
-            <LinearGradient
-              colors={[Colors.bgSlateLight, Colors.bgSlateMedium, Colors.bgSlateLight]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.matchCard}
-            >
-              <View style={styles.matchTopRow}>
-                <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
-                  <LinearGradient
-                    colors={otherUserVipFrame ? [Colors.white, Colors.white] : [Colors.primary, Colors.secondary]}
-                    style={styles.matchAvatarRing}
-                  >
-                    <View style={styles.matchAvatarWrap}>
-                      {avatar ? (
-                        <Image
-                          source={resolveAvatarSource(avatar)}
-                          style={styles.matchAvatar}
-                        />
-                      ) : (
-                        <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
-                          <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
-                        </View>
-                      )}
-                      {otherUserVipFrame ? (
-                        // VIP profile frame overlay — scale/position may need visual tuning on device
-                        <Image
-                          source={{ uri: otherUserVipFrame }}
-                          style={styles.matchAvatarFrameOverlay}
-                          resizeMode="contain"
-                          pointerEvents="none"
-                        />
-                      ) : null}
-                    </View>
-                  </LinearGradient>
-                </TouchableOpacity>
-                <View style={styles.matchUserInfo}>
-                  <Text style={styles.matchUserName}>{name}</Text>
-                  {lastMsg ? (
-                    <Text style={styles.matchLastMsg} numberOfLines={2}>{lastMsg}</Text>
-                  ) : null}
+          {!isOfficialChat && !historyLoading && (
+            <View style={styles.matchCardWrap}>
+              <LinearGradient
+                colors={[Colors.bgSlateLight, Colors.bgSlateMedium, Colors.bgSlateLight]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.matchCard}
+              >
+                <View style={styles.matchTopRow}>
+                  <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
+                    <LinearGradient
+                      colors={otherUserVipFrame ? [Colors.white, Colors.white] : [Colors.primary, Colors.secondary]}
+                      style={styles.matchAvatarRing}
+                    >
+                      <View style={styles.matchAvatarWrap}>
+                        {avatar ? (
+                          <Image
+                            source={resolveAvatarSource(avatar)}
+                            style={styles.matchAvatar}
+                          />
+                        ) : (
+                          <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
+                            <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                          </View>
+                        )}
+                        {otherUserVipFrame ? (
+                          // VIP profile frame overlay — scale/position may need visual tuning on device
+                          <Image
+                            source={{ uri: otherUserVipFrame }}
+                            style={styles.matchAvatarFrameOverlay}
+                            resizeMode="contain"
+                            pointerEvents="none"
+                          />
+                        ) : null}
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                  <View style={styles.matchUserInfo}>
+                    <Text style={styles.matchUserName}>{name}</Text>
+                    {lastMsg ? (
+                      <Text style={styles.matchLastMsg} numberOfLines={2}>{lastMsg}</Text>
+                    ) : null}
+                  </View>
                 </View>
-              </View>
-            </LinearGradient>
-          </View>
+              </LinearGradient>
+            </View>
+          )}
 
           {/* ── MESSAGES AREA ── */}
           {messages.length === 0 ? (
@@ -907,8 +1000,52 @@ export default function ChatBox({ user = {}, onBack }) {
               <View style={styles.emptyChat} />
             )
           ) : (
-            <View style={styles.messagesList}>
+            <View style={[styles.messagesList, isOfficialChat && styles.officialMessagesList]}>
               {messages.map((msg) => {
+                const isOfficialMsg = Boolean(msg.officialSender || isOfficialChat);
+
+                if (isOfficialMsg) {
+                  const { title: officialTitle, body: officialBody } = parseOfficialMessage(msg);
+
+                  return (
+                    <View key={msg.id} style={styles.officialCardWrap}>
+                      {/* Centered Date Header: e.g. 10/9/2026 11:33 PM */}
+                      <Text style={styles.officialDateText}>
+                        {formatOfficialDateTime(msg.time)}
+                      </Text>
+
+                      {/* Official White Card */}
+                      <View style={styles.officialCard}>
+                        {msg.image ? (
+                          <Image
+                            source={{ uri: msg.image }}
+                            style={styles.officialCardBanner}
+                            resizeMode="cover"
+                          />
+                        ) : null}
+
+                        <View style={styles.officialCardBody}>
+                          {officialTitle ? (
+                            <Text
+                              style={[
+                                styles.officialCardTitle,
+                                !officialBody && { marginBottom: 0 },
+                              ]}
+                            >
+                              {officialTitle}
+                            </Text>
+                          ) : null}
+                          {officialBody ? (
+                            <Text style={styles.officialCardMessage}>{officialBody}</Text>
+                          ) : !officialTitle ? (
+                            <Text style={styles.officialCardMessage}>{msg.text}</Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    </View>
+                  );
+                }
+
                 const inviteInfo = parseRoomInviteMessage(msg.text);
                 return (
                   <View
@@ -1133,87 +1270,89 @@ export default function ChatBox({ user = {}, onBack }) {
         </ScrollView>
 
         {/* ── COMPOSER (floats above keyboard) ── */}
-        <View
-          style={[
-            styles.composer,
-            styles.composerFloating,
-            {
-              bottom: isKeyboardVisible ? keyboardHeight : 0,
-              paddingBottom: isKeyboardVisible ? 0 : idleBottom,
-            }
-          ]}
-          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
-        >
-          <View style={styles.inputArea}>
-            <TouchableOpacity
-              style={styles.safeInputIcon}
-              activeOpacity={0.8}
-              onPress={() => setShowEmojiBox((v) => !v)}
-            >
-              <Text style={styles.emojiBtnText}>😊</Text>
-            </TouchableOpacity>
-
-            <View style={styles.inputRow}>
-              {isRecording ? (
-                <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.error }} />
-                  <Text style={{ color: Colors.textDark, fontSize: 15 }}>
-                    Recording... {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, "0")}
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Type a message"
-                    placeholderTextColor={Colors.grayPlaceholder}
-                    value={message}
-                    onChangeText={setMessage}
-                    multiline
-                  />
-                </>
-              )}
-            </View>
-
-            <TouchableOpacity
-              style={[styles.sendBtn, message.trim() && styles.sendBtnActive]}
-              activeOpacity={0.8}
-              onPress={sendMessage}
-            >
-              <LinearGradient
-                colors={message.trim() ? [Colors.primary, Colors.secondary] : [Colors.borderLight, Colors.borderLight]}
-                style={styles.sendBtnGrad}
+        {!isOfficialChat && (
+          <View
+            style={[
+              styles.composer,
+              styles.composerFloating,
+              {
+                bottom: isKeyboardVisible ? keyboardHeight : 0,
+                paddingBottom: isKeyboardVisible ? 0 : idleBottom,
+              }
+            ]}
+            onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+          >
+            <View style={styles.inputArea}>
+              <TouchableOpacity
+                style={styles.safeInputIcon}
+                activeOpacity={0.8}
+                onPress={() => setShowEmojiBox((v) => !v)}
               >
-                <Send size={18} color={message.trim() ? "white" : Colors.grayPlaceholder} />
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+                <Text style={styles.emojiBtnText}>😊</Text>
+              </TouchableOpacity>
 
-          {!isKeyboardVisible && (
-            <View style={styles.actionBar}>
-              {[
-                {
-                  icon: isRecording ? <Mic size={22} color={Colors.error} /> : <Mic size={22} color={Colors.primary} />,
-                  label: "Speaker",
-                  action: isRecording ? stopRecording : startRecording
-                },
-                { icon: <ImageIcon size={22} color={Colors.primary} />, label: "Gallery", action: handleGalleryPick },
-                { icon: <HelpCircle size={22} color={Colors.primary} />, label: "Help" },
-                { icon: <Gift size={22} color={Colors.accentGold || Colors.accentGold} />, label: "Gift" },
-                { icon: <Phone size={22} color={Colors.primary} />, label: "Call", action: () => initiateCall('audio') },
-              ].map((item, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={styles.actionBtn}
-                  activeOpacity={0.8}
-                  onPress={() => item.action ? item.action() : showComingSoon(item.label)}
+              <View style={styles.inputRow}>
+                {isRecording ? (
+                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.error }} />
+                    <Text style={{ color: Colors.textDark, fontSize: 15 }}>
+                      Recording... {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, "0")}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Type a message"
+                      placeholderTextColor={Colors.grayPlaceholder}
+                      value={message}
+                      onChangeText={setMessage}
+                      multiline
+                    />
+                  </>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.sendBtn, message.trim() && styles.sendBtnActive]}
+                activeOpacity={0.8}
+                onPress={sendMessage}
+              >
+                <LinearGradient
+                  colors={message.trim() ? [Colors.primary, Colors.secondary] : [Colors.borderLight, Colors.borderLight]}
+                  style={styles.sendBtnGrad}
                 >
-                  {item.icon}
-                </TouchableOpacity>
-              ))}
+                  <Send size={18} color={message.trim() ? "white" : Colors.grayPlaceholder} />
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
-          )}
-        </View>
+
+            {!isKeyboardVisible && (
+              <View style={styles.actionBar}>
+                {[
+                  {
+                    icon: isRecording ? <Mic size={22} color={Colors.error} /> : <Mic size={22} color={Colors.primary} />,
+                    label: "Speaker",
+                    action: isRecording ? stopRecording : startRecording
+                  },
+                  { icon: <ImageIcon size={22} color={Colors.primary} />, label: "Gallery", action: handleGalleryPick },
+                  { icon: <HelpCircle size={22} color={Colors.primary} />, label: "Help" },
+                  { icon: <Gift size={22} color={Colors.accentGold || Colors.accentGold} />, label: "Gift" },
+                  { icon: <Phone size={22} color={Colors.primary} />, label: "Call", action: () => initiateCall('audio') },
+                ].map((item, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.actionBtn}
+                    activeOpacity={0.8}
+                    onPress={() => item.action ? item.action() : showComingSoon(item.label)}
+                  >
+                    {item.icon}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
 
         {/* ── CALL OVERLAY ── */}
         {callState.status !== "IDLE" && (
@@ -1328,10 +1467,20 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 50,
+    paddingTop: 40,
     paddingBottom: 14,
     paddingHorizontal: 10,
     gap: 6,
+  },
+  headerOfficial: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 6,
+    zIndex: 10,
   },
   headerBtn: {
     width: 40,
@@ -1377,11 +1526,16 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   headerName: {
-    color: "white",
+    color: Colors.textDark || "#0f172a",
     fontSize: 18,
     fontWeight: "700",
     textAlign: "center",
     flexShrink: 1,
+  },
+  headerNameOfficial: {
+    color: "#0f172a",
+    fontSize: 18,
+    fontWeight: "700",
   },
   headerBadgeRow: {
     flexDirection: "row",
@@ -1755,5 +1909,104 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "800",
+  },
+
+  // Official Broadcast Messages & Disabled Composer
+  officialMessagesList: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    gap: 18,
+  },
+  officialCardWrap: {
+    width: "100%",
+    marginBottom: 6,
+    alignItems: "center",
+  },
+  officialDateText: {
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: "500",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  officialCard: {
+    width: "100%",
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  officialCardBanner: {
+    width: "96%",
+    height: 170,
+    backgroundColor: Colors.bgSlateLight,
+    marginTop: 6,
+    alignSelf: "center",
+    borderRadius: 12,
+  },
+  officialCardBody: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  officialCardTitle: {
+    color: "#0f172a",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  officialCardMessage: {
+    color: "#334155",
+    fontSize: 13.5,
+    lineHeight: 20,
+    fontWeight: "400",
+  },
+  officialDivider: {
+    height: 1,
+    backgroundColor: "#f1f5f9",
+    marginHorizontal: 16,
+  },
+  officialActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    gap: 4,
+  },
+  officialActionText: {
+    color: "#0284c7",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  officialDisabledComposer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: Colors.white,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+  },
+  officialDisabledInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.bgSlateLight,
+    borderRadius: 24,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  officialDisabledInput: {
+    flex: 1,
+    color: Colors.grayPlaceholder,
+    fontSize: 13,
+    fontWeight: "500",
+    padding: 0,
   },
 });

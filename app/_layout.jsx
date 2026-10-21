@@ -24,6 +24,9 @@ import {
   setPendingDeepLink,
 } from "../src/utils/deepLinkUtils";
 import { getActiveRoomId } from "../src/services/partyVoiceService";
+import { initPresenceManager } from "../src/services/presenceService";
+import DeviceBlockedModal from "../Components/DeviceBlockedModal";
+import { getDeviceHeaders } from "../src/utils/deviceHeaders";
 
 LogBox.ignoreAllLogs();
 // ── Global font-scale guard ────────────────────────────────────────────────
@@ -43,6 +46,11 @@ TextInput.defaultProps.maxFontSizeMultiplier = 1.3;
 export default function RootLayout() {
   useEffect(() => {
     initFirebase();
+    getDeviceHeaders().catch(() => {});
+    const cleanupPresence = initPresenceManager();
+    return () => {
+      cleanupPresence();
+    };
   }, []);
 
   useEffect(() => {
@@ -50,29 +58,25 @@ export default function RootLayout() {
     // clear the session and return the user to the login screen.
     setSessionExpiredHandler((reason, message) => {
       if (reason === "USER_BANNED") {
-        Alert.alert(
-          "Account Banned",
-          message || "Your account has been banned by the administrator.",
-          [{ text: "OK", onPress: () => router.replace("/login") }],
-          { cancelable: false }
-        );
+        // Handled via DeviceBlockedModal without navigating away immediately
+        DeviceEventEmitter.emit("userBanned", {
+          type: "USER_BANNED",
+          message:
+            message || "Your account has been banned due to a violation of our community guidelines.",
+        });
+      } else if (reason === "DEVICE_BLOCKED") {
+        // Handled via DeviceBlockedModal without navigating away immediately
+        DeviceEventEmitter.emit("deviceBlockedModal", {
+          type: "DEVICE_BLOCKED",
+          reason: message || "Device blocked due to suspicious activity",
+        });
       } else {
         router.replace("/login");
       }
     });
 
-    const userBannedSub = DeviceEventEmitter.addListener("userBanned", (event) => {
-      Alert.alert(
-        "Account Banned",
-        event?.reason || event?.message || "Your account has been banned by the administrator.",
-        [{ text: "OK", onPress: () => router.replace("/login") }],
-        { cancelable: false }
-      );
-    });
-
     return () => {
       setSessionExpiredHandler(null);
-      userBannedSub.remove();
     };
   }, []);
 
@@ -173,7 +177,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="index" />
-        <Stack.Screen name="login" />
+        <Stack.Screen name="login" options={{ gestureEnabled: false }} />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="enter-mobile" />
         <Stack.Screen name="verify-otp" />
@@ -191,6 +195,7 @@ export default function RootLayout() {
         <Stack.Screen name="personality-test" />
         <Stack.Screen name="room/[roomId]" />
       </Stack>
+      <DeviceBlockedModal />
     </SafeAreaProvider>
   );
 }

@@ -45,6 +45,8 @@ import ComingSoonModal from "./ComingSoonModal";
 import FamilyChatModal from "./FamilyChatModal";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ProfileConnectionsModal from "./ProfileConnectionsModal";
+import { isUserLive } from "../src/utils/liveStatus";
+import { getActiveRoomId } from "../src/services/partyVoiceService";
 
 const RECOMMEND_RING_COLORS = ["#333333", "#888888"];
 
@@ -192,41 +194,98 @@ export default function ChatTab() {
     });
   }, []);
 
+  const isReturningRef = useRef(false);
+
+  const targetRoomId = useMemo(() => {
+    const rawFromRoom = Array.isArray(fromRoom) ? fromRoom[0] : fromRoom;
+    const rawShareRoomId = Array.isArray(shareRoomId) ? shareRoomId[0] : shareRoomId;
+    return (
+      (rawFromRoom && rawFromRoom !== "true" && rawFromRoom !== "undefined" && rawFromRoom !== "null"
+        ? String(rawFromRoom)
+        : null) ||
+      (rawShareRoomId && rawShareRoomId !== "undefined" && rawShareRoomId !== "null"
+        ? String(rawShareRoomId)
+        : null) ||
+      (getActiveRoomId?.() ? String(getActiveRoomId()) : null)
+    );
+  }, [fromRoom, shareRoomId]);
+
   const handleReturnToRoom = useCallback(() => {
-    if (router.canGoBack()) {
-      router.back();
-    } else if (fromRoom) {
+    if (isReturningRef.current) return;
+
+    const rawFromRoom = Array.isArray(fromRoom) ? fromRoom[0] : fromRoom;
+    const rawShareRoomId = Array.isArray(shareRoomId) ? shareRoomId[0] : shareRoomId;
+    const activeTargetRoomId =
+      (rawFromRoom && rawFromRoom !== "true" && rawFromRoom !== "undefined" && rawFromRoom !== "null"
+        ? String(rawFromRoom)
+        : null) ||
+      (rawShareRoomId && rawShareRoomId !== "undefined" && rawShareRoomId !== "null"
+        ? String(rawShareRoomId)
+        : null) ||
+      (getActiveRoomId?.() ? String(getActiveRoomId()) : null);
+
+    if (activeTargetRoomId) {
+      isReturningRef.current = true;
       router.push({
         pathname: "/voice-party",
-        params: { roomId: String(fromRoom) },
+        params: { roomId: String(activeTargetRoomId) },
       });
+      setTimeout(() => {
+        isReturningRef.current = false;
+      }, 1000);
+      return;
     }
-  }, [router, fromRoom]);
 
-  useEffect(() => {
-    if (!fromRoom) return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (contactsPage) {
-        setContactsPage(null);
-        setContactSearch("");
-        return true;
+    if (router.canGoBack()) {
+      router.back();
+    }
+  }, [router, fromRoom, shareRoomId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const rawFromRoom = Array.isArray(fromRoom) ? fromRoom[0] : fromRoom;
+      const rawShareRoomId = Array.isArray(shareRoomId) ? shareRoomId[0] : shareRoomId;
+      const activeTargetRoomId =
+        (rawFromRoom && rawFromRoom !== "true" && rawFromRoom !== "undefined" && rawFromRoom !== "null"
+          ? String(rawFromRoom)
+          : null) ||
+        (rawShareRoomId && rawShareRoomId !== "undefined" && rawShareRoomId !== "null"
+          ? String(rawShareRoomId)
+          : null) ||
+        (getActiveRoomId?.() ? String(getActiveRoomId()) : null);
+
+      if (!activeTargetRoomId && !fromRoom) {
+        return;
       }
-      handleReturnToRoom();
-      return true;
-    });
-    return () => sub.remove();
-  }, [fromRoom, contactsPage, handleReturnToRoom]);
+
+      const onBackPress = () => {
+        if (contactsPage) {
+          setContactsPage(null);
+          setContactSearch("");
+          return true;
+        }
+        handleReturnToRoom();
+        return true;
+      };
+
+      const sub = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+      return () => sub.remove();
+    }, [fromRoom, shareRoomId, contactsPage, handleReturnToRoom])
+  );
 
   const fetchChats = useCallback(() => {
     setChatsLoading(true);
 
     loadConversations()
       .then((list) => {
+        console.log(`[ChatTab] Conversations user list response (${list?.length ?? 0} users):`, list);
         setConversations(list);
         fetchDecorationsForUsers(list);
-
       })
-      .catch(() => setConversations([]))
+      .catch((err) => {
+        console.error("[ChatTab] Failed to fetch conversations user list:", err);
+        setConversations([]);
+      })
       .finally(() => setChatsLoading(false));
   }, [fetchDecorationsForUsers]);
 
@@ -234,13 +293,15 @@ export default function ChatTab() {
     let cancelled = false;
     getRecommendedUsers()
       .then((users) => {
+        console.log(`[ChatTab] Recommended users list response (${users?.length ?? 0} users):`, users);
         if (!cancelled) {
           setRecommendedUsers(users);
           fetchDecorationsForUsers(users);
-
         }
       })
-      .catch(() => { });
+      .catch((err) => {
+        console.error("[ChatTab] Failed to fetch recommended users list:", err);
+      });
     return () => { cancelled = true; };
   }, [fetchDecorationsForUsers]);
 
@@ -257,6 +318,46 @@ export default function ChatTab() {
     });
     return unsub;
   }, [fetchChats]);
+
+  // Real-time presence updates for recommended users & chat list (/topic/presence)
+  useEffect(() => {
+    const unsub = wsService.onPresence((event) => {
+      if (!event || event.userId == null) return;
+      const targetId = String(event.userId);
+      const isOnline = Boolean(event.isOnline ?? event.online);
+
+      setRecommendedUsers((prev) =>
+        prev.map((user) => {
+          const uid = String(user?.id ?? user?.userId ?? "");
+          if (uid === targetId) {
+            return {
+              ...user,
+              isOnline,
+              online: isOnline,
+              status: isOnline ? "ONLINE" : "OFFLINE",
+            };
+          }
+          return user;
+        })
+      );
+
+      setConversations((prev) =>
+        prev.map((item) => {
+          const uid = String(item?.userId ?? item?.id ?? "");
+          if (uid === targetId) {
+            return {
+              ...item,
+              isOnline,
+              online: isOnline,
+              status: isOnline ? "ONLINE" : "OFFLINE",
+            };
+          }
+          return item;
+        })
+      );
+    });
+    return unsub;
+  }, []);
 
   const handleOpenUserChat = (user) => {
     if (isShareMode) {
@@ -492,37 +593,27 @@ export default function ChatTab() {
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            {item.avatar ? (
-              <ProfileAvatarWithFrame
-                avatarSource={resolveAvatarSource(item.avatar)}
-                frameSource={item.vipProfileFrameUrl}
-                size={52}
-                avatarStyle={{ borderRadius: 26, borderWidth: 1.5, borderColor: "white" }}
-                {...(item.vipProfileFrameUrl
-                  ? {
-                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                  }
-                  : {})}
-              />
-            ) : (
-              <View style={[styles.chatAvatar, styles.chatAvatarPlaceholder]}>
-                <Text style={styles.chatInitial}>{item.name?.[0]?.toUpperCase() ?? "?"}</Text>
-              </View>
-            )}
+            <ProfileAvatarWithFrame
+              user={item}
+              isLive={isUserLive(item)}
+              avatarSource={resolveAvatarSource(item.avatar)}
+              frameSource={item.vipProfileFrameUrl}
+              size={52}
+              avatarStyle={{ borderRadius: 26, borderWidth: 1.5, borderColor: "white" }}
+              placeholderInitial={item.name?.[0]?.toUpperCase() ?? "?"}
+              {...(item.vipProfileFrameUrl
+                ? {
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
+                : {})}
+            />
           </LinearGradient>
-          {item.live && (
-            <View style={styles.liveBadge}>
-              <LinearGradient colors={["#7c4dff", "#4a6cf7"]} style={styles.liveBadgeGrad}>
-                <Text style={styles.liveBadgeText}>Live</Text>
-              </LinearGradient>
-            </View>
-          )}
         </TouchableOpacity>
 
         <View style={styles.chatContent}>
@@ -610,7 +701,7 @@ export default function ChatTab() {
           <>
             {/* Chats / Contacts tabs */}
             <View style={styles.headerTabs}>
-              {fromRoom ? (
+              {Boolean(targetRoomId || fromRoom) ? (
                 <TouchableOpacity
                   style={styles.roomReturnBtn}
                   activeOpacity={0.75}
@@ -684,7 +775,7 @@ export default function ChatTab() {
             <View style={styles.shareBannerTextCol}>
               <Text style={styles.shareBannerTitle}>Invite to Voice Room</Text>
               <Text style={styles.shareBannerSub} numberOfLines={1}>
-                Tap any friend to send an invite to "{shareRoomTitle}"
+                Tap any friend to send an invite to &ldquo;{shareRoomTitle}&rdquo;
               </Text>
             </View>
             <TouchableOpacity
@@ -845,29 +936,26 @@ export default function ChatTab() {
                         colors={["#7c4dff", "#4a6cf7"]}
                         style={styles.contactAvatarRing}
                       >
-                        {user.avatar ? (
-                          <ProfileAvatarWithFrame
-                            avatarSource={resolveAvatarSource(user.avatar)}
-                            frameSource={user.vipProfileFrameUrl}
-                            size={46}
-                            avatarStyle={{ borderRadius: 23, borderWidth: 1.5, borderColor: "white" }}
-                            {...(user.vipProfileFrameUrl
-                              ? {
-                                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                                }
-                              : {})}
-                          />
-                        ) : (
-                          <View style={[styles.contactAvatar, styles.contactAvatarPlaceholder]}>
-                            <Text style={styles.contactInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
-                          </View>
-                        )}
+                        <ProfileAvatarWithFrame
+                          user={user}
+                          isLive={isUserLive(user)}
+                          avatarSource={resolveAvatarSource(user.avatar)}
+                          frameSource={user.vipProfileFrameUrl}
+                          size={46}
+                          avatarStyle={{ borderRadius: 23, borderWidth: 1.5, borderColor: "white" }}
+                          placeholderInitial={user.name?.[0]?.toUpperCase() ?? "?"}
+                          {...(user.vipProfileFrameUrl
+                            ? {
+                                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                              }
+                            : {})}
+                        />
                       </LinearGradient>
                       {user.online && <View style={styles.onlineDot} />}
                     </View>
@@ -1041,29 +1129,26 @@ export default function ChatTab() {
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                   >
-                    {user.avatar ? (
-                      <ProfileAvatarWithFrame
-                        avatarSource={resolveAvatarSource(user.avatar)}
-                        frameSource={user.vipProfileFrameUrl}
-                        size={66}
-                        avatarStyle={{ borderRadius: 34, borderWidth: 2, borderColor: "white" }}
-                        {...(user.vipProfileFrameUrl
-                          ? {
-                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                            }
-                          : {})}
-                      />
-                    ) : (
-                      <View style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}>
-                        <Text style={styles.recommendInitial}>{user.name?.[0]?.toUpperCase() ?? "?"}</Text>
-                      </View>
-                    )}
+                    <ProfileAvatarWithFrame
+                      user={user}
+                      isLive={isUserLive(user)}
+                      avatarSource={resolveAvatarSource(user.avatar)}
+                      frameSource={user.vipProfileFrameUrl}
+                      size={66}
+                      avatarStyle={{ borderRadius: 34, borderWidth: 2, borderColor: "white" }}
+                      placeholderInitial={user.name?.[0]?.toUpperCase() ?? "?"}
+                      {...(user.vipProfileFrameUrl
+                        ? {
+                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                            frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                            frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                            frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                            avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                          }
+                        : {})}
+                    />
                   </LinearGradient>
                   <View style={styles.recommendNameRow}>
                     <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
