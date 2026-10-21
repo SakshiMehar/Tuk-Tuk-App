@@ -47,6 +47,7 @@ import { reportUser } from "../src/api/postApi";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { resolveImageSource } from "../src/utils/videoSource";
+import { isUserLive, isUserOnline, getUserLiveRoomId, useUserOnlineOrLiveStatus } from "../src/utils/liveStatus";
 import { s } from "../src/utils/responsive";
 
 // Same per-tier VIP "logo" crest already used as the VIP badge everywhere
@@ -87,6 +88,9 @@ export default function UserProfileView({ user, onBack }) {
   const [remarksVisible, setRemarksVisible] = useState(false);
   const [remarksText, setRemarksText] = useState("");
 
+  const activeUser = profile ?? user;
+  const isOnline = useUserOnlineOrLiveStatus(activeUser);
+
   const userId = user?.userId ? String(user.userId) : null;
 
   const refresh = useCallback(async () => {
@@ -112,8 +116,15 @@ export default function UserProfileView({ user, onBack }) {
         Array.isArray(followingList) &&
         followingList.some((u) => isSameUser(u?.userId ?? u?.id, userId));
       setIsFollowing(Boolean(status?.following) || followsFromList);
+      console.log(`[UserProfileView] Profile loaded for userId: ${userId}:`, {
+        profile: loaded,
+        status,
+        isOnline: isUserOnline(loaded),
+        isLive: isUserLive(loaded),
+      });
       if (!loaded) setLoadFailed(true);
-    } catch {
+    } catch (err) {
+      console.error(`[UserProfileView] Failed to load profile for userId: ${userId}`, err);
       setLoadFailed(true);
     } finally {
       setLoading(false);
@@ -392,6 +403,9 @@ export default function UserProfileView({ user, onBack }) {
             <View style={styles.card}>
               <View style={styles.cardTopRow}>
                 <ProfileAvatarWithFrame
+                  user={activeUser}
+                  isLive={isUserLive(activeUser)}
+                  isOnline={isOnline}
                   avatarSource={avatarSource}
                   frameSource={profileFrameSource}
                   size={s(72)}
@@ -422,6 +436,12 @@ export default function UserProfileView({ user, onBack }) {
                       <TouchableOpacity onPress={handleCopyId} hitSlop={8} style={{ marginLeft: 6 }}>
                         <Copy size={13} color="#7c4dff" />
                       </TouchableOpacity>
+                    )}
+                    {isOnline && (
+                      <View style={styles.onlineStatusPill}>
+                        <View style={styles.onlineStatusDot} />
+                        <Text style={styles.onlineStatusText}>Online</Text>
+                      </View>
                     )}
                     {profile?.gender && profile?.age != null && (
                       <View style={styles.genderPill}>
@@ -456,6 +476,26 @@ export default function UserProfileView({ user, onBack }) {
                   </View>
                 </View>
               </View>
+
+              {/* Live Room Direct Access */}
+              {getUserLiveRoomId(profile ?? user) && (
+                <TouchableOpacity
+                  style={styles.liveRoomBanner}
+                  activeOpacity={0.85}
+                  onPress={() => router.push({ pathname: "/voice-party", params: { roomId: String(getUserLiveRoomId(profile ?? user)) } })}
+                >
+                  <LinearGradient
+                    colors={["#ff2d55", "#e11d48", "#7c4dff"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.liveRoomBannerGrad}
+                  >
+                    <View style={styles.liveRoomDot} />
+                    <Text style={styles.liveRoomBannerText}>In Live Voice Room · Tap to Join</Text>
+                    <Text style={styles.liveRoomBannerArrow}>➔</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* ── STATS ── */}
@@ -782,6 +822,28 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   genderPillText: { color: "#7c4dff", fontSize: 11, fontWeight: "700" },
+  onlineStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0, 230, 118, 0.12)",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "rgba(0, 230, 118, 0.3)",
+  },
+  onlineStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#00e676",
+  },
+  onlineStatusText: {
+    color: "#00c853",
+    fontSize: 11,
+    fontWeight: "700",
+  },
   badgeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   vipBadge: { width: BADGE_HEIGHT, height: BADGE_HEIGHT },
   statsRow: {
@@ -894,4 +956,39 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(124,77,255,0.12)",
   },
   chatIcon: { width: 18, height: 18 },
+  liveRoomBanner: {
+    marginTop: 14,
+    borderRadius: 12,
+    overflow: "hidden",
+    shadowColor: "#ff2d55",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  liveRoomBannerGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  liveRoomDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#ffffff",
+  },
+  liveRoomBannerText: {
+    flex: 1,
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  liveRoomBannerArrow: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
 });

@@ -4,7 +4,7 @@ import MaskedView from "@react-native-masked-view/masked-view";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,

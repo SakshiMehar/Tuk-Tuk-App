@@ -3,7 +3,7 @@ import { Audio } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
 import { usePathname, useRouter } from "expo-router";
 import { Phone, PhoneOff } from "lucide-react-native";
-import notifee, { EventType } from '@notifee/react-native';
+import notifee, { EventType } from '../services/safeNotifee';
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View, AppState, Platform } from "react-native";
 

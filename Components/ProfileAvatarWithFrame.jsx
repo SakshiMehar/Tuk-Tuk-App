@@ -1,7 +1,9 @@
-import { View, Text, Image, StyleSheet } from "react-native";
-import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Image, StyleSheet, Text, View } from "react-native";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useUserOnlineOrLiveStatus } from "../src/utils/liveStatus";
+import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
+import LiveBadge from "./LiveBadge";
 
 // Auto-fit: photo stays at full `size` (avatarBoost = 1.0).
 // frameScale is calculated so the frame's inner circle wraps exactly around the photo.
@@ -26,6 +28,11 @@ export default function ProfileAvatarWithFrame({
   avatarSource,
   frameSource,
   size = 72,
+  isLive,
+  isOnline,
+  showLiveBadge,
+  liveBadgeSize,
+  liveBadgeStyle,
   frameScale,
   frameResizeMode,
   frameOffsetX,
@@ -41,6 +48,7 @@ export default function ProfileAvatarWithFrame({
   initialStyle,
   imageComponent: ImageComponent = Image,
 }) {
+  const resolvedIsLive = useUserOnlineOrLiveStatus(user, isLive ?? showLiveBadge, isOnline);
   const resolvedFrame = frameSource ?? resolveNewUserFrameSource(user);
   const frameImageSource =
     typeof resolvedFrame === "string" ? { uri: resolvedFrame } : resolvedFrame;
@@ -167,8 +175,28 @@ export default function ProfileAvatarWithFrame({
     avatarNode
   );
 
+  const badgeSize =
+    liveBadgeSize ?? (baseSize >= 90 ? "large" : baseSize >= 48 ? "medium" : "small");
+  const avatarInset = Math.max(0, Math.floor((frameSize - avatarSize) / 2));
+
   if (!resolvedFrame) {
-    return <View style={wrapperStyle}>{avatarContent}</View>;
+    return (
+      <View style={[{ alignItems: "center", justifyContent: "center" }, wrapperStyle]}>
+        {avatarContent}
+        {resolvedIsLive && (
+          <View
+            style={[
+              styles.liveDotBottomRight,
+              { bottom: 0, right: 0 },
+              liveBadgeStyle,
+            ]}
+            pointerEvents="none"
+          >
+            <LiveBadge size={badgeSize} />
+          </View>
+        )}
+      </View>
+    );
   }
 
   return (
@@ -190,25 +218,49 @@ export default function ProfileAvatarWithFrame({
         style={[
           useExpandedFrame
             ? {
-                position: "absolute",
-                width: frameImageSize,
-                height: frameImageSize,
-                left: -bleed + resolvedFrameOffsetX,
-                top: -bleed + resolvedFrameOffsetY,
-                zIndex: 2,
-              }
+              position: "absolute",
+              width: frameImageSize,
+              height: frameImageSize,
+              left: -bleed + resolvedFrameOffsetX,
+              top: -bleed + resolvedFrameOffsetY,
+              zIndex: 2,
+            }
             : {
-                ...StyleSheet.absoluteFillObject,
-                width: frameSize,
-                height: frameSize,
-                zIndex: 2,
-              },
+              ...StyleSheet.absoluteFillObject,
+              width: frameSize,
+              height: frameSize,
+              zIndex: 2,
+            },
           frameStyle,
         ]}
         resizeMode={resolvedFrameResizeMode}
         onLoad={handleFrameLoad}
         pointerEvents="none"
       />
+      {resolvedIsLive && (
+        <View
+          style={[
+            styles.liveDotBottomRight,
+            {
+              bottom: Math.max(0, avatarInset - 1),
+              right: Math.max(0, avatarInset - 1),
+              zIndex: 10,
+            },
+            liveBadgeStyle,
+          ]}
+          pointerEvents="none"
+        >
+          <LiveBadge size={badgeSize} />
+        </View>
+      )}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  liveDotBottomRight: {
+    position: "absolute",
+    zIndex: 10,
+  },
+});
+

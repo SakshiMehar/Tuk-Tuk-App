@@ -22,6 +22,7 @@ import { resolveBundledAvatarId } from "../data/avatarOptions";
 import { syncUserFromToken } from "../utils/sessionUser";
 import { resolveRemoteProfilePicUrl } from "./meProfileService";
 import { wsService } from "./websocket";
+import { setLocalUserLive, setUserLiveStatus } from "../utils/liveStatus";
 
 const firstText = (...values) =>
   values.find(
@@ -791,6 +792,14 @@ export const enterRoomSession = async (roomId) => {
   const onlineUsers = parseOnlineUsers(stateData, joinData);
   const messages = normalizeChatMessages(chatData);
 
+  // Register local user and room participants as live
+  setLocalUserLive(roomId, true);
+  if (Array.isArray(onlineUsers)) {
+    onlineUsers.forEach((u) => {
+      if (u?.id) setUserLiveStatus(u.id, true, roomId);
+    });
+  }
+
   return {
     roomId,
     room: {
@@ -911,6 +920,7 @@ export const searchPartyRooms = async (query) => {
 
 export const exitRoomSession = async (roomId) => {
   if (!roomId) return null;
+  setLocalUserLive(null, false);
   wsService.leaveRoom(String(roomId));
   const result = await exitRoomApi(roomId);
 

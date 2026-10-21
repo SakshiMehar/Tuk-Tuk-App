@@ -5,6 +5,7 @@ import {
   unfollowUser as apiUnfollowUser,
 } from "./relationshipService";
 import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
+import { isUserOnline, isUserLive } from "../utils/liveStatus";
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
@@ -37,6 +38,40 @@ export const normalizePublicProfile = (data, details, dynamicProfile) => {
   const userId = firstValue(
     user?.id, user?.userId, user?._id, profile?.id, profile?.userId,
     detailsUser?.id, detailsUser?.userId
+  );
+
+  const explicitOnline =
+    dynamicUser?.online ?? dynamicUser?.isOnline ??
+    user?.online ?? user?.isOnline ??
+    detailsUser?.online ?? detailsUser?.isOnline ??
+    profile?.online ?? profile?.isOnline ?? null;
+
+  const rawStatus = String(
+    dynamicUser?.status || dynamicUser?.userStatus || dynamicUser?.liveStatus ||
+    user?.status || user?.userStatus || user?.liveStatus ||
+    detailsUser?.status || detailsUser?.userStatus ||
+    profile?.status || profile?.userStatus || ""
+  ).toUpperCase();
+
+  const isStatusOnline = rawStatus === "ONLINE" || rawStatus === "ONLINE_IN_ROOM";
+  const isStatusLive = rawStatus === "LIVE" || rawStatus === "IN_PARTY";
+
+  const computedOnline = Boolean(
+    explicitOnline !== null
+      ? explicitOnline
+      : (isStatusOnline || isUserOnline({ id: userId, userId }))
+  );
+
+  const explicitLive =
+    dynamicUser?.isLive ?? dynamicUser?.live ??
+    user?.isLive ?? user?.live ??
+    detailsUser?.isLive ?? detailsUser?.live ??
+    profile?.isLive ?? profile?.live ?? null;
+
+  const computedLive = Boolean(
+    explicitLive !== null
+      ? explicitLive
+      : (isStatusLive || isUserLive({ id: userId, userId }))
   );
 
   return {
@@ -89,10 +124,27 @@ export const normalizePublicProfile = (data, details, dynamicProfile) => {
     countryName: firstText(user?.countryName, profile?.countryName, detailsUser?.countryName),
     flagUrl: firstText(user?.flagUrl, profile?.flagUrl, detailsUser?.flagUrl),
     badgeUrl: firstText(user?.badgeUrl, profile?.badgeUrl, detailsUser?.badgeUrl),
+    status: firstText(
+      dynamicUser?.status, dynamicUser?.userStatus, dynamicUser?.liveStatus,
+      user?.status, user?.userStatus, user?.liveStatus,
+      detailsUser?.status, detailsUser?.userStatus,
+      profile?.status, profile?.userStatus
+    ),
+    online: computedOnline,
+    isOnline: computedOnline,
+    isLive: computedLive,
+    live: computedLive,
+    roomId: firstValue(
+      dynamicUser?.roomId, dynamicUser?.currentRoomId, dynamicUser?.liveRoomId,
+      user?.roomId, user?.currentRoomId, user?.liveRoomId,
+      detailsUser?.roomId, detailsUser?.currentRoomId,
+      profile?.roomId, profile?.currentRoomId
+    ),
   };
 };
 
 export const loadPublicProfile = async (userId) => {
+  console.log(`[publicProfileService] loadPublicProfile started for userId: ${userId}`);
   const [profileResult, detailsResult, statusResult, dynamicResult] = await Promise.allSettled([
     getUserById(userId),
     getUserProfileDetails(userId),
@@ -110,6 +162,13 @@ export const loadPublicProfile = async (userId) => {
     profileResult.status === "fulfilled"
       ? normalizePublicProfile(profileResult.value, detailsData, dynamicData)
       : null;
+
+  console.log(`[publicProfileService] loadPublicProfile result for userId: ${userId}:`, {
+    profile,
+    rawUserById: profileResult.status === "fulfilled" ? profileResult.value : null,
+    rawProfileDetails: detailsData,
+    rawDynamicProfile: dynamicData,
+  });
 
   const status =
     statusResult.status === "fulfilled"

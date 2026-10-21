@@ -59,7 +59,7 @@ const decodeBase64 = (input) => {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   let str = input.replace(/=+$/, "");
   let output = "";
-  for (let bc = 0, bs = 0, buffer, i = 0; (buffer = str.charAt(i++));) {
+  for (let bc = 0, bs = 0, buffer, i = 0; (buffer = str.charAt(i++)); ) {
     const idx = chars.indexOf(buffer);
     if (idx === -1) continue;
     bs = bc % 4 ? bs * 64 + idx : idx;
@@ -142,7 +142,7 @@ export const refreshAuthToken = async () => {
         "@refresh_token",
         "@auth_user",
         "@terms_accepted",
-      ]).catch(() => { });
+      ]).catch(() => {});
       if (!_s.handlingUnauth) {
         _s.handlingUnauth = true;
         _s.onSessionExpired?.();
@@ -222,12 +222,12 @@ API.interceptors.request.use(
       Object.entries(deviceHeaders).forEach(([k, v]) => {
         if (!config.headers[k]) {
           if (typeof config.headers.set === "function") {
-            try { config.headers.set(k, v); } catch (_) { }
+            try { config.headers.set(k, v); } catch (_) {}
           }
           config.headers[k] = v;
         }
       });
-    } catch (_) { }
+    } catch (_) {}
 
     const token = await getBearerToken();
     _s.token = token;
@@ -337,16 +337,23 @@ API.interceptors.response.use(
         await endLocalSession().catch(() => { });
       } catch { }
 
-      const banReason = responseData?.reason || responseData?.message || "Your account has been banned.";
+      const banReason =
+        responseData?.reason ||
+        responseData?.error ||
+        responseData?.message ||
+        "Violation of community guidelines";
+      const banMessage =
+        responseData?.message ||
+        "Your account has been banned due to a violation of our community guidelines.";
+
+      // Display popup modal instantly on screen
       DeviceEventEmitter.emit("userBanned", {
         type: "USER_BANNED",
+        message: banMessage,
         reason: banReason,
+        userId: responseData?.userId,
+        button: responseData?.button || responseData?.buttonText || "Close",
       });
-
-      if (!_s.handlingUnauth) {
-        _s.handlingUnauth = true;
-        _s.onSessionExpired?.("USER_BANNED", banReason);
-      }
 
       const banErr = new Error(banReason);
       banErr.status = status;

@@ -189,6 +189,7 @@ function ProfileModal({
               <LinearGradient colors={user.bgColors} style={styles.profileModalHero}>
                 {user.avatarUrl ? (
                   <ProfileAvatarWithFrame
+                    user={user}
                     avatarSource={{ uri: user.avatarUrl }}
                     frameSource={user.vipProfileFrameUrl}
                     size={160}
@@ -593,6 +594,7 @@ export default function Nearby() {
         }
         return;
       }
+      console.log(`[nearby] Loaded nearby users list (${result.users?.length ?? 0} users):`, result.users);
       setNearbyUsers(result.users);
       setNearbyFetched(true);
     } catch (err) {
@@ -873,6 +875,7 @@ export default function Nearby() {
               <LinearGradient colors={item.bgColors} style={styles.cardBg}>
                 {item.avatarUrl ? (
                   <ProfileAvatarWithFrame
+                    user={item}
                     avatarSource={{ uri: item.avatarUrl }}
                     frameSource={item.vipProfileFrameUrl}
                     size={CARD_W * 0.62}

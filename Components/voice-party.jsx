@@ -7,17 +7,6 @@ import { useKeepAwake } from "expo-keep-awake";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
-import Svg, {
-  Defs,
-  Ellipse,
-  G,
-  LinearGradient as SvgLinearGradient,
-  Path,
-  Polygon,
-  Rect,
-  Stop,
-  Text as SvgText,
-} from "react-native-svg";
 import {
   AlertCircle,
   Ban,
@@ -39,12 +28,13 @@ import {
   Share2,
   Smile,
   Sparkles,
+  Trash2,
   Unlock,
   Users,
   Volume1,
   Volume2,
   VolumeX,
-  X
+  X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -81,9 +71,22 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
+import Svg, {
+  Defs,
+  Ellipse,
+  G,
+  Path,
+  Polygon,
+  Rect,
+  Stop,
+  LinearGradient as SvgLinearGradient,
+  Text as SvgText,
+} from "react-native-svg";
 import GiftPurchaseModal from "../Modal/GiftPurchaseModal";
 import API, { refreshTokenCache } from "../src/api/axios";
 import {
+  deleteRoomChatMessages,
   followRoom,
   getClaimedSeats,
   getRoomBadges,
@@ -96,7 +99,7 @@ import {
   reportRoomUser,
   unfollowRoom,
   unlockSeat,
-  updateRoom
+  updateRoom,
 } from "../src/api/partyApi";
 import { reportUser } from "../src/api/postApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
@@ -184,15 +187,24 @@ import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
 import { getUser } from "../src/store/authStore";
-import { applyWalletFromSources, refreshWalletBalance } from "../src/store/walletStore";
+import {
+  applyWalletFromSources,
+  refreshWalletBalance,
+} from "../src/store/walletStore";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { createRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
-import { resolveProfileAvatarSource, resolveProfileAvatarUri } from "../src/utils/profileAvatar";
+import {
+  resolveProfileAvatarSource,
+  resolveProfileAvatarUri,
+} from "../src/utils/profileAvatar";
 import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
-import { resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
+import {
+  resolveImageSource,
+  resolveVideoSource,
+} from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import { resolveVoiceUidForUserId } from "../src/utils/voiceUid";
 import DiamondRechargeModal from "./DiamondRechargeModal";
@@ -216,7 +228,8 @@ Dimensions.addEventListener("change", ({ window }) => {
   // for any future dynamic usage.
 });
 
-const ASSETS_S3_BASE = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets";
+const ASSETS_S3_BASE =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets";
 const TREASURE_BOX_GIF = { uri: `${ASSETS_S3_BASE}/Gift/tresurebox.gif` };
 const NEW_START_BADGE = { uri: `${ASSETS_S3_BASE}/Batches/newstart-batch.png` };
 const ROOM_HEADER_BG = require("../assets/images/roomHeaderBg.png");
@@ -238,10 +251,14 @@ const VIP_LOGO_BY_TIER = Object.fromEntries(
 // its native 1280x720) and shifted with negative left/top so only the glyph's own
 // region lands inside a same-sized, overflow:hidden wrapper — see *_CROP below,
 // values derived from each icon's actual alpha bounding box.
-const RECHARGE_BONUS_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box1.png";
-const GIFT_PANEL_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box2.png";
-const CHAT_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/chat.png";
-const MIC_ICON = "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/mic.png";
+const RECHARGE_BONUS_ICON =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box1.png";
+const GIFT_PANEL_ICON =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box2.png";
+const CHAT_ICON =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/chat.png";
+const MIC_ICON =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/mic.png";
 
 const AutoBadgeImage = ({ source, style, resizeMode = "contain" }) => {
   const [hasError, setHasError] = useState(false);
@@ -309,16 +326,10 @@ const EventsEmptyIllustration = () => (
       />
 
       {/* 3D Box Top Face */}
-      <Path
-        d="M 72 58 L 88 42 L 148 42 L 132 58 Z"
-        fill="url(#topGrad)"
-      />
+      <Path d="M 72 58 L 88 42 L 148 42 L 132 58 Z" fill="url(#topGrad)" />
 
       {/* 3D Box Right Face */}
-      <Path
-        d="M 132 58 L 148 42 L 148 90 L 132 106 Z"
-        fill="url(#sideGrad)"
-      />
+      <Path d="M 132 58 L 148 42 L 148 90 L 132 106 Z" fill="url(#sideGrad)" />
 
       {/* 3D Box Front Face */}
       <Rect
@@ -356,17 +367,35 @@ const GradeCornerBadge = ({ grade = "C" }) => {
     <View style={styles.gradeBadgeWrap}>
       <Svg width={22} height={22} viewBox="0 0 24 24">
         <Defs>
-          <SvgLinearGradient id="gradeCGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <SvgLinearGradient
+            id="gradeCGrad"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
             <Stop offset="0%" stopColor="#94a3b8" />
             <Stop offset="50%" stopColor="#475569" />
             <Stop offset="100%" stopColor="#334155" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="gradeAGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <SvgLinearGradient
+            id="gradeAGrad"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
             <Stop offset="0%" stopColor="#38bdf8" />
             <Stop offset="50%" stopColor="#0284c7" />
             <Stop offset="100%" stopColor="#0369a1" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="gradeSGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <SvgLinearGradient
+            id="gradeSGrad"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
             <Stop offset="0%" stopColor="#3b82f6" />
             <Stop offset="50%" stopColor="#1d4ed8" />
             <Stop offset="100%" stopColor="#1e3a8a" />
@@ -415,11 +444,14 @@ const RoomBadgeEmblem = ({ badge }) => {
   const isUnlocked = Boolean(badge?.unlocked);
   const iconType = badge?.iconType || "room_level";
   const levelNum = badge?.level ?? 6;
-  const imageSource = badge?.imageUrl || badge?.iconUrl || badge?.badgeUrl || badge?.image;
+  const imageSource =
+    badge?.imageUrl || badge?.iconUrl || badge?.badgeUrl || badge?.image;
 
   if (imageSource) {
     return (
-      <View style={[styles.badgeEmblemContainer, !isUnlocked && { opacity: 0.45 }]}>
+      <View
+        style={[styles.badgeEmblemContainer, !isUnlocked && { opacity: 0.45 }]}
+      >
         <Image
           source={{ uri: imageSource }}
           style={{ width: 78, height: 78 }}
@@ -434,13 +466,25 @@ const RoomBadgeEmblem = ({ badge }) => {
       <Svg width={96} height={96} viewBox="0 0 100 100">
         <Defs>
           {/* Gold Shield Gradient for unlocked room level */}
-          <SvgLinearGradient id="goldShieldOuter" x1="0%" y1="0%" x2="100%" y2="100%">
+          <SvgLinearGradient
+            id="goldShieldOuter"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
             <Stop offset="0%" stopColor="#fef08a" />
             <Stop offset="25%" stopColor="#f59e0b" />
             <Stop offset="65%" stopColor="#b45309" />
             <Stop offset="100%" stopColor="#78350f" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="goldShieldInner" x1="0%" y1="0%" x2="0%" y2="100%">
+          <SvgLinearGradient
+            id="goldShieldInner"
+            x1="0%"
+            y1="0%"
+            x2="0%"
+            y2="100%"
+          >
             <Stop offset="0%" stopColor="#92400e" />
             <Stop offset="50%" stopColor="#78350f" />
             <Stop offset="100%" stopColor="#451a03" />
@@ -451,23 +495,47 @@ const RoomBadgeEmblem = ({ badge }) => {
           </SvgLinearGradient>
 
           {/* Silver / Metal Shield Gradient for standard & locked badges */}
-          <SvgLinearGradient id="silverShieldOuter" x1="0%" y1="0%" x2="100%" y2="100%">
+          <SvgLinearGradient
+            id="silverShieldOuter"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
             <Stop offset="0%" stopColor="#f8fafc" />
             <Stop offset="30%" stopColor="#cbd5e1" />
             <Stop offset="70%" stopColor="#64748b" />
             <Stop offset="100%" stopColor="#334155" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="silverShieldInner" x1="0%" y1="0%" x2="0%" y2="100%">
+          <SvgLinearGradient
+            id="silverShieldInner"
+            x1="0%"
+            y1="0%"
+            x2="0%"
+            y2="100%"
+          >
             <Stop offset="0%" stopColor="#475569" />
             <Stop offset="50%" stopColor="#334155" />
             <Stop offset="100%" stopColor="#1e293b" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="silverRibbon" x1="0%" y1="0%" x2="100%" y2="0%">
+          <SvgLinearGradient
+            id="silverRibbon"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="0%"
+          >
             <Stop offset="0%" stopColor="#334155" />
             <Stop offset="50%" stopColor="#1e293b" />
             <Stop offset="100%" stopColor="#334155" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="gemDiamond" x1="0%" y1="0%" x2="100%" y2="100%">
+          <SvgLinearGradient
+            id="gemDiamond"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
             <Stop offset="0%" stopColor="#ffffff" />
             <Stop offset="50%" stopColor="#cbd5e1" />
             <Stop offset="100%" stopColor="#94a3b8" />
@@ -479,12 +547,16 @@ const RoomBadgeEmblem = ({ badge }) => {
             {/* Outer Shield */}
             <Path
               d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
-              fill={isUnlocked ? "url(#goldShieldOuter)" : "url(#silverShieldOuter)"}
+              fill={
+                isUnlocked ? "url(#goldShieldOuter)" : "url(#silverShieldOuter)"
+              }
             />
             {/* Inner Shield */}
             <Path
               d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
-              fill={isUnlocked ? "url(#goldShieldInner)" : "url(#silverShieldInner)"}
+              fill={
+                isUnlocked ? "url(#goldShieldInner)" : "url(#silverShieldInner)"
+              }
             />
             {/* House Outline / Graphic */}
             <Path
@@ -527,18 +599,28 @@ const RoomBadgeEmblem = ({ badge }) => {
               fill="url(#silverShieldInner)"
             />
             {/* Wings on Sides */}
-            <Path
-              d="M 22 56 C 14 52 14 62 26 66 Z"
-              fill="#e2e8f0"
-            />
-            <Path
-              d="M 78 56 C 86 52 86 62 74 66 Z"
-              fill="#e2e8f0"
-            />
+            <Path d="M 22 56 C 14 52 14 62 26 66 Z" fill="#e2e8f0" />
+            <Path d="M 78 56 C 86 52 86 62 74 66 Z" fill="#e2e8f0" />
             {/* Gift Box */}
-            <Rect x="36" y="32" width="28" height="26" rx="2" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" />
-            <Path d="M 50 32 L 50 58 M 36 44 L 64 44" stroke="#64748b" strokeWidth="3" />
-            <Path d="M 44 26 C 44 32 50 32 50 32 C 50 32 56 32 56 26 C 56 22 44 22 44 26 Z" fill="#cbd5e1" />
+            <Rect
+              x="36"
+              y="32"
+              width="28"
+              height="26"
+              rx="2"
+              fill="#e2e8f0"
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
+            <Path
+              d="M 50 32 L 50 58 M 36 44 L 64 44"
+              stroke="#64748b"
+              strokeWidth="3"
+            />
+            <Path
+              d="M 44 26 C 44 32 50 32 50 32 C 50 32 56 32 56 26 C 56 22 44 22 44 26 Z"
+              fill="#cbd5e1"
+            />
             {/* Banner */}
             <Path
               d="M 24 64 L 76 64 L 72 74 L 50 78 L 28 74 Z"
@@ -575,7 +657,12 @@ const RoomBadgeEmblem = ({ badge }) => {
               stroke="#64748b"
               strokeWidth="1"
             />
-            <Path d="M 30 44 L 50 56 L 70 44" fill="none" stroke="#64748b" strokeWidth="1" />
+            <Path
+              d="M 30 44 L 50 56 L 70 44"
+              fill="none"
+              stroke="#64748b"
+              strokeWidth="1"
+            />
             {/* Diamond Inside */}
             <Polygon
               points="50,34 60,42 50,54 40,42"
@@ -596,13 +683,32 @@ const RoomBadgeEmblem = ({ badge }) => {
               fill="url(#silverShieldInner)"
             />
             {/* Gift Box with 777 Slot Display */}
-            <Rect x="34" y="32" width="32" height="34" rx="4" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" />
+            <Rect
+              x="34"
+              y="32"
+              width="32"
+              height="34"
+              rx="4"
+              fill="#e2e8f0"
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
             <Rect x="38" y="44" width="24" height="14" rx="2" fill="#1e293b" />
-            <SvgText x="50" y="55" fontSize="10" fontWeight="900" textAnchor="middle" fill="#fde047">
+            <SvgText
+              x="50"
+              y="55"
+              fontSize="10"
+              fontWeight="900"
+              textAnchor="middle"
+              fill="#fde047"
+            >
               777
             </SvgText>
             {/* Bow on Top */}
-            <Path d="M 44 26 C 44 32 50 32 50 32 C 50 32 56 32 56 26 Z" fill="#cbd5e1" />
+            <Path
+              d="M 44 26 C 44 32 50 32 50 32 C 50 32 56 32 56 26 Z"
+              fill="#cbd5e1"
+            />
           </G>
         ) : iconType === "high_value_gift" ? (
           <G>
@@ -616,10 +722,26 @@ const RoomBadgeEmblem = ({ badge }) => {
               fill="url(#silverShieldInner)"
             />
             {/* Luxury Gift Box */}
-            <Rect x="34" y="36" width="32" height="32" rx="3" fill="#f1f5f9" stroke="#94a3b8" strokeWidth="1" />
-            <Path d="M 50 36 L 50 68 M 34 50 L 66 50" stroke="#cbd5e1" strokeWidth="4" />
+            <Rect
+              x="34"
+              y="36"
+              width="32"
+              height="32"
+              rx="3"
+              fill="#f1f5f9"
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
+            <Path
+              d="M 50 36 L 50 68 M 34 50 L 66 50"
+              stroke="#cbd5e1"
+              strokeWidth="4"
+            />
             {/* Big Fancy Bow */}
-            <Path d="M 42 26 C 34 26 42 36 50 36 C 58 36 66 26 58 26 C 50 26 50 34 50 36 Z" fill="#e2e8f0" />
+            <Path
+              d="M 42 26 C 34 26 42 36 50 36 C 58 36 66 26 58 26 C 50 26 50 34 50 36 Z"
+              fill="#e2e8f0"
+            />
           </G>
         ) : iconType === "aqua" ? (
           <G>
@@ -639,7 +761,13 @@ const RoomBadgeEmblem = ({ badge }) => {
               stroke="#94a3b8"
               strokeWidth="1"
             />
-            <Path d="M 52 42 C 60 42 66 50 62 60 C 58 70 42 74 36 78" stroke="#38bdf8" strokeWidth="3" strokeLinecap="round" fill="none" />
+            <Path
+              d="M 52 42 C 60 42 66 50 62 60 C 58 70 42 74 36 78"
+              stroke="#38bdf8"
+              strokeWidth="3"
+              strokeLinecap="round"
+              fill="none"
+            />
           </G>
         ) : iconType.startsWith("dragon_") ? (
           <G>
@@ -674,7 +802,11 @@ const RoomBadgeEmblem = ({ badge }) => {
               textAnchor="middle"
               fill="#ffffff"
             >
-              {iconType === "dragon_top1" ? "TOP 1" : iconType === "dragon_top2" ? "TOP 2" : "TOP 3"}
+              {iconType === "dragon_top1"
+                ? "TOP 1"
+                : iconType === "dragon_top2"
+                  ? "TOP 2"
+                  : "TOP 3"}
             </SvgText>
           </G>
         ) : iconType.startsWith("pisces_") ? (
@@ -712,7 +844,11 @@ const RoomBadgeEmblem = ({ badge }) => {
               textAnchor="middle"
               fill="#ffffff"
             >
-              {iconType === "pisces_top1" ? "Top 1" : iconType === "pisces_top2" ? "Top 2" : "Top 3"}
+              {iconType === "pisces_top1"
+                ? "Top 1"
+                : iconType === "pisces_top2"
+                  ? "Top 2"
+                  : "Top 3"}
             </SvgText>
           </G>
         ) : (
@@ -727,7 +863,15 @@ const RoomBadgeEmblem = ({ badge }) => {
               fill="url(#silverShieldInner)"
             />
             {/* Glowing Egg */}
-            <Ellipse cx="50" cy="50" rx="14" ry="18" fill="url(#gemDiamond)" stroke="#ffffff" strokeWidth="1.5" />
+            <Ellipse
+              cx="50"
+              cy="50"
+              rx="14"
+              ry="18"
+              fill="url(#gemDiamond)"
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
           </G>
         )}
       </Svg>
@@ -850,10 +994,10 @@ const reconcileSeatAssignments = (
   const onlineIds =
     Array.isArray(onlineUsers) && onlineUsers.length > 0
       ? new Set(
-        onlineUsers
-          .map((u) => (u?.id != null ? String(u.id) : null))
-          .filter(Boolean),
-      )
+          onlineUsers
+            .map((u) => (u?.id != null ? String(u.id) : null))
+            .filter(Boolean),
+        )
       : null;
 
   // If room presence is known, clear seats for users who already left.
@@ -874,7 +1018,10 @@ const reconcileSeatAssignments = (
         staleSeatTracker?.delete(userId);
         continue;
       }
-      if (activeVoiceUids?.size && activeVoiceUids.has(resolveVoiceUidForUserId(userId))) {
+      if (
+        activeVoiceUids?.size &&
+        activeVoiceUids.has(resolveVoiceUidForUserId(userId))
+      ) {
         staleSeatTracker?.delete(userId);
         continue;
       }
@@ -1078,13 +1225,13 @@ const resolveEntryFrameLayout = (frameUrl, user) => {
       tier: 3,
       heightFrac: 0.35,
       bannerW: 245,
-      avatarCenterX: 0.160,
+      avatarCenterX: 0.16,
       avatarCenterY: 0.468,
-      avatarSizeFrac: 0.150,
+      avatarSizeFrac: 0.15,
       shiftX: 4.8,
       shiftY: -0.6,
       textLeftFrac: 0.25,
-      textWidthFrac: 0.50,
+      textWidthFrac: 0.5,
       textTopFrac: 0.31,
       textHeightFrac: 0.24,
     };
@@ -1097,11 +1244,11 @@ const resolveEntryFrameLayout = (frameUrl, user) => {
       bannerW: 245,
       avatarCenterX: 0.155,
       avatarCenterY: 0.478,
-      avatarSizeFrac: 0.150,
+      avatarSizeFrac: 0.15,
       shiftX: 4.8,
       shiftY: -0.6,
       textLeftFrac: 0.25,
-      textWidthFrac: 0.50,
+      textWidthFrac: 0.5,
       textTopFrac: 0.31,
       textHeightFrac: 0.24,
     };
@@ -1112,7 +1259,7 @@ const resolveEntryFrameLayout = (frameUrl, user) => {
     tier,
     heightFrac: 0.267,
     bannerW: 250,
-    avatarCenterX: 0.200,
+    avatarCenterX: 0.2,
     avatarCenterY: 0.535,
     avatarSizeFrac: 0.138,
     shiftX: 1.5,
@@ -1130,15 +1277,11 @@ const UserEntryBanner = ({ user, countryFlag = null, onComplete }) => {
 
   useEffect(() => {
     // Smooth glide from left to right (7.5s) once per entry, then auto-dismiss
-    translateX.value = withTiming(
-      SW + 30,
-      { duration: 7500 },
-      (finished) => {
-        if (finished && onComplete) {
-          runOnJS(onComplete)();
-        }
-      },
-    );
+    translateX.value = withTiming(SW + 30, { duration: 7500 }, (finished) => {
+      if (finished && onComplete) {
+        runOnJS(onComplete)();
+      }
+    });
   }, [SW, onComplete, translateX]);
 
   const animStyle = useAnimatedStyle(() => ({
@@ -1181,8 +1324,13 @@ const UserEntryBanner = ({ user, countryFlag = null, onComplete }) => {
 
   // Precise ring hole coordinates inside the frame scaled proportionally per tier artwork
   const avatarSize = Math.round(BANNER_W * layout.avatarSizeFrac);
-  const avatarLeft = Math.round(BANNER_W * layout.avatarCenterX - avatarSize / 2) + layout.shiftX;
-  const avatarTop = Math.round(BANNER_H * layout.avatarCenterY - avatarSize / 2) + layout.shiftY - 2;
+  const avatarLeft =
+    Math.round(BANNER_W * layout.avatarCenterX - avatarSize / 2) +
+    layout.shiftX;
+  const avatarTop =
+    Math.round(BANNER_H * layout.avatarCenterY - avatarSize / 2) +
+    layout.shiftY -
+    2;
 
   // Precise middle banner text region between ring and VIP crest
   const textLeft = Math.round(BANNER_W * layout.textLeftFrac);
@@ -1207,7 +1355,10 @@ const UserEntryBanner = ({ user, countryFlag = null, onComplete }) => {
         <>
           <Image
             source={{ uri: frameUrl }}
-            style={[styles.entryBannerBg, { width: BANNER_W, height: BANNER_H }]}
+            style={[
+              styles.entryBannerBg,
+              { width: BANNER_W, height: BANNER_H },
+            ]}
             resizeMode="stretch"
           />
           {/* Pixel-locked avatar spot inside the left ring circle */}
@@ -1277,7 +1428,6 @@ const UserEntryBanner = ({ user, countryFlag = null, onComplete }) => {
   );
 };
 
-
 const RoomActivityEventBanner = ({ event, onDismiss, onClap }) => {
   const { W: SW } = useResponsive();
   const translateX = useSharedValue(-SW * 0.9);
@@ -1290,11 +1440,15 @@ const RoomActivityEventBanner = ({ event, onDismiss, onClap }) => {
 
     const timer = setTimeout(() => {
       opacity.value = withTiming(0, { duration: 240 });
-      translateX.value = withTiming(-SW * 0.9, { duration: 240 }, (finished) => {
-        if (finished && onDismiss) {
-          runOnJS(onDismiss)();
-        }
-      });
+      translateX.value = withTiming(
+        -SW * 0.9,
+        { duration: 240 },
+        (finished) => {
+          if (finished && onDismiss) {
+            runOnJS(onDismiss)();
+          }
+        },
+      );
     }, 2000);
 
     return () => clearTimeout(timer);
@@ -1349,7 +1503,12 @@ const RoomActivityEventBanner = ({ event, onDismiss, onClap }) => {
               resizeMode="cover"
             />
           ) : (
-            <View style={[styles.activityBannerAvatar, styles.activityBannerAvatarFallback]}>
+            <View
+              style={[
+                styles.activityBannerAvatar,
+                styles.activityBannerAvatarFallback,
+              ]}
+            >
               <Text style={styles.activityBannerAvatarInitial}>
                 {userName.charAt(0).toUpperCase()}
               </Text>
@@ -1362,7 +1521,10 @@ const RoomActivityEventBanner = ({ event, onDismiss, onClap }) => {
           <Text style={styles.activityBannerName} numberOfLines={1}>
             {userName}
           </Text>
-          <Text style={[styles.activityBannerAction, { color: actionColor }]} numberOfLines={1}>
+          <Text
+            style={[styles.activityBannerAction, { color: actionColor }]}
+            numberOfLines={1}
+          >
             {actionText}
           </Text>
         </View>
@@ -1397,10 +1559,10 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
 
   const code = String(
     giftOrPayload?.giftCode ||
-    giftOrPayload?.giftId ||
-    giftOrPayload?.id ||
-    giftOrPayload?.code ||
-    "",
+      giftOrPayload?.giftId ||
+      giftOrPayload?.id ||
+      giftOrPayload?.code ||
+      "",
   )
     .toLowerCase()
     .trim();
@@ -1421,9 +1583,7 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
     ];
 
     const match = allCatalogItems.find((item) => {
-      const itemCode = String(
-        item?.giftCode || item?.id || item?.code || "",
-      )
+      const itemCode = String(item?.giftCode || item?.id || item?.code || "")
         .toLowerCase()
         .trim();
       const itemName = String(item?.name || "")
@@ -1445,7 +1605,8 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
       emoji = match.emoji;
     }
     if (match?.imageUrl || match?.iconUrl || match?.icon || match?.image) {
-      matchedImageUrl = match.imageUrl || match.iconUrl || match.icon || match.image;
+      matchedImageUrl =
+        match.imageUrl || match.iconUrl || match.icon || match.image;
     }
   }
 
@@ -1471,10 +1632,7 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
       lowerName.includes("romance")
     )
       emoji = "💖";
-    else if (
-      lowerName.includes("kiss") ||
-      lowerName.includes("lip")
-    )
+    else if (lowerName.includes("kiss") || lowerName.includes("lip"))
       emoji = "💋";
     else if (
       lowerName.includes("diamond") ||
@@ -1524,10 +1682,7 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
       lowerName.includes("mansion")
     )
       emoji = "🏰";
-    else if (
-      lowerName.includes("star") ||
-      lowerName.includes("sparkle")
-    )
+    else if (lowerName.includes("star") || lowerName.includes("sparkle"))
       emoji = "⭐";
     else if (
       lowerName.includes("trophy") ||
@@ -1570,7 +1725,8 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
 // Gift sends are echoed into room chat as "sent {emoji} {name} ×{qty} to {receiver}".
 // Room chat is the one channel every device in the room reliably receives,
 // so other clients parse this line to show the same gift banner as the sender.
-const GIFT_CHAT_PATTERN = /(?:^|\s)sent\s+(\S+)\s+(.+?)\s+×(\d+)(?:\s+to\s+(.+))?$/u;
+const GIFT_CHAT_PATTERN =
+  /(?:^|\s)sent\s+(\S+)\s+(.+?)\s+×(\d+)(?:\s+to\s+(.+))?$/u;
 
 export const buildGiftChatText = ({ emoji, name, quantity, receiverName }) => {
   const qty = Math.max(1, Number(quantity) || 1);
@@ -1591,7 +1747,11 @@ export const parseGiftChatText = (text) => {
 
 const giftBannerKey = (g) =>
   [g?.senderName, g?.name ?? g?.giftName, g?.quantity ?? g?.qty ?? 1]
-    .map((v) => String(v ?? "").trim().toLowerCase())
+    .map((v) =>
+      String(v ?? "")
+        .trim()
+        .toLowerCase(),
+    )
     .join("|");
 
 const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
@@ -1614,8 +1774,7 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
   );
 
   const displayEmoji = useMemo(() => {
-    const fromGift =
-      typeof gift?.emoji === "string" ? gift.emoji.trim() : "";
+    const fromGift = typeof gift?.emoji === "string" ? gift.emoji.trim() : "";
     if (fromGift && fromGift !== "🎁") return fromGift;
     const fromVisual =
       typeof visual?.emoji === "string" ? visual.emoji.trim() : "";
@@ -1681,9 +1840,7 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
   }));
 
   const giftEmojiAnimStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: scaleAnim.value * pulseScale.value },
-    ],
+    transform: [{ scale: scaleAnim.value * pulseScale.value }],
   }));
 
   const badgeAnimStyle = useAnimatedStyle(() => ({
@@ -1723,10 +1880,7 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
             />
           ) : (
             <View
-              style={[
-                styles.giftBannerAvatar,
-                styles.giftBannerAvatarFallback,
-              ]}
+              style={[styles.giftBannerAvatar, styles.giftBannerAvatarFallback]}
             >
               <Text style={styles.giftBannerAvatarInitial}>
                 {senderName.charAt(0).toUpperCase()}
@@ -1761,9 +1915,7 @@ const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
                 resizeMode="contain"
               />
             ) : (
-              <Text style={styles.giftBannerEmojiMain}>
-                {displayEmoji}
-              </Text>
+              <Text style={styles.giftBannerEmojiMain}>{displayEmoji}</Text>
             )}
           </Animated.View>
 
@@ -1810,8 +1962,7 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
   );
 
   const displayEmoji = useMemo(() => {
-    const fromGift =
-      typeof gift?.emoji === "string" ? gift.emoji.trim() : "";
+    const fromGift = typeof gift?.emoji === "string" ? gift.emoji.trim() : "";
     if (fromGift && fromGift !== "🎁") return fromGift;
     const fromVisual =
       typeof visual?.emoji === "string" ? visual.emoji.trim() : "";
@@ -1876,16 +2027,180 @@ const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
 
   return (
     <Animated.View
-      style={[
-        styles.floatingGiftRiseWrap,
-        { left: initialX },
-        animStyle,
-      ]}
+      style={[styles.floatingGiftRiseWrap, { left: initialX }, animStyle]}
       pointerEvents="none"
     >
       <View style={styles.floatingGiftRiseGlow}>
         <Text style={styles.floatingGiftRiseEmoji}>{displayEmoji}</Text>
       </View>
+    </Animated.View>
+  );
+};
+
+// ── Emoji / Sticker / GIF overlay shown on the sender's seat avatar ──────────
+// Appears for 10 seconds with a bounce-in then idle pulse, then fades out.
+const FloatingSeatEmojiOverlay = ({ item, onComplete }) => {
+  const scale = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  const bounce = useSharedValue(1);
+
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    // Pop in
+    opacity.value = withTiming(1, { duration: 150 });
+    scale.value = withSequence(
+      withSpring(1.3, { damping: 6, stiffness: 180 }),
+      withSpring(1.0, { damping: 8, stiffness: 120 }),
+    );
+
+    // Idle bouncing animation that repeats for the 10-second lifetime
+    bounce.value = withRepeat(
+      withSequence(
+        withTiming(1.12, { duration: 420 }),
+        withTiming(0.95, { duration: 380 }),
+        withTiming(1.0, { duration: 200 }),
+      ),
+      -1,
+      true,
+    );
+
+    // Fade out at 9 seconds then complete at 10 seconds
+    const fadeTimer = setTimeout(() => {
+      scale.value = withTiming(0.5, { duration: 600 });
+      opacity.value = withTiming(0, { duration: 600 });
+    }, 9400);
+
+    const completeTimer = setTimeout(() => {
+      onCompleteRef.current?.();
+    }, 10000);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(completeTimer);
+    };
+  }, [opacity, scale, bounce]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value * bounce.value }],
+    opacity: opacity.value,
+  }));
+
+  const isMediaUrl =
+    item.mediaUrl && (item.mediaType === "sticker" || item.mediaType === "gif");
+
+  return (
+    <Animated.View
+      style={[styles.seatEmojiOverlay, animStyle]}
+      pointerEvents="none"
+    >
+      {isMediaUrl ? (
+        <Image
+          source={{ uri: item.mediaUrl }}
+          style={styles.seatEmojiOverlayImg}
+          resizeMode="contain"
+        />
+      ) : (
+        <Text style={styles.seatEmojiOverlayText}>{item.emoji}</Text>
+      )}
+    </Animated.View>
+  );
+};
+
+// ── Floating room-wide emoji that rises from the bottom right ─────────────────
+const FloatingRoomEmojiItem = ({ item, onComplete }) => {
+  const { W: SW, H: SH } = useResponsive();
+
+  const translateY = useSharedValue(0);
+  const translateX = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.3);
+  const rotate = useSharedValue(0);
+
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  const startX = useMemo(
+    () => SW * 0.72 + (Math.random() - 0.5) * SW * 0.2,
+    [SW],
+  );
+
+  useEffect(() => {
+    opacity.value = withTiming(1, { duration: 200 });
+    scale.value = withSequence(
+      withSpring(1.2, { damping: 5, stiffness: 200 }),
+      withSpring(1.0, { damping: 8, stiffness: 120 }),
+    );
+
+    // Rise upward over 2.5 s
+    translateY.value = withTiming(-SH * 0.55, { duration: 2500 });
+
+    // Gentle sway
+    translateX.value = withRepeat(
+      withSequence(
+        withTiming(s(14), { duration: 550 }),
+        withTiming(-s(14), { duration: 550 }),
+      ),
+      -1,
+      true,
+    );
+
+    // Gentle rotation
+    rotate.value = withRepeat(
+      withSequence(
+        withTiming(-10, { duration: 480 }),
+        withTiming(10, { duration: 480 }),
+      ),
+      -1,
+      true,
+    );
+
+    const fadeTimer = setTimeout(() => {
+      opacity.value = withTiming(0, { duration: 500 });
+    }, 2000);
+
+    const completeTimer = setTimeout(() => {
+      onCompleteRef.current?.();
+    }, 2600);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(completeTimer);
+    };
+  }, [opacity, scale, translateY, translateX, rotate, SH]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: translateY.value },
+      { translateX: translateX.value },
+      { scale: scale.value },
+      { rotate: `${rotate.value}deg` },
+    ],
+    opacity: opacity.value,
+  }));
+
+  const isMediaUrl =
+    item.mediaUrl && (item.mediaType === "sticker" || item.mediaType === "gif");
+
+  return (
+    <Animated.View
+      style={[styles.floatingRoomEmojiWrap, { left: startX }, animStyle]}
+      pointerEvents="none"
+    >
+      {isMediaUrl ? (
+        <Image
+          source={{ uri: item.mediaUrl }}
+          style={styles.floatingRoomEmojiImg}
+          resizeMode="contain"
+        />
+      ) : (
+        <Text style={styles.floatingRoomEmojiText}>{item.emoji}</Text>
+      )}
     </Animated.View>
   );
 };
@@ -1920,7 +2235,11 @@ export default function VoiceParty() {
   const recentActivityEventsMapRef = useRef(new Map());
 
   const processNextActivityEvent = useCallback(() => {
-    if (isProcessingActivityRef.current || activityEventQueueRef.current.length === 0) return;
+    if (
+      isProcessingActivityRef.current ||
+      activityEventQueueRef.current.length === 0
+    )
+      return;
     const next = activityEventQueueRef.current.shift();
     if (!next) return;
     isProcessingActivityRef.current = true;
@@ -2105,7 +2424,12 @@ export default function VoiceParty() {
     // Include seated users if not already in list
     (seats || []).forEach((seat) => {
       const u = seat?.user;
-      const uId = u?.id != null ? String(u.id) : u?.userId != null ? String(u.userId) : null;
+      const uId =
+        u?.id != null
+          ? String(u.id)
+          : u?.userId != null
+            ? String(u.userId)
+            : null;
       if (u && uId && !seenIds.has(uId)) {
         seenIds.add(uId);
         list.push({
@@ -2125,8 +2449,15 @@ export default function VoiceParty() {
         id: String(myUserId),
         userId: String(myUserId),
         name: localSessionUser?.name || localSessionUser?.username || "You",
-        avatar: localSessionUser?.avatar || localSessionUser?.profilePicUrl || localSessionUser?.profileImageUrl || null,
-        profileImageUrl: localSessionUser?.profileImageUrl || localSessionUser?.profilePicUrl || null,
+        avatar:
+          localSessionUser?.avatar ||
+          localSessionUser?.profilePicUrl ||
+          localSessionUser?.profileImageUrl ||
+          null,
+        profileImageUrl:
+          localSessionUser?.profileImageUrl ||
+          localSessionUser?.profilePicUrl ||
+          null,
       });
     }
 
@@ -2151,8 +2482,12 @@ export default function VoiceParty() {
       if (aIsHost && !bIsHost) return -1;
       if (!aIsHost && bIsHost) return 1;
 
-      const aSeated = (seats || []).some((s) => s?.user && String(s.user.id || s.user.userId) === aId);
-      const bSeated = (seats || []).some((s) => s?.user && String(s.user.id || s.user.userId) === bId);
+      const aSeated = (seats || []).some(
+        (s) => s?.user && String(s.user.id || s.user.userId) === aId,
+      );
+      const bSeated = (seats || []).some(
+        (s) => s?.user && String(s.user.id || s.user.userId) === bId,
+      );
       if (aSeated && !bSeated) return -1;
       if (!aSeated && bSeated) return 1;
 
@@ -2207,6 +2542,10 @@ export default function VoiceParty() {
   const [showPlayCenter, setShowPlayCenter] = useState(false);
   const [showTopGiftingRanking, setShowTopGiftingRanking] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // { id, emoji, mediaUrl, mediaType, userId, userName } items rising upward over the room
+  const [floatingRoomEmojis, setFloatingRoomEmojis] = useState([]);
+  // keyed by userId → { id, emoji, mediaUrl, mediaType, userId } (latest one wins)
+  const [seatEmojiOverlays, setSeatEmojiOverlays] = useState({});
   const [showGiftPanel, setShowGiftPanel] = useState(false);
   const [listenSeconds, setListenSeconds] = useState(0);
   const listenSecondsRef = useRef(0);
@@ -2229,7 +2568,8 @@ export default function VoiceParty() {
   // for all further PK lookups — never the route/session roomId, which can
   // drift out of sync (whitespace, re-derived session ids, etc.) from what
   // the PK subsystem itself considers this battle's room.
-  const pkPollRoomId = activePkBattle?.roomId || (roomId != null ? String(roomId).trim() : null);
+  const pkPollRoomId =
+    activePkBattle?.roomId || (roomId != null ? String(roomId).trim() : null);
   // The backend doesn't expose *which* side has accepted a pending battle
   // (status just stays PENDING until both have) — so "did I already accept
   // this one" has to be tracked locally, purely to swap this client's own
@@ -2331,10 +2671,11 @@ export default function VoiceParty() {
   useEffect(() => {
     if (typeof agoraVoice.subscribeAudioMixing !== 'function') return;
     const unsub = agoraVoice.subscribeAudioMixing(({ state, reason }) => {
-      // state 713 = Stopped. reason 721 = OneLoopCompleted, 723 = AllLoopsCompleted, 724 = StoppedByUser
+      // state 713 = Stopped, 714 = Completed. reason 721 = OneLoopCompleted, 723 = AllLoopsCompleted, 724 = StoppedByUser
       if (
         reason === 721 ||
         reason === 723 ||
+        state === 714 ||
         ((state === 713 || state === 'COMPLETED' || state === 'STOPPED') && reason !== 724)
       ) {
         DeviceEventEmitter.emit('AUDIO_MIXING_COMPLETED');
@@ -2412,11 +2753,16 @@ export default function VoiceParty() {
   const [myUserId, setMyUserId] = useState(null);
   const [localSessionUser, setLocalSessionUser] = useState(null);
   const myCountryFlag = useMyCountryFlag();
-  const hostId = roomInfo?.hostId ?? null;
-  const isHostSelf = isSameUser(hostId, myUserId);
+  const hostId =
+    roomInfo?.hostId ?? roomInfo?.creatorId ?? roomInfo?.ownerId ?? null;
+  const isHostSelf =
+    isSameUser(hostId, myUserId) ||
+    isSameUser(roomInfo?.creatorId, myUserId) ||
+    isSameUser(roomInfo?.ownerId, myUserId);
   const [roomAdminIds, setRoomAdminIds] = useState(new Set());
   const isViewerAdmin = Boolean(myUserId && roomAdminIds.has(String(myUserId)));
   const canManageRoomUsers = isHostSelf || isViewerAdmin;
+  const [clearingChat, setClearingChat] = useState(false);
 
   // Only the creator/owner of the room can edit room name & photo
   const currentAppUserId =
@@ -2522,7 +2868,12 @@ export default function VoiceParty() {
       .filter((m) => m?.userId != null)
       .map((m) => String(m.userId));
     const allIds = [
-      ...new Set([...seatUserIds, ...audienceUserIds, ...activeUserIds, ...chatSenderIds]),
+      ...new Set([
+        ...seatUserIds,
+        ...audienceUserIds,
+        ...activeUserIds,
+        ...chatSenderIds,
+      ]),
     ];
     const pending = allIds.filter(
       (userId) => !fetchedUiAssetIdsRef.current.has(userId),
@@ -2583,7 +2934,7 @@ export default function VoiceParty() {
             },
           }));
         })
-        .catch(() => { });
+        .catch(() => {});
     });
   }, [seats, onlineUsers, messages]);
 
@@ -2667,74 +3018,71 @@ export default function VoiceParty() {
     };
   }, [showBackpack, catalogRefreshKey]);
 
-  const refreshListenRewardStatus = useCallback(
-    async (isDateReset = false) => {
-      try {
-        const data = await loadListenRewardStatus();
-        if (!data) return;
+  const refreshListenRewardStatus = useCallback(async (isDateReset = false) => {
+    try {
+      const data = await loadListenRewardStatus();
+      if (!data) return;
 
-        const responseDate = data.date ? String(data.date) : null;
-        if (responseDate) {
-          currentUtcDateRef.current = responseDate;
-        }
+      const responseDate = data.date ? String(data.date) : null;
+      if (responseDate) {
+        currentUtcDateRef.current = responseDate;
+      }
 
-        if (typeof data.listenedSeconds === "number") {
-          const srvSec = Math.max(0, data.listenedSeconds);
-          if (isDateReset) {
-            // On date reset, set local baseline to server's new-day listenedSeconds
+      if (typeof data.listenedSeconds === "number") {
+        const srvSec = Math.max(0, data.listenedSeconds);
+        if (isDateReset) {
+          // On date reset, set local baseline to server's new-day listenedSeconds
+          listenSecondsRef.current = srvSec;
+          setListenSeconds(srvSec);
+          syncedListenSecondsRef.current = srvSec;
+        } else {
+          // On normal load/mount, advance baselines if server value is higher
+          if (srvSec > listenSecondsRef.current) {
             listenSecondsRef.current = srvSec;
             setListenSeconds(srvSec);
+          }
+          if (srvSec > syncedListenSecondsRef.current) {
             syncedListenSecondsRef.current = srvSec;
-          } else {
-            // On normal load/mount, advance baselines if server value is higher
-            if (srvSec > listenSecondsRef.current) {
-              listenSecondsRef.current = srvSec;
-              setListenSeconds(srvSec);
-            }
-            if (srvSec > syncedListenSecondsRef.current) {
-              syncedListenSecondsRef.current = srvSec;
-            }
           }
         }
+      }
 
-        if (Array.isArray(data.tiers) && data.tiers.length > 0) {
-          setRewardStates((prev) =>
-            data.tiers.map((t, idx) => {
-              const existing = isDateReset ? {} : (prev[idx] || {});
-              const threshold = Number(
-                t.thresholdSeconds ?? LISTEN_THRESHOLDS[idx] ?? 0,
-              );
-              const isUnlocked = Boolean(
-                t.unlocked ?? (listenSecondsRef.current >= threshold),
-              );
-              const isClaimed = Boolean(t.claimed);
-              let rewardImg = existing.rewardImg;
-              if (t.reward?.imageUrl) {
-                rewardImg = { uri: t.reward.imageUrl };
-              }
-              return {
-                ...existing,
-                tier: t.tier ?? (idx + 1),
-                thresholdSeconds: threshold,
-                label: t.label ?? LISTEN_THRESHOLD_LABELS[idx],
-                claimed: isClaimed,
-                claimedAt: t.claimedAt ?? null,
-                unlocked: isUnlocked,
-                reward: t.reward ?? existing.reward ?? null,
-                rewardImg,
-              };
-            }),
-          );
-        }
-      } catch (err) {
-        console.warn(
-          "[VoiceParty] Failed to load listen reward status:",
-          err?.message ?? err,
+      if (Array.isArray(data.tiers) && data.tiers.length > 0) {
+        setRewardStates((prev) =>
+          data.tiers.map((t, idx) => {
+            const existing = isDateReset ? {} : prev[idx] || {};
+            const threshold = Number(
+              t.thresholdSeconds ?? LISTEN_THRESHOLDS[idx] ?? 0,
+            );
+            const isUnlocked = Boolean(
+              t.unlocked ?? listenSecondsRef.current >= threshold,
+            );
+            const isClaimed = Boolean(t.claimed);
+            let rewardImg = existing.rewardImg;
+            if (t.reward?.imageUrl) {
+              rewardImg = { uri: t.reward.imageUrl };
+            }
+            return {
+              ...existing,
+              tier: t.tier ?? idx + 1,
+              thresholdSeconds: threshold,
+              label: t.label ?? LISTEN_THRESHOLD_LABELS[idx],
+              claimed: isClaimed,
+              claimedAt: t.claimedAt ?? null,
+              unlocked: isUnlocked,
+              reward: t.reward ?? existing.reward ?? null,
+              rewardImg,
+            };
+          }),
         );
       }
-    },
-    [],
-  );
+    } catch (err) {
+      console.warn(
+        "[VoiceParty] Failed to load listen reward status:",
+        err?.message ?? err,
+      );
+    }
+  }, []);
 
   // Load Listen Reward status when Listen Rewards modal opens or room initializes
   useEffect(() => {
@@ -2745,65 +3093,62 @@ export default function VoiceParty() {
     };
   }, [showGiftPanel, roomId, refreshListenRewardStatus]);
 
-  const flushListenRewardProgress = useCallback(
-    async (targetRoomId) => {
-      const activeRoom = String(targetRoomId || roomIdRef.current || "");
-      if (!activeRoom) return;
+  const flushListenRewardProgress = useCallback(async (targetRoomId) => {
+    const activeRoom = String(targetRoomId || roomIdRef.current || "");
+    if (!activeRoom) return;
 
-      // 1. Wait for any currently in-flight sync to complete
-      while (activeListenSyncPromiseRef.current) {
+    // 1. Wait for any currently in-flight sync to complete
+    while (activeListenSyncPromiseRef.current) {
+      try {
+        await activeListenSyncPromiseRef.current;
+      } catch {
+        // Failure handled inside the sync promise
+      }
+    }
+
+    // 2. Sequentially drain remaining unsynced delta in chunks of at most 120s
+    while (true) {
+      const deltaSeconds =
+        listenSecondsRef.current - syncedListenSecondsRef.current;
+      if (deltaSeconds <= 0) break;
+
+      const sendDelta = Math.min(deltaSeconds, 120);
+
+      const syncPromise = (async () => {
         try {
-          await activeListenSyncPromiseRef.current;
-        } catch {
-          // Failure handled inside the sync promise
+          const res = await syncListenRewardProgress({
+            roomId: activeRoom,
+            deltaSeconds: sendDelta,
+          });
+          if (res && res.success !== false) {
+            syncedListenSecondsRef.current += sendDelta;
+            return true;
+          }
+          return false;
+        } catch (err) {
+          console.warn(
+            "[VoiceParty] Failed to sync listen reward progress:",
+            err?.message ?? err,
+          );
+          return false;
+        }
+      })();
+
+      activeListenSyncPromiseRef.current = syncPromise;
+
+      let success = false;
+      try {
+        success = await syncPromise;
+      } finally {
+        if (activeListenSyncPromiseRef.current === syncPromise) {
+          activeListenSyncPromiseRef.current = null;
         }
       }
 
-      // 2. Sequentially drain remaining unsynced delta in chunks of at most 120s
-      while (true) {
-        const deltaSeconds =
-          listenSecondsRef.current - syncedListenSecondsRef.current;
-        if (deltaSeconds <= 0) break;
-
-        const sendDelta = Math.min(deltaSeconds, 120);
-
-        const syncPromise = (async () => {
-          try {
-            const res = await syncListenRewardProgress({
-              roomId: activeRoom,
-              deltaSeconds: sendDelta,
-            });
-            if (res && res.success !== false) {
-              syncedListenSecondsRef.current += sendDelta;
-              return true;
-            }
-            return false;
-          } catch (err) {
-            console.warn(
-              "[VoiceParty] Failed to sync listen reward progress:",
-              err?.message ?? err,
-            );
-            return false;
-          }
-        })();
-
-        activeListenSyncPromiseRef.current = syncPromise;
-
-        let success = false;
-        try {
-          success = await syncPromise;
-        } finally {
-          if (activeListenSyncPromiseRef.current === syncPromise) {
-            activeListenSyncPromiseRef.current = null;
-          }
-        }
-
-        // If a request fails, stop draining loop (keep remaining delta unsynced for future retry)
-        if (!success) break;
-      }
-    },
-    [],
-  );
+      // If a request fails, stop draining loop (keep remaining delta unsynced for future retry)
+      if (!success) break;
+    }
+  }, []);
 
   useEffect(() => {
     const keys = Object.keys(giftCatalog.activityByEvent);
@@ -3036,7 +3381,10 @@ export default function VoiceParty() {
         const list = Array.isArray(rooms) ? rooms : [];
         const isFollowed = list.some((r) => {
           const id = r?.id ?? r?.roomId;
-          return id != null && String(id).toLowerCase() === String(targetRoomId).toLowerCase();
+          return (
+            id != null &&
+            String(id).toLowerCase() === String(targetRoomId).toLowerCase()
+          );
         });
         setIsFollowing(Boolean(isFollowed));
       })
@@ -3064,12 +3412,23 @@ export default function VoiceParty() {
     return () => {
       cancelled = true;
     };
-  }, [showFollowModal, showRoomProfileModal, hostId, roomInfo?.hostId, roomInfo?.creatorId]);
+  }, [
+    showFollowModal,
+    showRoomProfileModal,
+    hostId,
+    roomInfo?.hostId,
+    roomInfo?.creatorId,
+  ]);
 
   useEffect(() => {
     if (!showRoomProfileModal) return;
     let cancelled = false;
-    const targetUserId = hostId || roomInfo?.hostId || roomInfo?.creatorId || roomInfo?.userId || roomInfo?.ownerId;
+    const targetUserId =
+      hostId ||
+      roomInfo?.hostId ||
+      roomInfo?.creatorId ||
+      roomInfo?.userId ||
+      roomInfo?.ownerId;
     if (targetUserId) {
       setFollowersLoading(true);
       loadFollowers(targetUserId)
@@ -3095,7 +3454,14 @@ export default function VoiceParty() {
     return () => {
       cancelled = true;
     };
-  }, [showRoomProfileModal, hostId, roomInfo?.hostId, roomInfo?.creatorId, roomInfo?.userId, roomInfo?.ownerId]);
+  }, [
+    showRoomProfileModal,
+    hostId,
+    roomInfo?.hostId,
+    roomInfo?.creatorId,
+    roomInfo?.userId,
+    roomInfo?.ownerId,
+  ]);
 
   const displayFollowersList = useMemo(() => {
     const baseList = Array.isArray(roomFollowersList) ? roomFollowersList : [];
@@ -3115,7 +3481,9 @@ export default function VoiceParty() {
   useEffect(() => {
     if (!showRoomProfileModal) return;
     let cancelled = false;
-    const activeRoomId = String(roomId || roomInfo?.id || roomInfo?.roomId || "");
+    const activeRoomId = String(
+      roomId || roomInfo?.id || roomInfo?.roomId || "",
+    );
     if (activeRoomId) {
       getRoomBadges(activeRoomId)
         .then((res) => {
@@ -3131,9 +3499,15 @@ export default function VoiceParty() {
   }, [showRoomProfileModal, roomId, roomInfo?.id, roomInfo?.roomId]);
 
   const roomLevel = hostProfileDetails?.level ?? roomInfo?.level ?? 1;
-  const roomGiftCount = roomInfo?.giftCount ?? roomInfo?.totalGifts ?? roomInfo?.giftTotal ?? 0;
-  const roomPkWins = roomInfo?.pkWins ?? roomInfo?.pkWinCount ?? roomInfo?.pkWinsCount ?? 0;
-  const roomFollowerCount = hostProfileDetails?.followersCount ?? roomInfo?.followersCount ?? roomInfo?.followerCount ?? (Array.isArray(roomFollowersList) ? roomFollowersList.length : 0);
+  const roomGiftCount =
+    roomInfo?.giftCount ?? roomInfo?.totalGifts ?? roomInfo?.giftTotal ?? 0;
+  const roomPkWins =
+    roomInfo?.pkWins ?? roomInfo?.pkWinCount ?? roomInfo?.pkWinsCount ?? 0;
+  const roomFollowerCount =
+    hostProfileDetails?.followersCount ??
+    roomInfo?.followersCount ??
+    roomInfo?.followerCount ??
+    (Array.isArray(roomFollowersList) ? roomFollowersList.length : 0);
 
   const achievementBadges = useMemo(() => {
     // 1. Dynamic backend achievement badges if returned by API
@@ -3150,8 +3524,11 @@ export default function VoiceParty() {
         grade: b.grade || (b.level >= 20 ? "S" : b.level >= 10 ? "A" : "C"),
         iconType: b.iconType || b.type || "room_level",
         level: b.level ?? roomLevel,
-        unlocked: Boolean(b.unlocked ?? b.isUnlocked ?? (b.status === "UNLOCKED")),
-        desc: b.desc || b.description || `Achievement badge for room milestones.`,
+        unlocked: Boolean(
+          b.unlocked ?? b.isUnlocked ?? b.status === "UNLOCKED",
+        ),
+        desc:
+          b.desc || b.description || `Achievement badge for room milestones.`,
         imageUrl: b.imageUrl || b.iconUrl || b.badgeUrl || null,
         progress: b.progress,
         target: b.target,
@@ -3174,10 +3551,15 @@ export default function VoiceParty() {
         title: "Receive gift in PK",
         grade: roomPkWins >= 10 ? "S" : roomPkWins >= 3 ? "A" : "C",
         iconType: "pk_gift",
-        unlocked: Boolean(roomInfo?.hasPkGiftBadge || roomPkWins > 0 || roomInfo?.pkGiftCount > 0),
-        desc: roomPkWins > 0
-          ? `Receive gifts during PK battles (${roomPkWins} PK wins recorded).`
-          : "Receive gifts during PK battles to unlock this badge.",
+        unlocked: Boolean(
+          roomInfo?.hasPkGiftBadge ||
+          roomPkWins > 0 ||
+          roomInfo?.pkGiftCount > 0,
+        ),
+        desc:
+          roomPkWins > 0
+            ? `Receive gifts during PK battles (${roomPkWins} PK wins recorded).`
+            : "Receive gifts during PK battles to unlock this badge.",
       },
       {
         id: "room_receive_gift",
@@ -3185,16 +3567,19 @@ export default function VoiceParty() {
         grade: roomGiftCount >= 100 ? "S" : roomGiftCount >= 20 ? "A" : "C",
         iconType: "receive_gift",
         unlocked: Boolean(roomInfo?.hasReceiveGiftBadge || roomGiftCount > 0),
-        desc: roomGiftCount > 0
-          ? `Receive gifts in the voice room (Total gifts received: ${roomGiftCount}).`
-          : "Receive gifts in the voice room to unlock this badge.",
+        desc:
+          roomGiftCount > 0
+            ? `Receive gifts in the voice room (Total gifts received: ${roomGiftCount}).`
+            : "Receive gifts in the voice room to unlock this badge.",
       },
       {
         id: "room_pk_gift",
         title: "Receive gift in Room PK",
         grade: (roomInfo?.roomPkGifts ?? 0) >= 20 ? "S" : "C",
         iconType: "room_pk",
-        unlocked: Boolean(roomInfo?.hasRoomPkBadge || (roomInfo?.roomPkGifts ?? 0) > 0),
+        unlocked: Boolean(
+          roomInfo?.hasRoomPkBadge || (roomInfo?.roomPkGifts ?? 0) > 0,
+        ),
         desc: "Receive gifts in Room PK battles to unlock this badge.",
       },
       {
@@ -3202,7 +3587,9 @@ export default function VoiceParty() {
         title: "Receive lucky gift",
         grade: (roomInfo?.luckyGiftCount ?? 0) >= 10 ? "S" : "C",
         iconType: "lucky_gift",
-        unlocked: Boolean(roomInfo?.hasLuckyGiftBadge || (roomInfo?.luckyGiftCount ?? 0) > 0),
+        unlocked: Boolean(
+          roomInfo?.hasLuckyGiftBadge || (roomInfo?.luckyGiftCount ?? 0) > 0,
+        ),
         desc: "Receive lucky 777 gifts to unlock this badge.",
       },
       {
@@ -3210,7 +3597,10 @@ export default function VoiceParty() {
         title: "Receive high value gift",
         grade: (roomInfo?.highValueGiftCount ?? 0) >= 5 ? "S" : "C",
         iconType: "high_value_gift",
-        unlocked: Boolean(roomInfo?.hasHighValueGiftBadge || (roomInfo?.highValueGiftCount ?? 0) > 0),
+        unlocked: Boolean(
+          roomInfo?.hasHighValueGiftBadge ||
+          (roomInfo?.highValueGiftCount ?? 0) > 0,
+        ),
         desc: "Receive high-value luxury gifts to unlock this badge.",
       },
     ];
@@ -3230,8 +3620,13 @@ export default function VoiceParty() {
         title: h.title || h.name || "Honor Badge",
         grade: h.grade || "S",
         iconType: h.iconType || h.type || "dragon_top1",
-        unlocked: Boolean(h.unlocked ?? h.isUnlocked ?? (h.status === "UNLOCKED")),
-        desc: h.desc || h.description || "Prestigious room honor badge awarded for tournament and seasonal achievements.",
+        unlocked: Boolean(
+          h.unlocked ?? h.isUnlocked ?? h.status === "UNLOCKED",
+        ),
+        desc:
+          h.desc ||
+          h.description ||
+          "Prestigious room honor badge awarded for tournament and seasonal achievements.",
         imageUrl: h.imageUrl || h.iconUrl || h.badgeUrl || null,
       }));
     }
@@ -3249,7 +3644,12 @@ export default function VoiceParty() {
         title: "Imperial Aqua",
         grade: "A",
         iconType: "aqua",
-        unlocked: customHonors.some((h) => h?.id === "imperial_aqua" || h?.name === "Imperial Aqua" || h?.code === "imperial_aqua"),
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "imperial_aqua" ||
+            h?.name === "Imperial Aqua" ||
+            h?.code === "imperial_aqua",
+        ),
         desc: "Imperial Aqua Honor badge awarded to outstanding aquatic themed rooms.",
       },
       {
@@ -3257,7 +3657,12 @@ export default function VoiceParty() {
         title: "Sapphire Crest",
         grade: "S",
         iconType: "dragon_top3",
-        unlocked: customHonors.some((h) => h?.id === "sapphire_crest" || h?.name === "Sapphire Crest" || h?.code === "sapphire_crest"),
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "sapphire_crest" ||
+            h?.name === "Sapphire Crest" ||
+            h?.code === "sapphire_crest",
+        ),
         desc: "Top 3 Room ranking in the Sapphire League.",
       },
       {
@@ -3265,7 +3670,12 @@ export default function VoiceParty() {
         title: "Golden Glory",
         grade: "S",
         iconType: "dragon_top2",
-        unlocked: customHonors.some((h) => h?.id === "golden_glory" || h?.name === "Golden Glory" || h?.code === "golden_glory"),
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "golden_glory" ||
+            h?.name === "Golden Glory" ||
+            h?.code === "golden_glory",
+        ),
         desc: "Top 2 Room ranking in the Golden Glory League.",
       },
       {
@@ -3273,7 +3683,12 @@ export default function VoiceParty() {
         title: "Ruby Supreme",
         grade: "S",
         iconType: "dragon_top1",
-        unlocked: customHonors.some((h) => h?.id === "ruby_supreme" || h?.name === "Ruby Supreme" || h?.code === "ruby_supreme"),
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "ruby_supreme" ||
+            h?.name === "Ruby Supreme" ||
+            h?.code === "ruby_supreme",
+        ),
         desc: "Top 1 Champion Room ranking in the Ruby Supreme Tournament.",
       },
       {
@@ -3281,7 +3696,12 @@ export default function VoiceParty() {
         title: "Pisces Champion",
         grade: "S",
         iconType: "pisces_top1",
-        unlocked: customHonors.some((h) => h?.id === "pisces_champion" || h?.name === "Pisces Champion" || h?.code === "pisces_champion"),
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "pisces_champion" ||
+            h?.name === "Pisces Champion" ||
+            h?.code === "pisces_champion",
+        ),
         desc: "Top 1 Pisces Champion in seasonal constellation events.",
       },
       {
@@ -3289,7 +3709,12 @@ export default function VoiceParty() {
         title: "Pisces Runner-up",
         grade: "S",
         iconType: "pisces_top2",
-        unlocked: customHonors.some((h) => h?.id === "pisces_runner_up" || h?.name === "Pisces Runner-up" || h?.code === "pisces_runner_up"),
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "pisces_runner_up" ||
+            h?.name === "Pisces Runner-up" ||
+            h?.code === "pisces_runner_up",
+        ),
         desc: "Top 2 Pisces Runner-up in seasonal constellation events.",
       },
       {
@@ -3297,7 +3722,12 @@ export default function VoiceParty() {
         title: "Pisces Third",
         grade: "S",
         iconType: "pisces_top3",
-        unlocked: customHonors.some((h) => h?.id === "pisces_third" || h?.name === "Pisces Third" || h?.code === "pisces_third"),
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "pisces_third" ||
+            h?.name === "Pisces Third" ||
+            h?.code === "pisces_third",
+        ),
         desc: "Top 3 Pisces Finalist in seasonal constellation events.",
       },
       {
@@ -3305,7 +3735,12 @@ export default function VoiceParty() {
         title: "Gilded Holy Egg",
         grade: "S",
         iconType: "holy_egg",
-        unlocked: customHonors.some((h) => h?.id === "gilded_holy_egg" || h?.name === "Gilded Holy Egg" || h?.code === "gilded_holy_egg"),
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "gilded_holy_egg" ||
+            h?.name === "Gilded Holy Egg" ||
+            h?.code === "gilded_holy_egg",
+        ),
         desc: "Honor badge for special Gilded Holy Egg event champions.",
       },
     ];
@@ -3313,18 +3748,20 @@ export default function VoiceParty() {
 
   const handleBadgePress = useCallback((badge) => {
     if (!badge) return;
-    const statusText = badge.unlocked ? "Status: Unlocked ✨" : "Status: Locked 🔒";
+    const statusText = badge.unlocked
+      ? "Status: Unlocked ✨"
+      : "Status: Locked 🔒";
     const gradeText = badge.grade ? `Grade: [${badge.grade}]` : "";
     Alert.alert(
       badge.title,
-      `${gradeText ? gradeText + "\n" : ""}${statusText}\n\n${badge.desc || "Earn badges by actively hosting and receiving gifts in your voice room."}`
+      `${gradeText ? gradeText + "\n" : ""}${statusText}\n\n${badge.desc || "Earn badges by actively hosting and receiving gifts in your voice room."}`,
     );
   }, []);
 
   const handleBadgeWallHelp = useCallback(() => {
     Alert.alert(
       "Room Badge Wall Rules",
-      "1. Achievement Badges: Earned by leveling up the room, PK participation, and receiving lucky or special gifts.\n\n2. Honor Badges: Exclusive prestige badges awarded to top-ranking rooms in seasonal tournaments and events.\n\n3. Badges are dynamic and reflect your room's active accomplishments."
+      "1. Achievement Badges: Earned by leveling up the room, PK participation, and receiving lucky or special gifts.\n\n2. Honor Badges: Exclusive prestige badges awarded to top-ranking rooms in seasonal tournaments and events.\n\n3. Badges are dynamic and reflect your room's active accomplishments.",
     );
   }, []);
 
@@ -3559,21 +3996,224 @@ export default function VoiceParty() {
 
   useEffect(() => {
     let cancelled = false;
+    // const initRoom = async () => {
+    //   setRoomLoading(true);
+    //   exitedRef.current = false;
+    //   await refreshTokenCache();
+    //   try {
+    //     await syncNewUserFrameForSession();
+    //     const levelData = await syncUserLevelForSession();
+    //     if (!cancelled && levelData?.level != null) setMyLevel(levelData.level);
+    //     let loadedVip = null;
+    //     try {
+    //       loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
+    //       console.log("[VoiceParty] myVipAssets loaded:", JSON.stringify(loadedVip));
+    //       if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
+    //     } catch (e) {
+    //       console.log("[VoiceParty] myVipAssets load threw:", e?.message ?? e);
+    //     }
+    //     try {
+    //       const premiumAssets = await loadMyPremiumAssets();
+    //       if (!cancelled) setMyPremiumLogo(premiumAssets?.logo ?? null);
+    //     } catch {
+    //       // Non-critical — badge just stays hidden.
+    //     }
+    //     let session;
+    //     if (isRandomParty) {
+    //       session = await enterRandomPartySession();
+    //     } else if (roomIdParam) {
+    //       session = await enterRoomSession(String(roomIdParam));
+    //     } else {
+    //       throw new Error("Room id is required.");
+    //     }
+    //     if (cancelled) return;
+    //     setRoomId(session.roomId);
+    //     roomIdRef.current = session.roomId;
+    //     setRoomInfo(session.room);
+    //     if (session.room?.body) setWelcomeMessage(session.room.body);
+    //     fetchRoomAnnouncement(session.roomId)
+    //       .then((announcement) => {
+    //         if (!cancelled && announcement) setWelcomeMessage(announcement);
+    //       })
+    //       .catch(() => { });
+    //     onMicRef.current = false;
+    //     mySeatNumberRef.current = null;
+    //     setOnMic(false);
+    //     setMySeatNumber(null);
+    //     setSeats(
+    //       reconcileSeatAssignments(session.seats, {
+    //         onlineUsers: session.onlineUsers,
+    //         myUserId,
+    //         mySeatNumber: null,
+    //         staleSeatTracker: staleSeatTrackerRef.current,
+    //         activeVoiceUids: activeVoiceUidsRef.current,
+    //       }),
+    //     );
+    //     setOnlineUsers(session.onlineUsers);
+    //     setOnlineCount(session.onlineCount);
+
+    //     // Show entry toast banner immediately upon entering the room
+    //     const localUser = await getUser();
+    //     if (localUser && !cancelled) {
+    //       const resolvedAvatar =
+    //         resolveProfileAvatarUri(localUser) ??
+    //         localUser?.profilePicUrl ??
+    //         localUser?.avatarUrl;
+    //       const selfEntryUser = {
+    //         id: localUser.id || "my-id",
+    //         name: localUser.name || localUser.username || "You",
+    //         avatar: resolvedAvatar,
+    //         entryFrameUrl:
+    //           loadedVip?.entryFrame || localUser?.newUserFrameUrl,
+    //         newUserFrameUrl: localUser?.newUserFrameUrl,
+    //         profileFrameUrl:
+    //           loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
+    //       };
+
+    //       // Immediately display real-time "entered the room" toast banner
+    //       enqueueActivityEvent({
+    //         id: `enter-self-${Date.now()}`,
+    //         type: "enter",
+    //         user: selfEntryUser,
+    //       });
+
+    //       // Also trigger VIP entry banner if equipped
+    //       setRecentEntries((prev) => [...prev, selfEntryUser]);
+    //     }
+
+    //     // Chat is session-local: start with a clean screen on every entry
+    //     // instead of replaying the room's persisted message history.
+    //     sessionMessageBaselineRef.current = session.messages.length;
+    //     setMessages([]);
+
+    //     // Deferred reconcile — fetch a fresh room snapshot a few seconds after
+    //     // entry so any ghost/stale seat users the backend cleaned up are removed.
+    //     setTimeout(async () => {
+    //       if (cancelled) return;
+    //       const tokenAtRequest = seatSyncTokenRef.current;
+    //       try {
+    //         const freshState = await getRoomState(String(session.roomId));
+    //         if (cancelled) return;
+    //         // A live ui-state broadcast already superseded this REST snapshot
+    //         // while it was in flight — applying it now would clobber fresher
+    //         // socket-driven seat data with stale REST data.
+    //         if (seatSyncTokenRef.current !== tokenAtRequest) return;
+    //         const freshOnline = parseOnlineUsers(freshState, null);
+    //         const freshSeats = parseSeats(freshState?.seats, freshState);
+    //         if (freshOnline.length > 0) {
+    //           setOnlineUsers(freshOnline);
+    //           setOnlineCount(freshOnline.length);
+    //         }
+    //         setSeats((prev) =>
+    //           reconcileSeatAssignments(freshSeats, {
+    //             onlineUsers: freshOnline.length > 0 ? freshOnline : null,
+    //             myUserId,
+    //             mySeatNumber: mySeatNumberRef.current,
+    //             staleSeatTracker: staleSeatTrackerRef.current,
+    //             activeVoiceUids: activeVoiceUidsRef.current,
+    //           }),
+    //         );
+    //       } catch {
+    //         // Non-critical — ignore failures
+    //       }
+    //     }, 5000);
+
+    //     setVoiceListenStatus("connecting");
+    //     setIsSpeakerMuted(false);
+    //     agoraVoice.toggleRemoteMute(false);
+
+    //     const connectRoomAudio = async (attempt = 1) => {
+    //       if (partyVoice.getActiveRoomId() === String(session.roomId)) {
+    //         if (!cancelled) {
+    //           setVoiceListenStatus("ready");
+    //           agoraVoice.toggleRemoteMute(false);
+    //         }
+    //         return;
+    //       }
+    //       try {
+    //         await partyVoice.joinAsListener(String(session.roomId));
+    //         if (!cancelled) {
+    //           setVoiceListenStatus("ready");
+    //           agoraVoice.toggleRemoteMute(false);
+    //         }
+    //       } catch (voiceErr) {
+    //         if (cancelled) return;
+    //         if (attempt < 2) {
+    //           await new Promise((resolve) => setTimeout(resolve, 900));
+    //           return connectRoomAudio(attempt + 1);
+    //         }
+    //         setVoiceListenStatus("failed");
+    //         const msg = voiceErr?.message ?? "Could not connect to room audio.";
+    //         if (__DEV__) {
+    //           console.warn("[voice-party] joinAsListener failed:", msg);
+    //         }
+    //         Alert.alert(
+    //           "Voice audio unavailable",
+    //           `${msg}\n\nYou can still chat in the room. Tap Reconnect to try audio again, or Claim seat to speak.`,
+    //           [
+    //             {
+    //               text: "Reconnect",
+    //               onPress: async () => {
+    //                 setVoiceListenStatus("connecting");
+    //                 try {
+    //                   await partyVoice.reconnectAsListener(
+    //                     String(session.roomId),
+    //                   );
+    //                   setVoiceListenStatus("ready");
+    //                   agoraVoice.toggleRemoteMute(false);
+    //                   setIsSpeakerMuted(false);
+    //                 } catch (retryErr) {
+    //                   setVoiceListenStatus("failed");
+    //                   Alert.alert(
+    //                     "Reconnect failed",
+    //                     retryErr?.message ?? "Could not reconnect room audio.",
+    //                   );
+    //                 }
+    //               },
+    //             },
+    //             { text: "OK", style: "cancel" },
+    //           ],
+    //         );
+    //       }
+    //     };
+
+    //     await connectRoomAudio();
+    //   } catch (err) {
+    //     if (!cancelled) {
+    //       Alert.alert(
+    //         isRandomParty ? "Could not join party room" : "Could not join room",
+    //         err?.message || "Please try again.",
+    //       );
+    //       router.back();
+    //     }
+    //   } finally {
+    //     if (!cancelled) setRoomLoading(false);
+    //   }
+    // };
+
     const initRoom = async () => {
       setRoomLoading(true);
       exitedRef.current = false;
       await refreshTokenCache();
-      try {
-        await syncNewUserFrameForSession();
-        const levelData = await syncUserLevelForSession();
+
+      // ── Cosmetics: run in parallel, never block the room from showing ──
+      const frameSyncPromise = syncNewUserFrameForSession().catch(() => null);
+
+      const cosmeticsPromise = (async () => {
+        await frameSyncPromise;
+        const levelData = await syncUserLevelForSession().catch(() => null);
         if (!cancelled && levelData?.level != null) setMyLevel(levelData.level);
+
         let loadedVip = null;
         try {
           loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
-          console.log("[VoiceParty] myVipAssets loaded:", JSON.stringify(loadedVip));
           if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
         } catch (e) {
-          console.log("[VoiceParty] myVipAssets load threw:", e?.message ?? e);
+          if (__DEV__)
+            console.log(
+              "[VoiceParty] myVipAssets load threw:",
+              e?.message ?? e,
+            );
         }
         try {
           const premiumAssets = await loadMyPremiumAssets();
@@ -3581,6 +4221,15 @@ export default function VoiceParty() {
         } catch {
           // Non-critical — badge just stays hidden.
         }
+        return loadedVip;
+      })();
+
+      // Local user profile — also in parallel
+      const localUserPromise = getUser().catch(() => null);
+      isNavigatingToInboxRef.current = false;
+
+      try {
+        // ── Critical path: only the room session itself ──
         let session;
         if (isRandomParty) {
           session = await enterRandomPartySession();
@@ -3590,6 +4239,7 @@ export default function VoiceParty() {
           throw new Error("Room id is required.");
         }
         if (cancelled) return;
+
         setRoomId(session.roomId);
         roomIdRef.current = session.roomId;
         setRoomInfo(session.room);
@@ -3598,7 +4248,8 @@ export default function VoiceParty() {
           .then((announcement) => {
             if (!cancelled && announcement) setWelcomeMessage(announcement);
           })
-          .catch(() => { });
+          .catch(() => {});
+
         onMicRef.current = false;
         mySeatNumberRef.current = null;
         setOnMic(false);
@@ -3616,51 +4267,44 @@ export default function VoiceParty() {
         setOnlineUsers(session.onlineUsers);
         setOnlineCount(session.onlineCount);
 
-        // Show entry toast banner immediately upon entering the room
-        const localUser = await getUser();
-        if (localUser && !cancelled) {
-          const resolvedAvatar =
-            resolveProfileAvatarUri(localUser) ??
-            localUser?.profilePicUrl ??
-            localUser?.avatarUrl;
-          const selfEntryUser = {
-            id: localUser.id || "my-id",
-            name: localUser.name || localUser.username || "You",
-            avatar: resolvedAvatar,
-            entryFrameUrl:
-              loadedVip?.entryFrame || localUser?.newUserFrameUrl,
-            newUserFrameUrl: localUser?.newUserFrameUrl,
-            profileFrameUrl:
-              loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
-          };
-
-          // Immediately display real-time "entered the room" toast banner
-          enqueueActivityEvent({
-            id: `enter-self-${Date.now()}`,
-            type: "enter",
-            user: selfEntryUser,
-          });
-
-          // Also trigger VIP entry banner if equipped
-          setRecentEntries((prev) => [...prev, selfEntryUser]);
-        }
-
         // Chat is session-local: start with a clean screen on every entry
-        // instead of replaying the room's persisted message history.
         sessionMessageBaselineRef.current = session.messages.length;
         setMessages([]);
 
-        // Deferred reconcile — fetch a fresh room snapshot a few seconds after
-        // entry so any ghost/stale seat users the backend cleaned up are removed.
+        // Self entry toast / VIP banner — fires when local user + VIP data are ready
+        Promise.all([localUserPromise, cosmeticsPromise]).then(
+          ([localUser, loadedVip]) => {
+            if (!localUser || cancelled) return;
+            const resolvedAvatar =
+              resolveProfileAvatarUri(localUser) ??
+              localUser?.profilePicUrl ??
+              localUser?.avatarUrl;
+            const selfEntryUser = {
+              id: localUser.id || "my-id",
+              name: localUser.name || localUser.username || "You",
+              avatar: resolvedAvatar,
+              entryFrameUrl:
+                loadedVip?.entryFrame || localUser?.newUserFrameUrl,
+              newUserFrameUrl: localUser?.newUserFrameUrl,
+              profileFrameUrl:
+                loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
+            };
+            enqueueActivityEvent({
+              id: `enter-self-${Date.now()}`,
+              type: "enter",
+              user: selfEntryUser,
+            });
+            setRecentEntries((prev) => [...prev, selfEntryUser]);
+          },
+        );
+
+        // Deferred reconcile — unchanged
         setTimeout(async () => {
           if (cancelled) return;
           const tokenAtRequest = seatSyncTokenRef.current;
           try {
             const freshState = await getRoomState(String(session.roomId));
             if (cancelled) return;
-            // A live ui-state broadcast already superseded this REST snapshot
-            // while it was in flight — applying it now would clobber fresher
-            // socket-driven seat data with stale REST data.
             if (seatSyncTokenRef.current !== tokenAtRequest) return;
             const freshOnline = parseOnlineUsers(freshState, null);
             const freshSeats = parseSeats(freshState?.seats, freshState);
@@ -3679,10 +4323,14 @@ export default function VoiceParty() {
               }),
             );
           } catch {
-            // Non-critical — ignore failures
+            // Non-critical
           }
         }, 5000);
 
+        // ── Room is usable now: drop the loading overlay immediately ──
+        if (!cancelled) setRoomLoading(false);
+
+        // ── Audio connects in the background (no longer blocks the UI) ──
         setVoiceListenStatus("connecting");
         setIsSpeakerMuted(false);
         agoraVoice.toggleRemoteMute(false);
@@ -3709,9 +4357,8 @@ export default function VoiceParty() {
             }
             setVoiceListenStatus("failed");
             const msg = voiceErr?.message ?? "Could not connect to room audio.";
-            if (__DEV__) {
+            if (__DEV__)
               console.warn("[voice-party] joinAsListener failed:", msg);
-            }
             Alert.alert(
               "Voice audio unavailable",
               `${msg}\n\nYou can still chat in the room. Tap Reconnect to try audio again, or Claim seat to speak.`,
@@ -3742,7 +4389,7 @@ export default function VoiceParty() {
           }
         };
 
-        await connectRoomAudio();
+        connectRoomAudio(); // intentionally not awaited
       } catch (err) {
         if (!cancelled) {
           Alert.alert(
@@ -3766,13 +4413,13 @@ export default function VoiceParty() {
       if (activeRoomId && !exitedRef.current) {
         exitedRef.current = true;
         const cleanup = async () => {
-          await flushListenRewardProgress(activeRoomId).catch(() => { });
-          await partyVoice.teardownVoice().catch(() => { });
-          await exitRoomSession(String(activeRoomId)).catch(() => { });
+          await flushListenRewardProgress(activeRoomId).catch(() => {});
+          await partyVoice.teardownVoice().catch(() => {});
+          await exitRoomSession(String(activeRoomId)).catch(() => {});
         };
         cleanup();
       } else {
-        partyVoice.teardownVoice().catch(() => { });
+        partyVoice.teardownVoice().catch(() => {});
       }
     };
   }, [roomIdParam, isRandomParty, router]);
@@ -3837,7 +4484,12 @@ export default function VoiceParty() {
   }, [roomId]);
 
   useEffect(() => {
-    if (!roomLoading && roomId && !autoOpenedFollowModalRef.current && !isHostSelf) {
+    if (
+      !roomLoading &&
+      roomId &&
+      !autoOpenedFollowModalRef.current &&
+      !isHostSelf
+    ) {
       autoOpenedFollowModalRef.current = true;
       const timer = setTimeout(() => {
         setShowFollowModal(true);
@@ -3859,7 +4511,7 @@ export default function VoiceParty() {
         );
         setChatUnreadCount(unread);
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -3988,6 +4640,10 @@ export default function VoiceParty() {
     };
 
     const appendChatMessage = (payload) => {
+      if (payload?.type === "CHAT_CLEARED") {
+        setMessages([]);
+        return;
+      }
       setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
       revealGiftFromChat(payload);
@@ -4076,46 +4732,60 @@ export default function VoiceParty() {
       }
     });
 
-    const unsubTreasure = wsService.onRoomTreasure(String(roomId), async (payload) => {
-      try {
-        const event = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    const unsubTreasure = wsService.onRoomTreasure(
+      String(roomId),
+      async (payload) => {
+        try {
+          const event =
+            typeof payload === "string" ? JSON.parse(payload) : payload;
 
-        if (event?.type === 'TREASURE_PROGRESS') {
-          updateTreasureState({
-            currentAmount: event.currentAmount,
-            currentTarget: event.currentTarget,
-            remainingAmount: event.remainingAmount,
-            completedRound: event.completedRound,
-            status: event.status,
-          });
-        } else if (event?.type === 'TREASURE_UNLOCKED') {
-          console.log('[VoiceParty] TREASURE_UNLOCKED event received:', JSON.stringify(event, null, 2));
-          console.log('[VoiceParty] Current myUserId:', myUserId);
+          if (event?.type === "TREASURE_PROGRESS") {
+            updateTreasureState({
+              currentAmount: event.currentAmount,
+              currentTarget: event.currentTarget,
+              remainingAmount: event.remainingAmount,
+              completedRound: event.completedRound,
+              status: event.status,
+            });
+          } else if (event?.type === "TREASURE_UNLOCKED") {
+            console.log(
+              "[VoiceParty] TREASURE_UNLOCKED event received:",
+              JSON.stringify(event, null, 2),
+            );
+            console.log("[VoiceParty] Current myUserId:", myUserId);
 
-          const myReward = event.rewards?.find(r => String(r.userId) === String(myUserId));
+            const myReward = event.rewards?.find(
+              (r) => String(r.userId) === String(myUserId),
+            );
 
-          if (myReward) {
-            // Show the animation immediately, wait for it to complete to show popup
-            setPendingTreasureEvent({ ...event, myReward });
-            setShowTreasureAnimation(true);
+            if (myReward) {
+              // Show the animation immediately, wait for it to complete to show popup
+              setPendingTreasureEvent({ ...event, myReward });
+              setShowTreasureAnimation(true);
 
-            if (myReward.rewardType === 'TOP_RANK_REWARD') {
-              // Refresh backpack in background
-              loadGiftInventory().then(setBackpackGifts).catch(() => { });
+              if (myReward.rewardType === "TOP_RANK_REWARD") {
+                // Refresh backpack in background
+                loadGiftInventory()
+                  .then(setBackpackGifts)
+                  .catch(() => {});
+              }
+              if (
+                myReward.rewardType === "PARTICIPATION_REWARD" ||
+                myReward.rewardAmount
+              ) {
+                // Refresh wallet in background
+                refreshWalletBalance().catch(() => {});
+              }
             }
-            if (myReward.rewardType === 'PARTICIPATION_REWARD' || myReward.rewardAmount) {
-              // Refresh wallet in background
-              refreshWalletBalance().catch(() => { });
-            }
+
+            // Refresh state from backend instead of relying purely on WS data for the new round
+            refreshTreasureState();
           }
-
-          // Refresh state from backend instead of relying purely on WS data for the new round
-          refreshTreasureState();
+        } catch (err) {
+          console.error("[VoiceParty] Error handling treasure event:", err);
         }
-      } catch (err) {
-        console.error('[VoiceParty] Error handling treasure event:', err);
-      }
-    });
+      },
+    );
 
     const unsubSpeaking = wsService.onRoomSpeaking(
       String(roomId),
@@ -4232,10 +4902,7 @@ export default function VoiceParty() {
 
         revealGiftAnimation(enrichedPayload);
         const giftName =
-          payload?.giftName ??
-          payload?.name ??
-          payload?.gift?.name ??
-          "a gift";
+          payload?.giftName ?? payload?.name ?? payload?.gift?.name ?? "a gift";
         const qty = Math.max(1, Number(payload?.quantity ?? payload?.qty ?? 1));
         const giftText = `sent ${payload?.emoji ?? "🎁"} ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
         const normalized = normalizeChatMessage({
@@ -4272,9 +4939,12 @@ export default function VoiceParty() {
       String(roomId),
       (payload) => {
         if (!payload) return;
-        const eventType = String(payload.eventType || payload.type || "").toUpperCase();
+        const eventType = String(
+          payload.eventType || payload.type || "",
+        ).toUpperCase();
         const uId = payload.userId != null ? String(payload.userId) : null;
-        const uName = payload.userName || payload.senderName || payload.name || "User";
+        const uName =
+          payload.userName || payload.senderName || payload.name || "User";
         const uAvatar =
           payload.profileImage ||
           payload.avatar ||
@@ -4306,7 +4976,9 @@ export default function VoiceParty() {
               }
 
               setOnlineUsers((prev) => {
-                const exists = prev.some((u) => String(u?.id ?? u?.userId) === uId);
+                const exists = prev.some(
+                  (u) => String(u?.id ?? u?.userId) === uId,
+                );
                 if (exists) return prev;
                 return [...prev, joinedUser];
               });
@@ -4341,7 +5013,10 @@ export default function VoiceParty() {
               // Clear seat if left user was seated
               setSeats((prev) =>
                 prev.map((seat) => {
-                  if (seat.user && String(seat.user.id ?? seat.user.userId) === uId) {
+                  if (
+                    seat.user &&
+                    String(seat.user.id ?? seat.user.userId) === uId
+                  ) {
                     return { ...seat, user: null };
                   }
                   return seat;
@@ -4351,12 +5026,20 @@ export default function VoiceParty() {
             break;
           }
 
+          case "CHAT_CLEARED": {
+            setMessages([]);
+            break;
+          }
+
           case "CHAT_MESSAGE":
           case "CHAT": {
-            const chatMsgText = payload.message || payload.text || payload.content || "";
+            const chatMsgText =
+              payload.message || payload.text || payload.content || "";
             if (!chatMsgText) break;
             const normalized = normalizeChatMessage({
-              id: payload.id ?? `ws-chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              id:
+                payload.id ??
+                `ws-chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               message: chatMsgText,
               text: chatMsgText,
               senderName: uName,
@@ -4366,15 +5049,22 @@ export default function VoiceParty() {
               createdAt: payload.timestamp || new Date().toISOString(),
             });
             setMessages((prev) => upsertChatMessage(prev, normalized));
-            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+            setTimeout(
+              () => scrollRef.current?.scrollToEnd({ animated: true }),
+              100,
+            );
             break;
           }
 
           case "GIFT_SENT":
           case "GIFT": {
             const giftName = payload.giftName || payload.name || "a gift";
-            const qty = Math.max(1, Number(payload.quantity || payload.qty || 1));
-            const receiverName = payload.receiverName || payload.receiver || null;
+            const qty = Math.max(
+              1,
+              Number(payload.quantity || payload.qty || 1),
+            );
+            const receiverName =
+              payload.receiverName || payload.receiver || null;
             revealGiftAnimation(
               {
                 ...payload,
@@ -4403,13 +5093,17 @@ export default function VoiceParty() {
               isGift: true,
             });
             setMessages((prev) => upsertChatMessage(prev, normalized));
-            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+            setTimeout(
+              () => scrollRef.current?.scrollToEnd({ animated: true }),
+              100,
+            );
             break;
           }
 
           case "MIC_MUTED":
           case "MIC_UNMUTED": {
-            const isMuted = eventType === "MIC_MUTED" || payload.isMuted === true;
+            const isMuted =
+              eventType === "MIC_MUTED" || payload.isMuted === true;
             const targetSeatId = Number(payload.seatNumber || payload.seatId);
             setSeats((prev) =>
               prev.map((seat) => {
@@ -4682,6 +5376,43 @@ export default function VoiceParty() {
           // Non-critical — the `pk` topic or the fallback poll will catch it.
         });
     });
+    // ── Emoji / Sticker / GIF broadcast subscription ──────────────────────
+    const MAX_FLOATING_EMOJIS = 15;
+    const unsubEmoji = wsService.onRoomEmoji(String(roomId), (payload) => {
+      if (!payload) return;
+      if (payload.eventType && payload.eventType !== "EMOJI_SENT") return;
+
+      const emojiId = `${Date.now()}-${Math.random()}`;
+      const senderUserId =
+        payload.userId != null ? String(payload.userId) : null;
+
+      const item = {
+        id: emojiId,
+        emoji: payload.emoji || "😊",
+        mediaUrl: payload.mediaUrl || null,
+        mediaType: payload.mediaType || "emoji",
+        userId: senderUserId,
+        userName: payload.userName || "User",
+        profileImage: payload.profileImage || null,
+      };
+
+      // 1. Add to rising floating animations (capped for performance)
+      setFloatingRoomEmojis((prev) => {
+        const next = [...prev, item];
+        return next.length > MAX_FLOATING_EMOJIS
+          ? next.slice(next.length - MAX_FLOATING_EMOJIS)
+          : next;
+      });
+
+      // 2. Show overlay on the sender's seat avatar (keyed by userId)
+      if (senderUserId) {
+        setSeatEmojiOverlays((prev) => ({
+          ...prev,
+          [senderUserId]: item,
+        }));
+      }
+    });
+
     return () => {
       unsubChat();
       unsubChatSummary();
@@ -4692,6 +5423,7 @@ export default function VoiceParty() {
       unsubPk();
       unsubNotifications();
       unsubKicked();
+      unsubEmoji();
       unsubModeration();
       subUserKicked.remove();
       unsubReconnect();
@@ -4703,12 +5435,14 @@ export default function VoiceParty() {
 
   const handleToggleMusic = useCallback(async () => {
     let hasMicPermission = true;
-    if (Platform.OS === 'android') {
-      hasMicPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    if (Platform.OS === "android") {
+      hasMicPermission = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      );
     }
 
     if (!hasMicPermission) {
-      setMicPermWarning('music');
+      setMicPermWarning("music");
       return;
     }
 
@@ -4717,10 +5451,16 @@ export default function VoiceParty() {
       try {
         DocumentPicker = require("expo-document-picker");
       } catch (e) {
-        console.warn("[voice-party] expo-document-picker unavailable:", e?.message ?? e);
+        console.warn(
+          "[voice-party] expo-document-picker unavailable:",
+          e?.message ?? e,
+        );
       }
 
-      if (!DocumentPicker || typeof DocumentPicker.getDocumentAsync !== "function") {
+      if (
+        !DocumentPicker ||
+        typeof DocumentPicker.getDocumentAsync !== "function"
+      ) {
         Alert.alert(
           "Music Feature Unavailable",
           "Audio file picker is not available on this build.",
@@ -4738,8 +5478,7 @@ export default function VoiceParty() {
           try {
             await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
             setIsMicMuted(false);
-          } catch (e) {
-          }
+          } catch (e) {}
         }
 
         setMusicPlaylist(result.assets);
@@ -4821,8 +5560,10 @@ export default function VoiceParty() {
 
   // Intercept Android hardware back button — close any open chat input /
   // pickers / modals in order; show confirmation popup before leaving room.
-  useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+  // ONLY active when the voice party room screen is focused.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (showTagPicker) {
         setShowTagPicker(false);
         return true;
@@ -4950,7 +5691,7 @@ export default function VoiceParty() {
     micPermWarning,
     showWelcomeEdit,
     closeProfilePopup,
-  ]);
+  ]));
 
   // Listen Rewards — tick every second while in the room.
   // Component unmounts on exit so counters reset automatically.
@@ -5029,7 +5770,11 @@ export default function VoiceParty() {
   // pending/live; stops once we know there's nothing to wait on.
   useEffect(() => {
     if (!pkPollRoomId) return undefined;
-    if (activePkBattle && activePkBattle.status !== "PENDING" && activePkBattle.status !== "LIVE") {
+    if (
+      activePkBattle &&
+      activePkBattle.status !== "PENDING" &&
+      activePkBattle.status !== "LIVE"
+    ) {
       return undefined;
     }
 
@@ -5044,7 +5789,11 @@ export default function VoiceParty() {
             // websocket push shows the COMPLETED/DRAW result — without this
             // guard that lagging response wipes the result card the instant
             // it appears.
-            if (!battle && current && !["PENDING", "LIVE"].includes(current.status)) {
+            if (
+              !battle &&
+              current &&
+              !["PENDING", "LIVE"].includes(current.status)
+            ) {
               return current;
             }
             return battle;
@@ -5198,14 +5947,14 @@ export default function VoiceParty() {
               prev.map((s) =>
                 s.id === seatId && !s.user
                   ? {
-                    ...s,
-                    user: {
-                      id: null,
-                      name: "…",
-                      active: false,
-                      muted: false,
-                    },
-                  }
+                      ...s,
+                      user: {
+                        id: null,
+                        name: "…",
+                        active: false,
+                        muted: false,
+                      },
+                    }
                   : s,
               ),
             );
@@ -5304,11 +6053,12 @@ export default function VoiceParty() {
 
   const getSharePayload = useCallback(() => {
     const activeRoomId = String(
-      roomInfo?.roomId ?? roomInfo?.id ?? roomIdRef.current ?? roomId ?? ""
+      roomInfo?.roomId ?? roomInfo?.id ?? roomIdRef.current ?? roomId ?? "",
     ).trim();
     if (!activeRoomId) return null;
     const roomTitle = roomInfo?.name?.trim() || "Newbie Welcome Room";
-    const playStoreUrl = "https://play.google.com/store/apps/details?id=tuk.tuk.app";
+    const playStoreUrl =
+      "https://play.google.com/store/apps/details?id=tuk.tuk.app";
 
     const shareMessage = `We have funny conversation in here! Come to Tuk-Tuk to join 「${roomTitle}」${activeRoomId}!\n${playStoreUrl}`;
 
@@ -5323,7 +6073,7 @@ export default function VoiceParty() {
     router.push({
       pathname: "/(tabs)/chat",
       params: {
-        fromRoom: "true",
+        fromRoom: String(activeRoomId),
         shareRoomId: String(activeRoomId),
         shareRoomTitle: String(roomInfo?.name || "Voice Party Room"),
       },
@@ -5351,7 +6101,7 @@ export default function VoiceParty() {
             title: `Join ${payload.roomTitle} on Tuk-Tuk`,
             message: payload.shareMessage,
           },
-        })
+        }),
       );
     } catch (err) {
       if (err?.name !== "AbortError" && !err?.message?.includes("dismiss")) {
@@ -5371,7 +6121,7 @@ export default function VoiceParty() {
         await Linking.openURL(waUrl);
       } else {
         await Linking.openURL(
-          `https://api.whatsapp.com/send?text=${encodeURIComponent(payload.shareMessage)}`
+          `https://api.whatsapp.com/send?text=${encodeURIComponent(payload.shareMessage)}`,
         );
       }
     } catch {
@@ -5383,7 +6133,7 @@ export default function VoiceParty() {
     const payload = getSharePayload();
     if (!payload) return;
     const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
-      payload.playStoreUrl
+      payload.playStoreUrl,
     )}&quote=${encodeURIComponent(payload.shareMessage)}`;
     try {
       await Linking.openURL(fbUrl);
@@ -5447,10 +6197,16 @@ export default function VoiceParty() {
       if (convosRes.status === "fulfilled" && Array.isArray(convosRes.value)) {
         setShareChatUsers(convosRes.value);
       }
-      if (followingRes.status === "fulfilled" && Array.isArray(followingRes.value)) {
+      if (
+        followingRes.status === "fulfilled" &&
+        Array.isArray(followingRes.value)
+      ) {
         setShareFollowingUsers(followingRes.value);
       }
-      if (followersRes.status === "fulfilled" && Array.isArray(followersRes.value)) {
+      if (
+        followersRes.status === "fulfilled" &&
+        Array.isArray(followersRes.value)
+      ) {
         setShareFollowersUsers(followersRes.value);
       }
     } catch (err) {
@@ -5472,7 +6228,8 @@ export default function VoiceParty() {
     async (user) => {
       const targetId = String(user?.userId ?? user?.id ?? "");
       const targetName = user?.name ?? user?.username ?? "Friend";
-      if (!targetId || sentUserIds[targetId] || sendingUserIds[targetId]) return;
+      if (!targetId || sentUserIds[targetId] || sendingUserIds[targetId])
+        return;
 
       const activeRoomId = roomIdRef.current || roomId;
       if (!activeRoomId) {
@@ -5491,7 +6248,10 @@ export default function VoiceParty() {
         setSentUserIds((prev) => ({ ...prev, [targetId]: true }));
       } catch (err) {
         console.warn("[VoiceParty] Failed to send direct invite:", err);
-        Alert.alert("Invite Failed", `Could not send room invite to ${targetName}.`);
+        Alert.alert(
+          "Invite Failed",
+          `Could not send room invite to ${targetName}.`,
+        );
       } finally {
         setSendingUserIds((prev) => {
           const next = { ...prev };
@@ -5500,7 +6260,7 @@ export default function VoiceParty() {
         });
       }
     },
-    [roomId, roomInfo?.name, sentUserIds, sendingUserIds]
+    [roomId, roomInfo?.name, sentUserIds, sendingUserIds],
   );
 
   const displayedShareUsers = useMemo(() => {
@@ -5520,7 +6280,13 @@ export default function VoiceParty() {
       const handle = String(u?.handle ?? "").toLowerCase();
       return name.includes(q) || handle.includes(q);
     });
-  }, [shareTab, shareChatUsers, shareFollowingUsers, shareFollowersUsers, shareSearch]);
+  }, [
+    shareTab,
+    shareChatUsers,
+    shareFollowingUsers,
+    shareFollowersUsers,
+    shareSearch,
+  ]);
 
   const scrollRef = useRef(null);
   const messageCountRef = useRef(0);
@@ -5618,12 +6384,12 @@ export default function VoiceParty() {
     },
     ...(!isHostSelf
       ? [
-        {
-          icon: <Ban size={22} color="#a78bfa" />,
-          label: "Block",
-          onPress: handleBlockHost,
-        },
-      ]
+          {
+            icon: <Ban size={22} color="#a78bfa" />,
+            label: "Block",
+            onPress: handleBlockHost,
+          },
+        ]
       : []),
     {
       icon: <Crown size={22} color="#a78bfa" />,
@@ -5645,9 +6411,18 @@ export default function VoiceParty() {
 
   const handleOpenChatTab = () => {
     isNavigatingToInboxRef.current = true;
+    const activeId = String(
+      roomId ||
+        roomIdParam ||
+        roomIdRef.current ||
+        roomInfo?.roomId ||
+        roomInfo?.id ||
+        partyVoice.getActiveRoomId?.() ||
+        "",
+    );
     router.push({
       pathname: "/(tabs)/chat",
-      params: { fromRoom: String(roomId || roomIdParam || "") },
+      params: { fromRoom: activeId },
     });
   };
 
@@ -5688,25 +6463,59 @@ export default function VoiceParty() {
     }
   };
 
+  // Rate-limit guard — prevent flooding the room with rapid taps
+  const lastEmojiSendRef = useRef(0);
+
+  const sendRoomEmojiReaction = useCallback(
+    async ({ emoji, mediaUrl, mediaType }) => {
+      if (!roomId) return;
+      const now = Date.now();
+      if (now - lastEmojiSendRef.current < 500) return; // 500 ms rate-limit
+      lastEmojiSendRef.current = now;
+
+      // 1. Close the modal immediately
+      setShowEmojiPicker(false);
+      setShowChatInput(false);
+      Keyboard.dismiss();
+
+      // 2. Send via dedicated emoji WebSocket endpoint (NOT posted to live chat or comments)
+      try {
+        wsService.sendRoomEmoji(String(roomId), { emoji, mediaUrl, mediaType });
+      } catch (err) {
+        console.warn("Failed to send room emoji:", err);
+      }
+    },
+    [roomId],
+  );
+
   const handleEmojiPick = (emoji) => {
-    setShowChatInput(true);
-    setInputText((prev) => prev + emoji);
+    // Send emoji reaction to the whole room (animates on seated avatar, not in chat)
+    sendRoomEmojiReaction({ emoji, mediaType: "emoji" });
   };
 
   const handleStickerPick = (sticker) => {
-    setShowChatInput(true);
     if (sticker.image) {
-      sendPickerMessage(sticker.image);
-      setShowEmojiPicker(false);
+      // Sticker with image URL
+      sendRoomEmojiReaction({
+        emoji: sticker.emoji || "🎭",
+        mediaUrl: sticker.image,
+        mediaType: "sticker",
+      });
     } else if (sticker.emoji) {
-      setInputText((prev) => prev + sticker.emoji);
+      // Text-only sticker treated as emoji
+      sendRoomEmojiReaction({
+        emoji: sticker.emoji,
+        mediaType: "emoji",
+      });
     }
   };
 
   const handleGifPick = (gif) => {
-    setShowChatInput(true);
-    sendPickerMessage(gif.url);
-    setShowEmojiPicker(false);
+    sendRoomEmojiReaction({
+      emoji: "🎞️",
+      mediaUrl: gif.url,
+      mediaType: "gif",
+    });
   };
 
   const sendMessage = async () => {
@@ -5726,6 +6535,61 @@ export default function VoiceParty() {
       Alert.alert("Send failed", err?.message || "WebSocket not connected.");
     }
   };
+
+  const handleConfirmClearChat = useCallback(() => {
+    Alert.alert(
+      "Clear Chat",
+      "Are you sure you want to clear the room chat history?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear",
+          style: "destructive",
+          onPress: async () => {
+            const targetRoomId = roomIdRef.current || roomId;
+            if (!targetRoomId) return;
+            setClearingChat(true);
+            try {
+              const res = await deleteRoomChatMessages(String(targetRoomId));
+              setMessages([]);
+              const msg =
+                res?.message || "Room chat history deleted successfully.";
+              if (Platform.OS === "android") {
+                ToastAndroid.show(msg, ToastAndroid.SHORT);
+              } else {
+                Alert.alert("Success", msg);
+              }
+            } catch (err) {
+              const status = err?.status ?? err?.response?.status;
+              const errorMsg =
+                err?.response?.data?.message ??
+                err?.response?.data?.error ??
+                err?.message ??
+                "";
+              if (
+                status === 403 ||
+                String(errorMsg).toLowerCase().includes("host")
+              ) {
+                Alert.alert(
+                  "Permission Denied",
+                  "Only the room host can delete chat history.",
+                );
+              } else {
+                Alert.alert(
+                  "Clear Chat Failed",
+                  typeof errorMsg === "string" && errorMsg
+                    ? errorMsg
+                    : "Only the room host can delete chat history.",
+                );
+              }
+            } finally {
+              setClearingChat(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [roomId]);
 
   // Build a deduplicated list of all people currently in the room
   // (mic seat users + audience), excluding the current user.
@@ -5899,7 +6763,7 @@ export default function VoiceParty() {
               setShowDiamondRecharge(true);
             },
           },
-        ]
+        ],
       );
       return;
     }
@@ -6000,10 +6864,18 @@ export default function VoiceParty() {
             if (fresh) {
               setActivePkBattle(fresh);
             } else {
-              Alert.alert("Couldn't start PK", err?.message || "Please try again.");
+              Alert.alert(
+                "Couldn't start PK",
+                err?.message || "Please try again.",
+              );
             }
           })
-          .catch(() => Alert.alert("Couldn't start PK", err?.message || "Please try again."));
+          .catch(() =>
+            Alert.alert(
+              "Couldn't start PK",
+              err?.message || "Please try again.",
+            ),
+          );
       } else {
         Alert.alert("Couldn't start PK", err?.message || "Please try again.");
       }
@@ -6049,12 +6921,17 @@ export default function VoiceParty() {
   // popup locally.
   const PK_CHALLENGE_TIMEOUT_MS = 2 * 60 * 1000;
   useEffect(() => {
-    if (!activePkBattle || activePkBattle.status !== "PENDING") return undefined;
+    if (!activePkBattle || activePkBattle.status !== "PENDING")
+      return undefined;
     const battleId = activePkBattle.id;
 
     const timer = setTimeout(() => {
       setActivePkBattle((current) => {
-        if (!current || current.id !== battleId || current.status !== "PENDING") {
+        if (
+          !current ||
+          current.id !== battleId ||
+          current.status !== "PENDING"
+        ) {
           return current;
         }
         const role = getPkBattleRole(current, myUserId);
@@ -6076,7 +6953,11 @@ export default function VoiceParty() {
   // missed/delayed push (brief disconnect, app backgrounded) would otherwise
   // leave the card frozen on the last-seen LIVE score forever.
   useEffect(() => {
-    if (!activePkBattle || activePkBattle.status !== "LIVE" || !activePkBattle.endsAt) {
+    if (
+      !activePkBattle ||
+      activePkBattle.status !== "LIVE" ||
+      !activePkBattle.endsAt
+    ) {
       return undefined;
     }
     const battleId = activePkBattle.id;
@@ -6133,7 +7014,7 @@ export default function VoiceParty() {
               setShowDiamondRecharge(true);
             },
           },
-        ]
+        ],
       );
       return;
     }
@@ -6286,7 +7167,11 @@ export default function VoiceParty() {
         found?.img ??
         found?.thumbnailUrl ??
         null;
-      if (foundUrl && typeof foundUrl === "string" && foundUrl.trim().length > 0) {
+      if (
+        foundUrl &&
+        typeof foundUrl === "string" &&
+        foundUrl.trim().length > 0
+      ) {
         return foundUrl.trim();
       }
       return null;
@@ -6376,9 +7261,11 @@ export default function VoiceParty() {
     const lockedAvatarSource = resolveRoomUserAvatarSource(userLike);
     const initial = {
       id: userId,
-      name: userLike?.name ?? userLike?.displayName ?? userLike?.username ?? "User",
+      name:
+        userLike?.name ?? userLike?.displayName ?? userLike?.username ?? "User",
       username: userLike?.username ?? userLike?.handle ?? userLike?.name,
-      avatar: userLike?.avatar ?? userLike?.profilePicUrl ?? userLike?.avatarUrl,
+      avatar:
+        userLike?.avatar ?? userLike?.profilePicUrl ?? userLike?.avatarUrl,
       profilePicUrl: userLike?.profilePicUrl ?? userLike?.avatar,
       gender: userLike?.gender,
       level: userLike?.level ?? userLike?.userLevel,
@@ -6403,7 +7290,8 @@ export default function VoiceParty() {
       // Fetch dynamic profile: GET /api/app/users/user/profile/:userId
       try {
         const profileData = await getUserProfile(userId);
-        const userProfile = profileData?.data ?? profileData?.user ?? profileData;
+        const userProfile =
+          profileData?.data ?? profileData?.user ?? profileData;
         if (userProfile) {
           setProfilePopupUser((prev) => ({
             ...(prev ?? initial),
@@ -6421,16 +7309,27 @@ export default function VoiceParty() {
             countryName: userProfile.countryName ?? prev?.countryName,
             flagUrl: userProfile.flagUrl ?? prev?.flagUrl,
             badgeUrl: userProfile.badgeUrl ?? prev?.badgeUrl,
-            avatar: userProfile.avatar ?? userProfile.profilePicUrl ?? prev?.avatar,
+            avatar:
+              userProfile.avatar ?? userProfile.profilePicUrl ?? prev?.avatar,
             profilePicUrl:
-              userProfile.profilePicUrl ?? userProfile.avatar ?? prev?.profilePicUrl,
+              userProfile.profilePicUrl ??
+              userProfile.avatar ??
+              prev?.profilePicUrl,
           }));
-          if (!lockedAvatarSource && (userProfile.avatar || userProfile.profilePicUrl)) {
-            setProfilePopupAvatarSource(resolveRoomUserAvatarSource(userProfile));
+          if (
+            !lockedAvatarSource &&
+            (userProfile.avatar || userProfile.profilePicUrl)
+          ) {
+            setProfilePopupAvatarSource(
+              resolveRoomUserAvatarSource(userProfile),
+            );
           }
         }
       } catch (err) {
-        console.warn("[voice-party] getUserProfile error:", err?.message ?? err);
+        console.warn(
+          "[voice-party] getUserProfile error:",
+          err?.message ?? err,
+        );
         if (!isSameUser(userId, myUserId)) {
           try {
             const detail = await loadUserDetail(userId);
@@ -6438,7 +7337,10 @@ export default function VoiceParty() {
               ...(prev ?? initial),
               id: userId,
               name:
-                detail?.name ?? detail?.displayName ?? prev?.name ?? initial.name,
+                detail?.name ??
+                detail?.displayName ??
+                prev?.name ??
+                initial.name,
               username:
                 detail?.username ??
                 detail?.handle ??
@@ -6574,7 +7476,10 @@ export default function VoiceParty() {
             `🛡️ ${targetName} is no longer a room admin.`,
           );
         }
-        Alert.alert("Admin Removed", `${targetName} is no longer a room admin.`);
+        Alert.alert(
+          "Admin Removed",
+          `${targetName} is no longer a room admin.`,
+        );
       } else {
         setRoomAdminIds((prev) => {
           const next = new Set(prev);
@@ -6591,7 +7496,14 @@ export default function VoiceParty() {
       }
       closeProfilePopup();
     },
-    [roomId, myUserId, isHostSelf, isViewerAdmin, roomAdminIds, closeProfilePopup],
+    [
+      roomId,
+      myUserId,
+      isHostSelf,
+      isViewerAdmin,
+      roomAdminIds,
+      closeProfilePopup,
+    ],
   );
 
   const handlePopupInviteMic = useCallback(
@@ -6601,7 +7513,10 @@ export default function VoiceParty() {
       if (!targetId || isSameUser(targetId, myUserId)) return;
 
       if (isUserSeated(targetId)) {
-        Alert.alert("Already on Mic", `${targetName} is already on a mic seat.`);
+        Alert.alert(
+          "Already on Mic",
+          `${targetName} is already on a mic seat.`,
+        );
         return;
       }
 
@@ -6611,7 +7526,10 @@ export default function VoiceParty() {
           `🎙️ @${targetName} you have been invited to join the mic!`,
         );
       }
-      Alert.alert("Mic Invitation Sent", `Invited ${targetName} to join the mic.`);
+      Alert.alert(
+        "Mic Invitation Sent",
+        `Invited ${targetName} to join the mic.`,
+      );
       closeProfilePopup();
     },
     [roomId, myUserId, isUserSeated, closeProfilePopup],
@@ -6632,7 +7550,10 @@ export default function VoiceParty() {
       }
 
       if (hostId && isSameUser(targetId, hostId)) {
-        Alert.alert("Action Not Allowed", "The room host cannot be kicked out.");
+        Alert.alert(
+          "Action Not Allowed",
+          "The room host cannot be kicked out.",
+        );
         return;
       }
 
@@ -6773,7 +7694,9 @@ export default function VoiceParty() {
     try {
       await lockSeat(String(roomId), seatId);
       setSeats((prev) =>
-        prev.map((s) => (s.id === seatId ? { ...s, locked: true, user: null } : s)),
+        prev.map((s) =>
+          s.id === seatId ? { ...s, locked: true, user: null } : s,
+        ),
       );
       setAdminSeatModal(null);
     } catch (err) {
@@ -6816,7 +7739,7 @@ export default function VoiceParty() {
     try {
       // Leave current seat first if already on mic
       if (onMic && mySeatNumber) {
-        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => { });
+        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => {});
         onMicRef.current = false;
         mySeatNumberRef.current = null;
         setOnMic(false);
@@ -6871,10 +7794,10 @@ export default function VoiceParty() {
     const fetched = userId ? (userFrameData[userId] ?? {}) : {};
     const userWithFrame = user
       ? {
-        ...user,
-        hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame,
-        newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl,
-      }
+          ...user,
+          hasNewUserFrame: fetched.hasNewUserFrame ?? user.hasNewUserFrame,
+          newUserFrameUrl: fetched.newUserFrameUrl ?? user.newUserFrameUrl,
+        }
       : user;
     const imageSource = resolveRoomUserAvatarSource(userWithFrame);
     // Mic seats & audience avatars show circular VIP / decoration / new-user profile-frame ring
@@ -6883,8 +7806,11 @@ export default function VoiceParty() {
     const selfVipProfileFrame =
       isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
     const otherUserVipProfileFrame =
-      !isSelf && (fetched.vipProfileFrameUrl || userWithFrame?.vipProfileFrameUrl)
-        ? { uri: fetched.vipProfileFrameUrl || userWithFrame.vipProfileFrameUrl }
+      !isSelf &&
+      (fetched.vipProfileFrameUrl || userWithFrame?.vipProfileFrameUrl)
+        ? {
+            uri: fetched.vipProfileFrameUrl || userWithFrame.vipProfileFrameUrl,
+          }
         : null;
     const isVipProfileFrame = Boolean(
       selfVipProfileFrame || otherUserVipProfileFrame,
@@ -6912,19 +7838,27 @@ export default function VoiceParty() {
         size={typeof size === "number" ? size : 48}
         {...(decorationFrame
           ? {
-            // Decoration frames: no explicit props — ProfileAvatarWithFrame
-            // auto-measures the frame image and scales it around the photo.
-            frameResizeMode: "contain",
-          }
+              // Decoration frames: no explicit props — ProfileAvatarWithFrame
+              // auto-measures the frame image and scales it around the photo.
+              frameResizeMode: "contain",
+            }
           : {
-            frameScale: hasFrame ? activeFrameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale,
-            frameResizeMode: hasFrame ? activeFrameConfig.frameResizeMode : "contain",
-            frameOffsetX: hasFrame ? activeFrameConfig.frameOffsetX : 0,
-            frameOffsetY: hasFrame ? activeFrameConfig.frameOffsetY : 0,
-            frameBleed: hasFrame ? activeFrameConfig.frameBleed : 0,
-            avatarBoost: hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost,
-            avatarOffsetY: hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
-          })}
+              frameScale: hasFrame
+                ? activeFrameConfig.frameScale
+                : NEW_USER_FRAME_LAYOUT.frameScale,
+              frameResizeMode: hasFrame
+                ? activeFrameConfig.frameResizeMode
+                : "contain",
+              frameOffsetX: hasFrame ? activeFrameConfig.frameOffsetX : 0,
+              frameOffsetY: hasFrame ? activeFrameConfig.frameOffsetY : 0,
+              frameBleed: hasFrame ? activeFrameConfig.frameBleed : 0,
+              avatarBoost: hasFrame
+                ? activeFrameConfig.avatarBoost
+                : NEW_USER_FRAME_LAYOUT.avatarBoost,
+              avatarOffsetY: hasFrame
+                ? activeFrameConfig.avatarOffsetY
+                : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
+            })}
         avatarStyle={imageStyle}
         placeholderStyle={placeholderStyle}
         initialStyle={initialStyle}
@@ -7073,7 +8007,7 @@ export default function VoiceParty() {
   };
 
   const handleClaimListenReward = async (reward, index) => {
-    const tier = reward?.tier ?? (index + 1);
+    const tier = reward?.tier ?? index + 1;
     const threshold = Number(
       reward?.thresholdSeconds ?? LISTEN_THRESHOLDS[index] ?? 0,
     );
@@ -7090,10 +8024,7 @@ export default function VoiceParty() {
     }
 
     if (!isReady) {
-      Alert.alert(
-        "Keep Listening",
-        `Unlock in ${formatListenTime(remaining)}`,
-      );
+      Alert.alert("Keep Listening", `Unlock in ${formatListenTime(remaining)}`);
       return;
     }
 
@@ -7111,7 +8042,7 @@ export default function VoiceParty() {
       if (response && response.success !== false) {
         setRewardStates((prev) =>
           prev.map((r, idx) => {
-            const itemTier = r.tier ?? (idx + 1);
+            const itemTier = r.tier ?? idx + 1;
             if (itemTier === tier || idx === index) {
               const rewardObj = response.reward ?? r.reward;
               const rewardImg = rewardObj?.imageUrl
@@ -7235,8 +8166,6 @@ export default function VoiceParty() {
         giftRecipientOptions={giftRecipientOptions}
         renderGiftRecipientPickerOverlay={renderGiftRecipientPickerOverlay}
       />
-
-
 
       {/* ── BACKPACK MODAL ── */}
       <Modal
@@ -7378,7 +8307,9 @@ export default function VoiceParty() {
                               colors={["#2a0d50", "#4a1d80"]}
                               style={styles.bpGiftEmojiWrap}
                             >
-                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                              <Text style={styles.bpGiftEmoji}>
+                                {gift.emoji}
+                              </Text>
                             </LinearGradient>
                           )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
@@ -7577,7 +8508,7 @@ export default function VoiceParty() {
                   >
                     <View style={styles.bpGiftGrid}>
                       {displayRelationshipVideos.length === 0 &&
-                        !catalogLoading ? (
+                      !catalogLoading ? (
                         <Text style={styles.bpEmptyText}>
                           No relationship videos available.
                         </Text>
@@ -7588,7 +8519,7 @@ export default function VoiceParty() {
                           style={[
                             styles.bpGiftCard,
                             selectedGift?.id === video.id &&
-                            styles.bpGiftCardSelected,
+                              styles.bpGiftCardSelected,
                           ]}
                           activeOpacity={0.85}
                           onPress={() => {
@@ -7657,7 +8588,9 @@ export default function VoiceParty() {
                       <TouchableOpacity
                         style={styles.bpQtyStepBtn}
                         activeOpacity={0.8}
-                        onPress={() => setGiftQty((q) => Math.max(1, (Number(q) || 1) - 1))}
+                        onPress={() =>
+                          setGiftQty((q) => Math.max(1, (Number(q) || 1) - 1))
+                        }
                       >
                         <Text style={styles.bpQtyStepText}>−</Text>
                       </TouchableOpacity>
@@ -7665,7 +8598,9 @@ export default function VoiceParty() {
                       <TouchableOpacity
                         style={styles.bpQtyStepBtn}
                         activeOpacity={0.8}
-                        onPress={() => setGiftQty((q) => Math.min(99, (Number(q) || 1) + 1))}
+                        onPress={() =>
+                          setGiftQty((q) => Math.min(99, (Number(q) || 1) + 1))
+                        }
                       >
                         <Text style={styles.bpQtyStepText}>+</Text>
                       </TouchableOpacity>
@@ -7863,11 +8798,11 @@ export default function VoiceParty() {
                 "Special",
                 "VIP",
               ].includes(backpackMainTab) && (
-                  <View style={styles.bpEmptyState}>
-                    <Text style={styles.bpEmptyEmoji}>✨</Text>
-                    <Text style={styles.bpEmptyText}>Coming soon</Text>
-                  </View>
-                )}
+                <View style={styles.bpEmptyState}>
+                  <Text style={styles.bpEmptyEmoji}>✨</Text>
+                  <Text style={styles.bpEmptyText}>Coming soon</Text>
+                </View>
+              )}
             </View>
             {renderGiftRecipientPickerOverlay()}
           </View>
@@ -7915,7 +8850,8 @@ export default function VoiceParty() {
                   (reward.reward?.imageUrl
                     ? { uri: reward.reward.imageUrl }
                     : null) ??
-                  (reward.rewardImg ?? LISTEN_LOCKED_IMGS[i]);
+                  reward.rewardImg ??
+                  LISTEN_LOCKED_IMGS[i];
 
                 return (
                   <TouchableOpacity
@@ -7957,7 +8893,7 @@ export default function VoiceParty() {
                         style={[
                           styles.giftCardBtnText,
                           (isReady || isClaimed) &&
-                          styles.giftCardBtnTextActive,
+                            styles.giftCardBtnTextActive,
                         ]}
                       >
                         {isClaimed
@@ -8144,12 +9080,19 @@ export default function VoiceParty() {
       <PkLiveBanner
         battle={activePkBattle}
         role={getPkBattleRole(activePkBattle, myUserId)}
-        myAccepted={myAcceptedBattleId != null && myAcceptedBattleId === activePkBattle?.id}
+        myAccepted={
+          myAcceptedBattleId != null &&
+          myAcceptedBattleId === activePkBattle?.id
+        }
         actionLoading={pkBattleActionLoading}
         topOffset={insets.top + 64}
         resolveUser={(id) => {
-          const seat = (seats || []).find((s) => s?.user && isSameUser(s.user.id, id));
-          return seat ? { name: seat.user.name, avatar: seat.user.avatar } : null;
+          const seat = (seats || []).find(
+            (s) => s?.user && isSameUser(s.user.id, id),
+          );
+          return seat
+            ? { name: seat.user.name, avatar: seat.user.avatar }
+            : null;
         }}
         onAccept={() => {
           // The organizer can already set both full rosters at creation
@@ -8193,13 +9136,15 @@ export default function VoiceParty() {
           userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl ??
           (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
-            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null)
+            : (userFrameData[String(profilePopupUser?.id)]
+                ?.vipProfileFrameUrl ?? null))
         }
         frameLayout={
           userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl
-            ? null  // decoration frames: auto-fit in ProfileAvatarWithFrame
-            : (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked) ||
-              userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
+            ? null // decoration frames: auto-fit in ProfileAvatarWithFrame
+            : (isSameUser(profilePopupUser?.id, myUserId) &&
+                  myVipAssets.unlocked) ||
+                userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
               ? VIP_PROFILE_FRAME_LAYOUT
               : null
         }
@@ -8207,7 +9152,12 @@ export default function VoiceParty() {
           isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.logo
             : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
-              ? VIP_LOGO_BY_TIER[resolveVipTierFromAssetUrl(userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl)]
+              ? VIP_LOGO_BY_TIER[
+                  resolveVipTierFromAssetUrl(
+                    userFrameData[String(profilePopupUser?.id)]
+                      ?.vipProfileFrameUrl,
+                  )
+                ]
               : null
         }
         premiumLogoSource={
@@ -8216,7 +9166,8 @@ export default function VoiceParty() {
           isSameUser(profilePopupUser?.id, myUserId) ? myPremiumLogo : null
         }
         badgeSource={
-          userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ?? null
+          userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ??
+          null
         }
         loading={profilePopupLoading}
         isFollowing={profilePopupFollowing}
@@ -8226,7 +9177,9 @@ export default function VoiceParty() {
         isViewerOwner={isHostSelf}
         isViewerAdmin={isViewerAdmin}
         canManage={canManageRoomUsers}
-        targetIsAdmin={Boolean(profilePopupUser?.id && roomAdminIds.has(String(profilePopupUser.id)))}
+        targetIsAdmin={Boolean(
+          profilePopupUser?.id && roomAdminIds.has(String(profilePopupUser.id)),
+        )}
         countryFlag={
           isSameUser(profilePopupUser?.id, myUserId) ? myCountryFlag : null
         }
@@ -8408,7 +9361,10 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowFollowModal(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.compactFollowModalBox}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.compactFollowModalBox}
+          >
             {/* Close button */}
             <TouchableOpacity
               style={styles.compactFollowModalCloseBtn}
@@ -8422,7 +9378,11 @@ export default function VoiceParty() {
             <View style={styles.compactFollowModalAvatarWrap}>
               {roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl ? (
                 <Image
-                  source={{ uri: roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl }}
+                  source={{
+                    uri:
+                      roomInfo?.profileImageUrl ||
+                      hostProfileDetails?.avatarUrl,
+                  }}
                   style={styles.compactFollowModalAvatar}
                   resizeMode="cover"
                 />
@@ -8430,7 +9390,10 @@ export default function VoiceParty() {
                 renderRoomUserAvatar(
                   hostUserLike,
                   styles.compactFollowModalAvatar,
-                  [styles.compactFollowModalAvatar, styles.ownerAvatarPlaceholder],
+                  [
+                    styles.compactFollowModalAvatar,
+                    styles.ownerAvatarPlaceholder,
+                  ],
                   styles.ownerInitial,
                 )
               ) : (
@@ -8479,7 +9442,8 @@ export default function VoiceParty() {
                   <Text
                     style={[
                       styles.compactFollowModalActionBtnText,
-                      isFollowing && styles.compactFollowModalActionBtnTextFollowing,
+                      isFollowing &&
+                        styles.compactFollowModalActionBtnTextFollowing,
                     ]}
                   >
                     {isFollowing ? "Following" : "Follow"}
@@ -8528,7 +9492,8 @@ export default function VoiceParty() {
                   <Text
                     style={[
                       styles.followModalTabText,
-                      roomModalTab === "profile" && styles.followModalTabTextActive,
+                      roomModalTab === "profile" &&
+                        styles.followModalTabTextActive,
                     ]}
                   >
                     Profile
@@ -8547,10 +9512,18 @@ export default function VoiceParty() {
                   <Text
                     style={[
                       styles.followModalTabText,
-                      roomModalTab === "followers" && styles.followModalTabTextActive,
+                      roomModalTab === "followers" &&
+                        styles.followModalTabTextActive,
                     ]}
                   >
-                    Follower ({hostProfileDetails?.followersCount ?? roomInfo?.followersCount ?? roomInfo?.followerCount ?? (Array.isArray(roomFollowersList) ? roomFollowersList.length : 0)})
+                    Follower (
+                    {hostProfileDetails?.followersCount ??
+                      roomInfo?.followersCount ??
+                      roomInfo?.followerCount ??
+                      (Array.isArray(roomFollowersList)
+                        ? roomFollowersList.length
+                        : 0)}
+                    )
                   </Text>
                   {roomModalTab === "followers" && (
                     <View style={styles.followModalActiveIndicator} />
@@ -8566,7 +9539,8 @@ export default function VoiceParty() {
                   <Text
                     style={[
                       styles.followModalTabText,
-                      roomModalTab === "events" && styles.followModalTabTextActive,
+                      roomModalTab === "events" &&
+                        styles.followModalTabTextActive,
                     ]}
                   >
                     Events
@@ -8585,7 +9559,8 @@ export default function VoiceParty() {
                   <Text
                     style={[
                       styles.followModalTabText,
-                      roomModalTab === "rooms" && styles.followModalTabTextActive,
+                      roomModalTab === "rooms" &&
+                        styles.followModalTabTextActive,
                     ]}
                   >
                     Room badge wall
@@ -8659,8 +9634,14 @@ export default function VoiceParty() {
 
                     {/* Name & ID Column */}
                     <View style={styles.followModalInfoCol}>
-                      <Text style={styles.followModalRoomName} numberOfLines={2}>
-                        {roomInfo?.name || roomInfo?.title || hostProfileDetails?.name || "Voice Room"}
+                      <Text
+                        style={styles.followModalRoomName}
+                        numberOfLines={2}
+                      >
+                        {roomInfo?.name ||
+                          roomInfo?.title ||
+                          hostProfileDetails?.name ||
+                          "Voice Room"}
                       </Text>
                       <TouchableOpacity
                         style={styles.followModalIdRow}
@@ -8668,9 +9649,18 @@ export default function VoiceParty() {
                         activeOpacity={0.7}
                       >
                         <Text style={styles.followModalRoomId}>
-                          ID:{roomId || roomInfo?.id || roomInfo?.roomId || hostProfileDetails?.userId || "—"}
+                          ID:
+                          {roomId ||
+                            roomInfo?.id ||
+                            roomInfo?.roomId ||
+                            hostProfileDetails?.userId ||
+                            "—"}
                         </Text>
-                        <Ionicons name="copy-outline" size={15} color="#9ca3af" />
+                        <Ionicons
+                          name="copy-outline"
+                          size={15}
+                          color="#9ca3af"
+                        />
                       </TouchableOpacity>
                     </View>
 
@@ -8722,11 +9712,20 @@ export default function VoiceParty() {
                     activeOpacity={canEditRoom ? 0.7 : 1}
                   >
                     <View style={styles.followModalRowHeader}>
-                      <Text style={styles.followModalRowLabel}>Announcement</Text>
-                      <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
+                      <Text style={styles.followModalRowLabel}>
+                        Announcement
+                      </Text>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={16}
+                        color="#d1d5db"
+                      />
                     </View>
                     <Text style={styles.followModalAnnouncementText}>
-                      {welcomeMessage || roomInfo?.body || roomInfo?.announcement || "Welcome everyone! Let's chat and have fun together!"}
+                      {welcomeMessage ||
+                        roomInfo?.body ||
+                        roomInfo?.announcement ||
+                        "Welcome everyone! Let's chat and have fun together!"}
                     </Text>
                   </TouchableOpacity>
 
@@ -8736,7 +9735,10 @@ export default function VoiceParty() {
                   <View style={styles.followModalRow}>
                     <Text style={styles.followModalRowLabel}>Follower</Text>
                     <Text style={styles.followModalRowValue}>
-                      {hostProfileDetails?.followersCount ?? roomInfo?.followersCount ?? roomInfo?.followerCount ?? 16}
+                      {hostProfileDetails?.followersCount ??
+                        roomInfo?.followersCount ??
+                        roomInfo?.followerCount ??
+                        16}
                     </Text>
                   </View>
 
@@ -8744,7 +9746,10 @@ export default function VoiceParty() {
                   <View style={styles.followModalRow}>
                     <Text style={styles.followModalRowLabel}>Country</Text>
                     <Text style={styles.followModalRowValue}>
-                      {hostProfileDetails?.countryName || hostProfileDetails?.countryCode || roomInfo?.country || "India"}
+                      {hostProfileDetails?.countryName ||
+                        hostProfileDetails?.countryCode ||
+                        roomInfo?.country ||
+                        "India"}
                     </Text>
                   </View>
                 </ScrollView>
@@ -8815,19 +9820,33 @@ export default function VoiceParty() {
                   {followersLoading ? (
                     <View style={styles.followerNotFoundWrap}>
                       <ActivityIndicator size="small" color="#7c4dff" />
-                      <Text style={[styles.followerNotFoundText, { marginTop: 10 }]}>
+                      <Text
+                        style={[styles.followerNotFoundText, { marginTop: 10 }]}
+                      >
                         Loading followers...
                       </Text>
                     </View>
-                  ) : displayFollowersList && displayFollowersList.length > 0 ? (
+                  ) : displayFollowersList &&
+                    displayFollowersList.length > 0 ? (
                     displayFollowersList.map((follower, idx) => {
                       const isMale = follower?.gender !== "female";
-                      const userAge = follower?.age ?? follower?.profile?.age ?? (isMale ? 24 : 21);
-                      const userLevel = follower?.level ?? follower?.profile?.level ?? 1;
-                      const diamondCount = follower?.diamond ?? follower?.diamonds ?? follower?.wealth ?? 0;
+                      const userAge =
+                        follower?.age ??
+                        follower?.profile?.age ??
+                        (isMale ? 24 : 21);
+                      const userLevel =
+                        follower?.level ?? follower?.profile?.level ?? 1;
+                      const diamondCount =
+                        follower?.diamond ??
+                        follower?.diamonds ??
+                        follower?.wealth ??
+                        0;
                       const leafCount = follower?.leaf ?? follower?.charm ?? 0;
-                      const isNew = follower?.statusBadge === "New." || follower?.isNew;
-                      const isReturn = follower?.statusBadge === "Return" || follower?.isReturn;
+                      const isNew =
+                        follower?.statusBadge === "New." || follower?.isNew;
+                      const isReturn =
+                        follower?.statusBadge === "Return" ||
+                        follower?.isReturn;
 
                       return (
                         <View
@@ -8836,9 +9855,18 @@ export default function VoiceParty() {
                         >
                           {/* User Avatar */}
                           <View style={styles.followerItemAvatarWrap}>
-                            {follower?.avatar || follower?.avatarUrl || follower?.profilePicUrl || follower?.profileImageUrl ? (
+                            {follower?.avatar ||
+                            follower?.avatarUrl ||
+                            follower?.profilePicUrl ||
+                            follower?.profileImageUrl ? (
                               <Image
-                                source={{ uri: follower?.avatar || follower?.avatarUrl || follower?.profilePicUrl || follower?.profileImageUrl }}
+                                source={{
+                                  uri:
+                                    follower?.avatar ||
+                                    follower?.avatarUrl ||
+                                    follower?.profilePicUrl ||
+                                    follower?.profileImageUrl,
+                                }}
                                 style={styles.followerItemAvatar}
                                 resizeMode="cover"
                               />
@@ -8846,7 +9874,9 @@ export default function VoiceParty() {
                               <Image
                                 source={{
                                   uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                                    follower?.name || follower?.username || "User",
+                                    follower?.name ||
+                                      follower?.username ||
+                                      "User",
                                   )}&background=7c4dff&color=fff`,
                                 }}
                                 style={styles.followerItemAvatar}
@@ -8859,7 +9889,10 @@ export default function VoiceParty() {
                           <View style={styles.followerItemInfoCol}>
                             {/* Name & Badges Row */}
                             <View style={styles.followerItemTopRow}>
-                              <Text style={styles.followerItemName} numberOfLines={1}>
+                              <Text
+                                style={styles.followerItemName}
+                                numberOfLines={1}
+                              >
                                 {follower?.name || follower?.username || "User"}
                               </Text>
 
@@ -8885,7 +9918,11 @@ export default function VoiceParty() {
                               {/* Home Badge */}
                               {follower?.hasHomeBadge && (
                                 <View style={styles.followerHomeBadge}>
-                                  <Ionicons name="home" size={10} color="#ffffff" />
+                                  <Ionicons
+                                    name="home"
+                                    size={10}
+                                    color="#ffffff"
+                                  />
                                 </View>
                               )}
 
@@ -8893,14 +9930,18 @@ export default function VoiceParty() {
                               {isNew && (
                                 <View style={styles.followerNewBadge}>
                                   <Sparkles size={10} color="#ffffff" />
-                                  <Text style={styles.followerNewBadgeText}>New.</Text>
+                                  <Text style={styles.followerNewBadgeText}>
+                                    New.
+                                  </Text>
                                 </View>
                               )}
 
                               {/* Return Status Badge */}
                               {isReturn && (
                                 <View style={styles.followerReturnBadge}>
-                                  <Text style={styles.followerReturnBadgeText}>Return</Text>
+                                  <Text style={styles.followerReturnBadgeText}>
+                                    Return
+                                  </Text>
                                 </View>
                               )}
 
@@ -8924,7 +9965,11 @@ export default function VoiceParty() {
                               {/* Rank Shield */}
                               {follower?.rankBadge !== undefined && (
                                 <View style={styles.followerRankShield}>
-                                  <Ionicons name="shield" size={9} color="#d1d5db" />
+                                  <Ionicons
+                                    name="shield"
+                                    size={9}
+                                    color="#d1d5db"
+                                  />
                                   <Text style={styles.followerRankText}>
                                     {follower.rankBadge}
                                   </Text>
@@ -8954,7 +9999,11 @@ export default function VoiceParty() {
                                     : styles.followerDiamondPillBrown,
                                 ]}
                               >
-                                <Ionicons name="diamond" size={9} color="#ffffff" />
+                                <Ionicons
+                                  name="diamond"
+                                  size={9}
+                                  color="#ffffff"
+                                />
                                 <Text style={styles.followerDiamondPillText}>
                                   {diamondCount}
                                 </Text>
@@ -8962,7 +10011,11 @@ export default function VoiceParty() {
 
                               {/* Leaf Badge */}
                               <View style={styles.followerLeafPill}>
-                                <Ionicons name="water" size={9} color="#ffffff" />
+                                <Ionicons
+                                  name="water"
+                                  size={9}
+                                  color="#ffffff"
+                                />
                                 <Text style={styles.followerLeafPillText}>
                                   {leafCount}
                                 </Text>
@@ -8975,7 +10028,9 @@ export default function VoiceParty() {
                   ) : (
                     <View style={styles.followerNotFoundWrap}>
                       <Text style={styles.followerNotFoundText}>
-                        {followerSearchQuery ? "No followers match your search" : "No followers found"}
+                        {followerSearchQuery
+                          ? "No followers match your search"
+                          : "No followers found"}
                       </Text>
                     </View>
                   )}
@@ -9054,7 +10109,8 @@ export default function VoiceParty() {
                       <Text
                         style={[
                           styles.badgeWallSubTabText,
-                          roomBadgeSubTab === "achievement" && styles.badgeWallSubTabTextActive,
+                          roomBadgeSubTab === "achievement" &&
+                            styles.badgeWallSubTabTextActive,
                         ]}
                       >
                         Achievement
@@ -9072,7 +10128,8 @@ export default function VoiceParty() {
                       <Text
                         style={[
                           styles.badgeWallSubTabText,
-                          roomBadgeSubTab === "honor" && styles.badgeWallSubTabTextActive,
+                          roomBadgeSubTab === "honor" &&
+                            styles.badgeWallSubTabTextActive,
                         ]}
                       >
                         Honor
@@ -9089,7 +10146,11 @@ export default function VoiceParty() {
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="help-circle-outline" size={24} color="#374151" />
+                    <Ionicons
+                      name="help-circle-outline"
+                      size={24}
+                      color="#374151"
+                    />
                   </TouchableOpacity>
                 </View>
 
@@ -9099,7 +10160,10 @@ export default function VoiceParty() {
                   contentContainerStyle={styles.badgeWallGrid}
                   showsVerticalScrollIndicator={false}
                 >
-                  {(roomBadgeSubTab === "achievement" ? achievementBadges : honorBadges).map((badge) => {
+                  {(roomBadgeSubTab === "achievement"
+                    ? achievementBadges
+                    : honorBadges
+                  ).map((badge) => {
                     return (
                       <TouchableOpacity
                         key={badge.id}
@@ -9109,7 +10173,9 @@ export default function VoiceParty() {
                       >
                         <View style={styles.badgeEmblemWrap}>
                           <RoomBadgeEmblem badge={badge} />
-                          {badge.grade ? <GradeCornerBadge grade={badge.grade} /> : null}
+                          {badge.grade ? (
+                            <GradeCornerBadge grade={badge.grade} />
+                          ) : null}
                         </View>
                         <Text
                           style={[
@@ -9379,8 +10445,8 @@ export default function VoiceParty() {
                   const rowIsVip = isRowSelf && myVipAssets.unlocked;
                   const rowVipTier = !isRowSelf
                     ? resolveVipTierFromAssetUrl(
-                      userFrameData[String(uId)]?.vipProfileFrameUrl,
-                    )
+                        userFrameData[String(uId)]?.vipProfileFrameUrl,
+                      )
                     : null;
                   const rowVipLogo = rowIsVip
                     ? myVipAssets.logo
@@ -9392,18 +10458,30 @@ export default function VoiceParty() {
                       ? (userFrameData[String(uId)]?.decorationBadgeUrl ?? null)
                       : null;
                   const rowVipLogoSource = rowVipLogo
-                    ? (typeof rowVipLogo === "string" && rowVipLogo.trim().length > 0
-                      ? { uri: rowVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
-                      : (typeof rowVipLogo === "number" || (typeof rowVipLogo === "object" && rowVipLogo?.uri))
+                    ? typeof rowVipLogo === "string" &&
+                      rowVipLogo.trim().length > 0
+                      ? {
+                          uri: rowVipLogo
+                            .trim()
+                            .replace(
+                              /\/vip-frame\/vip8\/viplogo8\.png/i,
+                              "/vip-frame/vip8/Viplogo8.png",
+                            ),
+                        }
+                      : typeof rowVipLogo === "number" ||
+                          (typeof rowVipLogo === "object" && rowVipLogo?.uri)
                         ? rowVipLogo
-                        : null)
+                        : null
                     : null;
                   const rowDecorationBadgeSource = rowDecorationBadge
-                    ? (typeof rowDecorationBadge === "string" && rowDecorationBadge.trim().length > 0
+                    ? typeof rowDecorationBadge === "string" &&
+                      rowDecorationBadge.trim().length > 0
                       ? { uri: rowDecorationBadge.trim() }
-                      : (typeof rowDecorationBadge === "number" || (typeof rowDecorationBadge === "object" && rowDecorationBadge?.uri))
+                      : typeof rowDecorationBadge === "number" ||
+                          (typeof rowDecorationBadge === "object" &&
+                            rowDecorationBadge?.uri)
                         ? rowDecorationBadge
-                        : null)
+                        : null
                     : null;
                   // Premium (like VIP) is only ever known for the current user —
                   // no per-other-user premium data is available from this list.
@@ -9475,7 +10553,11 @@ export default function VoiceParty() {
                             resizeMode="contain"
                           />
                           <AutoBadgeImage
-                            source={user.verifiedBadgeUrl ? { uri: user.verifiedBadgeUrl } : null}
+                            source={
+                              user.verifiedBadgeUrl
+                                ? { uri: user.verifiedBadgeUrl }
+                                : null
+                            }
                             style={styles.activeUserVerifiedBadge}
                             resizeMode="contain"
                           />
@@ -9506,7 +10588,9 @@ export default function VoiceParty() {
                               styles.audienceStatusBadge,
                             ]}
                           >
-                            <Text style={styles.audienceStatusText}>Audience</Text>
+                            <Text style={styles.audienceStatusText}>
+                              Audience
+                            </Text>
                           </View>
                         )}
                         {isMeOnSeat && (
@@ -9557,7 +10641,11 @@ export default function VoiceParty() {
 
             {/* Search Input */}
             <View style={styles.shareSearchBox}>
-              <Search size={16} color="rgba(255,255,255,0.45)" style={{ marginRight: 8 }} />
+              <Search
+                size={16}
+                color="rgba(255,255,255,0.45)"
+                style={{ marginRight: 8 }}
+              />
               <TextInput
                 style={styles.shareSearchInput}
                 placeholder="Search friends & chats..."
@@ -9633,7 +10721,9 @@ export default function VoiceParty() {
                     const displayName = u.name || u.username || "User";
                     const subtitle =
                       u.handle ||
-                      (u.lastMsg ? u.lastMsg.slice(0, 26) : `@${u.username || "user"}`);
+                      (u.lastMsg
+                        ? u.lastMsg.slice(0, 26)
+                        : `@${u.username || "user"}`);
 
                     return (
                       <View key={uId} style={styles.shareUserRow}>
@@ -9659,7 +10749,10 @@ export default function VoiceParty() {
                           <Text style={styles.shareUserName} numberOfLines={1}>
                             {displayName}
                           </Text>
-                          <Text style={styles.shareUserHandle} numberOfLines={1}>
+                          <Text
+                            style={styles.shareUserHandle}
+                            numberOfLines={1}
+                          >
                             {subtitle}
                           </Text>
                         </View>
@@ -9679,7 +10772,9 @@ export default function VoiceParty() {
                             {isSending ? (
                               <ActivityIndicator size="small" color="white" />
                             ) : (
-                              <Text style={styles.shareUserSendBtnText}>Send</Text>
+                              <Text style={styles.shareUserSendBtnText}>
+                                Send
+                              </Text>
                             )}
                           </TouchableOpacity>
                         )}
@@ -9785,7 +10880,9 @@ export default function VoiceParty() {
 
             {/* ── Body text ── */}
             <View style={styles.micPermBody}>
-              <Text style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}>
+              <Text
+                style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}
+              >
                 Seat {seatActionSheet?.seatId}
               </Text>
               <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
@@ -9892,7 +10989,7 @@ export default function VoiceParty() {
                   setMicPermWarning(null);
                   const granted = await agoraVoice.requestMicPermission();
                   if (granted) {
-                    if (pendingSeatId === 'music') {
+                    if (pendingSeatId === "music") {
                       // Automatically try toggling music again now that permission is granted
                       handleToggleMusic();
                     } else if (pendingSeatId != null) {
@@ -9948,7 +11045,9 @@ export default function VoiceParty() {
 
             {/* ── Body ── */}
             <View style={styles.micPermBody}>
-              <Text style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}>
+              <Text
+                style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}
+              >
                 Seat {adminSeatModal?.seatId}
               </Text>
               <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
@@ -9980,8 +11079,14 @@ export default function VoiceParty() {
                   <ActivityIndicator color="#f87171" size="small" />
                 ) : (
                   <>
-                    <Lock size={15} color="#f87171" style={{ marginRight: 5 }} />
-                    <Text style={styles.adminSeatActionLockText}>Lock Seat</Text>
+                    <Lock
+                      size={15}
+                      color="#f87171"
+                      style={{ marginRight: 5 }}
+                    />
+                    <Text style={styles.adminSeatActionLockText}>
+                      Lock Seat
+                    </Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -10031,7 +11136,9 @@ export default function VoiceParty() {
             </LinearGradient>
 
             <View style={styles.micPermBody}>
-              <Text style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}>
+              <Text
+                style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}
+              >
                 Seat {adminUnlockModal?.seatId}
               </Text>
               <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
@@ -10059,7 +11166,9 @@ export default function VoiceParty() {
                 {seatActionLoading ? (
                   <ActivityIndicator color="#4ade80" size="small" />
                 ) : (
-                  <Text style={[styles.micPermOkText, { color: "#4ade80" }]}>Unlock Seat</Text>
+                  <Text style={[styles.micPermOkText, { color: "#4ade80" }]}>
+                    Unlock Seat
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -10100,10 +11209,14 @@ export default function VoiceParty() {
             </LinearGradient>
 
             <View style={styles.micPermBody}>
-              <Text style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}>
+              <Text
+                style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}
+              >
                 Seat {lockedSeatNoticeModal?.seatId}
               </Text>
-              <Text style={[styles.micPermMsg, { marginTop: 4, color: "#fef08a" }]}>
+              <Text
+                style={[styles.micPermMsg, { marginTop: 4, color: "#fef08a" }]}
+              >
                 This seat is locked by owner
               </Text>
             </View>
@@ -10348,6 +11461,7 @@ export default function VoiceParty() {
           </View>
 
           <View style={styles.headerRight}>
+
             <TouchableOpacity
               style={styles.headerBtn}
               activeOpacity={0.8}
@@ -10402,10 +11516,7 @@ export default function VoiceParty() {
                     {renderRoomUserAvatar(
                       user,
                       styles.audienceAvatar,
-                      [
-                        styles.audienceAvatar,
-                        styles.audienceAvatarPlaceholder,
-                      ],
+                      [styles.audienceAvatar, styles.audienceAvatarPlaceholder],
                       styles.audienceInitial,
                     )}
                     <View style={styles.micStatusDot}>
@@ -10429,7 +11540,7 @@ export default function VoiceParty() {
                   ]}
                   activeOpacity={0.8}
                   onPress={() => {
-                    getClaimedSeats(String(roomId)).catch(() => { });
+                    getClaimedSeats(String(roomId)).catch(() => {});
                     setShowActiveUsersModal(true);
                   }}
                 >
@@ -10442,7 +11553,7 @@ export default function VoiceParty() {
             <TouchableOpacity
               style={styles.headerBtn}
               onPress={() => {
-                getClaimedSeats(String(roomId)).catch(() => { });
+                getClaimedSeats(String(roomId)).catch(() => {});
                 setShowActiveUsersModal(true);
               }}
             >
@@ -10488,6 +11599,33 @@ export default function VoiceParty() {
                       <Mic size={12} color="#4ade80" />
                     )}
                   </View>
+
+                  {/* Emoji / Sticker / GIF overlay — shown on sender's seat for 10 s */}
+                  {seat.user &&
+                    seatEmojiOverlays[
+                      String(seat.user.id ?? seat.user.userId)
+                    ] && (
+                      <FloatingSeatEmojiOverlay
+                        key={
+                          seatEmojiOverlays[
+                            String(seat.user.id ?? seat.user.userId)
+                          ].id
+                        }
+                        item={
+                          seatEmojiOverlays[
+                            String(seat.user.id ?? seat.user.userId)
+                          ]
+                        }
+                        onComplete={() => {
+                          const uid = String(seat.user.id ?? seat.user.userId);
+                          setSeatEmojiOverlays((prev) => {
+                            const next = { ...prev };
+                            delete next[uid];
+                            return next;
+                          });
+                        }}
+                      />
+                    )}
                 </View>
               ) : seat.locked ? (
                 <View style={styles.seatEmpty}>
@@ -10528,6 +11666,22 @@ export default function VoiceParty() {
             />
           ))}
 
+          {/* ── Floating Room Emoji / Sticker / GIF Animations ── */}
+          {floatingRoomEmojis.length > 0 && (
+            <View pointerEvents="box-none" style={styles.emojiOverlay}>
+              {floatingRoomEmojis.map((item) => (
+                <FloatingRoomEmojiItem
+                  key={item.id}
+                  item={item}
+                  onComplete={() =>
+                    setFloatingRoomEmojis((prev) =>
+                      prev.filter((e) => e.id !== item.id),
+                    )
+                  }
+                />
+              ))}
+            </View>
+          )}
           {/* Floating Gift Display Overlay — non-blocking real-time animations for all users */}
           {activeGiftDisplays.length > 0 && (
             <View
@@ -10570,11 +11724,16 @@ export default function VoiceParty() {
             >
               {recentEntries.slice(-1).map((user, idx) => (
                 <UserEntryBanner
-                  key={user._entryKey || `${user.id || user.userId || "entry"}-${idx}`}
+                  key={
+                    user._entryKey ||
+                    `${user.id || user.userId || "entry"}-${idx}`
+                  }
                   user={user}
                   countryFlag={myCountryFlag}
                   onComplete={() =>
-                    handleEntryComplete(user._entryKey || user.id || user.userId)
+                    handleEntryComplete(
+                      user._entryKey || user.id || user.userId,
+                    )
                   }
                 />
               ))}
@@ -10597,7 +11756,11 @@ export default function VoiceParty() {
                 style={styles.chatScroll}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.chatScrollContent}
+                contentContainerStyle={[
+                  styles.chatScrollContent,
+                  canManageRoomUsers &&
+                    messages.length > 0 && { paddingBottom: vs(38) },
+                ]}
               >
                 {/* ── PINNED ROOM MESSAGES ── */}
 
@@ -10684,10 +11847,9 @@ export default function VoiceParty() {
                   // from that same VIP_TIER_THRESHOLDS table used elsewhere.
                   const otherSenderVipTier = !isSenderSelf
                     ? resolveVipTierFromAssetUrl(
-                      msg.vipProfileFrameUrl ??
-                      userFrameData[String(msg.userId)]
-                        ?.vipProfileFrameUrl,
-                    )
+                        msg.vipProfileFrameUrl ??
+                          userFrameData[String(msg.userId)]?.vipProfileFrameUrl,
+                      )
                     : null;
                   const senderVipLogo = isSenderVip
                     ? myVipAssets.logo
@@ -10696,26 +11858,42 @@ export default function VoiceParty() {
                       : null;
                   const senderDecorationBadge =
                     msg.userId != null
-                      ? (userFrameData[String(msg.userId)]?.decorationBadgeUrl ?? null)
+                      ? (userFrameData[String(msg.userId)]
+                          ?.decorationBadgeUrl ?? null)
                       : null;
                   const senderVipLogoSource = senderVipLogo
-                    ? (typeof senderVipLogo === "string" && senderVipLogo.trim().length > 0
-                      ? { uri: senderVipLogo.trim().replace(/\/vip-frame\/vip8\/viplogo8\.png/i, "/vip-frame/vip8/Viplogo8.png") }
-                      : (typeof senderVipLogo === "number" || (typeof senderVipLogo === "object" && senderVipLogo?.uri))
+                    ? typeof senderVipLogo === "string" &&
+                      senderVipLogo.trim().length > 0
+                      ? {
+                          uri: senderVipLogo
+                            .trim()
+                            .replace(
+                              /\/vip-frame\/vip8\/viplogo8\.png/i,
+                              "/vip-frame/vip8/Viplogo8.png",
+                            ),
+                        }
+                      : typeof senderVipLogo === "number" ||
+                          (typeof senderVipLogo === "object" &&
+                            senderVipLogo?.uri)
                         ? senderVipLogo
-                        : null)
+                        : null
                     : null;
                   const senderDecorationBadgeSource = senderDecorationBadge
-                    ? (typeof senderDecorationBadge === "string" && senderDecorationBadge.trim().length > 0
+                    ? typeof senderDecorationBadge === "string" &&
+                      senderDecorationBadge.trim().length > 0
                       ? { uri: senderDecorationBadge.trim() }
-                      : (typeof senderDecorationBadge === "number" || (typeof senderDecorationBadge === "object" && senderDecorationBadge?.uri))
+                      : typeof senderDecorationBadge === "number" ||
+                          (typeof senderDecorationBadge === "object" &&
+                            senderDecorationBadge?.uri)
                         ? senderDecorationBadge
-                        : null)
+                        : null
                     : null;
                   // Premium (like VIP) is only ever known for the current user —
                   // no per-other-sender premium data is available on `msg`.
                   const senderPremiumLogoSource =
-                    isSenderSelf && myPremiumLogo ? { uri: myPremiumLogo } : null;
+                    isSenderSelf && myPremiumLogo
+                      ? { uri: myPremiumLogo }
+                      : null;
                   // Trimmed whole-image chat frame for this sender's tier (keyed
                   // by tier number, not by URL — the URL can vary once the real
                   // API is wired up). Falls back to the raw remote asset (old
@@ -10738,9 +11916,9 @@ export default function VoiceParty() {
                   // intrinsic size to preserve, so it stretches correctly.
                   const vipChatFrameSource = vipChatFrameAsset
                     ? {
-                      uri: Image.resolveAssetSource(vipChatFrameAsset.source)
-                        .uri,
-                    }
+                        uri: Image.resolveAssetSource(vipChatFrameAsset.source)
+                          .uri,
+                      }
                     : null;
                   // The image is taller than the bubble by topFrac+bottomFrac
                   // (as fractions of the bubble's own height) and shifted up
@@ -10749,12 +11927,12 @@ export default function VoiceParty() {
                   // above/below instead of being cropped off.
                   const vipChatFrameStyle = vipChatFrameAsset
                     ? {
-                      position: "absolute",
-                      left: 0,
-                      right: 0,
-                      top: `${-vipChatFrameAsset.topFrac * 100}%`,
-                      bottom: `${-vipChatFrameAsset.bottomFrac * 100}%`,
-                    }
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        top: `${-vipChatFrameAsset.topFrac * 100}%`,
+                        bottom: `${-vipChatFrameAsset.bottomFrac * 100}%`,
+                      }
                     : null;
 
                   return (
@@ -10861,7 +12039,9 @@ export default function VoiceParty() {
                             <Text style={styles.chatUser}>{senderName}</Text>
                           </TouchableOpacity>
                           {isSenderSelf && !!myCountryFlag && (
-                            <Text style={styles.chatUserFlag}>{myCountryFlag}</Text>
+                            <Text style={styles.chatUserFlag}>
+                              {myCountryFlag}
+                            </Text>
                           )}
                           <AutoBadgeImage
                             source={resolveLocalLevelBadge(msg.level)}
@@ -10884,7 +12064,11 @@ export default function VoiceParty() {
                             resizeMode="contain"
                           />
                           <AutoBadgeImage
-                            source={msg.verifiedBadgeUrl ? { uri: msg.verifiedBadgeUrl } : null}
+                            source={
+                              msg.verifiedBadgeUrl
+                                ? { uri: msg.verifiedBadgeUrl }
+                                : null
+                            }
                             style={styles.chatVerifiedBadge}
                             resizeMode="contain"
                           />
@@ -10928,6 +12112,41 @@ export default function VoiceParty() {
                   );
                 })}
               </ScrollView>
+
+              {/* Floating Clear Chat Button for Admin / Owner / Host */}
+              {canManageRoomUsers && messages.length > 0 && (
+                <TouchableOpacity
+                  style={styles.floatingClearChatBtn}
+                  activeOpacity={0.8}
+                  onPress={handleConfirmClearChat}
+                  disabled={clearingChat}
+                >
+                  <LinearGradient
+                    colors={[
+                      "rgba(239, 68, 68, 0.95)",
+                      "rgba(185, 28, 28, 0.95)",
+                    ]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.floatingClearChatGrad}
+                  >
+                    {clearingChat ? (
+                      <ActivityIndicator
+                        size="small"
+                        color="#ffffff"
+                        style={{ transform: [{ scale: 0.7 }] }}
+                      />
+                    ) : (
+                      <>
+                        <Trash2 size={12} color="#ffffff" />
+                        <Text style={styles.floatingClearChatText}>
+                          Clear Chat
+                        </Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Right panel */}
@@ -11453,7 +12672,9 @@ export default function VoiceParty() {
           <View style={styles.rewardModalOuter}>
             {/* Bursting Gifts Overlay */}
             <Image
-              source={{ uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/Rechargebonus/Popupheader/Popup.png" }}
+              source={{
+                uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/Rechargebonus/Popupheader/Popup.png",
+              }}
               style={styles.rewardModalHeaderImg}
               resizeMode="contain"
             />
@@ -11478,7 +12699,7 @@ export default function VoiceParty() {
                 </Text>
 
                 <TouchableOpacity
-                  style={{ width: '100%', alignItems: 'center' }}
+                  style={{ width: "100%", alignItems: "center" }}
                   activeOpacity={0.8}
                   onPress={() => setClaimedRewardModal(null)}
                 >
@@ -11616,7 +12837,7 @@ const styles = StyleSheet.create({
     width: s(24),
     height: s(24),
     borderRadius: s(12),
-    borderColor: '#ffffff',
+    borderColor: "#ffffff",
     borderWidth: 1,
     backgroundColor: "#7c4dff",
     alignItems: "center",
@@ -11897,12 +13118,40 @@ const styles = StyleSheet.create({
     gap: s(8),
     minHeight: 0,
   },
-  chatLeft: { flex: 1, minHeight: 0 },
+  chatLeft: { flex: 1, minHeight: 0, position: "relative" },
   chatScroll: { flex: 1 },
   chatScrollContent: {
     gap: vs(8),
     paddingTop: vs(4),
     paddingBottom: vs(12),
+  },
+  floatingClearChatBtn: {
+    position: "absolute",
+    bottom: vs(4),
+    right: s(6),
+    zIndex: 20,
+    elevation: 5,
+    borderRadius: s(16),
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+  },
+  floatingClearChatGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: s(10),
+    paddingVertical: vs(5),
+    borderRadius: s(16),
+    gap: s(4),
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.25)",
+  },
+  floatingClearChatText: {
+    color: "#ffffff",
+    fontSize: ms(11),
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   systemMsg: {
     backgroundColor: "rgba(0,0,0,0.35)",
@@ -11959,7 +13208,12 @@ const styles = StyleSheet.create({
   chatVipBadge: { width: vs(14), height: vs(14) },
   chatDecorationBadge: { width: vs(14), height: vs(14) },
   chatVerifiedBadge: { width: vs(13) * (438 / 179), height: vs(13) },
-  newStartBadge: { width: s(44), height: vs(24), marginLeft: s(1), marginTop: vs(-6) },
+  newStartBadge: {
+    width: s(44),
+    height: vs(24),
+    marginLeft: s(1),
+    marginTop: vs(-6),
+  },
   chatCoin: { fontSize: ms(10), color: "#ffd700" },
   chatDiamond: { fontSize: ms(10), color: "#4dc8ff" },
   chatText: { color: "white", fontSize: ms(11.5), lineHeight: vs(16) },
@@ -12166,7 +13420,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  giftRow: { flex: 1, flexDirection: "row", gap: s(8), justifyContent: "center" },
+  giftRow: {
+    flex: 1,
+    flexDirection: "row",
+    gap: s(8),
+    justifyContent: "center",
+  },
   giftShortcut: {
     width: s(40),
     height: s(40),
@@ -13058,7 +14317,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
-
   },
   entryBannerFramedTextWrap: {
     position: "absolute",
@@ -13941,6 +15199,59 @@ const styles = StyleSheet.create({
     fontSize: ms(40),
   },
 
+  // ── Floating room emoji overlay (non-intercepting layer) ───────────────────
+  emojiOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: "hidden",
+    zIndex: 10003,
+    elevation: 101,
+  },
+  // Each rising emoji item — absolutely positioned, starts near bottom-right
+  floatingRoomEmojiWrap: {
+    position: "absolute",
+    bottom: vs(80),
+    zIndex: 10004,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  floatingRoomEmojiText: {
+    fontSize: ms(38),
+  },
+  floatingRoomEmojiImg: {
+    width: s(52),
+    height: s(52),
+  },
+
+  // ── Seat emoji overlay (center of avatar) ──────────────────────
+  seatEmojiOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10005,
+    elevation: 102,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    padding: 0,
+  },
+  seatEmojiOverlayText: {
+    fontSize: ms(26),
+    textAlign: "center",
+    textAlignVertical: "center",
+    includeFontPadding: false,
+  },
+  seatEmojiOverlayImg: {
+    width: s(28),
+    height: s(28),
+  },
+
   // ── Seat action popup (centered) ──
   seatActionOverlay: {
     flex: 1,
@@ -14630,7 +15941,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: Platform.OS === "ios" ? 34 : 20,
-    height: Math.min(Dimensions.get("window").height * 0.80, 620),
+    height: Math.min(Dimensions.get("window").height * 0.8, 620),
     width: "100%",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
@@ -15519,6 +16830,3 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
-
-
-

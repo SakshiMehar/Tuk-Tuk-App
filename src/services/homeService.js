@@ -21,6 +21,7 @@ import { API_BASE_URL } from "../config/env";
 import { entityHasNewUserFrame } from "../utils/newUserFrame";
 import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
 import { fetchNotificationsData } from "./notificationService";
+import { isUserOnline } from "../utils/liveStatus";
 
 // Backend returns relative paths like "/uploads/feed/abc.jpg".
 // React Native Image requires a full https:// URL.
@@ -84,10 +85,25 @@ const profileFrom = (user) => user?.profile ?? user?.userProfile ?? user?.user ?
 
 const normalizeRecommendedUser = (user) => {
   const profile = profileFrom(user);
+  const id = firstValue(user?.id, user?.userId, user?._id, profile?.id, profile?.userId);
+  const userId = firstValue(user?.userId, user?.id, user?._id, profile?.userId, profile?.id);
+  const rawStatus = String(
+    user?.status ?? user?.userStatus ?? profile?.status ?? profile?.userStatus ?? ""
+  ).toUpperCase();
+  const onlineCheck = Boolean(
+    isUserOnline({ id, userId }) ||
+    rawStatus === "ONLINE" ||
+    rawStatus === "ONLINE_IN_ROOM" ||
+    user?.isOnline === true ||
+    user?.online === true ||
+    profile?.isOnline === true ||
+    profile?.online === true
+  );
+
   return {
     ...user,
-    id: firstValue(user?.id, user?.userId, user?._id, profile?.id, profile?.userId),
-    userId: firstValue(user?.userId, user?.id, user?._id, profile?.userId, profile?.id),
+    id,
+    userId,
     name:
       firstText(
         user?.name,
@@ -115,7 +131,8 @@ const normalizeRecommendedUser = (user) => {
         profile?.profileImage,
         profile?.photoUrl
       )) ?? null,
-    isOnline: Boolean(user?.isOnline ?? user?.online ?? profile?.isOnline),
+    isOnline: onlineCheck,
+    online: onlineCheck,
     vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
     // Explicit fallback chain (not just the `...user` spread above) so this
     // survives whichever of the raw top-level/nested `profile` shapes the
@@ -443,7 +460,9 @@ const extractRecommendedUsers = (initData) => {
 export const getRecommendedUsers = async () => {
   const initData = await getHomeInit();
   const raw = extractRecommendedUsers(initData);
-  return raw.map(normalizeRecommendedUser);
+  const users = raw.map(normalizeRecommendedUser);
+  console.log(`[homeService] getRecommendedUsers list (${users.length} users):`, users);
+  return users;
 };
 
 export const refreshActiveUsersCount = async () => {

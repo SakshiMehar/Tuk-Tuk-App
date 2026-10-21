@@ -37,6 +37,7 @@ import ComingSoonModal from "../../Components/ComingSoonModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import PostImageViewer from "../../Components/PostImageViewer";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+import LiveBadge from "../../Components/LiveBadge";
 import ReportReasonModal from "../../Components/ReportReasonModal";
 import Toast from "../../Components/Toast";
 import {
@@ -102,6 +103,8 @@ import { ms, s, vs } from "../../src/utils/responsive";
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import { resolveImageSource } from "../../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
+import { wsService } from "../../src/services/websocket";
+import { isUserLive, isUserOnline, useUserOnlineOrLiveStatus } from "../../src/utils/liveStatus";
 
 // Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
 // appears (UserProfileView, ChatTab) — derives the logo URL for a card that
@@ -348,11 +351,11 @@ const PostMoreMenu = memo(
         const text = `Check this out on Tuk Tuk! "${(post?.text ?? "").slice(0, 100)}..."`;
 
         if (post?.userId) {
-          shareUser(post.userId).catch(() => {});
+          shareUser(post.userId).catch(() => { });
         }
 
         if (platform.id === "more") {
-          await Share.share({ message: text }).catch(() => {});
+          await Share.share({ message: text }).catch(() => { });
           onClose();
           return;
         }
@@ -368,7 +371,7 @@ const PostMoreMenu = memo(
         if (canOpen) {
           Linking.openURL(url);
         } else {
-          await Share.share({ message: text }).catch(() => {});
+          await Share.share({ message: text }).catch(() => { });
         }
         onClose();
       },
@@ -461,24 +464,25 @@ const PostMoreMenu = memo(
                       style={moreMenuStyles.friendRing}
                     >
                       <ProfileAvatarWithFrame
+                        user={item}
                         avatarSource={toImageSource(item.avatar)}
                         frameSource={item.vipProfileFrameUrl}
                         size={52}
                         avatarStyle={moreMenuStyles.friendAvatar}
                         {...(item.vipProfileFrameUrl
                           ? {
-                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                              frameResizeMode:
-                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                              frameOffsetX:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                              frameOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                              avatarOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                            }
+                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                            frameResizeMode:
+                              VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                            frameOffsetX:
+                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                            frameOffsetY:
+                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                            avatarOffsetY:
+                              VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                          }
                           : {})}
                       />
                     </LinearGradient>
@@ -2172,8 +2176,8 @@ const PostCard = memo(
     const postFrameSource = isOwnPost
       ? (currentUserVipFrameSource ?? currentUserFrameSource)
       : resolveEntityNewUserFrameSource({
-          hasNewUserFrame: post.authorHasNewUserFrame,
-        });
+        hasNewUserFrame: post.authorHasNewUserFrame,
+      });
     // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
     const imageUri = post.imageUrl ?? post._localMediaUri ?? null;
     const galleryUrls = post.imageUrls?.length
@@ -2215,7 +2219,7 @@ const PostCard = memo(
         (w, h) => {
           if (!cancelled && w && h) setImgAspectRatio(w / h);
         },
-        () => {},
+        () => { },
       );
       return () => {
         cancelled = true;
@@ -2228,6 +2232,7 @@ const PostCard = memo(
             <TouchableOpacity activeOpacity={0.8} onPress={handleAvatarPress}>
               {postAvatarSource ? (
                 <ProfileAvatarWithFrame
+                  user={post}
                   avatarSource={postAvatarSource}
                   frameSource={postFrameSource}
                   size={42}
@@ -2235,15 +2240,15 @@ const PostCard = memo(
                   imageComponent={Image}
                   {...(isOwnVipFrame
                     ? {
-                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                        frameResizeMode:
-                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                      }
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode:
+                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
                     : {})}
                 />
               ) : (
@@ -2334,9 +2339,9 @@ const PostCard = memo(
                   styles.postImage,
                   imgAspectRatio
                     ? {
-                        aspectRatio: clampAspectRatio(imgAspectRatio),
-                        height: undefined,
-                      }
+                      aspectRatio: clampAspectRatio(imgAspectRatio),
+                      height: undefined,
+                    }
                     : { height: 220 },
                 ]}
                 contentFit="cover"
@@ -2357,9 +2362,9 @@ const PostCard = memo(
                 styles.postImage,
                 imgAspectRatio
                   ? {
-                      aspectRatio: clampAspectRatio(imgAspectRatio),
-                      height: undefined,
-                    }
+                    aspectRatio: clampAspectRatio(imgAspectRatio),
+                    height: undefined,
+                  }
                   : { height: 220 },
               ]}
               onLayout={(e) => setGalleryWidth(e.nativeEvent.layout.width)}
@@ -2492,6 +2497,12 @@ const RecommendedUserItem = memo(({ user }) => {
   const recommendVipTier = resolveVipTierFromAssetUrl(user.vipProfileFrameUrl);
   const recommendVipLogo =
     recommendVipTier != null ? VIP_LOGO_BY_TIER[recommendVipTier] : null;
+  const isOnline = useUserOnlineOrLiveStatus(
+    user,
+    isUserLive(user),
+    Boolean(user.isOnline ?? user.online)
+  );
+
   return (
     <TouchableOpacity
       style={styles.recommendItem}
@@ -2506,33 +2517,27 @@ const RecommendedUserItem = memo(({ user }) => {
       }
     >
       <View style={styles.recommendAvatarWrap}>
-        {user.avatar ? (
-          <ProfileAvatarWithFrame
-            avatarSource={toImageSource(user.avatar)}
-            frameSource={user.vipProfileFrameUrl}
-            size={s(60)}
-            avatarStyle={{ borderRadius: s(36) }}
-            {...(user.vipProfileFrameUrl
-              ? {
-                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                }
-              : {})}
-          />
-        ) : (
-          <View
-            style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}
-          >
-            <Text style={styles.recommendInitial}>
-              {user.name?.[0]?.toUpperCase() ?? "?"}
-            </Text>
-          </View>
-        )}
+        <ProfileAvatarWithFrame
+          user={user}
+          avatarSource={user.avatar ? toImageSource(user.avatar) : null}
+          frameSource={user.vipProfileFrameUrl}
+          placeholderInitial={user.name?.[0]?.toUpperCase() ?? "?"}
+          size={s(60)}
+          isOnline={isOnline}
+          isLive={isUserLive(user)}
+          avatarStyle={{ borderRadius: s(36) }}
+          {...(user.vipProfileFrameUrl
+            ? {
+              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+            }
+            : {})}
+        />
       </View>
       <View style={styles.recommendNameRow}>
         <Text style={styles.recommendName} numberOfLines={1}>
@@ -2552,9 +2557,6 @@ const RecommendedUserItem = memo(({ user }) => {
             contentFit="contain"
           />
         )}
-        {/* Decoration badge intentionally skipped here: this horizontal list
-            can show many recommended users, so firing fetchUserDecorations
-            per card would risk an N+1 request storm. */}
       </View>
     </TouchableOpacity>
   );
@@ -2651,6 +2653,10 @@ const HomeHeader = memo(
     router,
   }) => {
     const insets = useSafeAreaInsets();
+    const featuredUser = recommendedUsers?.[0];
+    const isFeaturedUserOnline = Boolean(
+      featuredUser && (featuredUser.isOnline || featuredUser.online || isUserOnline(featuredUser))
+    );
     return (
       <>
         {/* ── HEADER CARD ── */}
@@ -2682,14 +2688,14 @@ const HomeHeader = memo(
                 imageComponent={Image}
                 {...(vipProfileFrameSource
                   ? {
-                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                      frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                    }
+                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                  }
                   : {})}
               />
             </View>
@@ -2788,15 +2794,22 @@ const HomeHeader = memo(
               activeOpacity={0.85}
               onPress={() => router.push("/chat")}
             >
-              <Image
-                source={toImageSource(
-                  stats?.featuredUserAvatar ??
+              <View style={styles.matchAvatarWrap}>
+                <Image
+                  source={toImageSource(
+                    stats?.featuredUserAvatar ??
                     "https://randomuser.me/api/portraits/men/45.jpg",
+                  )}
+                  style={styles.matchAvatar}
+                  cachePolicy="memory-disk"
+                  transition={200}
+                />
+                {isFeaturedUserOnline && (
+                  <View style={styles.matchAvatarLiveDot}>
+                    <LiveBadge size={9} />
+                  </View>
                 )}
-                style={styles.matchAvatar}
-                cachePolicy="memory-disk"
-                transition={200}
-              />
+              </View>
               <View style={styles.matchWaves}>
                 {MATCH_WAVE_HEIGHTS.map((h, i) => (
                   <View key={i} style={[styles.matchWaveBar, { height: h }]} />
@@ -3089,7 +3102,7 @@ export default function Home() {
       .then((user) => {
         if (!user?.gender) setGenderPickerVisible(true);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // Saves gender + country from the "Who are you?" picker straight to the
@@ -3104,19 +3117,19 @@ export default function Home() {
           : null;
         const countryFields = match
           ? {
-              country: match.name,
-              countryCode: match.code,
-              countryName: match.name,
-            }
+            country: match.name,
+            countryCode: match.code,
+            countryName: match.name,
+          }
           : {};
         await updateUser({ gender, ...countryFields });
-        await updateUserProfile({ gender, ...countryFields }).catch(() => {});
+        await updateUserProfile({ gender, ...countryFields }).catch(() => { });
         if (match) {
-          await patchMyProfile(countryFields).catch(() => {});
+          await patchMyProfile(countryFields).catch(() => { });
           await syncUserCountryToServer({
             country: match.name,
             countryCode: match.code,
-          }).catch(() => {});
+          }).catch(() => { });
         }
       } finally {
         setGenderSaving(false);
@@ -3140,7 +3153,7 @@ export default function Home() {
         .then((activeUsers) => {
           setStats((prev) => ({ ...(prev ?? {}), activeUsers }));
         })
-        .catch(() => {});
+        .catch(() => { });
     }, []),
   );
 
@@ -3188,7 +3201,7 @@ export default function Home() {
   useEffect(() => {
     getAppUserId()
       .then((id) => setCurrentUserId(String(id)))
-      .catch(() => {});
+      .catch(() => { });
 
     syncSessionAvatar();
 
@@ -3243,7 +3256,7 @@ export default function Home() {
             setUnreadNotifications([]);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
 
       // Load following + followers in parallel after home data
       Promise.all([loadFollowing(), loadFollowers()]).then(([followingArr]) => {
@@ -3254,6 +3267,50 @@ export default function Home() {
       });
     });
     return () => task.cancel();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      wsService.connect().catch(() => { });
+    }, [])
+  );
+
+  // Real-time presence updates for recommended users & active users count
+  useEffect(() => {
+    const unsub = wsService.onPresence((event) => {
+      if (!event || event.userId == null) return;
+      const targetId = String(event.userId);
+      const isOnline = Boolean(event.isOnline ?? event.online);
+
+      console.log(`[Home Presence] Event received:`, {
+        event,
+        userId: targetId,
+        isOnline,
+        activeUsers: event.activeUsers ?? stats?.activeUsers,
+      });
+
+      setRecommendedUsers((prev) =>
+        prev.map((user) => {
+          const uid = String(user?.id ?? user?.userId ?? "");
+          if (uid === targetId) {
+            return {
+              ...user,
+              isOnline,
+              online: isOnline,
+              status: isOnline ? "ONLINE" : "OFFLINE",
+            };
+          }
+          return user;
+        })
+      );
+
+      if (event.activeUsers != null) {
+        setStats((prev) =>
+          prev ? { ...prev, activeUsers: event.activeUsers } : prev
+        );
+      }
+    });
+    return unsub;
   }, []);
 
   // ── Stable callbacks ──────────────────────────────────────
@@ -3450,7 +3507,7 @@ export default function Home() {
             : prev,
         );
       })
-      .catch(() => {});
+      .catch(() => { });
     try {
       const detail = await homeService.getUserDetailById(result.userId);
       setSearchProfile((prev) => ({
@@ -3642,7 +3699,7 @@ export default function Home() {
       try {
         newPost = await createPost({ caption, photos, video, mediaType });
       } catch (e) {
-        await refreshFeed().catch(() => {});
+        await refreshFeed().catch(() => { });
         throw e;
       }
 
@@ -3704,7 +3761,7 @@ export default function Home() {
       setFeedPosts((prev) => [normalized, ...prev]);
 
       // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
-      await refreshFeed().catch(() => {});
+      await refreshFeed().catch(() => { });
     },
     [currentUserId],
   );
@@ -3795,7 +3852,7 @@ export default function Home() {
       if (unreadNotifications.includes(notif.id)) {
         setUnreadNotifications((prev) => prev.filter((id) => id !== notif.id));
         setUnreadCount((prev) => Math.max(0, prev - 1));
-        markNotificationsAsRead([notif.id]).catch(() => {});
+        markNotificationsAsRead([notif.id]).catch(() => { });
       }
 
       setNotifVisible(false);
@@ -4069,27 +4126,28 @@ export default function Home() {
                       >
                         {result.type === "user" && result.avatar ? (
                           <ProfileAvatarWithFrame
+                            user={result}
                             avatarSource={toImageSource(result.avatar)}
                             frameSource={result.vipProfileFrameUrl}
                             size={44}
                             avatarStyle={styles.resultIconBox}
                             {...(result.vipProfileFrameUrl
                               ? {
-                                  frameScale:
-                                    VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                                  frameResizeMode:
-                                    VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                                  frameOffsetX:
-                                    VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                                  frameOffsetY:
-                                    VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                                  frameBleed:
-                                    VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                                  avatarBoost:
-                                    VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                                  avatarOffsetY:
-                                    VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                                }
+                                frameScale:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                frameResizeMode:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                frameOffsetX:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                frameOffsetY:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                frameBleed:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                avatarBoost:
+                                  VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                avatarOffsetY:
+                                  VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                              }
                               : {})}
                           />
                         ) : (
@@ -4355,7 +4413,7 @@ export default function Home() {
                         style={[
                           styles.notifItem,
                           unreadNotifications.includes(notif.id) &&
-                            styles.notifItemUnread,
+                          styles.notifItemUnread,
                         ]}
                         activeOpacity={0.8}
                         onPress={() => handleNotificationPress(notif)}
@@ -4426,8 +4484,8 @@ export default function Home() {
         isFollowing={
           imageViewerData
             ? followingIds.some((id) =>
-                isSameUser(id, imageViewerData.post.userId),
-              )
+              isSameUser(id, imageViewerData.post.userId),
+            )
             : false
         }
         isLiked={
@@ -4498,7 +4556,7 @@ export default function Home() {
         visible={genderPickerVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => {}}
+        onRequestClose={() => { }}
       >
         <View style={styles.genderOverlay}>
           <LinearGradient
@@ -4562,7 +4620,7 @@ export default function Home() {
                       style={[
                         styles.countryRow,
                         selectedCountry === country.name &&
-                          styles.countryRowSelected,
+                        styles.countryRowSelected,
                       ]}
                       onPress={() => {
                         setSelectedCountry(country.name);
@@ -4574,7 +4632,7 @@ export default function Home() {
                         style={[
                           styles.countryRowText,
                           selectedCountry === country.name &&
-                            styles.countryRowTextSelected,
+                          styles.countryRowTextSelected,
                         ]}
                       >
                         {country.flag} {country.name}
@@ -4692,21 +4750,22 @@ export default function Home() {
             >
               {searchProfile?.avatar ? (
                 <ProfileAvatarWithFrame
+                  user={searchProfile}
                   avatarSource={toImageSource(searchProfile.avatar)}
                   frameSource={searchProfile.vipProfileFrameUrl}
                   size={110}
                   avatarStyle={styles.searchProfileAvatar}
                   {...(searchProfile.vipProfileFrameUrl
                     ? {
-                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                        frameResizeMode:
-                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                      }
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode:
+                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
                     : {})}
                 />
               ) : (
@@ -5269,12 +5328,23 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  matchAvatarWrap: {
+    width: s(34),
+    height: s(34),
+    position: "relative",
+  },
   matchAvatar: {
     width: s(34),
     height: s(34),
     borderRadius: s(17),
     borderWidth: 2,
     borderColor: "#FFFFFF",
+  },
+  matchAvatarLiveDot: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    zIndex: 5,
   },
   matchWaves: {
     flexDirection: "row",
@@ -5684,6 +5754,9 @@ const styles = StyleSheet.create({
     height: s(60),
     borderRadius: s(34),
     marginBottom: vs(8),
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
   },
   recommendAvatar: {
     width: "100%",

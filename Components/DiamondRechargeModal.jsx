@@ -19,6 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import { formatDiamonds, formatInr } from "../src/data/diamondRechargeCatalog";
+import { DIAMOND_PACKAGE_TIERS } from "../src/data/diamondPackageTiers";
 import { loadOfflineRechargeAgent } from "../src/services/offlineRechargeService";
 import { loadDiamondStockPackages } from "../src/services/diamondStockService";
 import { getDiamondStockManager } from "../src/api/rechargeApi";
@@ -45,69 +46,21 @@ const REWARD_GEMS_IMAGE = {
   uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Treasure/reward-gems.png",
 };
 
-const DEFAULT_PACKAGES = [
-  {
-    id: "pkg-1",
-    diamonds: 37500,
-    diamondsDisplay: "37.5K",
-    bonus: 15000,
-    bonusDisplay: "+15.0K",
-    badge: "Newbie Bonus",
-    inr: 143,
-  },
-  {
-    id: "pkg-2",
-    diamonds: 50000,
-    diamondsDisplay: "50.0K",
-    bonus: 20000,
-    bonusDisplay: "+20.0K",
-    badge: "Newbie Bonus",
-    inr: 191,
-  },
-  {
-    id: "pkg-3",
-    diamonds: 100000,
-    diamondsDisplay: "100.0K",
-    bonus: 40000,
-    bonusDisplay: "+40.0K",
-    badge: "Newbie Bonus",
-    inr: 383,
-  },
-  {
-    id: "pkg-4",
-    diamonds: 250000,
-    diamondsDisplay: "250.0K",
-    bonus: 100000,
-    bonusDisplay: "+100.0K",
-    badge: "Newbie Bonus",
-    inr: 955,
-  },
-  {
-    id: "pkg-5",
-    diamonds: 500000,
-    diamondsDisplay: "500.0K",
-    bonus: 200000,
-    bonusDisplay: "+200.0K",
-    badge: "Newbie Bonus",
-    inr: 1910,
-  },
-  {
-    id: "pkg-6",
-    diamonds: 1000000,
-    diamondsDisplay: "1,000.0K",
-    bonus: 400000,
-    bonusDisplay: "+400.0K",
-    badge: "Newbie Bonus",
-    inr: 3820,
-  },
-];
-
 const formatCompactK = (num) => {
   const n = Number(num) || 0;
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return String(n);
 };
+
+const DEFAULT_PACKAGES = DIAMOND_PACKAGE_TIERS.map((tier) => ({
+  ...tier,
+  diamondsDisplay: formatCompactK(tier.diamonds),
+  bonus: tier.exp,
+  bonusDisplay: `+${tier.exp} Exp`,
+  popular: Boolean(tier.popular),
+  badge: tier.popular ? "Popular" : null,
+}));
 
 const sanitizePhone = (value) => String(value ?? "").replace(/[^\d+]/g, "");
 
@@ -126,7 +79,7 @@ export default function DiamondRechargeModal({
   const bottomPad = Math.max(insets.bottom, 16);
 
   const [activeTab, setActiveTab] = useState(initialTab);
-  const [selectedId, setSelectedId] = useState("pkg-1");
+  const [selectedId, setSelectedId] = useState(DEFAULT_PACKAGES[0]?.id ?? "starter");
   const [packages, setPackages] = useState(DEFAULT_PACKAGES);
   const [packagesLoading, setPackagesLoading] = useState(false);
   const [packagesError, setPackagesError] = useState(null);
@@ -205,14 +158,17 @@ export default function DiamondRechargeModal({
       const list = await loadDiamondStockPackages();
       if (list && list.length > 0) {
         const mapped = list.map((pkg, idx) => {
-          const bonusAmt = Math.round(pkg.diamonds * 0.4);
+          const expVal = pkg.exp ?? (pkg.diamonds ? Math.round(pkg.diamonds * 0.04) : 0);
           return {
             id: pkg.id || `stock-${idx}`,
+            name: pkg.name || `Plan ${idx + 1}`,
             diamonds: pkg.diamonds,
             diamondsDisplay: formatCompactK(pkg.diamonds),
-            bonus: bonusAmt,
-            bonusDisplay: `+${formatCompactK(bonusAmt)}`,
-            badge: "Newbie Bonus",
+            exp: expVal,
+            bonus: expVal,
+            bonusDisplay: `+${expVal} Exp`,
+            popular: Boolean(pkg.popular),
+            badge: pkg.badge || (pkg.popular ? "Popular" : null),
             inr: pkg.inr,
           };
         });
@@ -226,7 +182,7 @@ export default function DiamondRechargeModal({
           DEFAULT_PACKAGES.some((p) => p.id === prev) ? prev : DEFAULT_PACKAGES[0].id
         );
       }
-    } catch (err) {
+    } catch (_err) {
       setPackages(DEFAULT_PACKAGES);
       setSelectedId((prev) =>
         DEFAULT_PACKAGES.some((p) => p.id === prev) ? prev : DEFAULT_PACKAGES[0].id
@@ -270,9 +226,12 @@ export default function DiamondRechargeModal({
     if (!p) return "";
     const resolvedUid = currentUserId || userId || user?.id || user?.userId || "";
     const idLine = resolvedUid ? `User ID: ${resolvedUid}\n` : "";
+    const nameLine = p.name ? ` (${p.name})` : "";
+    const expText = p.exp != null ? ` (+${p.exp} Exp)` : "";
+    const diamondText = p.diamonds != null ? p.diamonds.toLocaleString("en-IN") : p.diamondsDisplay;
     return (
       `Hi, I want to recharge Tuk-Tuk diamonds.\n` +
-      `Package: INR ${p.inr} for ${p.diamondsDisplay} diamonds (${p.bonusDisplay} bonus)\n` +
+      `Package: ${formatInr(p.inr)} for ${diamondText} diamonds${expText}${nameLine}\n` +
       idLine +
       `Please share payment details.`
     );
@@ -654,64 +613,34 @@ export default function DiamondRechargeModal({
               {/* PACKAGES 3-COLUMN GRID */}
               <View style={styles.packageGrid}>
                 {packages.map((pkg) => {
-                  const isSelected = pkg.id === selectedId;
+                  const active = pkg.id === selectedId;
                   return (
                     <TouchableOpacity
                       key={pkg.id}
-                      style={[
-                        styles.packageCard,
-                        isSelected && styles.packageCardSelected,
-                      ]}
+                      style={[styles.packageCard, active && styles.packageCardActive]}
                       activeOpacity={0.85}
                       onPress={() => setSelectedId(pkg.id)}
                     >
-                      {/* Top-right corner badge */}
-                      {pkg.badge ? (
-                        <View style={styles.ribbonWrap}>
-                          <LinearGradient
-                            colors={["#f97316", "#d97706"]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.ribbonBadge}
-                          >
-                            <Text style={styles.ribbonText}>{pkg.badge}</Text>
-                          </LinearGradient>
+                      {pkg.popular && (
+                        <View style={styles.popularRibbon}>
+                          <Text style={styles.popularRibbonText}>Popular</Text>
                         </View>
-                      ) : null}
-
-                      {/* Gems / Diamond Pouch Image */}
-                      <Image
-                        source={REWARD_GEMS_IMAGE}
-                        style={styles.packageGemsImg}
-                        resizeMode="contain"
-                      />
-
-                      {/* Main Diamond Count */}
-                      <Text style={styles.packageDiamondsText}>
-                        {pkg.diamondsDisplay}
+                      )}
+                      <Image source={REWARD_GEMS_IMAGE} style={styles.packageGemImage} resizeMode="contain" />
+                      <Text style={styles.packageName}>{pkg.name}</Text>
+                      <Text style={styles.packageAmount}>
+                        {pkg.diamonds != null ? pkg.diamonds.toLocaleString("en-IN") : pkg.diamondsDisplay}
                       </Text>
-
-                      {/* Bonus Text */}
-                      <Text style={styles.packageBonusText}>
-                        {pkg.bonusDisplay}
-                      </Text>
-
-                      {/* Bottom Price Strip */}
-                      <View
-                        style={[
-                          styles.priceStrip,
-                          isSelected && styles.priceStripSelected,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.priceStripText,
-                            isSelected && styles.priceStripTextSelected,
-                          ]}
-                        >
-                          INR {pkg.inr}
-                        </Text>
+                      <View style={[styles.packagePriceStrip, active && styles.packagePriceStripActive]}>
+                        <Text style={styles.packagePriceText}>{formatInr(pkg.inr)}</Text>
                       </View>
+                      {pkg.exp != null && (
+                        <View style={styles.packageExpStrip}>
+                          <Text style={styles.packageExpText}>
+                            +{pkg.exp.toLocaleString("en-IN")} Exp
+                          </Text>
+                        </View>
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -796,7 +725,7 @@ export default function DiamondRechargeModal({
                 <ActivityIndicator color="#ffffff" />
               ) : (
                 <Text style={styles.rechargeBtnText}>
-                  Recharge INR {selectedPackage ? selectedPackage.inr : 143} Now
+                  Recharge {selectedPackage ? formatInr(selectedPackage.inr) : "INR 99"} Now
                 </Text>
               )}
             </LinearGradient>
@@ -831,7 +760,7 @@ export default function DiamondRechargeModal({
                     <Text style={styles.managersModalTitle}>Diamond Stock Manager</Text>
                   </View>
                   <Text style={styles.managersModalSubtitle}>
-                    Recharge: ₹{selectedPackage?.inr ?? 143} ({selectedPackage?.diamondsDisplay ?? "37.5K"} Diamonds)
+                    Recharge: {selectedPackage ? formatInr(selectedPackage.inr) : "₹99"} ({selectedPackage?.diamonds != null ? selectedPackage.diamonds.toLocaleString("en-IN") : (selectedPackage?.diamondsDisplay ?? "100")} Diamonds)
                   </Text>
                 </View>
 
@@ -1338,25 +1267,49 @@ const styles = StyleSheet.create({
   },
   packageCard: {
     width: CARD_WIDTH,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#fdf1d3",
     borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "#e2e8f0",
+    borderWidth: 2,
+    borderColor: "transparent",
     paddingTop: 12,
     alignItems: "center",
     overflow: "hidden",
     position: "relative",
     marginBottom: 8,
   },
-  packageCardSelected: {
+  packageCardActive: {
+    borderColor: "#e879f9",
     backgroundColor: "#fffdf5",
-    borderColor: "#f59e0b",
-    borderWidth: 1.8,
-    shadowColor: "#f59e0b",
+    shadowColor: "#e879f9",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  packageCardSelected: {
+    borderColor: "#e879f9",
+    backgroundColor: "#fffdf5",
+    shadowColor: "#e879f9",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  popularRibbon: {
+    position: "absolute",
+    top: 6,
+    right: -26,
+    width: 90,
+    backgroundColor: "#f59e0b",
+    transform: [{ rotate: "45deg" }],
+    alignItems: "center",
+    paddingVertical: 2,
+    zIndex: 10,
+  },
+  popularRibbonText: {
+    color: "#3b1a08",
+    fontSize: 9,
+    fontWeight: "800",
   },
   ribbonWrap: {
     position: "absolute",
@@ -1374,15 +1327,30 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
   },
+  packageGemImage: {
+    width: 44,
+    height: 34,
+  },
   packageGemsImg: {
     width: 44,
-    height: 38,
+    height: 34,
+  },
+  packageName: {
+    color: "#7c4a1e",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  packageAmount: {
+    color: "#2a1a06",
+    fontSize: 16,
+    fontWeight: "800",
     marginTop: 2,
-    marginBottom: 4,
+    marginBottom: 8,
   },
   packageDiamondsText: {
-    color: "#0f172a",
-    fontSize: 15,
+    color: "#2a1a06",
+    fontSize: 16,
     fontWeight: "800",
   },
   packageBonusText: {
@@ -1391,23 +1359,48 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 8,
   },
+  packagePriceStrip: {
+    width: "100%",
+    alignItems: "center",
+    paddingVertical: 6,
+    backgroundColor: "#f7dfa0",
+  },
+  packagePriceStripActive: {
+    backgroundColor: "#f0c869",
+  },
+  packagePriceText: {
+    color: "#7c4a1e",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  packageExpStrip: {
+    width: "100%",
+    alignItems: "center",
+    paddingVertical: 4,
+    backgroundColor: "rgba(0,0,0,0.75)",
+  },
+  packageExpText: {
+    color: "#fbbf24",
+    fontSize: 11,
+    fontWeight: "800",
+  },
   priceStrip: {
     width: "100%",
-    backgroundColor: "#f1f5f9",
+    backgroundColor: "#f7dfa0",
     paddingVertical: 6,
     alignItems: "center",
     justifyContent: "center",
   },
   priceStripSelected: {
-    backgroundColor: "#fde68a",
+    backgroundColor: "#f0c869",
   },
   priceStripText: {
-    color: "#64748b",
+    color: "#7c4a1e",
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   priceStripTextSelected: {
-    color: "#92400e",
+    color: "#7c4a1e",
     fontWeight: "800",
   },
   goldsContainer: {
