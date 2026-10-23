@@ -386,10 +386,14 @@ export const leaveSeat = async (roomId, seatNumber) => {
   return response.data;
 };
 
-/** POST .../seat/heartbeat — keep mic seat alive; backend evicts after 30 s of silence */
-export const postSeatHeartbeat = async (roomId) => {
+/** POST .../seat/{seatNumber}/heartbeat — keep mic seat alive; backend evicts after 30 s of silence */
+export const postSeatHeartbeat = async (roomId, seatNumber) => {
+  const path =
+    seatNumber != null
+      ? `/api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/heartbeat`
+      : `/api/v1/tuktuk/rooms/${roomId}/seat/heartbeat`;
   const response = await API.post(
-    `/api/v1/tuktuk/rooms/${roomId}/seat/heartbeat`,
+    path,
     {},
     await authRequestConfig()
   );

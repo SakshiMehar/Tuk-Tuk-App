@@ -5875,7 +5875,7 @@ export default function VoiceParty() {
     return () => clearInterval(interval);
   }, []);
 
-  // Mic-seat heartbeat — fires every 25 s while user is on a seat.
+  // Mic-seat heartbeat — fires every 15 s while user is on a seat.
   // Backend removes the seat automatically after 30 s of silence.
   // Uses WebSocket publish when connected, REST POST as fallback.
   useEffect(() => {
@@ -5883,19 +5883,38 @@ export default function VoiceParty() {
 
     const ping = async () => {
       try {
+        if (__DEV__) {
+          console.log('[HEARTBEAT] Seat heartbeat ping', {
+            roomId: String(roomId),
+            seatNumber: mySeatNumber,
+            wsConnected: wsService.connected,
+          });
+        }
         if (wsService.connected) {
           wsService.sendSeatHeartbeat(String(roomId), mySeatNumber);
         } else {
-          await postSeatHeartbeat(String(roomId));
+          await postSeatHeartbeat(String(roomId), mySeatNumber);
         }
-      } catch {
+      } catch (err) {
+        if (__DEV__) {
+          console.log('[HEARTBEAT] Seat heartbeat failed (non-critical):', err?.message);
+        }
         // Non-critical — backend will evict after the timeout automatically
       }
     };
 
     ping(); // send immediately when seat is taken
     const interval = setInterval(ping, 15_000);
-    return () => clearInterval(interval);
+
+    // Send immediate heartbeat on WebSocket reconnection if still on mic
+    const unsubReconnect = wsService.onReconnect(() => {
+      ping();
+    });
+
+    return () => {
+      clearInterval(interval);
+      unsubReconnect?.();
+    };
   }, [onMic, mySeatNumber, roomId]);
 
   // Room presence heartbeat — fires every 25 s for ANY user in the room
