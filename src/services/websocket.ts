@@ -825,10 +825,24 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
-  sendSeatHeartbeat(roomId: string): void {
+  sendSeatHeartbeat(roomId: string, seatNumber?: number | string): void {
     this._assertConnected();
-    const destination = `/app/room/${roomId}/seat/heartbeat`;
-    this.client!.publish({ destination, body: JSON.stringify({}) });
+    const destination =
+      seatNumber != null
+        ? `/app/room/${roomId}/seat/${seatNumber}/heartbeat`
+        : `/app/room/${roomId}/seat/heartbeat`;
+    if (__DEV__) {
+      console.log('[HEARTBEAT] Publishing seat heartbeat', {
+        roomId,
+        seatNumber,
+        destination,
+        connected: this.connected,
+      });
+    }
+    this.client!.publish({
+      destination,
+      body: JSON.stringify(seatNumber != null ? { seatNumber: Number(seatNumber) } : {}),
+    });
   }
 
   // Keeps the room presence session alive for ANY user in the room (seated
