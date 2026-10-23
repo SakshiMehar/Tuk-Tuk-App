@@ -1,0 +1,100 @@
+{
+  "categories": [
+    {
+      "id": "intimacy",
+      "label": "Intimacy",
+      "iconType": "intimacy"
+    },
+    {
+      "id": "avatar",
+      "label": "Avatar",
+      "iconType": "avatar"
+    },
+    {
+      "id": "profile",
+      "label": "Profile",
+      "iconType": "profile"
+    },
+    {
+      "id": "entrance",
+      "label": "Entrance",
+      "iconType": "entrance"
+    },
+    {
+      "id": "chatFrame",
+      "label": "Chat Frame",
+      "iconType": "chatFrame"
+    },
+    {
+      "id": "miniCard",
+      "label": "Mini Card",
+      "iconType": "miniCard"
+    }
+  ],
+  "subTabs": {
+    "intimacy": [
+      { "id": "ring", "label": "Ring" },
+      { "id": "jewelry", "label": "Jewelry" },
+      { "id": "love_zone", "label": "Love Zone" },
+      { "id": "mic_link", "label": "Mic Link" },
+      { "id": "special_card", "label": "Special Card" }
+    ]
+  },
+  "items": [
+    {
+      "id": "silver_wing",
+      "name": "Silver Wing",
+      "diamonds": 125000,
+      "duration": "7 Days",
+      "buttonType": "Purchase",
+      "buttonTheme": "orange",
+      "category": "intimacy",
+      "subCategory": "ring",
+      "imageKey": "intimacy_silver_wing"
+    },
+    {
+      "id": "shining_butterfly",
+      "name": "Shining Butterfly",
+      "diamonds": 500000,
+      "duration": "7 Days",
+      "buttonType": "Purchase",
+      "buttonTheme": "orange",
+      "category": "intimacy",
+      "subCategory": "ring",
+      "imageKey": "intimacy_silver_wing"
+    },
+    {
+      "id": "golden_diamond",
+      "name": "Golden Diamond",
+      "diamonds": 25000000,
+      "duration": "7 Days",
+      "buttonType": "Activity",
+      "buttonTheme": "grey",
+      "category": "intimacy",
+      "subCategory": "ring",
+      "imageKey": "intimacy_golden_diamond"
+    },
+    {
+      "id": "sun_and_moon",
+      "name": "Sun and Moon",
+      "diamonds": 12500000,
+      "duration": "7 Days",
+      "buttonType": "Activity",
+      "buttonTheme": "grey",
+      "category": "intimacy",
+      "subCategory": "ring",
+      "imageKey": "intimacy_golden_diamond"
+    },
+    {
+      "id": "purple_crush",
+      "name": "Purple Crush",
+      "diamonds": 12500000,
+      "duration": "7 Days",
+      "buttonType": "Activity",
+      "buttonTheme": "grey",
+      "category": "intimacy",
+      "subCategory": "ring",
+      "imageKey": "intimacy_silver_wing"
+    }
+  ]
+}

@@ -2523,6 +2523,12 @@ export default function VoiceParty() {
   const [activityEvent, setActivityEvent] = useState("Flamenco Fantasy");
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [currentVideo, setCurrentVideo] = useState(null);
+  const giftCatalogRef = useRef(giftCatalog);
+  useEffect(() => {
+    giftCatalogRef.current = giftCatalog;
+  }, [giftCatalog]);
+  const lastPlayedVideoIdRef = useRef(null);
+  const lastPlayedVideoTimeRef = useRef(0);
   // Frame data keyed by userId string — lives independently of seats/onlineUsers
   // so WebSocket seat resets can never wipe it.
   const [userFrameData, setUserFrameData] = useState({});
@@ -2608,9 +2614,23 @@ export default function VoiceParty() {
     p.loop = false;
   });
 
+  // Automatically close video modal when video finishes playing
+  useEffect(() => {
+    if (!videoPlayer) return;
+    const sub = videoPlayer.addListener("playToEnd", () => {
+      setShowVideoModal(false);
+      setCurrentVideo(null);
+    });
+    return () => {
+      sub?.remove?.();
+    };
+  }, [videoPlayer]);
+
   useEffect(() => {
     if (!showVideoModal || !currentVideo) {
-      videoPlayer.pause();
+      try {
+        videoPlayer.pause();
+      } catch {}
       return undefined;
     }
 
@@ -2620,14 +2640,24 @@ export default function VoiceParty() {
     );
     if (!source) return undefined;
 
+    // Safety timeout: automatically close if video finishes or in case playToEnd doesn't fire
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) {
+        setShowVideoModal(false);
+        setCurrentVideo(null);
+      }
+    }, 22000);
+
     (async () => {
       try {
         await videoPlayer.replaceAsync(source);
-        if (!cancelled) videoPlayer.play();
-      } catch (err) {
-        console.error("[VoiceParty] relationship video failed", err);
         if (!cancelled) {
-          Alert.alert("Video error", "Could not play this video. Try again.");
+          videoPlayer.currentTime = 0;
+          videoPlayer.play();
+        }
+      } catch (err) {
+        console.error("[VoiceParty] video playback failed", err);
+        if (!cancelled) {
           setShowVideoModal(false);
           setCurrentVideo(null);
         }
@@ -2636,12 +2666,14 @@ export default function VoiceParty() {
 
     return () => {
       cancelled = true;
+      clearTimeout(safetyTimer);
     };
   }, [
     showVideoModal,
     currentVideo?.id,
     currentVideo?.videoUrl,
     currentVideo?.uri,
+    videoPlayer,
   ]);
   const [mediaSection, setMediaSection] = useState("emoji");
   const [emojiTab, setEmojiTab] = useState("smileys");
@@ -4624,6 +4656,58 @@ export default function VoiceParty() {
         prev.filter((g) => (g._displayKey || g.id) !== key),
       );
     }, 3000);
+
+    // Video animation playback for everyone in room (PK & video gifts)
+    let videoUrl =
+      animated.videoUrl ||
+      payload?.videoUrl ||
+      payload?.videoPath ||
+      fallbackGift?.videoUrl ||
+      fallbackGift?.videoPath;
+
+    if (!videoUrl && giftCatalogRef.current) {
+      const allItems = [
+        ...(giftCatalogRef.current.pk || []),
+        ...(giftCatalogRef.current.gift || []),
+        ...(giftCatalogRef.current.special || []),
+        ...(giftCatalogRef.current.vip || []),
+        ...(giftCatalogRef.current.relationship || []),
+      ];
+      const targetName = String(animated.name || payload?.giftName || "").toLowerCase().trim();
+      const targetCode = String(animated.giftCode || animated.id || payload?.giftId || payload?.giftCode || "").toLowerCase().trim();
+
+      const match = allItems.find((it) => {
+        const itCode = String(it.giftCode || it.id || it.databaseId || "").toLowerCase().trim();
+        const itName = String(it.name || "").toLowerCase().trim();
+        return (
+          (itCode && targetCode && (itCode === targetCode || targetCode.includes(itCode) || itCode.includes(targetCode))) ||
+          (itName && targetName && (itName === targetName || targetName.includes(itName) || itName.includes(targetName)))
+        );
+      });
+      if (match?.videoUrl || match?.videoPath) {
+        videoUrl = match.videoUrl || match.videoPath;
+      }
+    }
+
+    if (videoUrl) {
+      const videoKey = String(payload?.id || animated.id || animated.name);
+      const now = Date.now();
+      if (lastPlayedVideoIdRef.current === videoKey && (now - lastPlayedVideoTimeRef.current < 4000)) {
+        // Skip duplicate playback if recently triggered
+      } else {
+        lastPlayedVideoIdRef.current = videoKey;
+        lastPlayedVideoTimeRef.current = now;
+        setCurrentVideo({
+          id: animated.id,
+          name: animated.name,
+          videoUrl: videoUrl,
+          uri: videoUrl,
+          senderName: animated.senderName,
+          receiverName: animated.receiverName,
+        });
+        setShowVideoModal(true);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -6866,8 +6950,26 @@ export default function VoiceParty() {
       }
 
       setShowSendGiftOptions(false);
+      const sentGift = purchaseGift;
       setPurchaseGift(null);
       setShowBackpack(false);
+
+      // Play video immediately for sender if sent gift has videoUrl / videoPath
+      const sentVideoUrl = sentGift?.videoUrl || sentGift?.videoPath;
+      if (sentVideoUrl) {
+        const videoKey = String(sentGift?.databaseId || sentGift?.id || sentGift?.name);
+        lastPlayedVideoIdRef.current = videoKey;
+        lastPlayedVideoTimeRef.current = Date.now();
+        setCurrentVideo({
+          id: sentGift.id,
+          name: sentGift.name,
+          videoUrl: sentVideoUrl,
+          uri: sentVideoUrl,
+          senderName: localSessionUser?.name || "You",
+          receiverName: giftReceiverName,
+        });
+        setShowVideoModal(true);
+      }
     } catch (err) {
       Alert.alert("Failed", err?.response?.data?.message || err?.message || "Could not send gift");
     } finally {
@@ -8328,9 +8430,9 @@ export default function VoiceParty() {
 
       {/* ── VIDEO PLAYER MODAL ── */}
       <Modal
-        visible={showVideoModal}
-        transparent={false}
-        animationType="slide"
+        visible={showVideoModal && Boolean(currentVideo)}
+        transparent={true}
+        animationType="fade"
         statusBarTranslucent
         onRequestClose={() => {
           setShowVideoModal(false);
@@ -8338,32 +8440,15 @@ export default function VoiceParty() {
         }}
       >
         <View style={styles.videoPlayerContainer}>
-          <StatusBar barStyle="light-content" backgroundColor="black" />
+          <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-          {/* Header */}
-          <View style={styles.videoHeader}>
-            <TouchableOpacity
-              style={styles.videoCloseBtn}
-              onPress={() => {
-                setShowVideoModal(false);
-                setCurrentVideo(null);
-              }}
-            >
-              <Text style={styles.videoCloseBtnText}>✕</Text>
-            </TouchableOpacity>
-            <Text style={styles.videoHeaderTitle} numberOfLines={1}>
-              {currentVideo?.name ?? ""}
-            </Text>
-            <View style={{ width: 42 }} />
-          </View>
-
-          {/* Video */}
+          {/* Video Only - Full Screen Animation */}
           <View style={styles.videoWrapper}>
             <VideoView
               player={videoPlayer}
               style={styles.videoPlayer}
-              nativeControls
-              allowsFullscreen
+              nativeControls={false}
+              allowsFullscreen={false}
               contentFit="contain"
             />
           </View>
