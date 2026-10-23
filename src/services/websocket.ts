@@ -21,10 +21,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
 import { DeviceEventEmitter } from 'react-native';
 import SockJS from 'sockjs-client';
-import { API_BASE_URL } from '../config/env';
-import { getToken, getUser } from '../store/authStore';
 import { getValidAuthToken, refreshAuthToken } from '../api/axios';
-import { setUserOnlineStatus, setUserLiveStatus } from '../utils/liveStatus';
+import { API_BASE_URL } from '../config/env';
+import { getUser } from '../store/authStore';
+import { setUserLiveStatus, setUserOnlineStatus } from '../utils/liveStatus';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -825,16 +825,10 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
-  sendSeatHeartbeat(roomId: string, seatNumber?: number | string): void {
+  sendSeatHeartbeat(roomId: string): void {
     this._assertConnected();
-    const destination =
-      seatNumber != null
-        ? `/app/room/${roomId}/seat/${seatNumber}/heartbeat`
-        : `/app/room/${roomId}/seat/heartbeat`;
-    this.client!.publish({
-      destination,
-      body: JSON.stringify(seatNumber != null ? { seatNumber } : {}),
-    });
+    const destination = `/app/room/${roomId}/seat/heartbeat`;
+    this.client!.publish({ destination, body: JSON.stringify({}) });
   }
 
   // Keeps the room presence session alive for ANY user in the room (seated
