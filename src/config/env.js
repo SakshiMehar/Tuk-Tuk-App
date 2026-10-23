@@ -10,7 +10,7 @@ export const API_BASE_URL = trimTrailingSlash(
   process.env.EXPO_PUBLIC_API_BASE_URL ??
   // "https://api.tuktuk.live",
   process.env.EXPO_PUBLIC_API_BASE_URL ??
-  // "https://impish-earwig-epiphany.ngrok-free.dev"
+  //"https://impish-earwig-epiphany.ngrok-free.dev"
   "https://trench-launch-bleach.ngrok-free.dev",
 );
 
@@ -30,8 +30,8 @@ export const AGORA_APP_ID = process.env.EXPO_PUBLIC_AGORA_APP_ID ?? "";
 /** Base URL for user-facing shareable deep links (separate from API_BASE_URL). */
 export const ROOM_SHARE_BASE_URL = trimTrailingSlash(
   process.env.EXPO_PUBLIC_ROOM_SHARE_URL ??
-    process.env.EXPO_PUBLIC_APP_URL ??
-    "https://tuktuk.live",
+  process.env.EXPO_PUBLIC_APP_URL ??
+  "https://tuktuk.live",
 );
 
 /** Generates a shareable deep-link using the HTTPS room link.
