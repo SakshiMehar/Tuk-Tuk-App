@@ -21,10 +21,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
 import { DeviceEventEmitter } from 'react-native';
 import SockJS from 'sockjs-client';
-import { API_BASE_URL } from '../config/env';
-import { getToken, getUser } from '../store/authStore';
 import { getValidAuthToken, refreshAuthToken } from '../api/axios';
-import { setUserOnlineStatus, setUserLiveStatus } from '../utils/liveStatus';
+import { API_BASE_URL } from '../config/env';
+import { getUser } from '../store/authStore';
+import { setUserLiveStatus, setUserOnlineStatus } from '../utils/liveStatus';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -200,6 +200,10 @@ export interface RoomEmojiPayload {
   /** sticker image URL or GIF url — present when type is sticker/gif */
   mediaUrl?: string;
   mediaType?: 'emoji' | 'sticker' | 'gif';
+  targetUserId?: number | string;
+  targetUserName?: string;
+  receiverId?: number | string;
+  recipientId?: number | string;
   timestamp?: string;
   [key: string]: unknown;
 }
@@ -894,13 +898,42 @@ class WebSocketService {
    */
   sendRoomEmoji(
     roomId: string,
-    payload: { emoji?: string; mediaUrl?: string; mediaType?: 'emoji' | 'sticker' | 'gif' },
+    payload: {
+      emoji?: string;
+      rawEmoji?: string;
+      mediaUrl?: string;
+      mediaType?: 'emoji' | 'sticker' | 'gif';
+      targetUserId?: string | number;
+      targetUserName?: string;
+      receiverId?: string | number;
+      recipientId?: string | number;
+      toUserId?: string | number;
+      targetId?: string | number;
+      [key: string]: unknown;
+    },
   ): void {
     if (!this.connected || !this.client) return;
     const destination = `/app/room/${roomId}/emoji`;
-    // Backend only expects `emoji` field; mediaUrl/mediaType are forwarded
-    // so the server can echo them back in the broadcast event.
-    const body = JSON.stringify({ emoji: payload.emoji ?? payload.mediaUrl ?? '', ...payload });
+    const targetIdStr =
+      payload.targetUserId ??
+      payload.receiverId ??
+      payload.recipientId ??
+      payload.toUserId ??
+      payload.targetId;
+    const baseEmoji = payload.rawEmoji ?? payload.emoji ?? payload.mediaUrl ?? '';
+    // Encode targetId into the emoji string (e.g. "😍__TARGET__10002") as well as separate fields,
+    // ensuring the target recipient is always preserved even if the backend only echoes the emoji field.
+    const encodedEmoji =
+      targetIdStr != null ? `${baseEmoji}__TARGET__${targetIdStr}` : baseEmoji;
+
+    const body = JSON.stringify({
+      ...payload,
+      emoji: encodedEmoji,
+      rawEmoji: baseEmoji,
+      targetUserId: targetIdStr,
+      receiverId: targetIdStr,
+      recipientId: targetIdStr,
+    });
     this.client.publish({ destination, body });
   }
 

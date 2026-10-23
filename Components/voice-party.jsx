@@ -11,6 +11,8 @@ import {
   AlertCircle,
   Ban,
   Check,
+  ChevronDown,
+  ChevronUp,
   Crown,
   LayoutGrid,
   Lock,
@@ -25,6 +27,7 @@ import {
   Plus,
   Power,
   Search,
+  Send,
   Share2,
   Smile,
   Sparkles,
@@ -2110,100 +2113,6 @@ const FloatingSeatEmojiOverlay = ({ item, onComplete }) => {
   );
 };
 
-// ── Floating room-wide emoji that rises from the bottom right ─────────────────
-const FloatingRoomEmojiItem = ({ item, onComplete }) => {
-  const { W: SW, H: SH } = useResponsive();
-
-  const translateY = useSharedValue(0);
-  const translateX = useSharedValue(0);
-  const opacity = useSharedValue(0);
-  const scale = useSharedValue(0.3);
-  const rotate = useSharedValue(0);
-
-  const onCompleteRef = useRef(onComplete);
-  useEffect(() => {
-    onCompleteRef.current = onComplete;
-  }, [onComplete]);
-
-  const startX = useMemo(
-    () => SW * 0.72 + (Math.random() - 0.5) * SW * 0.2,
-    [SW],
-  );
-
-  useEffect(() => {
-    opacity.value = withTiming(1, { duration: 200 });
-    scale.value = withSequence(
-      withSpring(1.2, { damping: 5, stiffness: 200 }),
-      withSpring(1.0, { damping: 8, stiffness: 120 }),
-    );
-
-    // Rise upward over 2.5 s
-    translateY.value = withTiming(-SH * 0.55, { duration: 2500 });
-
-    // Gentle sway
-    translateX.value = withRepeat(
-      withSequence(
-        withTiming(s(14), { duration: 550 }),
-        withTiming(-s(14), { duration: 550 }),
-      ),
-      -1,
-      true,
-    );
-
-    // Gentle rotation
-    rotate.value = withRepeat(
-      withSequence(
-        withTiming(-10, { duration: 480 }),
-        withTiming(10, { duration: 480 }),
-      ),
-      -1,
-      true,
-    );
-
-    const fadeTimer = setTimeout(() => {
-      opacity.value = withTiming(0, { duration: 500 });
-    }, 2000);
-
-    const completeTimer = setTimeout(() => {
-      onCompleteRef.current?.();
-    }, 2600);
-
-    return () => {
-      clearTimeout(fadeTimer);
-      clearTimeout(completeTimer);
-    };
-  }, [opacity, scale, translateY, translateX, rotate, SH]);
-
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: translateY.value },
-      { translateX: translateX.value },
-      { scale: scale.value },
-      { rotate: `${rotate.value}deg` },
-    ],
-    opacity: opacity.value,
-  }));
-
-  const isMediaUrl =
-    item.mediaUrl && (item.mediaType === "sticker" || item.mediaType === "gif");
-
-  return (
-    <Animated.View
-      style={[styles.floatingRoomEmojiWrap, { left: startX }, animStyle]}
-      pointerEvents="none"
-    >
-      {isMediaUrl ? (
-        <Image
-          source={{ uri: item.mediaUrl }}
-          style={styles.floatingRoomEmojiImg}
-          resizeMode="contain"
-        />
-      ) : (
-        <Text style={styles.floatingRoomEmojiText}>{item.emoji}</Text>
-      )}
-    </Animated.View>
-  );
-};
 
 export default function VoiceParty() {
   useKeepAwake();
@@ -2542,8 +2451,6 @@ export default function VoiceParty() {
   const [showPlayCenter, setShowPlayCenter] = useState(false);
   const [showTopGiftingRanking, setShowTopGiftingRanking] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  // { id, emoji, mediaUrl, mediaType, userId, userName } items rising upward over the room
-  const [floatingRoomEmojis, setFloatingRoomEmojis] = useState([]);
   // keyed by userId → { id, emoji, mediaUrl, mediaType, userId } (latest one wins)
   const [seatEmojiOverlays, setSeatEmojiOverlays] = useState({});
   const [showGiftPanel, setShowGiftPanel] = useState(false);
@@ -2616,6 +2523,12 @@ export default function VoiceParty() {
   const [activityEvent, setActivityEvent] = useState("Flamenco Fantasy");
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [currentVideo, setCurrentVideo] = useState(null);
+  const giftCatalogRef = useRef(giftCatalog);
+  useEffect(() => {
+    giftCatalogRef.current = giftCatalog;
+  }, [giftCatalog]);
+  const lastPlayedVideoIdRef = useRef(null);
+  const lastPlayedVideoTimeRef = useRef(0);
   // Frame data keyed by userId string — lives independently of seats/onlineUsers
   // so WebSocket seat resets can never wipe it.
   const [userFrameData, setUserFrameData] = useState({});
@@ -2701,9 +2614,23 @@ export default function VoiceParty() {
     p.loop = false;
   });
 
+  // Automatically close video modal when video finishes playing
+  useEffect(() => {
+    if (!videoPlayer) return;
+    const sub = videoPlayer.addListener("playToEnd", () => {
+      setShowVideoModal(false);
+      setCurrentVideo(null);
+    });
+    return () => {
+      sub?.remove?.();
+    };
+  }, [videoPlayer]);
+
   useEffect(() => {
     if (!showVideoModal || !currentVideo) {
-      videoPlayer.pause();
+      try {
+        videoPlayer.pause();
+      } catch {}
       return undefined;
     }
 
@@ -2713,14 +2640,24 @@ export default function VoiceParty() {
     );
     if (!source) return undefined;
 
+    // Safety timeout: automatically close if video finishes or in case playToEnd doesn't fire
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) {
+        setShowVideoModal(false);
+        setCurrentVideo(null);
+      }
+    }, 22000);
+
     (async () => {
       try {
         await videoPlayer.replaceAsync(source);
-        if (!cancelled) videoPlayer.play();
-      } catch (err) {
-        console.error("[VoiceParty] relationship video failed", err);
         if (!cancelled) {
-          Alert.alert("Video error", "Could not play this video. Try again.");
+          videoPlayer.currentTime = 0;
+          videoPlayer.play();
+        }
+      } catch (err) {
+        console.error("[VoiceParty] video playback failed", err);
+        if (!cancelled) {
           setShowVideoModal(false);
           setCurrentVideo(null);
         }
@@ -2729,15 +2666,21 @@ export default function VoiceParty() {
 
     return () => {
       cancelled = true;
+      clearTimeout(safetyTimer);
     };
   }, [
     showVideoModal,
     currentVideo?.id,
     currentVideo?.videoUrl,
     currentVideo?.uri,
+    videoPlayer,
   ]);
   const [mediaSection, setMediaSection] = useState("emoji");
   const [emojiTab, setEmojiTab] = useState("smileys");
+  const [selectedEmoji, setSelectedEmoji] = useState("😊");
+  const [selectedEmojiRecipientId, setSelectedEmojiRecipientId] =
+    useState(null);
+  const [showEmojiReceiverPicker, setShowEmojiReceiverPicker] = useState(false);
   const [stickerTab, setStickerTab] = useState("reactions");
   const [gifTab, setGifTab] = useState("trending");
   const [showChatInput, setShowChatInput] = useState(false);
@@ -3309,6 +3252,143 @@ export default function VoiceParty() {
 
     return Array.from(byId.values());
   }, [hostId, roomInfo, onlineUsers, seats, myUserId, resolveRecipientUserId]);
+
+  const roomActiveUsers = useMemo(() => {
+    const byId = new Map();
+
+    const addCandidate = ({
+      id,
+      name,
+      avatar,
+      subtitle,
+      isSeated,
+      seatId,
+      isSelf,
+    }) => {
+      const normalizedId = id != null ? String(id) : null;
+      if (!normalizedId) return;
+
+      if (byId.has(normalizedId)) {
+        const existing = byId.get(normalizedId);
+        if (!existing.avatar && avatar) existing.avatar = avatar;
+        if (isSeated) {
+          existing.isSeated = true;
+          existing.seatId = seatId;
+          existing.subtitle = `Seat ${seatId}`;
+        }
+        return;
+      }
+
+      byId.set(normalizedId, {
+        id: normalizedId,
+        name: name || "User",
+        avatar: avatar || null,
+        subtitle: subtitle || (isSeated ? `Seat ${seatId}` : "In room"),
+        isSeated: Boolean(isSeated),
+        seatId: seatId ?? null,
+        isSelf: Boolean(isSelf),
+      });
+    };
+
+    // 1. Seated users on mic first (priority for emoji animation)
+    seats.forEach((seat) => {
+      if (!seat.user) return;
+      const uid = resolveRecipientUserId(seat.user);
+      if (!uid) return;
+      const isSelf = isSameUser(uid, myUserId);
+      addCandidate({
+        id: uid,
+        name: isSelf
+          ? `${seat.user.name || "You"} (Me)`
+          : seat.user.name || "User",
+        avatar:
+          seat.user.avatar ||
+          seat.user.avatarUrl ||
+          seat.user.profileImageUrl ||
+          null,
+        subtitle: `Seat ${seat.id}`,
+        isSeated: true,
+        seatId: seat.id,
+        isSelf,
+      });
+    });
+
+    // 2. Room Host (if not already seated)
+    if (hostId) {
+      const isSelf = isSameUser(hostId, myUserId);
+      addCandidate({
+        id: String(hostId),
+        name: isSelf
+          ? `${roomInfo?.name || "Host"} (Me)`
+          : roomInfo?.name || "Host",
+        avatar: roomInfo?.profileImageUrl || null,
+        subtitle: "Host",
+        isSeated: false,
+        seatId: null,
+        isSelf,
+      });
+    }
+
+    // 3. Online participants in the room
+    (onlineUsers || []).forEach((u) => {
+      const uid = resolveRecipientUserId(u);
+      if (!uid) return;
+      const isSelf = isSameUser(uid, myUserId);
+      addCandidate({
+        id: uid,
+        name: isSelf ? `${u.name || "You"} (Me)` : u.name || "User",
+        avatar: u.avatar || u.avatarUrl || u.profilePicUrl || null,
+        subtitle: "In room",
+        isSeated: false,
+        seatId: null,
+        isSelf,
+      });
+    });
+
+    // 4. Current user (if alone in room or not in the list yet)
+    if (myUserId && !byId.has(String(myUserId))) {
+      addCandidate({
+        id: String(myUserId),
+        name: `${localSessionUser?.name || localSessionUser?.username || "You"} (Me)`,
+        avatar:
+          localSessionUser?.avatarUrl ||
+          localSessionUser?.profilePicUrl ||
+          null,
+        subtitle: "Me",
+        isSeated: false,
+        seatId: null,
+        isSelf: true,
+      });
+    }
+
+    const list = Array.from(byId.values());
+
+    // Sort order:
+    // Seated users other than self first (since emoji is sent to friend seated in room)
+    // Then other online users / host
+    // Then current user (self) last
+    return list.sort((a, b) => {
+      if (a.isSelf !== b.isSelf) return a.isSelf ? 1 : -1;
+      if (a.isSeated !== b.isSeated) return a.isSeated ? -1 : 1;
+      return 0;
+    });
+  }, [
+    seats,
+    hostId,
+    roomInfo,
+    onlineUsers,
+    myUserId,
+    localSessionUser,
+    resolveRecipientUserId,
+  ]);
+
+  const selectedEmojiRecipient = useMemo(() => {
+    if (!roomActiveUsers.length) return null;
+    const found = roomActiveUsers.find(
+      (u) => String(u.id) === String(selectedEmojiRecipientId),
+    );
+    return found || roomActiveUsers[0];
+  }, [roomActiveUsers, selectedEmojiRecipientId]);
 
   // const pkOpponentCandidates = useMemo(() => {
   //   const byId = new Map();
@@ -4576,6 +4656,58 @@ export default function VoiceParty() {
         prev.filter((g) => (g._displayKey || g.id) !== key),
       );
     }, 3000);
+
+    // Video animation playback for everyone in room (PK & video gifts)
+    let videoUrl =
+      animated.videoUrl ||
+      payload?.videoUrl ||
+      payload?.videoPath ||
+      fallbackGift?.videoUrl ||
+      fallbackGift?.videoPath;
+
+    if (!videoUrl && giftCatalogRef.current) {
+      const allItems = [
+        ...(giftCatalogRef.current.pk || []),
+        ...(giftCatalogRef.current.gift || []),
+        ...(giftCatalogRef.current.special || []),
+        ...(giftCatalogRef.current.vip || []),
+        ...(giftCatalogRef.current.relationship || []),
+      ];
+      const targetName = String(animated.name || payload?.giftName || "").toLowerCase().trim();
+      const targetCode = String(animated.giftCode || animated.id || payload?.giftId || payload?.giftCode || "").toLowerCase().trim();
+
+      const match = allItems.find((it) => {
+        const itCode = String(it.giftCode || it.id || it.databaseId || "").toLowerCase().trim();
+        const itName = String(it.name || "").toLowerCase().trim();
+        return (
+          (itCode && targetCode && (itCode === targetCode || targetCode.includes(itCode) || itCode.includes(targetCode))) ||
+          (itName && targetName && (itName === targetName || targetName.includes(itName) || itName.includes(targetName)))
+        );
+      });
+      if (match?.videoUrl || match?.videoPath) {
+        videoUrl = match.videoUrl || match.videoPath;
+      }
+    }
+
+    if (videoUrl) {
+      const videoKey = String(payload?.id || animated.id || animated.name);
+      const now = Date.now();
+      if (lastPlayedVideoIdRef.current === videoKey && (now - lastPlayedVideoTimeRef.current < 4000)) {
+        // Skip duplicate playback if recently triggered
+      } else {
+        lastPlayedVideoIdRef.current = videoKey;
+        lastPlayedVideoTimeRef.current = now;
+        setCurrentVideo({
+          id: animated.id,
+          name: animated.name,
+          videoUrl: videoUrl,
+          uri: videoUrl,
+          senderName: animated.senderName,
+          receiverName: animated.receiverName,
+        });
+        setShowVideoModal(true);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -5377,7 +5509,6 @@ export default function VoiceParty() {
         });
     });
     // ── Emoji / Sticker / GIF broadcast subscription ──────────────────────
-    const MAX_FLOATING_EMOJIS = 15;
     const unsubEmoji = wsService.onRoomEmoji(String(roomId), (payload) => {
       if (!payload) return;
       if (payload.eventType && payload.eventType !== "EMOJI_SENT") return;
@@ -5386,30 +5517,60 @@ export default function VoiceParty() {
       const senderUserId =
         payload.userId != null ? String(payload.userId) : null;
 
+      let rawEmoji = payload.rawEmoji || payload.emoji || "😊";
+      let targetUserId =
+        payload.targetUserId != null
+          ? String(payload.targetUserId)
+          : payload.receiverId != null
+          ? String(payload.receiverId)
+          : payload.recipientId != null
+          ? String(payload.recipientId)
+          : payload.toUserId != null
+          ? String(payload.toUserId)
+          : payload.targetId != null
+          ? String(payload.targetId)
+          : null;
+
+      // Extract targetUserId if encoded in the emoji string (e.g. "😍__TARGET__10002")
+      if (typeof rawEmoji === "string" && rawEmoji.includes("__TARGET__")) {
+        const parts = rawEmoji.split("__TARGET__");
+        rawEmoji = parts[0] || "😊";
+        if (!targetUserId && parts[1]) {
+          targetUserId = parts[1].trim();
+        }
+      }
+
+      // If a recipient is targeted, display ONLY on that target user's profile avatar.
+      // Do NOT display on the sender when a target is chosen!
+      const displayUserId = targetUserId || senderUserId;
+
       const item = {
         id: emojiId,
-        emoji: payload.emoji || "😊",
+        emoji: rawEmoji,
         mediaUrl: payload.mediaUrl || null,
         mediaType: payload.mediaType || "emoji",
-        userId: senderUserId,
-        userName: payload.userName || "User",
+        userId: displayUserId,
+        senderUserId: senderUserId,
+        targetUserId: targetUserId,
+        userName: payload.targetUserName || payload.userName || "User",
         profileImage: payload.profileImage || null,
       };
 
-      // 1. Add to rising floating animations (capped for performance)
-      setFloatingRoomEmojis((prev) => {
-        const next = [...prev, item];
-        return next.length > MAX_FLOATING_EMOJIS
-          ? next.slice(next.length - MAX_FLOATING_EMOJIS)
-          : next;
-      });
-
-      // 2. Show overlay on the sender's seat avatar (keyed by userId)
-      if (senderUserId) {
-        setSeatEmojiOverlays((prev) => ({
-          ...prev,
-          [senderUserId]: item,
-        }));
+      // Show overlay on the target user's seat avatar, and ensure the sender does NOT show it
+      if (displayUserId) {
+        setSeatEmojiOverlays((prev) => {
+          const next = { ...prev };
+          // If this emoji is targeted to someone else, ensure the sender NEVER shows this emoji on their avatar
+          if (targetUserId && senderUserId && !isSameUser(targetUserId, senderUserId)) {
+            Object.keys(next).forEach((k) => {
+              if (isSameUser(k, senderUserId)) {
+                delete next[k];
+              }
+            });
+          }
+          next[displayUserId] = item;
+          return next;
+        });
       }
     });
 
@@ -6427,12 +6588,15 @@ export default function VoiceParty() {
   };
 
   const handleOpenPartyChat = () => {
+    setShowEmojiPicker(false);
+    setShowEmojiReceiverPicker(false);
     setShowChatInput(true);
   };
 
   const handleOpenMediaPicker = () => {
     Keyboard.dismiss();
-    setShowChatInput(true);
+    setShowChatInput(false);
+    setShowEmojiReceiverPicker(false);
     setShowEmojiPicker(true);
   };
 
@@ -6467,31 +6631,87 @@ export default function VoiceParty() {
   const lastEmojiSendRef = useRef(0);
 
   const sendRoomEmojiReaction = useCallback(
-    async ({ emoji, mediaUrl, mediaType }) => {
+    async ({
+      emoji,
+      mediaUrl,
+      mediaType,
+      targetUserId: explicitTargetId,
+    }) => {
       if (!roomId) return;
       const now = Date.now();
-      if (now - lastEmojiSendRef.current < 500) return; // 500 ms rate-limit
+      if (now - lastEmojiSendRef.current < 400) return; // rate-limit guard
       lastEmojiSendRef.current = now;
+
+      const targetId = explicitTargetId || selectedEmojiRecipient?.id || null;
+      const targetUser =
+        roomActiveUsers.find((u) => String(u.id) === String(targetId)) ||
+        selectedEmojiRecipient;
+      const targetUserName = targetUser?.name || "User";
 
       // 1. Close the modal immediately
       setShowEmojiPicker(false);
       setShowChatInput(false);
+      setShowEmojiReceiverPicker(false);
       Keyboard.dismiss();
 
-      // 2. Send via dedicated emoji WebSocket endpoint (NOT posted to live chat or comments)
+      // 2. Immediately trigger local overlay on the target user's seat avatar with the animation!
+      if (targetId) {
+        const emojiId = `${Date.now()}-${Math.random()}`;
+        setSeatEmojiOverlays((prev) => {
+          const next = { ...prev };
+          // Ensure sender's seat avatar NEVER shows this emoji
+          if (myUserId && !isSameUser(myUserId, targetId)) {
+            Object.keys(next).forEach((key) => {
+              if (isSameUser(key, myUserId)) {
+                delete next[key];
+              }
+            });
+          }
+          next[String(targetId)] = {
+            id: emojiId,
+            emoji: emoji || "😊",
+            mediaUrl: mediaUrl || null,
+            mediaType: mediaType || "emoji",
+            userId: String(targetId),
+            targetUserId: String(targetId),
+            senderUserId: String(myUserId),
+            userName: targetUserName,
+          };
+          return next;
+        });
+      }
+
+      // 3. Send via dedicated emoji WebSocket endpoint (NOT posted to live chat or comments)
       try {
-        wsService.sendRoomEmoji(String(roomId), { emoji, mediaUrl, mediaType });
+        wsService.sendRoomEmoji(String(roomId), {
+          emoji,
+          rawEmoji: emoji,
+          mediaUrl,
+          mediaType,
+          targetUserId: targetId ? String(targetId) : undefined,
+          targetUserName: targetUserName,
+          receiverId: targetId ? String(targetId) : undefined,
+          recipientId: targetId ? String(targetId) : undefined,
+        });
       } catch (err) {
         console.warn("Failed to send room emoji:", err);
       }
     },
-    [roomId],
+    [roomId, selectedEmojiRecipient, roomActiveUsers, myUserId],
   );
 
   const handleEmojiPick = (emoji) => {
-    // Send emoji reaction to the whole room (animates on seated avatar, not in chat)
-    sendRoomEmojiReaction({ emoji, mediaType: "emoji" });
+    // Select the emoji to be sent
+    setSelectedEmoji(emoji);
   };
+
+  const handleSendSelectedEmoji = useCallback(() => {
+    sendRoomEmojiReaction({
+      emoji: selectedEmoji || "😊",
+      mediaType: "emoji",
+      targetUserId: selectedEmojiRecipient?.id || null,
+    });
+  }, [selectedEmoji, selectedEmojiRecipient, sendRoomEmojiReaction]);
 
   const handleStickerPick = (sticker) => {
     if (sticker.image) {
@@ -6500,12 +6720,14 @@ export default function VoiceParty() {
         emoji: sticker.emoji || "🎭",
         mediaUrl: sticker.image,
         mediaType: "sticker",
+        targetUserId: selectedEmojiRecipient?.id || null,
       });
     } else if (sticker.emoji) {
       // Text-only sticker treated as emoji
       sendRoomEmojiReaction({
         emoji: sticker.emoji,
         mediaType: "emoji",
+        targetUserId: selectedEmojiRecipient?.id || null,
       });
     }
   };
@@ -6515,6 +6737,7 @@ export default function VoiceParty() {
       emoji: "🎞️",
       mediaUrl: gif.url,
       mediaType: "gif",
+      targetUserId: selectedEmojiRecipient?.id || null,
     });
   };
 
@@ -6727,8 +6950,26 @@ export default function VoiceParty() {
       }
 
       setShowSendGiftOptions(false);
+      const sentGift = purchaseGift;
       setPurchaseGift(null);
       setShowBackpack(false);
+
+      // Play video immediately for sender if sent gift has videoUrl / videoPath
+      const sentVideoUrl = sentGift?.videoUrl || sentGift?.videoPath;
+      if (sentVideoUrl) {
+        const videoKey = String(sentGift?.databaseId || sentGift?.id || sentGift?.name);
+        lastPlayedVideoIdRef.current = videoKey;
+        lastPlayedVideoTimeRef.current = Date.now();
+        setCurrentVideo({
+          id: sentGift.id,
+          name: sentGift.name,
+          videoUrl: sentVideoUrl,
+          uri: sentVideoUrl,
+          senderName: localSessionUser?.name || "You",
+          receiverName: giftReceiverName,
+        });
+        setShowVideoModal(true);
+      }
     } catch (err) {
       Alert.alert("Failed", err?.response?.data?.message || err?.message || "Could not send gift");
     } finally {
@@ -7954,6 +8195,93 @@ export default function VoiceParty() {
     );
   };
 
+  const renderEmojiRecipientPickerOverlay = () => {
+    if (!showEmojiReceiverPicker) return null;
+
+    return (
+      <View
+        style={[
+          styles.giftReceiverInlineOverlay,
+          { zIndex: 10050, elevation: 10050 },
+        ]}
+        pointerEvents="box-none"
+      >
+        <TouchableOpacity
+          style={styles.giftReceiverInlineBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowEmojiReceiverPicker(false)}
+        />
+        <View
+          style={[
+            styles.giftReceiverSheet,
+            { paddingBottom: Math.max(32, idleBottom + 16) },
+          ]}
+        >
+          <View style={styles.shareHandle} />
+          <Text style={styles.giftReceiverTitle}>Send emoji to</Text>
+          <Text style={styles.giftReceiverSubtitle}>
+            Choose who receives your emoji
+          </Text>
+          {roomActiveUsers.length === 0 ? (
+            <View style={styles.giftRecipientEmpty}>
+              <Text style={styles.giftRecipientEmptyText}>
+                No one else is in the room yet. Invite friends to join, then
+                pick them here.
+              </Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.giftRecipientList}
+              contentContainerStyle={styles.giftRecipientListContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {roomActiveUsers.map((person) => {
+                const selected =
+                  String(selectedEmojiRecipient?.id) === String(person.id);
+                return (
+                  <TouchableOpacity
+                    key={person.id}
+                    style={[
+                      styles.giftRecipientRow,
+                      selected && styles.giftRecipientRowActive,
+                    ]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setSelectedEmojiRecipientId(String(person.id));
+                      setShowEmojiReceiverPicker(false);
+                    }}
+                  >
+                    {renderGiftRecipientAvatar(
+                      person,
+                      styles.giftRecipientAvatar,
+                    )}
+                    <View style={styles.giftRecipientInfo}>
+                      <Text style={styles.giftRecipientName} numberOfLines={1}>
+                        {person.name}
+                      </Text>
+                      {person.subtitle ? (
+                        <Text
+                          style={styles.giftRecipientMeta}
+                          numberOfLines={1}
+                        >
+                          {person.subtitle}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {selected ? (
+                      <Text style={styles.giftRecipientCheck}>✓</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    );
+  };
+
   const renderGiftSendBar = () => (
     <View style={[styles.bpSendBar, { paddingBottom: giftSendBarBottom }]}>
       {renderGiftRecipientAvatar(selectedGiftRecipient)}
@@ -8102,9 +8430,9 @@ export default function VoiceParty() {
 
       {/* ── VIDEO PLAYER MODAL ── */}
       <Modal
-        visible={showVideoModal}
-        transparent={false}
-        animationType="slide"
+        visible={showVideoModal && Boolean(currentVideo)}
+        transparent={true}
+        animationType="fade"
         statusBarTranslucent
         onRequestClose={() => {
           setShowVideoModal(false);
@@ -8112,32 +8440,15 @@ export default function VoiceParty() {
         }}
       >
         <View style={styles.videoPlayerContainer}>
-          <StatusBar barStyle="light-content" backgroundColor="black" />
+          <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-          {/* Header */}
-          <View style={styles.videoHeader}>
-            <TouchableOpacity
-              style={styles.videoCloseBtn}
-              onPress={() => {
-                setShowVideoModal(false);
-                setCurrentVideo(null);
-              }}
-            >
-              <Text style={styles.videoCloseBtnText}>✕</Text>
-            </TouchableOpacity>
-            <Text style={styles.videoHeaderTitle} numberOfLines={1}>
-              {currentVideo?.name ?? ""}
-            </Text>
-            <View style={{ width: 42 }} />
-          </View>
-
-          {/* Video */}
+          {/* Video Only - Full Screen Animation */}
           <View style={styles.videoWrapper}>
             <VideoView
               player={videoPlayer}
               style={styles.videoPlayer}
-              nativeControls
-              allowsFullscreen
+              nativeControls={false}
+              allowsFullscreen={false}
               contentFit="contain"
             />
           </View>
@@ -11600,27 +11911,37 @@ export default function VoiceParty() {
                     )}
                   </View>
 
-                  {/* Emoji / Sticker / GIF overlay — shown on sender's seat for 10 s */}
+                  {/* Emoji / Sticker / GIF overlay — shown on seated avatar for 10 s */}
                   {seat.user &&
-                    seatEmojiOverlays[
-                      String(seat.user.id ?? seat.user.userId)
-                    ] && (
+                    (seatEmojiOverlays[String(seat.user.id)] ||
+                     seatEmojiOverlays[String(seat.user.userId)] ||
+                     Object.entries(seatEmojiOverlays).find(([uid]) =>
+                       isSameUser(uid, seat.user.id ?? seat.user.userId)
+                     )?.[1]) && (
                       <FloatingSeatEmojiOverlay
                         key={
-                          seatEmojiOverlays[
-                            String(seat.user.id ?? seat.user.userId)
-                          ].id
+                          (seatEmojiOverlays[String(seat.user.id)] ||
+                           seatEmojiOverlays[String(seat.user.userId)] ||
+                           Object.entries(seatEmojiOverlays).find(([uid]) =>
+                             isSameUser(uid, seat.user.id ?? seat.user.userId)
+                           )?.[1]).id
                         }
                         item={
-                          seatEmojiOverlays[
-                            String(seat.user.id ?? seat.user.userId)
-                          ]
+                          seatEmojiOverlays[String(seat.user.id)] ||
+                          seatEmojiOverlays[String(seat.user.userId)] ||
+                          Object.entries(seatEmojiOverlays).find(([uid]) =>
+                            isSameUser(uid, seat.user.id ?? seat.user.userId)
+                          )?.[1]
                         }
                         onComplete={() => {
-                          const uid = String(seat.user.id ?? seat.user.userId);
+                          const sUserId = seat.user.id ?? seat.user.userId;
                           setSeatEmojiOverlays((prev) => {
                             const next = { ...prev };
-                            delete next[uid];
+                            Object.keys(next).forEach((key) => {
+                              if (isSameUser(key, sUserId)) {
+                                delete next[key];
+                              }
+                            });
                             return next;
                           });
                         }}
@@ -11652,6 +11973,7 @@ export default function VoiceParty() {
           onTouchStart={() => {
             Keyboard.dismiss();
             if (showEmojiPicker) setShowEmojiPicker(false);
+            if (showEmojiReceiverPicker) setShowEmojiReceiverPicker(false);
           }}
         >
           {/* Bottom-to-Top Floating Gift Emoji Animation */}
@@ -11666,22 +11988,7 @@ export default function VoiceParty() {
             />
           ))}
 
-          {/* ── Floating Room Emoji / Sticker / GIF Animations ── */}
-          {floatingRoomEmojis.length > 0 && (
-            <View pointerEvents="box-none" style={styles.emojiOverlay}>
-              {floatingRoomEmojis.map((item) => (
-                <FloatingRoomEmojiItem
-                  key={item.id}
-                  item={item}
-                  onComplete={() =>
-                    setFloatingRoomEmojis((prev) =>
-                      prev.filter((e) => e.id !== item.id),
-                    )
-                  }
-                />
-              ))}
-            </View>
-          )}
+
           {/* Floating Gift Display Overlay — non-blocking real-time animations for all users */}
           {activeGiftDisplays.length > 0 && (
             <View
@@ -12243,17 +12550,23 @@ export default function VoiceParty() {
           </Text>
         )} */}
 
-        {/* ── BOTTOM DOCK: buttons above chat input ── */}
-        <View
-          style={[
-            styles.bottomDock,
-            {
-              paddingBottom: showEmojiPicker ? 0 : (Platform.OS === "ios" ? (safeBottom > 0 ? safeBottom : 4) : Math.max(composerBottom, 4)),
-            },
-          ]}
-        >
-          {/* Input row — shown above bottom bar when chat is open */}
-          {showChatInput && (
+        {/* ── BOTTOM DOCK: buttons above chat input (hidden when emoji picker is active) ── */}
+        {!showEmojiPicker && (
+          <View
+            style={[
+              styles.bottomDock,
+              {
+                paddingBottom:
+                  Platform.OS === "ios"
+                    ? safeBottom > 0
+                      ? safeBottom
+                      : 4
+                    : Math.max(composerBottom, 4),
+              },
+            ]}
+          >
+            {/* Input row — shown above bottom bar when chat is open */}
+            {showChatInput && (
             <View style={styles.inputRow}>
               {/* @ Tag button */}
               <TouchableOpacity
@@ -12447,6 +12760,7 @@ export default function VoiceParty() {
             </View>
           )}
         </View>
+      )}
 
         {/* ── TOP 3 GIFTING RANKING FLOATING WIDGET ── */}
         {!roomLoading && showTopGiftingRanking && (
@@ -12456,209 +12770,149 @@ export default function VoiceParty() {
             onClose={() => setShowTopGiftingRanking(false)}
           />
         )}
-      {/* ── EMOJI PICKER INLINE ── */}
-      {showEmojiPicker && (
-<View style={[styles.emojiBox, { width: '100%', alignSelf: 'center', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, marginBottom: 0 }]} onStartShouldSetResponder={() => true}>
-            <View style={styles.shareHandle} />
+      {/* ── EMOJI PICKER MODAL (FIXED TO BOTTOM) ── */}
+      <Modal
+        visible={showEmojiPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowEmojiPicker(false);
+          setShowEmojiReceiverPicker(false);
+        }}
+      >
+        <TouchableOpacity
+          style={styles.shareOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setShowEmojiPicker(false);
+            setShowEmojiReceiverPicker(false);
+          }}
+        >
+          <View
+            style={styles.emojiBox}
+            onStartShouldSetResponder={() => true}
+          >
+            <View
+              style={{
+                height: Math.min(H * 0.50, 420),
+                width: "100%",
+                paddingHorizontal: 12,
+                paddingTop: 8,
+              }}
+            >
+              {/* Handle */}
+              <View style={styles.shareHandle} />
 
-            <View style={styles.emojiBoxBody}>
-              <View style={styles.mediaSectionRow}>
-                {MEDIA_SECTIONS.map((section) => (
+              {/* Emoji Sub-Categories (Smileys, Love, Gestures, Animals, Food, Fun) */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.mediaSubTabScroll}
+                contentContainerStyle={styles.mediaSubTabContent}
+              >
+                {emojiCategories.map((cat) => (
                   <TouchableOpacity
-                    key={section.id}
+                    key={cat.id}
                     style={[
-                      styles.mediaSectionTab,
-                      mediaSection === section.id &&
-                      styles.mediaSectionTabActive,
+                      styles.mediaSubTabItem,
+                      emojiTab === cat.id && styles.mediaSubTabItemActive,
                     ]}
-                    onPress={() => setMediaSection(section.id)}
+                    onPress={() => setEmojiTab(cat.id)}
                     activeOpacity={0.8}
                   >
+                    <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
                     <Text
                       style={[
-                        styles.mediaSectionTabText,
-                        mediaSection === section.id &&
-                        styles.mediaSectionTabTextActive,
+                        styles.mediaSubTabLabel,
+                        emojiTab === cat.id && styles.mediaSubTabLabelActive,
                       ]}
+                      numberOfLines={1}
                     >
-                      {section.label}
+                      {cat.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </View>
+              </ScrollView>
 
-              {mediaSection === "emoji" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaSubTabScroll}
-                  contentContainerStyle={styles.mediaSubTabContent}
-                >
-                  {emojiCategories.map((cat) => (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[
-                        styles.mediaSubTabItem,
-                        emojiTab === cat.id && styles.mediaSubTabItemActive,
-                      ]}
-                      onPress={() => setEmojiTab(cat.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
-                      <Text
-                        style={[
-                          styles.mediaSubTabLabel,
-                          emojiTab === cat.id && styles.mediaSubTabLabelActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {cat.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
-              {mediaSection === "stickers" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaSubTabScroll}
-                  contentContainerStyle={styles.mediaSubTabContent}
-                >
-                  {stickerPacks.map((pack) => (
-                    <TouchableOpacity
-                      key={pack.id}
-                      style={[
-                        styles.mediaSubTabItem,
-                        stickerTab === pack.id && styles.mediaSubTabItemActive,
-                      ]}
-                      onPress={() => setStickerTab(pack.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.mediaSubTabIcon}>{pack.tab}</Text>
-                      <Text
-                        style={[
-                          styles.mediaSubTabLabel,
-                          stickerTab === pack.id &&
-                          styles.mediaSubTabLabelActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {pack.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
-              {mediaSection === "gif" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaSubTabScroll}
-                  contentContainerStyle={styles.mediaSubTabContent}
-                >
-                  {gifCategories.map((cat) => (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[
-                        styles.mediaSubTabItem,
-                        gifTab === cat.id && styles.mediaSubTabItemActive,
-                      ]}
-                      onPress={() => setGifTab(cat.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
-                      <Text
-                        style={[
-                          styles.mediaSubTabLabel,
-                          gifTab === cat.id && styles.mediaSubTabLabelActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {cat.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
+              {/* Emojis Grid */}
               <ScrollView
                 showsVerticalScrollIndicator={false}
                 style={styles.emojiGrid}
                 contentContainerStyle={styles.emojiGridContent}
                 keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled
               >
-                {mediaSection === "emoji" && (
-                  <View style={styles.emojiGridInner}>
-                    {emojiCategories
-                      .find((c) => c.id === emojiTab)
-                      ?.emojis.map((emoji, i) => (
+                <View style={styles.emojiGridInner}>
+                  {emojiCategories
+                    .find((c) => c.id === emojiTab)
+                    ?.emojis.map((emoji, i) => {
+                      const isSelected = selectedEmoji === emoji;
+                      return (
                         <TouchableOpacity
                           key={`${emoji}-${i}`}
-                          style={styles.emojiCell}
+                          style={[
+                            styles.emojiCell,
+                            isSelected && styles.emojiCellSelected,
+                          ]}
                           activeOpacity={0.7}
                           onPress={() => handleEmojiPick(emoji)}
                         >
                           <Text style={styles.emojiCellText}>{emoji}</Text>
                         </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
-
-                {mediaSection === "stickers" && (
-                  <View style={styles.stickerGridInner}>
-                    {stickerPacks
-                      .find((p) => p.id === stickerTab)
-                      ?.stickers.map((sticker) => (
-                        <TouchableOpacity
-                          key={sticker.id}
-                          style={styles.stickerCell}
-                          activeOpacity={0.7}
-                          onPress={() => handleStickerPick(sticker)}
-                        >
-                          {sticker.image ? (
-                            <Image
-                              source={{ uri: sticker.image }}
-                              style={styles.stickerCellImg}
-                              resizeMode="contain"
-                            />
-                          ) : (
-                            <Text style={styles.stickerCellEmoji}>
-                              {sticker.emoji}
-                            </Text>
-                          )}
-                        </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
-
-                {mediaSection === "gif" && (
-                  <View style={styles.gifGridInner}>
-                    {gifCategories
-                      .find((c) => c.id === gifTab)
-                      ?.gifs.map((gif) => (
-                        <TouchableOpacity
-                          key={gif.id}
-                          style={styles.gifCell}
-                          activeOpacity={0.7}
-                          onPress={() => handleGifPick(gif)}
-                        >
-                          <Image
-                            source={{ uri: gif.url }}
-                            style={styles.gifCellImg}
-                            resizeMode="cover"
-                          />
-                        </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
+                      );
+                    })}
+                </View>
               </ScrollView>
+
+              {/* ── FIXED BOTTOM SEND BAR (MATCHING REFERENCE IMAGE) ── */}
+              <View
+                style={[
+                  styles.emojiSendBar,
+                  {
+                    paddingBottom: Math.max(
+                      Platform.OS === "ios" ? 22 : 12,
+                      idleBottom + 8,
+                    ),
+                  },
+                ]}
+              >
+                {/* Left: Avatar + Recipient Pill Dropdown Button */}
+                <View style={styles.emojiSendRecipientWrap}>
+                  {renderGiftRecipientAvatar(
+                    selectedEmojiRecipient,
+                    styles.emojiSendAvatar,
+                  )}
+                  <TouchableOpacity
+                    style={styles.emojiSendRecipient}
+                    activeOpacity={0.8}
+                    onPress={() => setShowEmojiReceiverPicker(true)}
+                  >
+                    <Text style={styles.emojiSendName} numberOfLines={1}>
+                      {selectedEmojiRecipient?.name || "Select User"}
+                    </Text>
+                    <Text style={styles.emojiSendChev}> ▼</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Right: Send Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.emojiSendBtn,
+                    (!selectedEmoji || !selectedEmojiRecipient) &&
+                      styles.emojiSendBtnDisabled,
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={handleSendSelectedEmoji}
+                >
+                  <Text style={styles.emojiSendBtnText}>Send</Text>
+                </TouchableOpacity>
+              </View>
             </View>
+
+            {/* ── EMOJI RECIPIENT PICKER BOTTOM SHEET OVERLAY ── */}
+            {renderEmojiRecipientPickerOverlay()}
           </View>
-      )}
+        </TouchableOpacity>
+      </Modal>
       </KeyboardAvoidingView>
 
       {/* ── CUSTOM REWARD CLAIMED MODAL ── */}
@@ -14127,23 +14381,20 @@ const styles = StyleSheet.create({
     color: "white",
   },
 
-  // ── Emoji / Stickers / GIF picker ──
+  // ── Emoji picker modal ──
   emojiBox: {
-    height: H * 0.52,
+    position: "relative",
     backgroundColor: "#1a0a2e",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === "ios" ? 28 : 20,
+    overflow: "hidden",
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 10,
-    overflow: "hidden",
+    shadowRadius: 16,
+    elevation: 14,
   },
   emojiBoxBody: {
     flex: 1,
@@ -14234,8 +14485,91 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 12,
+  },
+  emojiCellSelected: {
+    backgroundColor: "rgba(124, 77, 255, 0.35)",
+    borderWidth: 1.5,
+    borderColor: "#c084fc",
+    transform: [{ scale: 1.15 }],
   },
   emojiCellText: { fontSize: 24 },
+  emojiPickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.2)",
+    zIndex: 9,
+  },
+  emojiSendBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === "ios" ? 18 : 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(167, 139, 250, 0.18)",
+    backgroundColor: "transparent",
+    marginTop: 4,
+  },
+  emojiSendRecipientWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginRight: 12,
+  },
+  emojiSendAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    borderColor: "#7c4dff",
+  },
+  emojiSendRecipient: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(124, 77, 255, 0.22)",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: "rgba(167, 139, 250, 0.35)",
+    maxWidth: 200,
+  },
+  emojiSendName: {
+    color: "#ffffff",
+    fontSize: 13.5,
+    fontWeight: "600",
+    flex: 1,
+  },
+  emojiSendChev: {
+    color: "#c084fc",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  emojiSendBtn: {
+    backgroundColor: "#7c4dff",
+    borderRadius: 22,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  emojiSendBtnDisabled: {
+    opacity: 0.45,
+  },
+  emojiSendBtnText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
   stickerGridInner: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -15199,32 +15533,7 @@ const styles = StyleSheet.create({
     fontSize: ms(40),
   },
 
-  // ── Floating room emoji overlay (non-intercepting layer) ───────────────────
-  emojiOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    overflow: "hidden",
-    zIndex: 10003,
-    elevation: 101,
-  },
-  // Each rising emoji item — absolutely positioned, starts near bottom-right
-  floatingRoomEmojiWrap: {
-    position: "absolute",
-    bottom: vs(80),
-    zIndex: 10004,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  floatingRoomEmojiText: {
-    fontSize: ms(38),
-  },
-  floatingRoomEmojiImg: {
-    width: s(52),
-    height: s(52),
-  },
+
 
   // ── Seat emoji overlay (center of avatar) ──────────────────────
   seatEmojiOverlay: {

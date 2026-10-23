@@ -136,7 +136,8 @@ export const normalizeCatalogGift = (item) => {
       item?.img ??
       item?.thumbnailUrl ??
       null,
-    videoUrl: item?.videoUrl ?? null,
+    videoUrl: item?.videoUrl ?? item?.videoPath ?? item?.video ?? null,
+    videoPath: item?.videoPath ?? item?.videoUrl ?? null,
     hot: Boolean(item?.hot),
     isNew: Boolean(item?.isNew ?? item?.new),
     vipLocked: Boolean(item?.vipLocked),
@@ -310,8 +311,11 @@ export const normalizeGiftAnimation = (payload, fallbackGift) => {
 
   const videoUrl =
     payload?.videoUrl ??
+    payload?.videoPath ??
     payload?.gift?.videoUrl ??
+    payload?.gift?.videoPath ??
     fallbackGift?.videoUrl ??
+    fallbackGift?.videoPath ??
     null;
 
   return {
