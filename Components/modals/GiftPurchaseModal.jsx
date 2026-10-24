@@ -28,6 +28,11 @@ const GiftPurchaseModal = ({
 
   const purchasePrice = Math.max(0, Number(purchaseGift.price ?? 0));
   const canAfford = purchasePrice <= 0 || walletDiamonds >= purchasePrice;
+  const totalCost = purchasePrice * Number(sendGiftQuantity || 1);
+  const canAffordTotal = totalCost <= 0 || walletDiamonds >= totalCost;
+  const isRoomEmpty = !giftRecipientOptions || giftRecipientOptions.length === 0;
+  const hasValidRecipient = Boolean(!isRoomEmpty && giftReceiverId && giftRecipientOptions.some(opt => String(opt.id) === String(giftReceiverId)));
+  const canConfirmSend = Boolean(!sendingGift && canAffordTotal && hasValidRecipient);
 
   return (
     <Modal
@@ -95,6 +100,12 @@ const GiftPurchaseModal = ({
                 </View>
               </View>
 
+              {isRoomEmpty && (
+                <Text style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 12 }}>
+                  Room me koi nahi hai. Gift send karne ke liye members ka hona zaroori hai.
+                </Text>
+              )}
+
               <View style={[styles.giftPurchaseActions, { gap: 12, marginTop: 5 }]}>
                 <TouchableOpacity
                   style={[styles.giftPurchaseCloseBtn, { flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: '#7c4dff', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }]}
@@ -111,12 +122,12 @@ const GiftPurchaseModal = ({
                   style={[
                     styles.giftPurchaseBuyBtn,
                     { flex: 1.2, height: 'auto', padding: 0 },
-                    (sendingGift || !giftReceiverId || giftRecipientOptions.length === 0 || (!(purchasePrice * Number(sendGiftQuantity || 1) <= 0 || walletDiamonds >= purchasePrice * Number(sendGiftQuantity || 1)) && catalogLoading)) && { opacity: 0.5 },
+                    !canConfirmSend && { opacity: 0.5 },
                   ]}
                   activeOpacity={0.85}
-                  disabled={sendingGift || !giftReceiverId || giftRecipientOptions.length === 0 || (!(purchasePrice * Number(sendGiftQuantity || 1) <= 0 || walletDiamonds >= purchasePrice * Number(sendGiftQuantity || 1)) && catalogLoading)}
+                  disabled={!canConfirmSend || (!canAffordTotal && catalogLoading)}
                   onPress={() => {
-                    if (purchasePrice * Number(sendGiftQuantity || 1) <= 0 || walletDiamonds >= purchasePrice * Number(sendGiftQuantity || 1)) {
+                    if (canAffordTotal) {
                       confirmSendGift();
                     } else {
                       handleBuyGift();
@@ -125,17 +136,17 @@ const GiftPurchaseModal = ({
                 >
                   <LinearGradient
                     colors={
-                      (!sendingGift && (purchasePrice * Number(sendGiftQuantity || 1) <= 0 || walletDiamonds >= purchasePrice * Number(sendGiftQuantity || 1)) && giftReceiverId && giftRecipientOptions.length > 0)
+                      canConfirmSend
                         ? ["#7c4dff", "#4a6cf7"]
                         : ["#4a4a5a", "#3a3a4a"]
                     }
                     style={[styles.giftPurchaseBuyGrad, { borderRadius: 12, paddingVertical: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }]}
                   >
-                    {!sendingGift && (purchasePrice * Number(sendGiftQuantity || 1) <= 0 || walletDiamonds >= purchasePrice * Number(sendGiftQuantity || 1)) && giftReceiverId && giftRecipientOptions.length > 0 && (
+                    {canConfirmSend && (
                       <Ionicons name="paper-plane-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
                     )}
                     <Text style={[styles.giftPurchaseBuyText, { fontSize: 15 }]}>
-                      {sendingGift ? "Sending..." : ((purchasePrice * Number(sendGiftQuantity || 1) <= 0 || walletDiamonds >= purchasePrice * Number(sendGiftQuantity || 1)) ? "Confirm Send" : "Buy")}
+                      {sendingGift ? "Sending..." : isRoomEmpty ? "Room is empty" : canAffordTotal ? "Confirm Send" : "Buy"}
                     </Text>
                   </LinearGradient>
                 </TouchableOpacity>
