@@ -129,15 +129,21 @@ export const normalizeCatalogGift = (item) => {
     price: Number(item?.price ?? item?.unitPrice ?? 0),
     emoji: item?.emoji ?? "🎁",
     imageUrl:
+      item?.coverImage ??
+      item?.coverImageUrl ??
       item?.imageUrl ??
+      item?.imagePath ??
       item?.icon ??
       item?.image ??
       item?.iconUrl ??
       item?.img ??
       item?.thumbnailUrl ??
       null,
+    coverImage: item?.coverImage ?? item?.coverImageUrl ?? null,
+    imagePath: item?.imagePath ?? item?.imageUrl ?? null,
     videoUrl: item?.videoUrl ?? item?.videoPath ?? item?.video ?? null,
     videoPath: item?.videoPath ?? item?.videoUrl ?? null,
+    animationUrl: item?.animationUrl ?? item?.animation ?? item?.gifUrl ?? null,
     hot: Boolean(item?.hot),
     isNew: Boolean(item?.isNew ?? item?.new),
     vipLocked: Boolean(item?.vipLocked),
@@ -318,6 +324,14 @@ export const normalizeGiftAnimation = (payload, fallbackGift) => {
     fallbackGift?.videoPath ??
     null;
 
+  const animationUrl =
+    payload?.animationUrl ??
+    payload?.gifUrl ??
+    payload?.gift?.animationUrl ??
+    fallbackGift?.animationUrl ??
+    fallbackGift?.gifUrl ??
+    null;
+
   return {
     id:
       payload?.id ??
@@ -336,6 +350,7 @@ export const normalizeGiftAnimation = (payload, fallbackGift) => {
     emoji,
     imageUrl,
     videoUrl,
+    animationUrl,
     senderName: senderName || "User",
     senderAvatar,
     receiverName,
