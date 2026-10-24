@@ -53,10 +53,8 @@
         "android.permission.USE_FULL_SCREEN_INTENT"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#1a0a2e",
-        "foregroundImage": "./assets/images/adaptive-icon-foreground.png",
-        "backgroundImage": "./assets/images/adaptive-icon-background.png",
-        "monochromeImage": "./assets/images/adaptive-icon-foreground.png"
+        "backgroundColor": "#ffffff",
+        "foregroundImage": "./assets/images/adaptive-icon-foreground.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,

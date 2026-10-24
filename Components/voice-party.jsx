@@ -204,10 +204,7 @@ import {
 } from "../src/utils/profileAvatar";
 import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
-import {
-  resolveImageSource,
-  resolveVideoSource,
-} from "../src/utils/videoSource";
+import { isGifMedia, resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import { resolveVoiceUidForUserId } from "../src/utils/voiceUid";
 import DiamondRechargeModal from "./DiamondRechargeModal";
@@ -2629,15 +2626,37 @@ export default function VoiceParty() {
   useEffect(() => {
     if (!showVideoModal || !currentVideo) {
       try {
-        videoPlayer.pause();
+        videoPlayer?.pause?.();
       } catch {}
       return undefined;
     }
 
+    const rawUrl = currentVideo.videoUrl ?? currentVideo.uri;
+    const isGif = isGifMedia(rawUrl) || Boolean(currentVideo.isGif);
+
+    // If media is a GIF, do not pass to videoPlayer (expo-video cannot play GIFs).
+    // Automatically close after 5 seconds of animation.
+    if (isGif) {
+      try {
+        videoPlayer?.pause?.();
+      } catch {}
+
+      let cancelled = false;
+      const gifTimer = setTimeout(() => {
+        if (!cancelled) {
+          setShowVideoModal(false);
+          setCurrentVideo(null);
+        }
+      }, 8000);
+
+      return () => {
+        cancelled = true;
+        clearTimeout(gifTimer);
+      };
+    }
+
     let cancelled = false;
-    const source = resolveVideoSource(
-      currentVideo.videoUrl ?? currentVideo.uri,
-    );
+    const source = resolveVideoSource(rawUrl);
     if (!source) return undefined;
 
     // Safety timeout: automatically close if video finishes or in case playToEnd doesn't fire
@@ -2673,6 +2692,7 @@ export default function VoiceParty() {
     currentVideo?.id,
     currentVideo?.videoUrl,
     currentVideo?.uri,
+    currentVideo?.isGif,
     videoPlayer,
   ]);
   const [mediaSection, setMediaSection] = useState("emoji");
@@ -3218,23 +3238,16 @@ export default function VoiceParty() {
       });
     };
 
-    if (hostId && !isSameUser(hostId, myUserId)) {
-      addRecipient({
-        id: hostId,
-        name: roomInfo?.name ?? "Host",
-        avatar: roomInfo?.profileImageUrl ?? null,
-        subtitle: "Host",
-      });
-    }
-
+    // Only add recipients who are actually present in the room (in onlineUsers or on seats)
     onlineUsers.forEach((user) => {
       const userId = resolveRecipientUserId(user);
       if (!userId) return;
+      const isHost = hostId && isSameUser(userId, hostId);
       addRecipient({
         id: userId,
-        name: user.name,
+        name: user.name || (isHost ? (roomInfo?.hostName || "Host") : "User"),
         avatar: user.avatar,
-        subtitle: "In room",
+        subtitle: isHost ? "Host" : "In room",
       });
     });
 
@@ -3242,11 +3255,12 @@ export default function VoiceParty() {
       if (!seat.user) return;
       const userId = resolveRecipientUserId(seat.user);
       if (!userId) return;
+      const isHost = hostId && isSameUser(userId, hostId);
       addRecipient({
         id: userId,
-        name: seat.user.name,
+        name: seat.user.name || (isHost ? (roomInfo?.hostName || "Host") : "User"),
         avatar: seat.user.avatar,
-        subtitle: `On mic · ${seat.id}`,
+        subtitle: isHost ? "Host · On mic" : `On mic · ${seat.id}`,
       });
     });
 
@@ -3427,20 +3441,17 @@ export default function VoiceParty() {
   }, [showBackpack]);
 
   useEffect(() => {
-    if (giftReceiverTouchedRef.current || giftReceiverId) return;
-    const preferred =
-      giftRecipientOptions[0]?.id ??
-      (hostId && !isSameUser(hostId, myUserId) ? String(hostId) : null) ??
-      null;
-    if (preferred) setGiftReceiverId(preferred);
-  }, [giftRecipientOptions, giftReceiverId, hostId, myUserId]);
-
-  useEffect(() => {
-    if (!showBackpack || giftReceiverTouchedRef.current || giftReceiverId)
+    if (giftRecipientOptions.length === 0) {
+      if (giftReceiverId) setGiftReceiverId(null);
       return;
-    const preferred = giftRecipientOptions[0]?.id ?? null;
-    if (preferred) setGiftReceiverId(preferred);
-  }, [showBackpack, giftRecipientOptions, giftReceiverId]);
+    }
+    const hasCurrent = giftRecipientOptions.some(
+      (opt) => String(opt.id) === String(giftReceiverId),
+    );
+    if (!hasCurrent) {
+      setGiftReceiverId(giftRecipientOptions[0]?.id ?? null);
+    }
+  }, [giftRecipientOptions, giftReceiverId]);
 
   useEffect(() => {
     getAppUserId()
@@ -4657,15 +4668,30 @@ export default function VoiceParty() {
       );
     }, 3000);
 
-    // Video animation playback for everyone in room (PK & video gifts)
-    let videoUrl =
+    // Video or GIF animation playback for everyone in room (PK & video/gif gifts)
+    let animationUrl =
       animated.videoUrl ||
       payload?.videoUrl ||
       payload?.videoPath ||
+      payload?.animationUrl ||
+      payload?.gifUrl ||
       fallbackGift?.videoUrl ||
-      fallbackGift?.videoPath;
+      fallbackGift?.videoPath ||
+      fallbackGift?.animationUrl;
 
-    if (!videoUrl && giftCatalogRef.current) {
+    if (!animationUrl) {
+      const possibleGif =
+        animated.imageUrl ||
+        payload?.imageUrl ||
+        payload?.imagePath ||
+        fallbackGift?.imageUrl ||
+        fallbackGift?.imagePath;
+      if (typeof possibleGif === "string" && isGifMedia(possibleGif)) {
+        animationUrl = possibleGif;
+      }
+    }
+
+    if (!animationUrl && giftCatalogRef.current) {
       const allItems = [
         ...(giftCatalogRef.current.pk || []),
         ...(giftCatalogRef.current.gift || []),
@@ -4684,12 +4710,17 @@ export default function VoiceParty() {
           (itName && targetName && (itName === targetName || targetName.includes(itName) || itName.includes(targetName)))
         );
       });
-      if (match?.videoUrl || match?.videoPath) {
-        videoUrl = match.videoUrl || match.videoPath;
+      if (match) {
+        animationUrl =
+          match.videoUrl ||
+          match.videoPath ||
+          match.animationUrl ||
+          (match.imageUrl && isGifMedia(match.imageUrl) ? match.imageUrl : null) ||
+          (match.imagePath && isGifMedia(match.imagePath) ? match.imagePath : null);
       }
     }
 
-    if (videoUrl) {
+    if (animationUrl) {
       const videoKey = String(payload?.id || animated.id || animated.name);
       const now = Date.now();
       if (lastPlayedVideoIdRef.current === videoKey && (now - lastPlayedVideoTimeRef.current < 4000)) {
@@ -4700,8 +4731,9 @@ export default function VoiceParty() {
         setCurrentVideo({
           id: animated.id,
           name: animated.name,
-          videoUrl: videoUrl,
-          uri: videoUrl,
+          videoUrl: animationUrl,
+          uri: animationUrl,
+          isGif: isGifMedia(animationUrl),
           senderName: animated.senderName,
           receiverName: animated.receiverName,
         });
@@ -6928,8 +6960,8 @@ export default function VoiceParty() {
   };
 
   const confirmSendGift = async () => {
-    if (!purchaseGift || !giftReceiverId || !sendGiftQuantity) {
-      Alert.alert("Error", "Please select a receiver and quantity.");
+    if (!purchaseGift || !giftReceiverId || !sendGiftQuantity || giftRecipientOptions.length === 0) {
+      Alert.alert("Notice", "Room me koi member nahi hai jise gift send kiya ja sake.");
       return;
     }
 
@@ -6973,17 +7005,24 @@ export default function VoiceParty() {
       setPurchaseGift(null);
       setShowBackpack(false);
 
-      // Play video immediately for sender if sent gift has videoUrl / videoPath
-      const sentVideoUrl = sentGift?.videoUrl || sentGift?.videoPath;
-      if (sentVideoUrl) {
+      // Play video / GIF immediately for sender if sent gift has videoUrl / videoPath / gif
+      const sentMediaUrl =
+        sentGift?.videoUrl ||
+        sentGift?.videoPath ||
+        sentGift?.animationUrl ||
+        (sentGift?.imageUrl && isGifMedia(sentGift.imageUrl) ? sentGift.imageUrl : null) ||
+        (sentGift?.imagePath && isGifMedia(sentGift.imagePath) ? sentGift.imagePath : null);
+
+      if (sentMediaUrl) {
         const videoKey = String(sentGift?.databaseId || sentGift?.id || sentGift?.name);
         lastPlayedVideoIdRef.current = videoKey;
         lastPlayedVideoTimeRef.current = Date.now();
         setCurrentVideo({
           id: sentGift.id,
           name: sentGift.name,
-          videoUrl: sentVideoUrl,
-          uri: sentVideoUrl,
+          videoUrl: sentMediaUrl,
+          uri: sentMediaUrl,
+          isGif: isGifMedia(sentMediaUrl),
           senderName: localSessionUser?.name || "You",
           receiverName: giftReceiverName,
         });
@@ -7455,20 +7494,12 @@ export default function VoiceParty() {
     const found = giftRecipientOptions.find(
       (person) => String(person.id) === String(giftReceiverId),
     );
-    if (found) return found;
-    return {
-      id: String(giftReceiverId),
-      name: isSameUser(giftReceiverId, hostId)
-        ? (roomInfo?.name ?? "Host")
-        : "User",
-      avatar: isSameUser(giftReceiverId, hostId)
-        ? (roomInfo?.profileImageUrl ?? null)
-        : null,
-      subtitle: isSameUser(giftReceiverId, hostId) ? "Host" : null,
-    };
-  }, [giftReceiverId, giftRecipientOptions, hostId, roomInfo]);
+    return found ?? null;
+  }, [giftReceiverId, giftRecipientOptions]);
 
-  const giftReceiverName = selectedGiftRecipient?.name ?? "Select person";
+  const giftReceiverName =
+    selectedGiftRecipient?.name ??
+    (giftRecipientOptions.length === 0 ? "No one in room" : "Select person");
   const giftSendBarBottom = Math.max(22, idleBottom + 6);
 
   const renderGiftRecipientAvatar = (
@@ -8447,31 +8478,70 @@ export default function VoiceParty() {
         backgroundColor="transparent"
       />
 
-      {/* ── VIDEO PLAYER MODAL ── */}
+      {/* ── VIDEO / GIF ANIMATION MODAL ── */}
       <Modal
         visible={showVideoModal && Boolean(currentVideo)}
         transparent={true}
         animationType="fade"
         statusBarTranslucent
         onRequestClose={() => {
+          try {
+            videoPlayer?.pause?.();
+          } catch {}
           setShowVideoModal(false);
           setCurrentVideo(null);
         }}
       >
-        <View style={styles.videoPlayerContainer}>
-          <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+        {(() => {
+          const rawMediaUrl = currentVideo?.videoUrl ?? currentVideo?.uri;
+          const isGif = isGifMedia(rawMediaUrl) || Boolean(currentVideo?.isGif);
 
-          {/* Video Only - Full Screen Animation */}
-          <View style={styles.videoWrapper}>
-            <VideoView
-              player={videoPlayer}
-              style={styles.videoPlayer}
-              nativeControls={false}
-              allowsFullscreen={false}
-              contentFit="contain"
-            />
-          </View>
-        </View>
+          return (
+            <TouchableOpacity
+              activeOpacity={1}
+              style={[
+                styles.videoPlayerContainer,
+                { backgroundColor: isGif ? "rgba(0,0,0,0.55)" : "#000" },
+              ]}
+              onPress={() => {
+                try {
+                  videoPlayer?.pause?.();
+                } catch {}
+                setShowVideoModal(false);
+                setCurrentVideo(null);
+              }}
+            >
+              <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+
+
+              {/* Media animation content */}
+              <View
+                style={[
+                  styles.videoWrapper,
+                  { backgroundColor: isGif ? "transparent" : "#000" },
+                ]}
+                pointerEvents="box-none"
+              >
+                {isGif ? (
+                  <ExpoImage
+                    source={resolveImageSource(rawMediaUrl)}
+                    style={styles.videoPlayer}
+                    contentFit="contain"
+                    autoplay
+                  />
+                ) : (
+                  <VideoView
+                    player={videoPlayer}
+                    style={styles.videoPlayer}
+                    nativeControls={false}
+                    allowsFullscreen={false}
+                    contentFit="contain"
+                  />
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })()}
       </Modal>
 
       {/* ── GIFT PURCHASE MODAL ── */}
@@ -8808,12 +8878,22 @@ export default function VoiceParty() {
                           activeOpacity={0.8}
                           onPress={() => openGiftPurchase(gift)}
                         >
-                          <LinearGradient
-                            colors={["#2a0d50", "#4a1d80"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#2a0d50", "#4a1d80"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>
@@ -8975,12 +9055,22 @@ export default function VoiceParty() {
                               <Text style={styles.bpHotText}>HOT</Text>
                             </View>
                           )}
-                          <LinearGradient
-                            colors={["#2a0d50", "#4a1d80"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#2a0d50", "#4a1d80"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>
@@ -9016,12 +9106,22 @@ export default function VoiceParty() {
                               <Text style={styles.bpNewBadgeText}>NEW</Text>
                             </View>
                           )}
-                          <LinearGradient
-                            colors={["#1a0a3e", "#6a1590"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#1a0a3e", "#6a1590"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>
@@ -9070,12 +9170,22 @@ export default function VoiceParty() {
                             )
                           }
                         >
-                          <LinearGradient
-                            colors={["#2a1800", "#5c3a00"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#2a1800", "#5c3a00"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>

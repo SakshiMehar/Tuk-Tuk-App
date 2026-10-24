@@ -13,3 +13,14 @@ export const resolveImageSource = (uri) => {
   if (typeof uri === "number") return uri;
   return { uri: String(uri) };
 };
+
+/** Helper to detect whether a media URL or file is an animated GIF */
+export const isGifMedia = (uri) => {
+  if (uri == null || uri === "") return false;
+  const str =
+    typeof uri === "object"
+      ? String(uri?.uri || uri?.url || uri?.videoUrl || uri?.videoPath || "")
+      : String(uri);
+  if (!str) return false;
+  return /\.gif($|[?#])/i.test(str) || str.toLowerCase().includes(".gif");
+};
