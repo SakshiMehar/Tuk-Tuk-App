@@ -586,7 +586,7 @@ export default function Settings() {
                         avatarSource={
                           currentUserAvatar
                             ? { uri: currentUserAvatar }
-                            : require("../assets/images/splash-icon.png")
+                            : require("../assets/icon.png.jpeg")
                         }
                         frameSource={decorations.frameUrl ?? vipProfileFrame}
                         size={112}
@@ -1231,7 +1231,7 @@ export default function Settings() {
 
               {/* App icon */}
               <LinearGradient colors={["#7c4dff", "#a855f7", "#ec4899"]} style={styles.aboutIconCircle}>
-                <Image source={require("../assets/images/splash-icon.png")} style={styles.aboutIconImage} resizeMode="contain" />
+                <Image source={require("../assets/icon.png.jpeg")} style={styles.aboutIconImage} resizeMode="contain" />
               </LinearGradient>
 
               <Text style={styles.aboutAppName}>Tuk-Tuk</Text>

@@ -39,9 +39,7 @@ import {
   consumePendingDeepLink,
   extractRoomIdFromUrl,
 } from "../src/utils/deepLinkUtils";
-import { wp } from "../src/utils/responsive";
-
-const logo = require("../assets/images/splash-icon.png");
+const logo = require("../assets/icon.png.jpeg");
 
 // ── Main Login Screen ────────────────────────────────────────
 export default function Login() {
@@ -230,11 +228,20 @@ export default function Login() {
         }}>
 
           {/* Logo */}
-          <Image
-            source={logo}
-            style={{ width: wp(55), height: vs(76), borderRadius: s(16) }}
-            resizeMode="contain"
-          />
+          <View
+            style={{
+              width: vs(76),
+              height: vs(76),
+              borderRadius: s(16),
+              overflow: "hidden",
+            }}
+          >
+            <Image
+              source={logo}
+              style={{ width: "100%", height: "100%" }}
+              resizeMode="cover"
+            />
+          </View>
 
           {/* Title */}
           <MaskedView

@@ -24,7 +24,7 @@ import {
   consumePendingDeepLink,
 } from "../src/utils/deepLinkUtils";
 
-const splashIcon = require("../assets/images/splash-icon.png");
+const splashIcon = require("../assets/icon.png.jpeg");
 
 export default function Index() {
   const router = useRouter();
