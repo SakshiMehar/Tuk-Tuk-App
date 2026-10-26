@@ -69,6 +69,7 @@ export const getNearbyUsers = async ({
   if (gender && gender !== "All") params.set("gender", gender);
   if (city) params.set("city", city);
   const base = NEARBY_PATHS[variant] ?? NEARBY_PATHS.all;
+  const url = `${base}?${params.toString()}`;
   console.log(`[userApi] GET ${url} request started (variant: ${variant})`);
   const response = await API.get(url, await authRequestConfig());
   console.log(`[userApi] GET ${url} response:`, response.data);

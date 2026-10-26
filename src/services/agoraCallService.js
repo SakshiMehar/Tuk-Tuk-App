@@ -1,5 +1,5 @@
 import { Audio } from "expo-av";
-import { PermissionsAndroid, Platform } from "react-native";
+import { Alert, PermissionsAndroid, Platform } from "react-native";
 import { ChannelProfileType, ClientRoleType, createAgoraRtcEngine } from "react-native-agora";
 import { AGORA_APP_ID } from "../config/env";
 
@@ -112,7 +112,7 @@ export const initializeCallEngine = (appId = AGORA_APP_ID) => {
   engine.registerEventHandler({
     onJoinChannelSuccess: (connection) => {
       joined = true;
-      currentChannel = connection.channelId;
+      currentChannel = connection?.channelId ?? null;
       notifyStatusListeners();
     },
     onLeaveChannel: () => {
@@ -133,7 +133,9 @@ export const initializeCallEngine = (appId = AGORA_APP_ID) => {
       console.error("[AgoraCallService] Engine Error:", err, msg);
       // Alert the user so they can physically see if the token is being rejected
       if (err === 109 || err === 110 || err === -17) {
-         import("react-native").then(RN => RN.Alert.alert("Agora Error", `Connection rejected (Code: ${err}). Please check if App Certificate is enabled!`));
+        try {
+          Alert.alert("Agora Error", `Connection rejected (Code: ${err}). Please check if App Certificate is enabled!`);
+        } catch {}
       }
     },
   });

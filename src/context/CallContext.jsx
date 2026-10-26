@@ -122,13 +122,14 @@ export const CallProvider = ({ children }) => {
                 });
 
                 // Fetch caller details
-                getUserProfile(senderId).then(profile => {
+                getUserProfile(senderId).then(rawProfile => {
+                    const profile = rawProfile?.data ?? rawProfile;
                     setCallState(prev => {
                         if (prev.callId === callId) {
                             return {
                                 ...prev,
-                                callerName: profile.name || profile.username || `User ${senderId}`,
-                                callerAvatar: profile.avatar || profile.profilePicUrl
+                                callerName: profile?.name || profile?.username || profile?.nickname || `User ${senderId}`,
+                                callerAvatar: profile?.avatar || profile?.profilePicUrl || null
                             };
                         }
                         return prev;
@@ -136,9 +137,16 @@ export const CallProvider = ({ children }) => {
                 }).catch(err => console.log("Failed to fetch caller profile", err));
             } else if (type === "CALL_ACCEPTED") {
                 setCallState(prev => ({ ...prev, status: "CONNECTED", callId: callId }));
-                apiGetAgoraToken(callId).then(tokenData => {
+                apiGetAgoraToken(callId).then(rawTokenData => {
+                    const tokenData = rawTokenData?.data ?? rawTokenData;
+                    if (!tokenData || !tokenData.appId) {
+                        throw new Error("Missing Agora appId in token response");
+                    }
                     const isVid = callStateRef.current.callType === 'video';
-                    agoraStartCall({ appId: tokenData.appId, channelId: tokenData.channelName, uid: tokenData.uid, token: tokenData.token, isVideo: isVid });
+                    agoraStartCall({ appId: tokenData.appId, channelId: tokenData.channelName, uid: tokenData.uid, token: tokenData.token, isVideo: isVid }).catch(err => {
+                        console.error("Failed to start Agora call", err);
+                        endCallLocal();
+                    });
                 }).catch(err => {
                     console.error("Failed to get token", err);
                     endCallLocal();
@@ -175,7 +183,11 @@ export const CallProvider = ({ children }) => {
                 if (!callData) {
                     const pending = await AsyncStorage.getItem('pending_call_accept');
                     if (pending) {
-                        callData = JSON.parse(pending);
+                        try {
+                            callData = JSON.parse(pending);
+                        } catch {
+                            callData = null;
+                        }
                     }
                 }
 
@@ -267,7 +279,11 @@ export const CallProvider = ({ children }) => {
 
         let tokenData;
         try {
-            tokenData = await apiGetAgoraToken(callId);
+            const rawTokenData = await apiGetAgoraToken(callId);
+            tokenData = rawTokenData?.data ?? rawTokenData;
+            if (!tokenData || !tokenData.appId) {
+                throw new Error("Missing Agora appId in token response");
+            }
         } catch (err) {
             console.error("agoraToken API error", err);
             const errData = typeof err?.response?.data === 'string' ? err.response.data : JSON.stringify(err?.response?.data || {});
@@ -278,7 +294,7 @@ export const CallProvider = ({ children }) => {
 
         try {
             setCallState(prev => ({ ...prev, status: "CONNECTED", callId, callType, callerId: forceCallerId || prev.callerId, callerName: forceCallerName || prev.callerName }));
-            agoraStartCall({ appId: tokenData.appId, channelId: tokenData.channelName, uid: tokenData.uid, token: tokenData.token, isVideo: callType === 'video' });
+            await agoraStartCall({ appId: tokenData.appId, channelId: tokenData.channelName, uid: tokenData.uid, token: tokenData.token, isVideo: callType === 'video' });
 
             const targetCallerId = forceCallerId || callStateRef.current.callerId;
             const targetCallerName = forceCallerName || callStateRef.current.callerName;
@@ -329,33 +345,45 @@ export const CallProvider = ({ children }) => {
     };
 
     useEffect(() => {
-        const unsubscribeNotifee = notifee.onForegroundEvent(async ({ type, detail }) => {
-            const { notification, pressAction } = detail;
-            if (type === EventType.ACTION_PRESS) {
-                if (pressAction.id === 'reject-call') {
-                    if (notification.data && notification.data.callId) {
-                        try { await apiRejectCall(notification.data.callId); } catch (err) {}
-                    }
-                    await notifee.cancelNotification(notification.id);
-                    endCallLocal();
-                } else if (pressAction.id === 'accept-call') {
-                    await notifee.cancelNotification(notification.id);
-                    const callData = notification.data;
-                    if (callData && callData.callId) {
-                        const cid = Number(callData.callId);
-                        const sid = Number(callData.senderId);
-                        const sname = callData.senderName;
-                        setCallState(prev => ({
-                            ...prev,
-                            status: "ACCEPTING",
-                            callType: 'audio',
-                            callId: cid,
-                            callerId: sid,
-                            callerName: sname,
-                        }));
-                        acceptCall(cid, 'audio', sid, sname);
+        const unsubscribeNotifee = notifee.onForegroundEvent(async (event) => {
+            if (!event || !event.detail) return;
+            try {
+                const { type, detail } = event;
+                const notification = detail?.notification;
+                const pressAction = detail?.pressAction;
+
+                if (type === EventType.ACTION_PRESS && pressAction?.id) {
+                    if (pressAction.id === 'reject-call') {
+                        if (notification?.data?.callId) {
+                            try { await apiRejectCall(notification.data.callId); } catch (err) {}
+                        }
+                        if (notification?.id) {
+                            await notifee.cancelNotification(notification.id).catch(() => {});
+                        }
+                        endCallLocal();
+                    } else if (pressAction.id === 'accept-call') {
+                        if (notification?.id) {
+                            await notifee.cancelNotification(notification.id).catch(() => {});
+                        }
+                        const callData = notification?.data;
+                        if (callData && callData.callId) {
+                            const cid = Number(callData.callId);
+                            const sid = Number(callData.senderId);
+                            const sname = callData.senderName;
+                            setCallState(prev => ({
+                                ...prev,
+                                status: "ACCEPTING",
+                                callType: 'audio',
+                                callId: cid,
+                                callerId: sid,
+                                callerName: sname,
+                            }));
+                            acceptCall(cid, 'audio', sid, sname);
+                        }
                     }
                 }
+            } catch (err) {
+                console.warn("[CallContext] Error handling Notifee foreground event:", err);
             }
         });
         return () => unsubscribeNotifee();
