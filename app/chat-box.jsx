@@ -3,6 +3,15 @@ import { useCallback, useEffect } from "react";
 import { BackHandler } from "react-native";
 import ChatBox from "../Components/ChatBox";
 
+const safeDecodeUri = (val) => {
+  if (!val || typeof val !== "string") return null;
+  try {
+    return decodeURIComponent(val);
+  } catch {
+    return val;
+  }
+};
+
 export default function ChatBoxScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -17,8 +26,8 @@ export default function ChatBoxScreen() {
   const user = {
     userId: params.userId ?? params.id ?? null,
     name: params.name ?? "User",
-    // Avatar URLs passed as route params get URL-encoded — decode before use
-    avatar: params.avatar ? decodeURIComponent(params.avatar) : null,
+    // Avatar URLs passed as route params get URL-encoded — decode safely before use
+    avatar: safeDecodeUri(params.avatar),
     lastMsg: params.lastMsg ?? "",
     level: params.level ? Number(params.level) : null,
     officialSender: isOfficial,

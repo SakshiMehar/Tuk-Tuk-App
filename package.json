@@ -12,6 +12,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test:voice": "node scripts/run-voice-checks.js",
+    "symbolicate:android": "node scripts/symbolicate-android.js",
     "postinstall": "patch-package",
     "facebook:keyhash": "powershell -ExecutionPolicy Bypass -File ./scripts/get-facebook-key-hash.ps1",
     "google:android-sha": "powershell -ExecutionPolicy Bypass -File ./scripts/print-google-signin-sha.ps1"

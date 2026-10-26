@@ -117,8 +117,13 @@ export const clearPendingInviteCode = async () => {
 
 // ── Read stored user object ─────────────────────────────────
 export const getUser = async () => {
-  const raw = await AsyncStorage.getItem(USER_KEY);
-  return raw ? JSON.parse(raw) : null;
+  try {
+    const raw = await AsyncStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    console.warn("[authStore] Failed to parse stored user:", err);
+    return null;
+  }
 };
 
 export const setUser = async (user) => {

@@ -422,7 +422,13 @@ class WebSocketService {
     // so anything broadcast while disconnected (e.g. a seat update) is lost
     // unless callers explicitly re-sync their state here.
     if (isReconnect) {
-      this.reconnectHandlers.forEach((h) => h());
+      this.reconnectHandlers.forEach((h) => {
+        try {
+          h();
+        } catch (err) {
+          console.error('[WS] Error in reconnect handler:', err);
+        }
+      });
     }
   }
 
@@ -442,9 +448,19 @@ class WebSocketService {
       const destination = `/topic/users/${userId}/chats`;
 
       const sub = this.client.subscribe(destination, (frame: IMessage) => {
-        const payload: ChatMessage = JSON.parse(frame.body);
-        console.log("[WS] Received user chat payload raw:", frame.body);
-        this.messageHandlers.forEach((h) => h(payload));
+        try {
+          const payload: ChatMessage = JSON.parse(frame.body);
+          console.log("[WS] Received user chat payload raw:", frame.body);
+          this.messageHandlers.forEach((h) => {
+            try {
+              h(payload);
+            } catch (handlerErr) {
+              console.error("[WS] Handler error in user chats:", handlerErr);
+            }
+          });
+        } catch (err) {
+          console.error("[WS] Error parsing user chat payload:", err);
+        }
       });
       this.subscriptions.set(key, sub);
     });
@@ -673,8 +689,18 @@ class WebSocketService {
     handlers: Set<Handler<T>>,
   ): void {
     const sub = this.client!.subscribe(destination, (frame: IMessage) => {
-      const payload: T = JSON.parse(frame.body);
-      handlers.forEach((h) => h(payload));
+      try {
+        const payload: T = JSON.parse(frame.body);
+        handlers.forEach((h) => {
+          try {
+            h(payload);
+          } catch (handlerErr) {
+            console.error(`[WS] Handler error on ${destination}:`, handlerErr);
+          }
+        });
+      } catch (err) {
+        console.error(`[WS] Error parsing payload from ${destination}:`, err);
+      }
     });
     this.subscriptions.set(key, sub);
   }
@@ -748,8 +774,18 @@ class WebSocketService {
       const handlers = this._getFamilyHandlerSet(familyGroupId, topic);
 
       const sub = this.client!.subscribe(destination, (frame: IMessage) => {
-        const payload = JSON.parse(frame.body);
-        handlers.forEach((h) => h(payload));
+        try {
+          const payload = JSON.parse(frame.body);
+          handlers.forEach((h) => {
+            try {
+              h(payload);
+            } catch (handlerErr) {
+              console.error(`[WS] Handler error on family topic ${destination}:`, handlerErr);
+            }
+          });
+        } catch (err) {
+          console.error(`[WS] Error parsing family payload from ${destination}:`, err);
+        }
       });
       this.subscriptions.set(key, sub);
     });
@@ -819,14 +855,14 @@ class WebSocketService {
   }
 
   sendSpeakingStatus(roomId: string, isSpeaking: boolean, isMuted?: boolean): void {
-    this._assertConnected();
+    if (!this.connected || !this.client) return;
     const destination = `/app/room/${roomId}/speaking`;
     const body = JSON.stringify(isMuted !== undefined ? { isSpeaking, isMuted } : { isSpeaking });
-    this.client!.publish({ destination, body });
+    this.client.publish({ destination, body });
   }
 
   sendSeatHeartbeat(roomId: string, seatNumber?: number | string): void {
-    this._assertConnected();
+    if (!this.connected || !this.client) return;
     const destination =
       seatNumber != null
         ? `/app/room/${roomId}/seat/${seatNumber}/heartbeat`
@@ -839,7 +875,7 @@ class WebSocketService {
         connected: this.connected,
       });
     }
-    this.client!.publish({
+    this.client.publish({
       destination,
       body: JSON.stringify(seatNumber != null ? { seatNumber: Number(seatNumber) } : {}),
     });
@@ -848,9 +884,9 @@ class WebSocketService {
   // Keeps the room presence session alive for ANY user in the room (seated
   // or listening); backend auto-expires the session after 90 s without one.
   sendRoomHeartbeat(roomId: string): void {
-    this._assertConnected();
+    if (!this.connected || !this.client) return;
     const destination = `/app/room/${roomId}/heartbeat`;
-    this.client!.publish({ destination, body: JSON.stringify({}) });
+    this.client.publish({ destination, body: JSON.stringify({}) });
   }
 
   onRoomChat(roomId: string, handler: Handler<RoomChatPayload>): () => void {
@@ -1017,7 +1053,10 @@ class WebSocketService {
     content: string,
     mediaPayload?: any
   ): void {
-    this._assertConnected();
+    if (!this.connected || !this.client) {
+      console.warn('[WS] Cannot send message: not connected');
+      return;
+    }
     const destination = `/app/users/${recipientId}/chat`;
 
     // Explicitly construct payload with all keys present to prevent backend validation errors
@@ -1062,11 +1101,14 @@ class WebSocketService {
 
     console.log(`[WS] Sending chat to ${recipientId}:`, payload);
     const body = JSON.stringify(payload);
-    this.client!.publish({ destination, body });
+    this.client.publish({ destination, body });
   }
 
   sendCallSignal(recipientId: string, signalType: 'OFFER' | 'ANSWER' | 'REJECT' | 'END', callType: 'audio' | 'video', channelId?: string): void {
-    this._assertConnected();
+    if (!this.connected || !this.client) {
+      console.warn('[WS] Cannot send call signal: not connected');
+      return;
+    }
     const destination = `/app/users/${recipientId}/chat`;
     // Format: __CALL_SIGNAL__|{signalType}|{callType}|{channelId}
     const signalString = `__CALL_SIGNAL__|${signalType}|${callType}|${channelId || ''}`;
@@ -1074,7 +1116,7 @@ class WebSocketService {
       message: signalString
     };
     const body = JSON.stringify(payload);
-    this.client!.publish({ destination, body });
+    this.client.publish({ destination, body });
   }
 
   notifyTyping(receiverId: string): void {
@@ -1092,16 +1134,16 @@ class WebSocketService {
   }
 
   markAsRead(messageId: string): void {
-    if (!this.connected) return;
-    this.client!.publish({
+    if (!this.connected || !this.client) return;
+    this.client.publish({
       destination: '/app/chat.read',
       body: JSON.stringify({ messageId, status: 'MESSAGE_READ' }),
     });
   }
 
   private _sendTypingFrame(receiverId: string, isTyping: boolean): void {
-    if (!this.connected) return;
-    this.client!.publish({
+    if (!this.connected || !this.client) return;
+    this.client.publish({
       destination: '/app/chat.typing',
       body: JSON.stringify({ receiverId, isTyping }),
     });

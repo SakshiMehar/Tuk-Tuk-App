@@ -540,8 +540,9 @@ export default function ChatBox({ user = {}, onBack }) {
       if (!isThisChat) return;
 
       const text = payload?.content ?? payload?.message ?? "";
-      const image = payload?.image ?? payload?.media?.find(m => (m.type === 'IMAGE' || m.mediaType === 'IMAGE'))?.url ?? payload?.media?.find(m => (m.type === 'IMAGE' || m.mediaType === 'IMAGE'))?.mediaUrl ?? null;
-      const audio = payload?.audio ?? payload?.audioUrl ?? payload?.media?.find(m => (m.type === 'AUDIO' || m.mediaType === 'AUDIO'))?.url ?? payload?.media?.find(m => (m.type === 'AUDIO' || m.mediaType === 'AUDIO'))?.mediaUrl ?? null;
+      const payloadMedia = Array.isArray(payload?.media) ? payload.media : [];
+      const image = payload?.image ?? payloadMedia.find(m => (m?.type === 'IMAGE' || m?.mediaType === 'IMAGE'))?.url ?? payloadMedia.find(m => (m?.type === 'IMAGE' || m?.mediaType === 'IMAGE'))?.mediaUrl ?? null;
+      const audio = payload?.audio ?? payload?.audioUrl ?? payloadMedia.find(m => (m?.type === 'AUDIO' || m?.mediaType === 'AUDIO'))?.url ?? payloadMedia.find(m => (m?.type === 'AUDIO' || m?.mediaType === 'AUDIO'))?.mediaUrl ?? null;
       const audioDuration = payload?.audioDuration ?? 0;
 
       console.log("[ChatBox] onMessage parsed image:", image, "audio:", audio);
@@ -658,7 +659,8 @@ export default function ChatBox({ user = {}, onBack }) {
 
     try {
       const response = await uploadChatMedia(localUri, 'image/jpeg');
-      const imageUrl = response?.media?.find(m => m.type === 'IMAGE')?.url || response?.media?.[0]?.url || response?.url;
+      const responseMedia = Array.isArray(response?.media) ? response.media : [];
+      const imageUrl = responseMedia.find(m => m?.type === 'IMAGE')?.url || responseMedia[0]?.url || response?.url;
 
       if (imageUrl) {
         wsService.sendMessage(String(userId), "", response);
@@ -735,7 +737,8 @@ export default function ChatBox({ user = {}, onBack }) {
 
     try {
       const response = await uploadChatMedia(localUri, 'audio/m4a');
-      const audioUrl = response?.media?.find(m => m.type === 'AUDIO')?.url || response?.media?.[0]?.url || response?.url;
+      const responseAudioMedia = Array.isArray(response?.media) ? response.media : [];
+      const audioUrl = responseAudioMedia.find(m => m?.type === 'AUDIO')?.url || responseAudioMedia[0]?.url || response?.url;
 
       if (audioUrl) {
         wsService.sendMessage(String(userId), "", { ...response, audioDuration: durationMs });

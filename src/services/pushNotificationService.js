@@ -152,14 +152,18 @@ export const initPushNotificationListeners = ({
   const messagingInstance = getMessaging();
 
   const unsubscribeOnMessage = onMessage(messagingInstance, async (remoteMessage) => {
-    console.log("====== FOREGROUND PUSH (FROM SERVICE) ======");
-    console.log(JSON.stringify(remoteMessage, null, 2));
-    
-    onForegroundMessage?.({
-      title: remoteMessage?.notification?.title ?? "Tuk-Tuk",
-      body: remoteMessage?.notification?.body ?? "",
-      data: remoteMessage?.data ?? {},
-    });
+    try {
+      console.log("====== FOREGROUND PUSH (FROM SERVICE) ======");
+      console.log(JSON.stringify(remoteMessage, null, 2));
+      
+      onForegroundMessage?.({
+        title: remoteMessage?.notification?.title ?? "Tuk-Tuk",
+        body: remoteMessage?.notification?.body ?? "",
+        data: remoteMessage?.data ?? {},
+      });
+    } catch (err) {
+      console.warn("[Push] Error handling foreground message:", err);
+    }
   });
 
   const unsubscribeOnTokenRefresh = onTokenRefresh(messagingInstance, async (token) => {
@@ -184,25 +188,33 @@ export const initPushNotificationListeners = ({
 
   // Tapped a notification while the app was backgrounded (not killed).
   const unsubscribeOnOpenedApp = onNotificationOpenedApp(messagingInstance, (remoteMessage) => {
-    const payload = {
-      ...(remoteMessage?.notification ?? {}),
-      ...(remoteMessage?.data ?? {}),
-    };
-    if (Object.keys(payload).length > 0) {
-      onNotificationTap?.({ data: payload, isInitial: false });
+    try {
+      const payload = {
+        ...(remoteMessage?.notification ?? {}),
+        ...(remoteMessage?.data ?? {}),
+      };
+      if (Object.keys(payload).length > 0) {
+        onNotificationTap?.({ data: payload, isInitial: false });
+      }
+    } catch (err) {
+      console.warn("[Push] Error handling notification open:", err);
     }
   });
 
   // Tapped a notification that launched the app from a killed state.
   getInitialNotification(messagingInstance)
     .then((remoteMessage) => {
-      const payload = {
-        ...(remoteMessage?.notification ?? {}),
-        ...(remoteMessage?.data ?? {}),
-      };
-      if (Object.keys(payload).length > 0) {
-        setPendingNotification(payload);
-        onNotificationTap?.({ data: payload, isInitial: true });
+      try {
+        const payload = {
+          ...(remoteMessage?.notification ?? {}),
+          ...(remoteMessage?.data ?? {}),
+        };
+        if (Object.keys(payload).length > 0) {
+          setPendingNotification(payload);
+          onNotificationTap?.({ data: payload, isInitial: true });
+        }
+      } catch (err) {
+        console.warn("[Push] Error handling initial notification:", err);
       }
     })
     .catch(() => {});

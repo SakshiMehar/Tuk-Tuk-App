@@ -93,7 +93,7 @@ export default function RootLayout() {
     const unsubscribePush = initPushNotificationListeners({
       onForegroundMessage: ({ title, body, data }) => {
         // Suppress generic alert for incoming call signals (handled natively by CallContext)
-        const type = data?.type?.toUpperCase();
+        const type = data?.type != null ? String(data.type).toUpperCase() : "";
         if (type && type.startsWith('CALL_')) {
           return;
         }
@@ -109,7 +109,11 @@ export default function RootLayout() {
             {
               text: "View",
               onPress: () => {
-                if (data) navigateFromNotification(router, data);
+                if (data) {
+                  navigateFromNotification(router, data).catch((err) => {
+                    console.warn("[_layout] Notification navigation error:", err);
+                  });
+                }
               },
             },
           ],
@@ -118,7 +122,9 @@ export default function RootLayout() {
       },
       onNotificationTap: ({ data }) => {
         if (data) {
-          navigateFromNotification(router, data);
+          navigateFromNotification(router, data).catch((err) => {
+            console.warn("[_layout] Notification tap navigation error:", err);
+          });
         }
       },
     });
