@@ -2635,7 +2635,7 @@ export default function VoiceParty() {
     const isGif = isGifMedia(rawUrl) || Boolean(currentVideo.isGif);
 
     // If media is a GIF, do not pass to videoPlayer (expo-video cannot play GIFs).
-    // Automatically close after 5 seconds of animation.
+    // Automatically close after 6 seconds of animation.
     if (isGif) {
       try {
         videoPlayer?.pause?.();
@@ -2647,7 +2647,7 @@ export default function VoiceParty() {
           setShowVideoModal(false);
           setCurrentVideo(null);
         }
-      }, 8000);
+      }, 6000);
 
       return () => {
         cancelled = true;
@@ -2656,16 +2656,20 @@ export default function VoiceParty() {
     }
 
     let cancelled = false;
+    let videoTimer = null;
     const source = resolveVideoSource(rawUrl);
     if (!source) return undefined;
 
-    // Safety timeout: automatically close if video finishes or in case playToEnd doesn't fire
+    // Safety timeout: automatically close if video loading hangs or fails to play
     const safetyTimer = setTimeout(() => {
       if (!cancelled) {
+        try {
+          videoPlayer?.pause?.();
+        } catch {}
         setShowVideoModal(false);
         setCurrentVideo(null);
       }
-    }, 22000);
+    }, 7000);
 
     (async () => {
       try {
@@ -2673,6 +2677,18 @@ export default function VoiceParty() {
         if (!cancelled) {
           videoPlayer.currentTime = 0;
           videoPlayer.play();
+
+          // Close video modal after 6 seconds of playback for all room participants
+          if (videoTimer) clearTimeout(videoTimer);
+          videoTimer = setTimeout(() => {
+            if (!cancelled) {
+              try {
+                videoPlayer?.pause?.();
+              } catch {}
+              setShowVideoModal(false);
+              setCurrentVideo(null);
+            }
+          }, 6000);
         }
       } catch (err) {
         console.error("[VoiceParty] video playback failed", err);
@@ -2686,6 +2702,7 @@ export default function VoiceParty() {
     return () => {
       cancelled = true;
       clearTimeout(safetyTimer);
+      if (videoTimer) clearTimeout(videoTimer);
     };
   }, [
     showVideoModal,
