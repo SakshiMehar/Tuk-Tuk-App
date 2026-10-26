@@ -59,9 +59,10 @@ const listFrom = (value, key) => {
   );
 };
 
-const normalizeCategory = (room) => {
-  const raw = firstText(room?.category, room?.roomType) ?? "recommend";
-  return raw.toLowerCase().replace(/\s+/g, "_");
+const normalizeCategory = (...rooms) => {
+  const raw =
+    firstText(...rooms.flatMap((room) => [room?.category, room?.roomType])) ?? "recommend";
+  return raw.trim().toLowerCase().replace(/\s+/g, "_");
 };
 
 const parseRoomsResponse = (data) => {
@@ -115,7 +116,7 @@ export const normalizeRoom = (rawRoom) => {
       room?.userCount ?? room?.onlineCount ?? room?.participantCount ?? rawRoom?.userCount ?? 0,
     hasChat: room?.hasChat !== false,
     verified: Boolean(room?.verified ?? rawRoom?.verified),
-    category: normalizeCategory(room),
+    category: normalizeCategory(room, rawRoom),
     hostId: firstValue(room?.creatorId, room?.hostId, room?.ownerId, rawRoom?.creatorId, rawRoom?.hostId),
     badges: Array.isArray(room?.badges) ? room.badges : Array.isArray(rawRoom?.badges) ? rawRoom.badges : [],
     statusIcons: Array.isArray(room?.statusIcons)

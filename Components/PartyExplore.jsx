@@ -147,18 +147,6 @@ const FILTER_CATEGORY_MAP = {
 const matchesFilter = (room, filter) => {
   const categoryKey = FILTER_CATEGORY_MAP[filter];
   if (!categoryKey) return true;
-  if (categoryKey === "official") {
-    return Boolean(
-      room.category === "official" ||
-      room.isOfficial === true ||
-      room.official === true ||
-      room.roomType?.toLowerCase() === "official" ||
-      room.type?.toLowerCase() === "official" ||
-      room.title?.toLowerCase()?.includes("official") ||
-      room.name?.toLowerCase()?.includes("official") ||
-      (Array.isArray(room.tags) && room.tags.some((t) => String(t).toLowerCase() === "official"))
-    );
-  }
   return room.category === categoryKey;
 };
 
