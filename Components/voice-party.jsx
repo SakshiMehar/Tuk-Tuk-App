@@ -3928,6 +3928,79 @@ export default function VoiceParty() {
     ).trim();
   }, [localSessionUser]);
 
+  const isPkGiftItem = useCallback((giftOrPayload) => {
+    if (!giftOrPayload) return false;
+
+    // Check source tab first
+    const sourceTab = String(
+      giftOrPayload._sourceTab ||
+      giftOrPayload.sourceTab ||
+      giftOrPayload.tab ||
+      ""
+    ).toUpperCase();
+    if (sourceTab === "PK") return true;
+    if (sourceTab === "GIFT" || sourceTab === "BACKPACK") return false;
+
+    // Explicit PK flags
+    if (giftOrPayload.isPk || giftOrPayload.isPkGift || giftOrPayload.fromPk) {
+      return true;
+    }
+
+    // Explicit category check
+    const cat = String(
+      giftOrPayload.category ||
+      giftOrPayload.giftCategory ||
+      ""
+    ).toLowerCase();
+    if (cat === "pk") return true;
+    if (cat === "gift") return false;
+
+    // Check if it belongs to giftCatalog.gift vs giftCatalog.pk
+    const pkItems = giftCatalogRef.current?.pk || [];
+    const giftItems = giftCatalogRef.current?.gift || [];
+
+    const targetCode = String(
+      giftOrPayload.giftCode ||
+      giftOrPayload.id ||
+      giftOrPayload.giftId ||
+      giftOrPayload.databaseId ||
+      ""
+    ).toLowerCase().trim();
+    const targetName = String(
+      giftOrPayload.name ||
+      giftOrPayload.giftName ||
+      ""
+    ).toLowerCase().trim();
+
+    // If it explicitly matches an item in the Gift session catalog, then it's NOT a PK gift
+    if (giftItems.length > 0 && (targetCode || targetName)) {
+      const inGiftCatalog = giftItems.some((it) => {
+        const itCode = String(it.giftCode || it.id || it.databaseId || "").toLowerCase().trim();
+        const itName = String(it.name || "").toLowerCase().trim();
+        return (
+          (itCode && targetCode && (itCode === targetCode || targetCode === String(it.databaseId))) ||
+          (itName && targetName && itName === targetName)
+        );
+      });
+      if (inGiftCatalog) return false;
+    }
+
+    // Check if it matches an item in the PK session catalog
+    if (pkItems.length > 0 && (targetCode || targetName)) {
+      const inPkCatalog = pkItems.some((it) => {
+        const itCode = String(it.giftCode || it.id || it.databaseId || "").toLowerCase().trim();
+        const itName = String(it.name || "").toLowerCase().trim();
+        return (
+          (itCode && targetCode && (itCode === targetCode || targetCode === String(it.databaseId))) ||
+          (itName && targetName && itName === targetName)
+        );
+      });
+      if (inPkCatalog) return true;
+    }
+
+    return false;
+  }, []);
+
   const revealGiftAnimation = useCallback((payload, fallbackGift) => {
     const animated = normalizeGiftAnimation(payload, fallbackGift);
     recentGiftBannersRef.current.set(giftBannerKey(animated), Date.now());
@@ -3956,7 +4029,18 @@ export default function VoiceParty() {
       );
     }, 3000);
 
-    // Video or GIF animation playback for everyone in room (PK & video/gif gifts)
+    // Video or GIF animation playback: ONLY for PK session gifts
+    const isPk =
+      isPkGiftItem(payload) ||
+      isPkGiftItem(fallbackGift) ||
+      isPkGiftItem(animated);
+
+    if (!isPk) {
+      // User requirement: video and GIF should NOT show when gift is sent from gift session,
+      // ONLY when gift is sent from PK session!
+      return;
+    }
+
     let animationUrl =
       animated.videoUrl ||
       payload?.videoUrl ||
@@ -3980,17 +4064,11 @@ export default function VoiceParty() {
     }
 
     if (!animationUrl && giftCatalogRef.current) {
-      const allItems = [
-        ...(giftCatalogRef.current.pk || []),
-        ...(giftCatalogRef.current.gift || []),
-        ...(giftCatalogRef.current.special || []),
-        ...(giftCatalogRef.current.vip || []),
-        ...(giftCatalogRef.current.relationship || []),
-      ];
+      const pkItems = giftCatalogRef.current.pk || [];
       const targetName = String(animated.name || payload?.giftName || "").toLowerCase().trim();
       const targetCode = String(animated.giftCode || animated.id || payload?.giftId || payload?.giftCode || "").toLowerCase().trim();
 
-      const match = allItems.find((it) => {
+      const match = pkItems.find((it) => {
         const itCode = String(it.giftCode || it.id || it.databaseId || "").toLowerCase().trim();
         const itName = String(it.name || "").toLowerCase().trim();
         return (
@@ -4028,7 +4106,7 @@ export default function VoiceParty() {
         setShowVideoModal(true);
       }
     }
-  }, []);
+  }, [isPkGiftItem]);
 
   useEffect(() => {
     if (!roomId) return undefined;
@@ -5921,8 +5999,11 @@ export default function VoiceParty() {
     setShowChatInput(true);
   };
 
-  const openGiftPurchase = (gift) => {
-    setPurchaseGift(gift);
+  const openGiftPurchase = (gift, sourceTab = backpackMainTab) => {
+    setPurchaseGift({
+      ...gift,
+      _sourceTab: sourceTab || backpackMainTab,
+    });
   };
 
   const confirmSendGift = async () => {
@@ -5971,28 +6052,32 @@ export default function VoiceParty() {
       setPurchaseGift(null);
       setShowBackpack(false);
 
-      // Play video / GIF immediately for sender if sent gift has videoUrl / videoPath / gif
-      const sentMediaUrl =
-        sentGift?.videoUrl ||
-        sentGift?.videoPath ||
-        sentGift?.animationUrl ||
-        (sentGift?.imageUrl && isGifMedia(sentGift.imageUrl) ? sentGift.imageUrl : null) ||
-        (sentGift?.imagePath && isGifMedia(sentGift.imagePath) ? sentGift.imagePath : null);
+      // Play video / GIF immediately for sender ONLY if sent from PK session
+      const isFromPkSession = isPkGiftItem(sentGift);
 
-      if (sentMediaUrl) {
-        const videoKey = String(sentGift?.databaseId || sentGift?.id || sentGift?.name);
-        lastPlayedVideoIdRef.current = videoKey;
-        lastPlayedVideoTimeRef.current = Date.now();
-        setCurrentVideo({
-          id: sentGift.id,
-          name: sentGift.name,
-          videoUrl: sentMediaUrl,
-          uri: sentMediaUrl,
-          isGif: isGifMedia(sentMediaUrl),
-          senderName: localSessionUser?.name || "You",
-          receiverName: giftReceiverName,
-        });
-        setShowVideoModal(true);
+      if (isFromPkSession) {
+        const sentMediaUrl =
+          sentGift?.videoUrl ||
+          sentGift?.videoPath ||
+          sentGift?.animationUrl ||
+          (sentGift?.imageUrl && isGifMedia(sentGift.imageUrl) ? sentGift.imageUrl : null) ||
+          (sentGift?.imagePath && isGifMedia(sentGift.imagePath) ? sentGift.imagePath : null);
+
+        if (sentMediaUrl) {
+          const videoKey = String(sentGift?.databaseId || sentGift?.id || sentGift?.name);
+          lastPlayedVideoIdRef.current = videoKey;
+          lastPlayedVideoTimeRef.current = Date.now();
+          setCurrentVideo({
+            id: sentGift.id,
+            name: sentGift.name,
+            videoUrl: sentMediaUrl,
+            uri: sentMediaUrl,
+            isGif: isGifMedia(sentMediaUrl),
+            senderName: localSessionUser?.name || "You",
+            receiverName: giftReceiverName,
+          });
+          setShowVideoModal(true);
+        }
       }
     } catch (err) {
       Alert.alert("Failed", err?.response?.data?.message || err?.message || "Could not send gift");
@@ -7501,7 +7586,7 @@ export default function VoiceParty() {
                           key={gift.id}
                           style={styles.bpGiftCard}
                           activeOpacity={0.8}
-                          onPress={() => openGiftPurchase(gift)}
+                          onPress={() => openGiftPurchase(gift, "Gift")}
                         >
                           {gift.hot && (
                             <View style={styles.bpHotBadge}>
@@ -7688,7 +7773,7 @@ export default function VoiceParty() {
                           key={gift.id}
                           style={styles.bpGiftCard}
                           activeOpacity={0.8}
-                          onPress={() => openGiftPurchase(gift)}
+                          onPress={() => openGiftPurchase(gift, "Activity")}
                         >
                           {gift.imageUrl ? (
                             <View style={styles.bpGiftImageWrap}>
@@ -7856,7 +7941,7 @@ export default function VoiceParty() {
                           key={gift.id}
                           style={styles.bpGiftCard}
                           activeOpacity={0.8}
-                          onPress={() => openGiftPurchase(gift)}
+                          onPress={() => openGiftPurchase(gift, "PK")}
                         >
                           {gift.hot && (
                             <View style={styles.bpHotBadge}>
@@ -7907,7 +7992,7 @@ export default function VoiceParty() {
                           key={gift.id}
                           style={styles.bpGiftCard}
                           activeOpacity={0.8}
-                          onPress={() => openGiftPurchase(gift)}
+                          onPress={() => openGiftPurchase(gift, "Special")}
                         >
                           {gift.isNew && (
                             <View style={styles.bpNewBadge}>
