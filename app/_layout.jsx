@@ -91,34 +91,8 @@ export default function RootLayout() {
     });
 
     const unsubscribePush = initPushNotificationListeners({
-      onForegroundMessage: ({ title, body, data }) => {
-        // Suppress generic alert for incoming call signals (handled natively by CallContext)
-        const type = data?.type != null ? String(data.type).toUpperCase() : "";
-        if (type && type.startsWith('CALL_')) {
-          return;
-        }
-        
-        // title defaults to "Tuk-Tuk" in service, so body check is more reliable
-        // Sometimes backends send " " (space) to force a push, so we trim it.
-        if (!body || body.trim() === '') return;
-        Alert.alert(
-          title || "Tuk-Tuk",
-          body || "",
-          [
-            { text: "Dismiss", style: "cancel" },
-            {
-              text: "View",
-              onPress: () => {
-                if (data) {
-                  navigateFromNotification(router, data).catch((err) => {
-                    console.warn("[_layout] Notification navigation error:", err);
-                  });
-                }
-              },
-            },
-          ],
-          { cancelable: true }
-        );
+      onForegroundMessage: () => {
+        // Foreground messages are handled seamlessly without disruptive native alert dialogs
       },
       onNotificationTap: ({ data }) => {
         if (data) {

@@ -205,7 +205,15 @@ export const parsePartyGiftCatalog = (data) => {
   if (!data || typeof data !== "object") return catalog;
 
   PARTY_CATALOG_KEYS.forEach((key) => {
-    const items = asList(data[key]).filter(isActiveGift).map(normalizeCatalogGift);
+    const items = asList(data[key])
+      .filter(isActiveGift)
+      .map((item) => {
+        const normalized = normalizeCatalogGift(item);
+        return {
+          ...normalized,
+          category: normalized.category || key,
+        };
+      });
     if (key === "activity") {
       catalog.activity = items;
       catalog.activityByEvent = groupActivityGifts(items);
@@ -222,7 +230,13 @@ export const loadGiftCatalog = async (category = "gift") => {
   const data = await getGiftCatalog(category);
   return asList(data)
     .filter(isActiveGift)
-    .map(normalizeCatalogGift)
+    .map((item) => {
+      const normalized = normalizeCatalogGift(item);
+      return {
+        ...normalized,
+        category: normalized.category || category,
+      };
+    })
     .filter((gift) => !category || !gift.category || gift.category === category);
 };
 
