@@ -70,9 +70,9 @@ export const getNearbyUsers = async ({
   if (city) params.set("city", city);
   const base = NEARBY_PATHS[variant] ?? NEARBY_PATHS.all;
   const url = `${base}?${params.toString()}`;
-  
+  console.log(`[userApi] GET ${url} request started (variant: ${variant})`);
   const response = await API.get(url, await authRequestConfig());
-  
+  console.log(`[userApi] GET ${url} response:`, response.data);
   return response.data;
 };
 
@@ -94,23 +94,37 @@ export const getActiveUsersCount = async () => {
 
 export const getUserById = async (userId) => {
   const id = String(userId);
-
+  console.log(`[userApi] GET /api/app/users/${id} request started (userId: ${userId})`);
   const response = await API.get(
     `/api/app/users/${id}`,
     await authRequestConfig()
   );
-  console.log(`[userApi] GET /api/app/users/${id} -> RAW`, JSON.stringify(response.data));
+  console.log(`[userApi] GET /api/app/users/${id} response:`, response.data);
   return response.data;
 };
 
+/** GET /api/app/users/user/profile/{userId} — fetch full dynamic user profile */
+export const getUserProfile = async (userId) => {
+  const id = encodeURIComponent(String(userId));
+  console.log(`[userApi] GET /api/app/users/user/profile/${id} request started (userId: ${userId})`);
+  const response = await API.get(
+    `/api/app/users/user/profile/${id}`,
+    await authRequestConfig()
+  );
+  console.log(`[userApi] GET /api/app/users/user/profile/${id} response:`, response.data);
+  return response.data;
+};
+
+export const getUserProfileByUserId = getUserProfile;
+
 export const getUserProfileDetails = async (targetUserId) => {
   const id = String(targetUserId);
-
+  console.log(`[userApi] GET /api/app/users/${id}/profile-details request started (targetUserId: ${targetUserId})`);
   const response = await API.get(
     `/api/app/users/${id}/profile-details`,
     await authRequestConfig()
   );
-  console.log(`[userApi] GET /api/app/users/${id}/profile-details -> RAW`, JSON.stringify(response.data));
+  console.log(`[userApi] GET /api/app/users/${id}/profile-details response:`, response.data);
   return response.data;
 };
 

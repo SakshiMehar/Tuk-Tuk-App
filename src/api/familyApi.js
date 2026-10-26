@@ -20,11 +20,9 @@ import { API_BASE_URL } from "../config/env";
 const LOG_TAG = "[FamilyAPI]";
 
 const logRequest = (method, path, payload) => {
-  console.log(`${LOG_TAG} → ${method} ${path}`, payload ?? "");
 };
 
 const logResponse = (method, path, data) => {
-  console.log(`${LOG_TAG} ← ${method} ${path}`, data);
 };
 
 const logError = (method, path, error) => {

@@ -9,6 +9,5 @@ export const getUserDecorations = async (userId) => {
     `/api/v1/users/${id}/decorations`,
     await authRequestConfig()
   );
-  console.log(`[decorationsApi] GET /api/v1/users/${id}/decorations -> RAW`, JSON.stringify(response.data));
   return response.data;
 };

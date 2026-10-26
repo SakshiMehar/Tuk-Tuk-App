@@ -51,7 +51,6 @@ const normalizeGamificationProfile = (data) => {
 export const loadGamificationProfile = async () => {
   const data = await getGamificationMe();
   const parsed = normalizeGamificationProfile(data);
-  console.log("[gamificationService] parsed ->", JSON.stringify(parsed, null, 2));
   return parsed;
 };
 
@@ -60,6 +59,5 @@ export const loadGamificationProfile = async () => {
  *  not yet normalized/consumed since its response shape hasn't been confirmed. */
 export const loadGamificationLevel = async () => {
   const data = await getGamificationMeLevel();
-  console.log("[gamificationService] /me/level ->", JSON.stringify(data, null, 2));
   return data;
 };

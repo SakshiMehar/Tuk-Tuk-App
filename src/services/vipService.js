@@ -7,7 +7,7 @@ import {
 } from "../api/vipApi";
 import { loadGamificationProfile } from "./gamificationService";
 import { resolveRemoteProfilePicUrl } from "./meProfileService";
-import { resolveVipTierForXp, resolveVipTierFromAssetUrl } from "../constants/vip";
+import { resolveVipTierForXp, resolveVipTierFromAssetUrl, VIP_TIER_THRESHOLDS } from "../constants/vip";
 
 const NO_VIP_ASSETS = {
   unlocked: false,
@@ -26,12 +26,24 @@ const parseAssetUrl = (data) => {
   );
 };
 
+/** Each /api/app/vip/me/* endpoint returns a VipAssetResponse — `active`
+ *  (is VIP currently unlocked) and `vipLevel` (the backend-confirmed tier)
+ *  straight from the source of truth, not just the asset URL. `reachable`
+ *  tracks whether the request actually got a response at all, so the
+ *  caller can tell "confirmed not VIP" apart from "couldn't ask". */
 const fetchVipAsset = async (fetcher, fallbackUrl) => {
   try {
-    const url = parseAssetUrl(await fetcher());
-    return url ? resolveRemoteProfilePicUrl(url) ?? url : fallbackUrl;
+    const data = await fetcher();
+    const root = data?.data ?? data;
+    const url = parseAssetUrl(data);
+    return {
+      reachable: true,
+      url: url ? resolveRemoteProfilePicUrl(url) ?? url : fallbackUrl,
+      active: Boolean(root?.active),
+      vipLevel: typeof root?.vipLevel === "number" ? root.vipLevel : null,
+    };
   } catch {
-    return fallbackUrl;
+    return { reachable: false, url: fallbackUrl, active: false, vipLevel: null };
   }
 };
 
@@ -49,33 +61,93 @@ export const loadMyVipXp = async () => {
 /** Resolves the VIP cosmetic set for the current user. `totalXp` can be passed
  *  in if the caller already fetched it (e.g. via syncUserLevelForSession) to
  *  avoid a duplicate gamification request; otherwise it's fetched here.
- *  Below tier 1's threshold, every asset is null and `unlocked` is false —
- *  that's the gate callers should check before rendering any VIP frame/logo.
- *  Above it, the tier is picked from VIP_TIER_THRESHOLDS by the user's actual
- *  XP (not hardcoded to tier 1) — the API result (once confirmed) still takes
- *  priority per asset, this tier's assets are only the fallback. */
+ *
+ *  The local XP-threshold guess is used only to pick *fallback* asset URLs —
+ *  it never gates whether the real `/api/app/vip/me/*` endpoints get called.
+ *  `unlocked` is decided from those endpoints' own `active` flag (the
+ *  backend's authoritative answer) whenever at least one of them actually
+ *  responded; the XP guess is the fallback only if every endpoint failed to
+ *  answer at all (e.g. a network blip), so a real VIP's badge doesn't
+ *  disappear just because one unrelated fetch hiccuped, but a backend
+ *  "not VIP" also can't be overridden by a stale local guess. */
 export const loadMyVipAssets = async (totalXp) => {
   const xp = totalXp ?? (await loadMyVipXp());
   const tierEntry = resolveVipTierForXp(xp);
-  if (!tierEntry) return NO_VIP_ASSETS;
+  const fallback = tierEntry?.assets ?? {};
 
-  const fallback = tierEntry.assets;
   const [profileFrame, entryFrame, chatFrame, logo] = await Promise.all([
-    fetchVipAsset(getMyVipProfileFrame, fallback.profileFrame),
-    fetchVipAsset(getMyVipEntryFrame, fallback.entryFrame),
-    fetchVipAsset(getMyVipChatFrame, fallback.chatFrame),
-    fetchVipAsset(getMyVipLogo, fallback.logo),
+    fetchVipAsset(getMyVipProfileFrame, fallback.profileFrame ?? null),
+    fetchVipAsset(getMyVipEntryFrame, fallback.entryFrame ?? null),
+    fetchVipAsset(getMyVipChatFrame, fallback.chatFrame ?? null),
+    fetchVipAsset(getMyVipLogo, fallback.logo ?? null),
   ]);
-  // Prefer the tier baked into the actual returned asset URLs over the
-  // XP-threshold guess — the real API result can legitimately be a
-  // different tier than what our local thresholds compute (e.g. thresholds
-  // here are placeholders for several tiers, see VIP_TIER_THRESHOLDS).
-  const tier =
-    resolveVipTierFromAssetUrl(chatFrame) ??
-    resolveVipTierFromAssetUrl(profileFrame) ??
-    tierEntry.tier;
 
-  return { unlocked: true, tier, profileFrame, entryFrame, chatFrame, logo };
+  const results = [profileFrame, entryFrame, chatFrame, logo];
+  const anyReachable = results.some((r) => r.reachable);
+  const backendActive = results.some((r) => r.active);
+  const unlocked = anyReachable ? backendActive : Boolean(tierEntry);
+
+  if (!unlocked) {
+    console.log(
+      "[vipService] Resolved not-VIP — xp:", xp,
+      "tierEntry:", tierEntry?.tier ?? null,
+      "anyReachable:", anyReachable,
+      "backendActive:", backendActive,
+    );
+    return NO_VIP_ASSETS;
+  }
+
+  // Prefer the backend-confirmed vipLevel, then the tier baked into the
+  // actual returned asset URLs, then the XP-threshold guess — the real API
+  // result can legitimately be a different tier than what our local
+  // thresholds compute (e.g. thresholds here are placeholders for several
+  // tiers, see VIP_TIER_THRESHOLDS).
+  const backendVipLevel = results.find((r) => r.active && typeof r.vipLevel === "number")?.vipLevel ?? null;
+  const tier =
+    backendVipLevel ??
+    resolveVipTierFromAssetUrl(chatFrame.url) ??
+    resolveVipTierFromAssetUrl(profileFrame.url) ??
+    resolveVipTierFromAssetUrl(logo.url) ??
+    tierEntry?.tier ??
+    null;
+
+  // Each asset's own `fallbackUrl` above came from `tierEntry` — the local
+  // XP-threshold *guess* computed before `tier` (the backend-confirmed
+  // answer) was known. When the backend confirms a different tier than that
+  // guess (or the guess was null), an asset whose endpoint didn't return a
+  // usable URL is left stuck on the wrong guess's fallback — or null, e.g.
+  // logo ending up empty even though `unlocked`/`tier` are correct, so a
+  // badge silently fails to render. Re-fall back to the *confirmed* tier's
+  // assets so every asset matches the tier already shown elsewhere (chat
+  // frame, seat ring), not a stale local guess.
+  const confirmedAssets = tier
+    ? VIP_TIER_THRESHOLDS.find((entry) => entry.tier === tier)?.assets ?? null
+    : null;
+
+
+  // The live endpoints can also return a URL that's *present* but broken —
+  // confirmed for tier 8's logo, where /api/app/vip/me/logo answers with
+  // ".../viplogo8.png" (lowercase) while the real S3 object is
+  // ".../Viplogo8.png" (capitalized), a 403 on the exact-lowercase key. S3
+  // keys are case-sensitive, so that mounts a broken <Image> instead of
+  // falling through to any fallback. When the live URL is only a case
+  // variant of our verified-working static asset for the same tier, prefer
+  // the static one; anything genuinely different (a real custom asset) is
+  // left untouched.
+  const preferCaseCorrected = (liveUrl, staticUrl) => {
+    if (!liveUrl) return staticUrl ?? null;
+    if (!staticUrl || liveUrl === staticUrl) return liveUrl;
+    return liveUrl.toLowerCase() === staticUrl.toLowerCase() ? staticUrl : liveUrl;
+  };
+
+  return {
+    unlocked: true,
+    tier,
+    profileFrame: preferCaseCorrected(profileFrame.url, confirmedAssets?.profileFrame),
+    entryFrame: preferCaseCorrected(entryFrame.url, confirmedAssets?.entryFrame),
+    chatFrame: preferCaseCorrected(chatFrame.url, confirmedAssets?.chatFrame),
+    logo: preferCaseCorrected(logo.url, confirmedAssets?.logo),
+  };
 };
 
 /** Another user's VIP profile-frame URL, fetched on demand — use only where a

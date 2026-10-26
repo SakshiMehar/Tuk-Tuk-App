@@ -1,9 +1,9 @@
 import { Audio } from "expo-av";
 import {
-  createAgoraRtcEngine,
   ChannelProfileType,
   ClientRoleType,
   ConnectionStateType,
+  createAgoraRtcEngine,
 } from "react-native-agora";
 import { AGORA_APP_ID } from "../config/env";
 import { parseTokenPayload, unwrapVoiceTokenResponse, validateTokenPayload } from "./voice/voiceTokenUtils";
@@ -23,8 +23,69 @@ let leaveWaiters = [];
 let tokenRenewalHandler = null;
 let statusListeners = new Set();
 let speakingListeners = new Set();   // { uid: number, isSpeaking: boolean }
+let muteListeners = new Set();       // { uid: number, muted: boolean }
 let connectionState = ConnectionStateType.ConnectionStateDisconnected;
 
+let currentAudioMixingVolume = 80;
+
+export const setAudioMixingVolume = (volume) => {
+  const vol = Math.max(0, Math.min(100, Math.round(Number(volume) ?? 80)));
+  currentAudioMixingVolume = vol;
+  if (!engine) return currentAudioMixingVolume;
+  try {
+    if (typeof engine.adjustAudioMixingVolume === "function") {
+      engine.adjustAudioMixingVolume(vol);
+    }
+  } catch (err) {
+    console.warn("Agora adjustAudioMixingVolume failed:", err);
+  }
+  try {
+    if (typeof engine.adjustAudioMixingPlayoutVolume === "function") {
+      engine.adjustAudioMixingPlayoutVolume(vol);
+    }
+    if (typeof engine.adjustAudioMixingPublishVolume === "function") {
+      engine.adjustAudioMixingPublishVolume(vol);
+    }
+  } catch (err) {
+    // ignore
+  }
+  return currentAudioMixingVolume;
+};
+
+export const getAudioMixingVolume = () => currentAudioMixingVolume;
+
+export const playAudioForEveryone = (filePath) => {
+  if (!engine) return;
+  engine.startAudioMixing(filePath, false, 1, 0);
+  try {
+    if (typeof engine.adjustAudioMixingVolume === "function") {
+      engine.adjustAudioMixingVolume(currentAudioMixingVolume);
+    }
+  } catch (err) {}
+  try {
+    if (typeof engine.adjustAudioMixingPlayoutVolume === "function") {
+      engine.adjustAudioMixingPlayoutVolume(currentAudioMixingVolume);
+    }
+    if (typeof engine.adjustAudioMixingPublishVolume === "function") {
+      engine.adjustAudioMixingPublishVolume(currentAudioMixingVolume);
+    }
+  } catch (err) {}
+};
+
+export const stopAudioForEveryone = () => {
+  if (!engine) return;
+  engine.stopAudioMixing();
+};
+
+export const pauseAudioForEveryone = () => {
+  if (!engine) return;
+  engine.pauseAudioMixing();
+};
+
+export const resumeAudioForEveryone = () => {
+  if (!engine) return;
+  engine.resumeAudioMixing();
+};
 // Volume threshold — Agora reports 0–255; anything above this is "speaking"
 const SPEAKING_VOLUME_THRESHOLD = 20;
 
@@ -50,6 +111,22 @@ const notifySpeakingListeners = (uid, isSpeaking) => {
       // ignore
     }
   });
+};
+
+const notifyMuteListeners = (uid, muted) => {
+  muteListeners.forEach((listener) => {
+    try {
+      listener({ uid, muted });
+    } catch {
+      // ignore
+    }
+  });
+};
+
+let audioMixingListeners = new Set();
+export const subscribeAudioMixing = (callback) => {
+  audioMixingListeners.add(callback);
+  return () => audioMixingListeners.delete(callback);
 };
 
 const settleJoinWaiters = (err = null) => {
@@ -250,6 +327,11 @@ const ensureEngine = (appId) => {
       }
       notifyStatusListeners();
     },
+    onUserMuteAudio: (_connection, remoteUid, muted) => {
+      if (remoteUid != null) {
+        notifyMuteListeners(Number(remoteUid), Boolean(muted));
+      }
+    },
     onTokenPrivilegeWillExpire: async () => {
       if (!tokenRenewalHandler || !engine) return;
       try {
@@ -276,6 +358,15 @@ const ensureEngine = (appId) => {
         notifySpeakingListeners(uid, isSpeaking);
       });
     },
+    onAudioMixingStateChanged: (state, reason) => {
+      audioMixingListeners.forEach((listener) => {
+        try {
+          listener({ state, reason });
+        } catch {
+          // ignore
+        }
+      });
+    },
   });
 
   engine.enableAudio();
@@ -290,7 +381,7 @@ export const setTokenRenewalHandler = (handler) => {
 };
 
 export const subscribeVoiceStatus = (listener) => {
-  if (typeof listener !== "function") return () => {};
+  if (typeof listener !== "function") return () => { };
   statusListeners.add(listener);
   listener(getVoiceDiagnostics());
   return () => statusListeners.delete(listener);
@@ -303,9 +394,15 @@ export const subscribeVoiceStatus = (listener) => {
  * Returns an unsubscribe function.
  */
 export const subscribeSpeaking = (callback) => {
-  if (typeof callback !== "function") return () => {};
+  if (typeof callback !== "function") return () => { };
   speakingListeners.add(callback);
   return () => speakingListeners.delete(callback);
+};
+
+export const subscribeMuteState = (callback) => {
+  if (typeof callback !== "function") return () => { };
+  muteListeners.add(callback);
+  return () => muteListeners.delete(callback);
 };
 
 export const getVoiceDiagnostics = () => ({
@@ -315,6 +412,10 @@ export const getVoiceDiagnostics = () => ({
   currentChannel,
   currentIsSpeaker,
   remoteSpeakerCount: remoteSpeakerUids.size,
+  // Actual Agora uids currently producing/publishing remote audio — the
+  // ground truth for "who's really still here", independent of the
+  // WebSocket presence list used to drive seat display.
+  remoteSpeakerUids: Array.from(remoteSpeakerUids),
   remoteAudioMuted,
   lastError,
   hasEngine: Boolean(engine),

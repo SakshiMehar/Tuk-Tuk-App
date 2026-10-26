@@ -29,7 +29,6 @@ export const getInviteFriendsMe = async () => {
 export const getInviteFriendsConfig = async () => {
   const { headers } = await buildAuthedConfig("invite-friends/config");
   const response = await API.get("/api/app/invite-friends/config", { headers });
-  console.log("[inviteFriendsApi] GET /api/app/invite-friends/config -> RAW", JSON.stringify(response.data, null, 2));
   return response.data;
 };
 
@@ -38,7 +37,6 @@ export const getInviteFriendsConfig = async () => {
  *  no JWT required, so this deliberately skips buildAuthedConfig. */
 export const getInviteFriendsActivity = async () => {
   const response = await API.get("/api/app/invite-friends/activity");
-  console.log("[inviteFriendsApi] GET /api/app/invite-friends/activity ->", JSON.stringify(response.data, null, 2));
   return response.data;
 };
 
@@ -79,6 +77,5 @@ export const redeemInviteFriendsCode = async (inviteCode) => {
     { inviteCode },
     { headers }
   );
-  console.log("[inviteFriendsApi] POST /api/app/invite-friends/redeem ->", JSON.stringify(response.data, null, 2));
   return response.data;
 };

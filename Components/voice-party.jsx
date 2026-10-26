@@ -1,112 +1,43 @@
+import { FontAwesome, Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { Audio } from "expo-av";
+import * as Clipboard from "expo-clipboard";
 import { Image as ExpoImage } from "expo-image";
+import { useKeepAwake } from "expo-keep-awake";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { VideoView, useVideoPlayer } from "expo-video";
 import {
-<<<<<<< HEAD
-  followUser,
-  unfollowUser,
-  blockUser,
-  loadRelationshipStatus,
-  isSameUser,
-} from "../src/services/relationshipService";
-import { getAppUserId } from "../src/utils/sessionUser";
-import {
-  enterRoomSession,
-  exitRoomSession,
-  enterRandomPartySession,
-  parseSeats,
-  parseOnlineUsers,
-  normalizeChatMessage,
-  normalizeChatMessages,
-  createLocalChatMessage,
-  upsertChatMessage,
-} from "../src/services/partyService";
-import { wsService } from "../src/services/websocket";
-import { getRoomState, getRoomChatMessages, postSeatHeartbeat, postRoomHeartbeat, getRoomUserCount } from "../src/api/partyApi";
-import { refreshTokenCache } from "../src/api/axios";
-import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
-import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
-import { useWalletBalance } from "../src/hooks/useWalletBalance";
-import { refreshWalletBalance, applyWalletFromSources } from "../src/store/walletStore";
-import {
-  buyGiftToBackpack,
-  loadPartyGiftCatalog,
-  loadGiftInventory,
-  normalizeGiftAnimation,
-  sendPartyRoomGift,
-  findInventoryGift,
-  adjustInventoryQty,
-  reconcileInventory,
-  parseBuyResultInventory,
-  giftsMatch,
-} from "../src/services/giftCatalogService";
-import TreasureBoxModal from "./TreasureBoxModal";
-import RoomUserProfilePopup from "./RoomUserProfilePopup";
-import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
-import {
-  MEDIA_SECTIONS,
-  emojiCategories,
-  stickerPacks,
-  gifCategories,
-  isChatMediaUrl,
-} from "../src/data/voicePartyMediaPicker";
-import { loadConversations } from "../src/services/chatService";
-import { getUser } from "../src/store/authStore";
-import { resolveProfileAvatarUri, resolveProfileAvatarSource } from "../src/utils/profileAvatar";
-import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
-import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
-import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
-import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
-import { getUserUiAssets } from "../src/api/uiAssetsApi";
-import { fetchUserDecorations } from "../src/services/decorationsService";
-import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
-import { reportUser } from "../src/api/postApi";
-import ReportReasonModal from "./ReportReasonModal";
-import { syncUserLevelForSession } from "../src/services/userLevelService";
-import { loadUserDetail } from "../src/services/nearbyService";
-import { resolveVideoSource, resolveImageSource } from "../src/utils/videoSource";
-import * as partyVoice from "../src/services/partyVoiceService";
-import * as agoraVoice from "../src/services/agoraVoiceService";
-import { loadMyVipAssets } from "../src/services/vipService";
-import {
-  VIP_PROFILE_FRAME_LAYOUT,
-  VIP_CHAT_FRAME_FITTED_BY_TIER,
-} from "../src/constants/vip";
-import {
-  Share2,
-  MoreVertical,
-  Power,
-  Plus,
-  Mic,
-  MicOff,
-  Smile,
-  MessageSquare,
-  Volume2,
-  VolumeX,
-  LayoutGrid,
-  MessageCircle,
-=======
->>>>>>> 00c8b16 (UI issue fix)
   AlertCircle,
   Ban,
+  Check,
+  ChevronDown,
+  ChevronUp,
   Crown,
   LayoutGrid,
+  Lock,
   MessageCircle,
   MessageSquare,
   Mic,
   MicOff,
   Minimize2,
+  Minus,
   MoreVertical,
   Play,
   Plus,
   Power,
+  Search,
+  Send,
   Share2,
   Smile,
   Sparkles,
+  Trash2,
+  Unlock,
+  Users,
+  Volume1,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -118,37 +49,71 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   PermissionsAndroid,
   Platform,
   ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
+  ToastAndroid,
   TouchableOpacity,
   View,
 } from "react-native";
 import Animated, {
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
   withRepeat,
   withSequence,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { refreshTokenCache } from "../src/api/axios";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
+import Svg, {
+  Defs,
+  Ellipse,
+  G,
+  Path,
+  Polygon,
+  Rect,
+  Stop,
+  LinearGradient as SvgLinearGradient,
+  Text as SvgText,
+} from "react-native-svg";
+import GiftPurchaseModal from "../Modal/GiftPurchaseModal";
+import API, { refreshTokenCache } from "../src/api/axios";
 import {
+  deleteRoomChatMessages,
+  followRoom,
+  getClaimedSeats,
+  getRoomBadges,
   getRoomChatMessages,
   getRoomState,
+  kickRoomUser,
+  lockSeat,
+  postRoomHeartbeat,
   postSeatHeartbeat,
+  reportRoomUser,
+  unfollowRoom,
+  unlockSeat,
+  updateRoom,
 } from "../src/api/partyApi";
 import { reportUser } from "../src/api/postApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
+import { getUserProfile } from "../src/api/userApi";
 import { NEW_USER_FRAME_LAYOUT } from "../src/constants/newUserFrameLayout";
 import {
   VIP_CHAT_FRAME_FITTED_BY_TIER,
   VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER1_FALLBACK_ASSETS,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
 } from "../src/constants/vip";
 import {
   MEDIA_SECTIONS,
@@ -157,22 +122,29 @@ import {
   isChatMediaUrl,
   stickerPacks,
 } from "../src/data/voicePartyMediaPicker";
-import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
+import {
+  getAndroidNavBarInset,
+  useKeyboardInset,
+  useModalKeyboardInset,
+} from "../src/hooks/useKeyboardInset";
 import { useTreasureBoxProgress } from "../src/hooks/useTreasureBoxProgress";
 import { useWalletBalance } from "../src/hooks/useWalletBalance";
 import * as agoraVoice from "../src/services/agoraVoiceService";
 import { loadConversations } from "../src/services/chatService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
 import {
   adjustInventoryQty,
-  buyGiftToBackpack,
+  claimRewardToBackpack,
   findInventoryGift,
   giftsMatch,
+  loadGiftCatalog,
   loadGiftInventory,
+  loadListenRewardStatus,
   loadPartyGiftCatalog,
   normalizeGiftAnimation,
-  parseBuyResultInventory,
   reconcileInventory,
   sendPartyRoomGift,
+  syncListenRewardProgress
 } from "../src/services/giftCatalogService";
 import { loadUserDetail } from "../src/services/nearbyService";
 import { syncNewUserFrameForSession } from "../src/services/newUserFrameService";
@@ -181,20 +153,39 @@ import {
   enterRandomPartySession,
   enterRoomSession,
   exitRoomSession,
+  fetchRoomAnnouncement,
+  loadFollowingRooms,
   normalizeChatMessage,
   normalizeChatMessages,
   parseOnlineUsers,
   parseSeats,
+  roomStateFromPayload,
+  saveRoomAnnouncement,
   upsertChatMessage,
 } from "../src/services/partyService";
 import * as partyVoice from "../src/services/partyVoiceService";
 import {
+  getPkBattleRole,
+  isPkBattleLive,
+  isPkBattlePending,
+  loadActivePkBattle,
+  loadPkBattle,
+  normalizePkBattle,
+  respondPkBattle,
+  startPkBattle,
+} from "../src/services/pkBattleService";
+import { loadMyPremiumAssets } from "../src/services/premiumService";
+import { loadPublicProfile } from "../src/services/publicProfileService";
+import {
   blockUser,
   followUser,
   isSameUser,
+  loadFollowers,
+  loadFollowing,
   loadRelationshipStatus,
   unfollowUser,
 } from "../src/services/relationshipService";
+import { useMyCountryFlag } from "../src/services/userCountryService";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
 import { wsService } from "../src/services/websocket";
@@ -203,21 +194,31 @@ import {
   applyWalletFromSources,
   refreshWalletBalance,
 } from "../src/store/walletStore";
+import { openUserChat } from "../src/utils/chatNavigation";
+import { createRoomInviteMessage } from "../src/utils/deepLinkUtils";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { resolveNewUserFrameSource } from "../src/utils/newUserFrame";
 import {
   resolveProfileAvatarSource,
   resolveProfileAvatarUri,
 } from "../src/utils/profileAvatar";
+import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
-import {
-  resolveImageSource,
-  resolveVideoSource,
-} from "../src/utils/videoSource";
+import { isGifMedia, resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+import { resolveVoiceUidForUserId } from "../src/utils/voiceUid";
+import DiamondRechargeModal from "./DiamondRechargeModal";
+import MiniMusicPlayer from "./MiniMusicPlayer";
+import PkAcceptTeamModal from "./PkAcceptTeamModal";
+import PkBattleModal from "./PkBattleModal";
+import PkLiveBanner from "./PkLiveBanner";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ReportReasonModal from "./ReportReasonModal";
 import RoomUserProfilePopup from "./RoomUserProfilePopup";
+import TopGiftingRanking from "./TopGiftingRanking";
+import TreasureAnimationModal from "./TreasureAnimationModal";
 import TreasureBoxModal from "./TreasureBoxModal";
+import TreasureWinnersModal from "./TreasureWinnersModal";
 
 const { width: W, height: H } = Dimensions.get("window");
 // Keep W/H live — on foldables or edge-to-edge layout shifts, refresh the values
@@ -227,22 +228,670 @@ Dimensions.addEventListener("change", ({ window }) => {
   // for any future dynamic usage.
 });
 
-const TREASURE_BOX_GIF = require("../assets/Gift/tresurebox.gif");
-const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
+const ASSETS_S3_BASE =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets";
+const TREASURE_BOX_GIF = { uri: `${ASSETS_S3_BASE}/Gift/tresurebox.gif` };
+const NEW_START_BADGE = { uri: `${ASSETS_S3_BASE}/Batches/newstart-batch.png` };
+const ROOM_HEADER_BG = require("../assets/images/roomHeaderBg.png");
+
+// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
+// appears (UserProfileView, VipCenterPanel's tier carousel) — used here to
+// show a VIP badge next to OTHER senders' names in chat, since only the
+// tier-baked-into-the-URL is known for them (msg.vipProfileFrameUrl /
+// userFrameData[userId].vipProfileFrameUrl), not their full asset bundle.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
+);
+
+// These S3 icons are 1280x720 canvases with the actual glyph confined to a small
+// centered region (huge transparent margin baked into the file), so rendering them
+// with plain resizeMode="contain" scales the whole padded canvas, not just the
+// glyph, and they look tiny no matter how big the Image style box is. Each one is
+// "cropped" at render time instead: the Image is drawn oversized (scaled up from
+// its native 1280x720) and shifted with negative left/top so only the glyph's own
+// region lands inside a same-sized, overflow:hidden wrapper — see *_CROP below,
+// values derived from each icon's actual alpha bounding box.
+const RECHARGE_BONUS_ICON =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box1.png";
+const GIFT_PANEL_ICON =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/gift+box2.png";
+const CHAT_ICON =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/chat.png";
+const MIC_ICON =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/mic.png";
+
+const AutoBadgeImage = ({ source, style, resizeMode = "contain" }) => {
+  const [hasError, setHasError] = useState(false);
+  const uriKey = typeof source === "object" ? source?.uri : source;
+  useEffect(() => {
+    setHasError(false);
+  }, [uriKey]);
+
+  if (!source || hasError) return null;
+
+  return (
+    <Image
+      source={source}
+      style={style}
+      resizeMode={resizeMode}
+      onError={() => setHasError(true)}
+    />
+  );
+};
+
+const EventsEmptyIllustration = () => (
+  <View style={styles.eventsEmptyIllustrationWrap}>
+    <Svg width={200} height={145} viewBox="0 0 200 145">
+      <Defs>
+        <SvgLinearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <Stop offset="0%" stopColor="#ede9fe" stopOpacity="0.85" />
+          <Stop offset="100%" stopColor="#f5f3ff" stopOpacity="0.1" />
+        </SvgLinearGradient>
+        <SvgLinearGradient id="frontGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <Stop offset="0%" stopColor="#c4b5fd" />
+          <Stop offset="100%" stopColor="#a78bfa" />
+        </SvgLinearGradient>
+        <SvgLinearGradient id="topGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <Stop offset="0%" stopColor="#f3e8ff" />
+          <Stop offset="100%" stopColor="#ddd6fe" />
+        </SvgLinearGradient>
+        <SvgLinearGradient id="sideGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <Stop offset="0%" stopColor="#a78bfa" />
+          <Stop offset="100%" stopColor="#8b5cf6" />
+        </SvgLinearGradient>
+      </Defs>
+
+      {/* Ground soft glowing ellipse */}
+      <Ellipse cx="100" cy="115" rx="75" ry="20" fill="url(#glowGrad)" />
+
+      {/* Floating soft petal left */}
+      <Path
+        d="M 45 74 C 40 68, 48 60, 54 66 C 60 72, 50 80, 45 74 Z"
+        fill="#f3e8ff"
+        opacity={0.8}
+      />
+
+      {/* Floating soft petal top right */}
+      <Path
+        d="M 152 46 C 148 40, 156 34, 162 38 C 168 42, 160 52, 152 46 Z"
+        fill="#e9d5ff"
+        opacity={0.8}
+      />
+
+      {/* Floating leaf right */}
+      <Path
+        d="M 148 82 C 162 66, 172 82, 165 106 C 154 110, 142 98, 148 82 Z"
+        fill="#c4b5fd"
+        opacity={0.7}
+      />
+
+      {/* 3D Box Top Face */}
+      <Path d="M 72 58 L 88 42 L 148 42 L 132 58 Z" fill="url(#topGrad)" />
+
+      {/* 3D Box Right Face */}
+      <Path d="M 132 58 L 148 42 L 148 90 L 132 106 Z" fill="url(#sideGrad)" />
+
+      {/* 3D Box Front Face */}
+      <Rect
+        x="68"
+        y="58"
+        width="64"
+        height="48"
+        rx="6"
+        fill="url(#frontGrad)"
+      />
+
+      {/* Sad Face: Left Eye */}
+      <Rect x="83" y="73" width="4.5" height="9" rx="2.25" fill="#ffffff" />
+
+      {/* Sad Face: Right Eye */}
+      <Rect x="112" y="73" width="4.5" height="9" rx="2.25" fill="#ffffff" />
+
+      {/* Sad Face: Frown Mouth */}
+      <Path
+        d="M 85 95 Q 100 86 115 95"
+        stroke="#ffffff"
+        strokeWidth="4"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </Svg>
+  </View>
+);
+
+const GradeCornerBadge = ({ grade = "C" }) => {
+  const isS = grade === "S";
+  const isA = grade === "A";
+
+  return (
+    <View style={styles.gradeBadgeWrap}>
+      <Svg width={22} height={22} viewBox="0 0 24 24">
+        <Defs>
+          <SvgLinearGradient
+            id="gradeCGrad"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
+            <Stop offset="0%" stopColor="#94a3b8" />
+            <Stop offset="50%" stopColor="#475569" />
+            <Stop offset="100%" stopColor="#334155" />
+          </SvgLinearGradient>
+          <SvgLinearGradient
+            id="gradeAGrad"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
+            <Stop offset="0%" stopColor="#38bdf8" />
+            <Stop offset="50%" stopColor="#0284c7" />
+            <Stop offset="100%" stopColor="#0369a1" />
+          </SvgLinearGradient>
+          <SvgLinearGradient
+            id="gradeSGrad"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
+            <Stop offset="0%" stopColor="#3b82f6" />
+            <Stop offset="50%" stopColor="#1d4ed8" />
+            <Stop offset="100%" stopColor="#1e3a8a" />
+          </SvgLinearGradient>
+        </Defs>
+
+        {isS ? (
+          <Polygon
+            points="12,2 21,5.5 18,18 12,22 6,18 3,5.5"
+            fill="url(#gradeSGrad)"
+            stroke="#fbbf24"
+            strokeWidth="1.6"
+          />
+        ) : isA ? (
+          <Polygon
+            points="12,2 20,6.5 20,16 12,20.5 4,16 4,6.5"
+            fill="url(#gradeAGrad)"
+            stroke="#7dd3fc"
+            strokeWidth="1.2"
+          />
+        ) : (
+          <Polygon
+            points="12,2 20,6.5 20,16 12,20.5 4,16 4,6.5"
+            fill="url(#gradeCGrad)"
+            stroke="#cbd5e1"
+            strokeWidth="1.2"
+          />
+        )}
+
+        <SvgText
+          x="12"
+          y={isS ? "15" : "14.5"}
+          fontSize={isS ? "11" : "10"}
+          fontWeight="900"
+          textAnchor="middle"
+          fill={isS ? "#fbbf24" : "#ffffff"}
+        >
+          {grade}
+        </SvgText>
+      </Svg>
+    </View>
+  );
+};
+
+const RoomBadgeEmblem = ({ badge }) => {
+  const isUnlocked = Boolean(badge?.unlocked);
+  const iconType = badge?.iconType || "room_level";
+  const levelNum = badge?.level ?? 6;
+  const imageSource =
+    badge?.imageUrl || badge?.iconUrl || badge?.badgeUrl || badge?.image;
+
+  if (imageSource) {
+    return (
+      <View
+        style={[styles.badgeEmblemContainer, !isUnlocked && { opacity: 0.45 }]}
+      >
+        <Image
+          source={{ uri: imageSource }}
+          style={{ width: 78, height: 78 }}
+          resizeMode="contain"
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.badgeEmblemContainer}>
+      <Svg width={96} height={96} viewBox="0 0 100 100">
+        <Defs>
+          {/* Gold Shield Gradient for unlocked room level */}
+          <SvgLinearGradient
+            id="goldShieldOuter"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
+            <Stop offset="0%" stopColor="#fef08a" />
+            <Stop offset="25%" stopColor="#f59e0b" />
+            <Stop offset="65%" stopColor="#b45309" />
+            <Stop offset="100%" stopColor="#78350f" />
+          </SvgLinearGradient>
+          <SvgLinearGradient
+            id="goldShieldInner"
+            x1="0%"
+            y1="0%"
+            x2="0%"
+            y2="100%"
+          >
+            <Stop offset="0%" stopColor="#92400e" />
+            <Stop offset="50%" stopColor="#78350f" />
+            <Stop offset="100%" stopColor="#451a03" />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="houseGold" x1="0%" y1="0%" x2="0%" y2="100%">
+            <Stop offset="0%" stopColor="#fde047" stopOpacity="0.4" />
+            <Stop offset="100%" stopColor="#d97706" stopOpacity="0.7" />
+          </SvgLinearGradient>
+
+          {/* Silver / Metal Shield Gradient for standard & locked badges */}
+          <SvgLinearGradient
+            id="silverShieldOuter"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
+            <Stop offset="0%" stopColor="#f8fafc" />
+            <Stop offset="30%" stopColor="#cbd5e1" />
+            <Stop offset="70%" stopColor="#64748b" />
+            <Stop offset="100%" stopColor="#334155" />
+          </SvgLinearGradient>
+          <SvgLinearGradient
+            id="silverShieldInner"
+            x1="0%"
+            y1="0%"
+            x2="0%"
+            y2="100%"
+          >
+            <Stop offset="0%" stopColor="#475569" />
+            <Stop offset="50%" stopColor="#334155" />
+            <Stop offset="100%" stopColor="#1e293b" />
+          </SvgLinearGradient>
+          <SvgLinearGradient
+            id="silverRibbon"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="0%"
+          >
+            <Stop offset="0%" stopColor="#334155" />
+            <Stop offset="50%" stopColor="#1e293b" />
+            <Stop offset="100%" stopColor="#334155" />
+          </SvgLinearGradient>
+          <SvgLinearGradient
+            id="gemDiamond"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
+            <Stop offset="0%" stopColor="#ffffff" />
+            <Stop offset="50%" stopColor="#cbd5e1" />
+            <Stop offset="100%" stopColor="#94a3b8" />
+          </SvgLinearGradient>
+        </Defs>
+
+        {iconType === "room_level" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill={
+                isUnlocked ? "url(#goldShieldOuter)" : "url(#silverShieldOuter)"
+              }
+            />
+            {/* Inner Shield */}
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill={
+                isUnlocked ? "url(#goldShieldInner)" : "url(#silverShieldInner)"
+              }
+            />
+            {/* House Outline / Graphic */}
+            <Path
+              d="M 50 26 L 74 44 L 68 44 L 68 74 L 32 74 L 32 44 L 26 44 Z"
+              fill={isUnlocked ? "url(#houseGold)" : "rgba(255,255,255,0.15)"}
+              stroke={isUnlocked ? "#fde047" : "#cbd5e1"}
+              strokeWidth="1.2"
+            />
+            {/* Level Texts */}
+            <SvgText
+              x="50"
+              y="40"
+              fontSize="9"
+              fontWeight="700"
+              textAnchor="middle"
+              fill={isUnlocked ? "#fef08a" : "#cbd5e1"}
+            >
+              Lv.
+            </SvgText>
+            <SvgText
+              x="50"
+              y="66"
+              fontSize="24"
+              fontWeight="900"
+              textAnchor="middle"
+              fill={isUnlocked ? "#ffffff" : "#cbd5e1"}
+            >
+              {levelNum}
+            </SvgText>
+          </G>
+        ) : iconType === "pk_gift" || iconType === "room_pk" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Wings on Sides */}
+            <Path d="M 22 56 C 14 52 14 62 26 66 Z" fill="#e2e8f0" />
+            <Path d="M 78 56 C 86 52 86 62 74 66 Z" fill="#e2e8f0" />
+            {/* Gift Box */}
+            <Rect
+              x="36"
+              y="32"
+              width="28"
+              height="26"
+              rx="2"
+              fill="#e2e8f0"
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
+            <Path
+              d="M 50 32 L 50 58 M 36 44 L 64 44"
+              stroke="#64748b"
+              strokeWidth="3"
+            />
+            <Path
+              d="M 44 26 C 44 32 50 32 50 32 C 50 32 56 32 56 26 C 56 22 44 22 44 26 Z"
+              fill="#cbd5e1"
+            />
+            {/* Banner */}
+            <Path
+              d="M 24 64 L 76 64 L 72 74 L 50 78 L 28 74 Z"
+              fill="url(#silverRibbon)"
+              stroke="#64748b"
+              strokeWidth="0.8"
+            />
+            <SvgText
+              x="50"
+              y="72"
+              fontSize={iconType === "room_pk" ? "8" : "9"}
+              fontWeight="900"
+              textAnchor="middle"
+              fill="#ffffff"
+            >
+              {iconType === "room_pk" ? "Room PK" : "PK"}
+            </SvgText>
+          </G>
+        ) : iconType === "receive_gift" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Open Envelope */}
+            <Path
+              d="M 30 44 L 50 32 L 70 44 L 70 66 L 30 66 Z"
+              fill="#cbd5e1"
+              stroke="#64748b"
+              strokeWidth="1"
+            />
+            <Path
+              d="M 30 44 L 50 56 L 70 44"
+              fill="none"
+              stroke="#64748b"
+              strokeWidth="1"
+            />
+            {/* Diamond Inside */}
+            <Polygon
+              points="50,34 60,42 50,54 40,42"
+              fill="url(#gemDiamond)"
+              stroke="#ffffff"
+              strokeWidth="1.2"
+            />
+          </G>
+        ) : iconType === "lucky_gift" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Gift Box with 777 Slot Display */}
+            <Rect
+              x="34"
+              y="32"
+              width="32"
+              height="34"
+              rx="4"
+              fill="#e2e8f0"
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
+            <Rect x="38" y="44" width="24" height="14" rx="2" fill="#1e293b" />
+            <SvgText
+              x="50"
+              y="55"
+              fontSize="10"
+              fontWeight="900"
+              textAnchor="middle"
+              fill="#fde047"
+            >
+              777
+            </SvgText>
+            {/* Bow on Top */}
+            <Path
+              d="M 44 26 C 44 32 50 32 50 32 C 50 32 56 32 56 26 Z"
+              fill="#cbd5e1"
+            />
+          </G>
+        ) : iconType === "high_value_gift" ? (
+          <G>
+            {/* Outer Shield */}
+            <Path
+              d="M 50 8 L 86 18 C 86 54 68 82 50 94 C 32 82 14 54 14 18 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 80 23 C 80 52 64 76 50 86 C 36 76 20 52 20 23 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Luxury Gift Box */}
+            <Rect
+              x="34"
+              y="36"
+              width="32"
+              height="32"
+              rx="3"
+              fill="#f1f5f9"
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
+            <Path
+              d="M 50 36 L 50 68 M 34 50 L 66 50"
+              stroke="#cbd5e1"
+              strokeWidth="4"
+            />
+            {/* Big Fancy Bow */}
+            <Path
+              d="M 42 26 C 34 26 42 36 50 36 C 58 36 66 26 58 26 C 50 26 50 34 50 36 Z"
+              fill="#e2e8f0"
+            />
+          </G>
+        ) : iconType === "aqua" ? (
+          <G>
+            {/* Ornate Wreath Frame */}
+            <Path
+              d="M 50 10 C 72 10 90 28 90 50 C 90 72 72 90 50 90 C 28 90 10 72 10 50 C 10 28 28 10 50 10 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 16 C 68 16 84 32 84 50 C 84 68 68 84 50 84 C 32 84 16 68 16 50 C 16 32 32 16 50 16 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Amphora / Water Vase */}
+            <Path
+              d="M 44 32 L 56 32 L 60 42 C 64 52 58 64 50 64 C 42 64 36 52 40 42 Z"
+              fill="#e2e8f0"
+              stroke="#94a3b8"
+              strokeWidth="1"
+            />
+            <Path
+              d="M 52 42 C 60 42 66 50 62 60 C 58 70 42 74 36 78"
+              stroke="#38bdf8"
+              strokeWidth="3"
+              strokeLinecap="round"
+              fill="none"
+            />
+          </G>
+        ) : iconType.startsWith("dragon_") ? (
+          <G>
+            {/* Dragon / Heraldic Ornate Shield */}
+            <Path
+              d="M 50 8 L 86 16 L 90 46 C 90 72 70 88 50 96 C 30 88 10 72 10 46 L 14 16 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 L 82 22 L 84 46 C 84 68 66 82 50 90 C 34 82 16 68 16 46 L 18 22 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Center Gemstone */}
+            <Polygon
+              points="50,30 64,44 50,58 36,44"
+              fill="url(#gemDiamond)"
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
+            {/* Banner with Rank */}
+            <Path
+              d="M 22 66 L 78 66 L 74 76 L 50 80 L 26 76 Z"
+              fill="#1e293b"
+              stroke="#cbd5e1"
+              strokeWidth="0.8"
+            />
+            <SvgText
+              x="50"
+              y="74"
+              fontSize="9"
+              fontWeight="900"
+              textAnchor="middle"
+              fill="#ffffff"
+            >
+              {iconType === "dragon_top1"
+                ? "TOP 1"
+                : iconType === "dragon_top2"
+                  ? "TOP 2"
+                  : "TOP 3"}
+            </SvgText>
+          </G>
+        ) : iconType.startsWith("pisces_") ? (
+          <G>
+            {/* Pisces Koi Circle */}
+            <Path
+              d="M 50 8 C 74 8 92 26 92 50 C 92 74 74 92 50 92 C 26 92 8 74 8 50 C 8 26 26 8 50 8 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 14 C 70 14 86 30 86 50 C 86 70 70 86 50 86 C 30 86 14 70 14 50 C 14 30 30 14 50 14 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Two Koi Fish */}
+            <Path
+              d="M 36 34 C 44 26 60 36 50 48 C 42 42 36 40 36 34 Z"
+              fill="#e2e8f0"
+            />
+            <Path
+              d="M 64 66 C 56 74 40 64 50 52 C 58 58 64 60 64 66 Z"
+              fill="#cbd5e1"
+            />
+            {/* Top Ribbon Banner */}
+            <Path
+              d="M 28 20 L 72 20 L 68 28 L 50 32 L 32 28 Z"
+              fill="#1e293b"
+              stroke="#cbd5e1"
+              strokeWidth="0.8"
+            />
+            <SvgText
+              x="50"
+              y="27"
+              fontSize="8"
+              fontWeight="900"
+              textAnchor="middle"
+              fill="#ffffff"
+            >
+              {iconType === "pisces_top1"
+                ? "Top 1"
+                : iconType === "pisces_top2"
+                  ? "Top 2"
+                  : "Top 3"}
+            </SvgText>
+          </G>
+        ) : (
+          <G>
+            {/* Holy Egg / Monument Emblem */}
+            <Path
+              d="M 50 10 L 84 20 L 84 72 L 50 92 L 16 72 L 16 20 Z"
+              fill="url(#silverShieldOuter)"
+            />
+            <Path
+              d="M 50 16 L 78 24 L 78 68 L 50 84 L 22 68 L 22 24 Z"
+              fill="url(#silverShieldInner)"
+            />
+            {/* Glowing Egg */}
+            <Ellipse
+              cx="50"
+              cy="50"
+              rx="14"
+              ry="18"
+              fill="url(#gemDiamond)"
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
+          </G>
+        )}
+      </Svg>
+    </View>
+  );
+};
 
 // Listen Rewards — countdown thresholds in seconds
 const LISTEN_THRESHOLDS = [60, 3600, 18000]; // 1 min, 1 hr, 5 hr
 const LISTEN_THRESHOLD_LABELS = ["1 min", "1 hr", "5 hr"];
 const LISTEN_LOCKED_IMGS = [
-  require("../assets/Gift/gift1.png"),
-  require("../assets/Gift/gift2.png"),
-  require("../assets/Gift/gift3.png"),
+  { uri: `${ASSETS_S3_BASE}/Gift/gift1.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift2.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift3.png` },
 ];
 const LISTEN_GIFT_POOL = [
-  require("../assets/Gift/gift1.png"),
-  require("../assets/Gift/gift2.png"),
-  require("../assets/Gift/gift3.png"),
-  require("../assets/Gift/gift4.gif"),
+  { uri: `${ASSETS_S3_BASE}/Gift/gift1.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift2.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift3.png` },
+  { uri: `${ASSETS_S3_BASE}/Gift/gift4.gif` },
 ];
 
 const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
@@ -308,12 +957,39 @@ const reconcileSeatAssignments = (
     myUserId = null,
     mySeatNumber = null,
     staleSeatTracker = null,
+    // Agora uids currently producing live remote audio (see
+    // agoraVoiceService.getVoiceDiagnostics().remoteSpeakerUids). A user
+    // missing from the WS presence list but still live on Agora is a
+    // presence-sync glitch, not a real departure — clearing their seat here
+    // would wipe their profile while their voice keeps playing.
+    activeVoiceUids = null,
+    knownMuteStates = null,
   } = {},
 ) => {
-  const next = parsedSeats.map((seat) => ({
-    ...seat,
-    user: seat.user ? { ...seat.user } : null,
-  }));
+  const next = parsedSeats.map((seat) => {
+    const user = seat.user ? { ...seat.user } : null;
+    if (
+      user &&
+      user.id == null &&
+      user.userId == null &&
+      !user.avatar &&
+      (!user.name || user.name === "Guest" || user.name === "…")
+    ) {
+      return { ...seat, user: null };
+    }
+    
+    if (user && knownMuteStates) {
+      const isMuted = knownMuteStates.get(String(user.id || user.userId));
+      if (isMuted !== undefined) {
+        user.muted = isMuted;
+      }
+    }
+
+    return {
+      ...seat,
+      user,
+    };
+  });
 
   const onlineIds =
     Array.isArray(onlineUsers) && onlineUsers.length > 0
@@ -327,9 +1003,25 @@ const reconcileSeatAssignments = (
   // If room presence is known, clear seats for users who already left.
   if (onlineIds) {
     for (let i = 0; i < next.length; i += 1) {
-      const userId = next[i]?.user?.id != null ? String(next[i].user.id) : null;
-      if (!userId) continue;
+      if (!next[i]?.user) continue;
+      const userId =
+        next[i].user.id != null
+          ? String(next[i].user.id)
+          : next[i].user.userId != null
+            ? String(next[i].user.userId)
+            : null;
+      if (!userId) {
+        next[i] = { ...next[i], user: null };
+        continue;
+      }
       if (onlineIds.has(userId)) {
+        staleSeatTracker?.delete(userId);
+        continue;
+      }
+      if (
+        activeVoiceUids?.size &&
+        activeVoiceUids.has(resolveVoiceUidForUserId(userId))
+      ) {
         staleSeatTracker?.delete(userId);
         continue;
       }
@@ -507,56 +1199,923 @@ const SpeakingRing = ({ active }) => {
   );
 };
 
-const UserEntryBanner = ({ user, onComplete }) => {
-  const animValue = useSharedValue(-350);
+const resolveEntryFrameLayout = (frameUrl, user) => {
+  const tierFromUrl = resolveVipTierFromAssetUrl(frameUrl);
+  const tier = tierFromUrl ?? user?.vipTier ?? user?.tier ?? 1;
+
+  if (tier === 1) {
+    return {
+      tier: 1,
+      heightFrac: 0.48, // 108px for 225px width (VIP 1 has 1536x1024 canvas with transparent margins)
+      bannerW: 225,
+      avatarCenterX: 0.148,
+      avatarCenterY: 0.492,
+      avatarSizeFrac: 0.142,
+      shiftX: 5.8,
+      shiftY: -0.8,
+      textLeftFrac: 0.22,
+      textWidthFrac: 0.58,
+      textTopFrac: 0.32,
+      textHeightFrac: 0.16,
+    };
+  }
+
+  if (tier === 3) {
+    return {
+      tier: 3,
+      heightFrac: 0.35,
+      bannerW: 245,
+      avatarCenterX: 0.16,
+      avatarCenterY: 0.468,
+      avatarSizeFrac: 0.15,
+      shiftX: 4.8,
+      shiftY: -0.6,
+      textLeftFrac: 0.25,
+      textWidthFrac: 0.5,
+      textTopFrac: 0.31,
+      textHeightFrac: 0.24,
+    };
+  }
+
+  if (tier === 8) {
+    return {
+      tier: 8,
+      heightFrac: 0.417,
+      bannerW: 245,
+      avatarCenterX: 0.155,
+      avatarCenterY: 0.478,
+      avatarSizeFrac: 0.15,
+      shiftX: 4.8,
+      shiftY: -0.6,
+      textLeftFrac: 0.25,
+      textWidthFrac: 0.5,
+      textTopFrac: 0.31,
+      textHeightFrac: 0.24,
+    };
+  }
+
+  // Tiers 2, 4, 5, 6, 7 (standard tight banner aspect ratio ~3.75:1, e.g. VIP 6 on ngrok)
+  return {
+    tier,
+    heightFrac: 0.267,
+    bannerW: 250,
+    avatarCenterX: 0.2,
+    avatarCenterY: 0.535,
+    avatarSizeFrac: 0.138,
+    shiftX: 1.5,
+    shiftY: -0.6,
+    textLeftFrac: 0.32,
+    textWidthFrac: 0.38,
+    textTopFrac: 0.38,
+    textHeightFrac: 0.26,
+  };
+};
+
+const UserEntryBanner = ({ user, countryFlag = null, onComplete }) => {
+  const { W: SW } = useResponsive();
+  const translateX = useSharedValue(-SW - 30);
 
   useEffect(() => {
-    // Continuously scroll from left to right (marquee effect)
-    // Starting at -350 ensures there's no long delay before it appears.
-    animValue.value = withRepeat(withTiming(W, { duration: 6000 }), -1, false);
-  }, []);
+    // Smooth glide from left to right (7.5s) once per entry, then auto-dismiss
+    translateX.value = withTiming(SW + 30, { duration: 7500 }, (finished) => {
+      if (finished && onComplete) {
+        runOnJS(onComplete)();
+      }
+    });
+  }, [SW, onComplete, translateX]);
 
   const animStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: animValue.value }],
+    transform: [{ translateX: translateX.value }],
   }));
 
-  const frameUrl = user.entryFrameUrl || user.newUserFrameUrl;
+  // Dynamic banner image URL resolution with safe fallback
+  const frameUrl =
+    user?.entryFrameUrl ||
+    user?.newUserFrameUrl ||
+    user?.bannerUrl ||
+    user?.bannerImageUrl ||
+    user?.frameUrl ||
+    user?.entryFrame ||
+    user?.banner ||
+    user?.entry_frame_url ||
+    user?.banner_url ||
+    VIP_TIER1_FALLBACK_ASSETS.entryFrame;
   const hasFrame = Boolean(frameUrl);
 
+  const userName =
+    user?.name ||
+    user?.username ||
+    user?.nickname ||
+    user?.displayName ||
+    "User";
+
+  const userAvatarUrl =
+    user?.avatar ||
+    user?.profileImageUrl ||
+    user?.avatarUrl ||
+    user?.profilePicUrl ||
+    user?.profilePic ||
+    user?.image ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=7c4dff&color=fff`;
+
+  const layout = resolveEntryFrameLayout(frameUrl, user);
+  const BANNER_W = Math.min(layout.bannerW, Math.round(SW * 0.56));
+  const BANNER_H = Math.round(BANNER_W * layout.heightFrac);
+
+  // Precise ring hole coordinates inside the frame scaled proportionally per tier artwork
+  const avatarSize = Math.round(BANNER_W * layout.avatarSizeFrac);
+  const avatarLeft =
+    Math.round(BANNER_W * layout.avatarCenterX - avatarSize / 2) +
+    layout.shiftX;
+  const avatarTop =
+    Math.round(BANNER_H * layout.avatarCenterY - avatarSize / 2) +
+    layout.shiftY -
+    2;
+
+  // Precise middle banner text region between ring and VIP crest
+  const textLeft = Math.round(BANNER_W * layout.textLeftFrac);
+  const textWidth = Math.round(BANNER_W * layout.textWidthFrac);
+  const textTop = Math.round(BANNER_H * layout.textTopFrac);
+  const textHeight = Math.round(BANNER_H * layout.textHeightFrac);
+
   return (
-    <Animated.View style={[styles.entryBannerContainer, animStyle]}>
-      {hasFrame && (
-        <Image
-          source={{ uri: frameUrl }}
-          style={styles.entryBannerBg}
-          // resizeMode="stretch"
-        />
+    <Animated.View
+      style={[
+        styles.entryBannerContainer,
+        {
+          width: BANNER_W,
+          height: BANNER_H,
+          alignSelf: "center",
+        },
+        animStyle,
+      ]}
+      pointerEvents="none"
+    >
+      {hasFrame ? (
+        <>
+          <Image
+            source={{ uri: frameUrl }}
+            style={[
+              styles.entryBannerBg,
+              { width: BANNER_W, height: BANNER_H },
+            ]}
+            resizeMode="stretch"
+          />
+          {/* Pixel-locked avatar spot inside the left ring circle */}
+          <View
+            style={[
+              styles.entryBannerFramedAvatarWrap,
+              {
+                left: avatarLeft,
+                top: avatarTop,
+                width: avatarSize,
+                height: avatarSize,
+                borderRadius: avatarSize / 2,
+              },
+            ]}
+          >
+            <Image
+              source={{ uri: userAvatarUrl }}
+              style={{
+                width: avatarSize,
+                height: avatarSize,
+                borderRadius: avatarSize / 2,
+              }}
+              resizeMode="cover"
+            />
+          </View>
+          {/* Centered name text inside banner section */}
+          <View
+            style={[
+              styles.entryBannerFramedTextWrap,
+              {
+                left: textLeft,
+                width: textWidth,
+                top: textTop,
+                height: textHeight,
+              },
+            ]}
+          >
+            <Text style={styles.entryBannerName} numberOfLines={1}>
+              {userName}
+              {!!countryFlag && ` ${countryFlag}`}
+            </Text>
+          </View>
+        </>
+      ) : (
+        <View
+          style={[
+            styles.entryBannerContent,
+            styles.entryBannerBgDefault,
+            { width: BANNER_W, height: BANNER_H },
+          ]}
+        >
+          <Image
+            source={{ uri: userAvatarUrl }}
+            style={styles.entryBannerAvatar}
+            resizeMode="cover"
+          />
+          <View style={styles.entryBannerTextContainer}>
+            <Text style={styles.entryBannerName} numberOfLines={1}>
+              {userName}
+              {!!countryFlag && ` ${countryFlag}`}
+            </Text>
+            <Text style={styles.entryBannerJoined}>joined the room</Text>
+          </View>
+        </View>
       )}
-      <View
-        style={[
-          styles.entryBannerContent,
-          !hasFrame && styles.entryBannerBgDefault,
-        ]}
+    </Animated.View>
+  );
+};
+
+const RoomActivityEventBanner = ({ event, onDismiss, onClap }) => {
+  const { W: SW } = useResponsive();
+  const translateX = useSharedValue(-SW * 0.9);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (!event) return;
+    opacity.value = withTiming(1, { duration: 220 });
+    translateX.value = withSpring(0, { damping: 14, stiffness: 140 });
+
+    const timer = setTimeout(() => {
+      opacity.value = withTiming(0, { duration: 240 });
+      translateX.value = withTiming(
+        -SW * 0.9,
+        { duration: 240 },
+        (finished) => {
+          if (finished && onDismiss) {
+            runOnJS(onDismiss)();
+          }
+        },
+      );
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [event, SW, onDismiss, opacity, translateX]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    opacity: opacity.value,
+  }));
+
+  if (!event) return null;
+
+  const user = event.user || {};
+  const userName = user.name || user.username || "User";
+  const avatarUri =
+    user.avatar ||
+    user.profileImageUrl ||
+    user.avatarUrl ||
+    user.profilePicUrl ||
+    (user.id
+      ? `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=7c4dff&color=fff`
+      : null);
+
+  let actionText = "entered the room";
+  let actionColor = "#ffd54f"; // warm gold for enter
+  let iconEmoji = "👏";
+
+  if (event.type === "exit" || event.type === "leave") {
+    actionText = "left the room";
+    actionColor = "#cbd5e1"; // light slate for leave
+    iconEmoji = "👋";
+  } else if (event.type === "seat" || event.type === "seated") {
+    actionText = event.seatId ? `seated on mic ${event.seatId}` : "seated";
+    actionColor = "#4ade80"; // green for seated
+    iconEmoji = "🎙️";
+  }
+
+  return (
+    <Animated.View style={[styles.activityBannerContainer, animStyle]}>
+      <LinearGradient
+        colors={["rgba(26, 12, 54, 0.94)", "rgba(44, 18, 88, 0.90)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.activityBannerGradient}
       >
-        <Image
-          source={{
-            uri: user.avatar || "https://ui-avatars.com/api/?name=" + user.name,
-          }}
-          style={styles.entryBannerAvatar}
-          resizeMode="cover"
-        />
-        <View style={styles.entryBannerTextContainer}>
-          <Text style={styles.entryBannerName} numberOfLines={1}>
-            {user.name}
+        {/* Left: Avatar DP */}
+        <View style={styles.activityBannerAvatarWrap}>
+          {avatarUri ? (
+            <Image
+              source={{ uri: avatarUri }}
+              style={styles.activityBannerAvatar}
+              resizeMode="cover"
+            />
+          ) : (
+            <View
+              style={[
+                styles.activityBannerAvatar,
+                styles.activityBannerAvatarFallback,
+              ]}
+            >
+              <Text style={styles.activityBannerAvatarInitial}>
+                {userName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Middle: Name & Action text */}
+        <View style={styles.activityBannerTextCol}>
+          <Text style={styles.activityBannerName} numberOfLines={1}>
+            {userName}
+          </Text>
+          <Text
+            style={[styles.activityBannerAction, { color: actionColor }]}
+            numberOfLines={1}
+          >
+            {actionText}
           </Text>
         </View>
+
+        {/* Right: Quick interaction button (clapping / wave) */}
+        <TouchableOpacity
+          style={styles.activityBannerClapBtn}
+          activeOpacity={0.7}
+          onPress={() => onClap && onClap(event)}
+        >
+          <LinearGradient
+            colors={["#8b5cf6", "#6d28d9"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.activityBannerClapGrad}
+          >
+            <Text style={styles.activityBannerClapText}>{iconEmoji}</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </LinearGradient>
+    </Animated.View>
+  );
+};
+
+export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
+  if (!giftOrPayload) return { image: null, emoji: "🎁", name: "Gift" };
+
+  const name = String(giftOrPayload?.name || giftOrPayload?.giftName || "Gift");
+  let emoji = giftOrPayload?.emoji || giftOrPayload?.gift?.emoji || null;
+  const explicitUrl =
+    giftOrPayload?.imageUrl || giftOrPayload?.image || giftOrPayload?.videoUrl;
+
+  const code = String(
+    giftOrPayload?.giftCode ||
+      giftOrPayload?.giftId ||
+      giftOrPayload?.id ||
+      giftOrPayload?.code ||
+      "",
+  )
+    .toLowerCase()
+    .trim();
+  const lowerName = String(name).toLowerCase().trim();
+
+  let matchedImageUrl = null;
+  // If emoji or image is not provided directly, match in catalog
+  if (catalog) {
+    const allCatalogItems = [
+      ...(catalog.gift || []),
+      ...(catalog.random || []),
+      ...(catalog.activity || []),
+      ...(catalog.special || []),
+      ...(catalog.vip || []),
+      ...(catalog.pk || []),
+      ...(catalog.relationship || []),
+      ...Object.values(catalog.activityByEvent || {}).flat(),
+    ];
+
+    const match = allCatalogItems.find((item) => {
+      const itemCode = String(item?.giftCode || item?.id || item?.code || "")
+        .toLowerCase()
+        .trim();
+      const itemName = String(item?.name || "")
+        .toLowerCase()
+        .trim();
+      return (
+        (code &&
+          (itemCode === code ||
+            itemCode === `gift-${code}` ||
+            code === `gift-${itemCode}`)) ||
+        (lowerName &&
+          (itemName === lowerName ||
+            lowerName.includes(itemName) ||
+            itemName.includes(lowerName)))
+      );
+    });
+
+    if (match?.emoji && (!emoji || emoji === "🎁")) {
+      emoji = match.emoji;
+    }
+    if (match?.imageUrl || match?.iconUrl || match?.icon || match?.image) {
+      matchedImageUrl =
+        match.imageUrl || match.iconUrl || match.icon || match.image;
+    }
+  }
+
+  // Derive contextual emoji based on gift name if still missing
+  if (!emoji || emoji === "🎁") {
+    if (
+      lowerName.includes("fire") ||
+      lowerName.includes("flame") ||
+      lowerName.includes("stadium")
+    )
+      emoji = "🔥";
+    else if (
+      lowerName.includes("flower") ||
+      lowerName.includes("rose") ||
+      lowerName.includes("blossom") ||
+      lowerName.includes("tulip") ||
+      lowerName.includes("bouquet")
+    )
+      emoji = "🌸";
+    else if (
+      lowerName.includes("heart") ||
+      lowerName.includes("love") ||
+      lowerName.includes("romance")
+    )
+      emoji = "💖";
+    else if (lowerName.includes("kiss") || lowerName.includes("lip"))
+      emoji = "💋";
+    else if (
+      lowerName.includes("diamond") ||
+      lowerName.includes("gem") ||
+      lowerName.includes("crystal") ||
+      lowerName.includes("ring") ||
+      lowerName.includes("gold")
+    )
+      emoji = "💎";
+    else if (
+      lowerName.includes("rocket") ||
+      lowerName.includes("space") ||
+      lowerName.includes("galaxy")
+    )
+      emoji = "🚀";
+    else if (
+      lowerName.includes("car") ||
+      lowerName.includes("ferrari") ||
+      lowerName.includes("lambo") ||
+      lowerName.includes("racing") ||
+      lowerName.includes("sports")
+    )
+      emoji = "🏎️";
+    else if (
+      lowerName.includes("crown") ||
+      lowerName.includes("king") ||
+      lowerName.includes("queen") ||
+      lowerName.includes("tiara")
+    )
+      emoji = "👑";
+    else if (
+      lowerName.includes("random") ||
+      lowerName.includes("orb") ||
+      lowerName.includes("magic") ||
+      lowerName.includes("lucky")
+    )
+      emoji = "🔮";
+    else if (
+      lowerName.includes("lion") ||
+      lowerName.includes("tiger") ||
+      lowerName.includes("dragon")
+    )
+      emoji = "🦁";
+    else if (
+      lowerName.includes("castle") ||
+      lowerName.includes("palace") ||
+      lowerName.includes("mansion")
+    )
+      emoji = "🏰";
+    else if (lowerName.includes("star") || lowerName.includes("sparkle"))
+      emoji = "⭐";
+    else if (
+      lowerName.includes("trophy") ||
+      lowerName.includes("cup") ||
+      lowerName.includes("champion")
+    )
+      emoji = "🏆";
+    else if (
+      lowerName.includes("party") ||
+      lowerName.includes("confetti") ||
+      lowerName.includes("celebrate")
+    )
+      emoji = "🎉";
+    else if (
+      lowerName.includes("yacht") ||
+      lowerName.includes("boat") ||
+      lowerName.includes("ship")
+    )
+      emoji = "🛥️";
+    else if (
+      lowerName.includes("plane") ||
+      lowerName.includes("jet") ||
+      lowerName.includes("flight")
+    )
+      emoji = "✈️";
+    else if (!emoji) emoji = "🎁";
+  }
+
+  const resolvedUrl = explicitUrl || matchedImageUrl;
+  const isRemoteImage =
+    typeof resolvedUrl === "string" && resolvedUrl.startsWith("http");
+
+  return {
+    image: isRemoteImage ? resolveImageSource(resolvedUrl) : null,
+    emoji,
+    name,
+  };
+};
+
+// Gift sends are echoed into room chat as "sent {emoji} {name} ×{qty} to {receiver}".
+// Room chat is the one channel every device in the room reliably receives,
+// so other clients parse this line to show the same gift banner as the sender.
+const GIFT_CHAT_PATTERN =
+  /(?:^|\s)sent\s+(\S+)\s+(.+?)\s+×(\d+)(?:\s+to\s+(.+))?$/u;
+
+export const buildGiftChatText = ({ emoji, name, quantity, receiverName }) => {
+  const qty = Math.max(1, Number(quantity) || 1);
+  const base = `sent ${emoji || "🎁"} ${name || "Gift"} ×${qty}`;
+  return receiverName ? `${base} to ${receiverName}` : base;
+};
+
+export const parseGiftChatText = (text) => {
+  const match = GIFT_CHAT_PATTERN.exec(String(text ?? "").trim());
+  if (!match) return null;
+  return {
+    emoji: match[1],
+    name: match[2].trim(),
+    quantity: Math.max(1, Number(match[3]) || 1),
+    receiverName: match[4]?.trim() || null,
+  };
+};
+
+const giftBannerKey = (g) =>
+  [g?.senderName, g?.name ?? g?.giftName, g?.quantity ?? g?.qty ?? 1]
+    .map((v) =>
+      String(v ?? "")
+        .trim()
+        .toLowerCase(),
+    )
+    .join("|");
+
+const GiftAnimationItem = ({ gift, catalog, onComplete }) => {
+  const { W: SW } = useResponsive();
+
+  const translateX = useSharedValue(-SW * 0.9);
+  const opacity = useSharedValue(0);
+  const scaleAnim = useSharedValue(0.2);
+  const pulseScale = useSharedValue(1);
+  const badgeScale = useSharedValue(0);
+
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  const visual = useMemo(
+    () => resolveGiftVisual(gift, catalog),
+    [gift, catalog],
+  );
+
+  const displayEmoji = useMemo(() => {
+    const fromGift = typeof gift?.emoji === "string" ? gift.emoji.trim() : "";
+    if (fromGift && fromGift !== "🎁") return fromGift;
+    const fromVisual =
+      typeof visual?.emoji === "string" ? visual.emoji.trim() : "";
+    if (fromVisual && fromVisual !== "🎁") return fromVisual;
+    return fromGift || fromVisual || "🎁";
+  }, [gift?.emoji, visual?.emoji]);
+
+  useEffect(() => {
+    // 1. Entrance slide & pop
+    opacity.value = withTiming(1, { duration: 220 });
+    translateX.value = withSpring(0, { damping: 14, stiffness: 140 });
+    scaleAnim.value = withSequence(
+      withDelay(60, withSpring(1.25, { damping: 7, stiffness: 180 })),
+      withSpring(1.0, { damping: 12, stiffness: 140 }),
+    );
+
+    // 2. Dynamic Big & Small pulsing scale animation
+    pulseScale.value = withDelay(
+      200,
+      withRepeat(
+        withSequence(
+          withTiming(1.2, { duration: 300 }),
+          withTiming(0.92, { duration: 300 }),
+          withTiming(1.1, { duration: 250 }),
+          withTiming(1.0, { duration: 250 }),
+        ),
+        -1,
+        true,
+      ),
+    );
+
+    // 3. Multiplier badge pop
+    badgeScale.value = withDelay(
+      180,
+      withSequence(
+        withSpring(1.3, { damping: 6, stiffness: 190 }),
+        withSpring(1.0, { damping: 12, stiffness: 120 }),
+      ),
+    );
+
+    // 4. Slide out and fade animation after 2.0s
+    const slideOutTimer = setTimeout(() => {
+      opacity.value = withTiming(0, { duration: 240 });
+      translateX.value = withTiming(-SW * 0.9, { duration: 240 });
+    }, 2000);
+
+    // 5. Guaranteed dismiss callback at 2.35s
+    const completeTimer = setTimeout(() => {
+      if (onCompleteRef.current) {
+        onCompleteRef.current();
+      }
+    }, 2350);
+
+    return () => {
+      clearTimeout(slideOutTimer);
+      clearTimeout(completeTimer);
+    };
+  }, [SW, badgeScale, opacity, pulseScale, scaleAnim, translateX]);
+
+  const bannerAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    opacity: opacity.value,
+  }));
+
+  const giftEmojiAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scaleAnim.value * pulseScale.value }],
+  }));
+
+  const badgeAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: badgeScale.value }],
+  }));
+
+  const senderName = gift.senderName || "User";
+  const qty = Math.max(1, Number(gift.quantity || gift.qty || 1));
+  const receiverText = gift.receiverIsMe
+    ? "to you"
+    : gift.receiverName
+      ? `to ${gift.receiverName}`
+      : "in room";
+
+  return (
+    <Animated.View
+      style={[styles.giftBannerCard, bannerAnimStyle]}
+      pointerEvents="none"
+    >
+      <LinearGradient
+        colors={[
+          "rgba(26, 12, 54, 0.96)",
+          "rgba(48, 18, 92, 0.92)",
+          "rgba(76, 29, 149, 0.90)",
+        ]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.giftBannerGradient}
+      >
+        {/* Left: Sender Avatar */}
+        <View style={styles.giftBannerAvatarWrap}>
+          {gift.senderAvatar ? (
+            <Image
+              source={{ uri: gift.senderAvatar }}
+              style={styles.giftBannerAvatar}
+              resizeMode="cover"
+            />
+          ) : (
+            <View
+              style={[styles.giftBannerAvatar, styles.giftBannerAvatarFallback]}
+            >
+              <Text style={styles.giftBannerAvatarInitial}>
+                {senderName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <View style={styles.giftBannerSparkleBadge}>
+            <Text style={{ fontSize: 9, lineHeight: 10 }}>⭐</Text>
+          </View>
+        </View>
+
+        {/* Center: Sender Name & Gift Text */}
+        <View style={styles.giftBannerTextCol}>
+          <Text style={styles.giftBannerSenderName} numberOfLines={1}>
+            {senderName}
+          </Text>
+          <Text style={styles.giftBannerActionText} numberOfLines={1}>
+            sent {visual.name || "gift"} {receiverText}
+          </Text>
+        </View>
+
+        {/* Right: Pop Animated Gift Visual with Multiplier Badge */}
+        <View style={styles.giftBannerVisualWrap}>
+          <View style={styles.giftBannerGlowBackdrop} />
+          <Animated.View
+            style={[styles.giftBannerImageContainer, giftEmojiAnimStyle]}
+          >
+            {visual.image ? (
+              <Image
+                source={visual.image}
+                style={styles.giftBannerImage}
+                resizeMode="contain"
+              />
+            ) : (
+              <Text style={styles.giftBannerEmojiMain}>{displayEmoji}</Text>
+            )}
+          </Animated.View>
+
+          {/* Multiplier Badge */}
+          <Animated.View
+            style={[styles.giftBannerMultiplierBadge, badgeAnimStyle]}
+          >
+            <LinearGradient
+              colors={["#FFE066", "#FFA500", "#FF4500"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.giftBannerMultiplierGrad}
+            >
+              <Text style={styles.giftBannerMultiplierText}>×{qty}</Text>
+            </LinearGradient>
+          </Animated.View>
+        </View>
+      </LinearGradient>
+    </Animated.View>
+  );
+};
+
+const FloatingGiftRiseItem = ({ gift, catalog, onComplete }) => {
+  const { W: SW, H: SH } = useResponsive();
+
+  const translateY = useSharedValue(SH * 0.82);
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.4);
+  const swayX = useSharedValue(0);
+  const rotate = useSharedValue(0);
+
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  const initialX = useMemo(() => {
+    return SW * 0.5 - s(30) + (Math.random() - 0.5) * s(120);
+  }, [SW]);
+
+  const visual = useMemo(
+    () => resolveGiftVisual(gift, catalog),
+    [gift, catalog],
+  );
+
+  const displayEmoji = useMemo(() => {
+    const fromGift = typeof gift?.emoji === "string" ? gift.emoji.trim() : "";
+    if (fromGift && fromGift !== "🎁") return fromGift;
+    const fromVisual =
+      typeof visual?.emoji === "string" ? visual.emoji.trim() : "";
+    if (fromVisual && fromVisual !== "🎁") return fromVisual;
+    return fromGift || fromVisual || "🎁";
+  }, [gift?.emoji, visual?.emoji]);
+
+  useEffect(() => {
+    opacity.value = withTiming(1, { duration: 180 });
+
+    scale.value = withSequence(
+      withTiming(1.4, { duration: 300 }),
+      withTiming(1.1, { duration: 350 }),
+      withDelay(1100, withTiming(0.85, { duration: 650 })),
+    );
+
+    swayX.value = withRepeat(
+      withSequence(
+        withTiming(-s(16), { duration: 600 }),
+        withTiming(s(16), { duration: 600 }),
+      ),
+      -1,
+      true,
+    );
+
+    rotate.value = withRepeat(
+      withSequence(
+        withTiming(-14, { duration: 500 }),
+        withTiming(14, { duration: 500 }),
+      ),
+      -1,
+      true,
+    );
+
+    translateY.value = withTiming(-vs(140), { duration: 2700 });
+
+    const fadeTimer = setTimeout(() => {
+      opacity.value = withTiming(0, { duration: 400 });
+    }, 2250);
+
+    const completeTimer = setTimeout(() => {
+      if (onCompleteRef.current) {
+        onCompleteRef.current();
+      }
+    }, 2750);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(completeTimer);
+    };
+  }, [opacity, rotate, scale, swayX, translateY]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: translateY.value },
+      { translateX: swayX.value },
+      { scale: scale.value },
+      { rotate: `${rotate.value}deg` },
+    ],
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[styles.floatingGiftRiseWrap, { left: initialX }, animStyle]}
+      pointerEvents="none"
+    >
+      <View style={styles.floatingGiftRiseGlow}>
+        <Text style={styles.floatingGiftRiseEmoji}>{displayEmoji}</Text>
       </View>
     </Animated.View>
   );
 };
 
+// ── Emoji / Sticker / GIF overlay shown on the sender's seat avatar ──────────
+// Appears for 10 seconds with a bounce-in then idle pulse, then fades out.
+const FloatingSeatEmojiOverlay = ({ item, onComplete }) => {
+  const scale = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  const bounce = useSharedValue(1);
+
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    // Pop in
+    opacity.value = withTiming(1, { duration: 150 });
+    scale.value = withSequence(
+      withSpring(1.3, { damping: 6, stiffness: 180 }),
+      withSpring(1.0, { damping: 8, stiffness: 120 }),
+    );
+
+    // Idle bouncing animation that repeats for the 10-second lifetime
+    bounce.value = withRepeat(
+      withSequence(
+        withTiming(1.12, { duration: 420 }),
+        withTiming(0.95, { duration: 380 }),
+        withTiming(1.0, { duration: 200 }),
+      ),
+      -1,
+      true,
+    );
+
+    // Fade out at 9 seconds then complete at 10 seconds
+    const fadeTimer = setTimeout(() => {
+      scale.value = withTiming(0.5, { duration: 600 });
+      opacity.value = withTiming(0, { duration: 600 });
+    }, 9400);
+
+    const completeTimer = setTimeout(() => {
+      onCompleteRef.current?.();
+    }, 10000);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(completeTimer);
+    };
+  }, [opacity, scale, bounce]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value * bounce.value }],
+    opacity: opacity.value,
+  }));
+
+  const isMediaUrl =
+    item.mediaUrl && (item.mediaType === "sticker" || item.mediaType === "gif");
+
+  return (
+    <Animated.View
+      style={[styles.seatEmojiOverlay, animStyle]}
+      pointerEvents="none"
+    >
+      {isMediaUrl ? (
+        <Image
+          source={{ uri: item.mediaUrl }}
+          style={styles.seatEmojiOverlayImg}
+          resizeMode="contain"
+        />
+      ) : (
+        <Text style={styles.seatEmojiOverlayText}>{item.emoji}</Text>
+      )}
+    </Animated.View>
+  );
+};
+
+
 export default function VoiceParty() {
+  useKeepAwake();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
+  // const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const roomIdParam = params.roomId ?? params.id ?? null;
   const isRandomParty = params.party === "true";
@@ -569,24 +2128,139 @@ export default function VoiceParty() {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
   const [recentEntries, setRecentEntries] = useState([]);
+  const [canShowEntryBanner, setCanShowEntryBanner] = useState(false);
   const prevOnlineUsersRef = useRef([]);
+  const prevSeatsRef = useRef([]);
+  const hasInitializedPresenceRef = useRef(false);
+  const hasInitializedSeatsRef = useRef(false);
+
+  // ── Real-time Room Activity Event Toast (Enter / Leave / Seated) ──
+  const [currentActivityEvent, setCurrentActivityEvent] = useState(null);
+  const activityEventQueueRef = useRef([]);
+  const isProcessingActivityRef = useRef(false);
+  const recentActivityEventsMapRef = useRef(new Map());
+
+  const processNextActivityEvent = useCallback(() => {
+    if (
+      isProcessingActivityRef.current ||
+      activityEventQueueRef.current.length === 0
+    )
+      return;
+    const next = activityEventQueueRef.current.shift();
+    if (!next) return;
+    isProcessingActivityRef.current = true;
+    setCurrentActivityEvent(next);
+  }, []);
+
+  const enqueueActivityEvent = useCallback(
+    (event) => {
+      if (!event || !event.user) return;
+      const uId = String(event.user.id ?? event.user.userId ?? "");
+      if (!uId) return;
+
+      // Deduplicate events for the same user and type within 4s
+      const dedupKey = `${event.type}-${uId}`;
+      const now = Date.now();
+      const lastTime = recentActivityEventsMapRef.current.get(dedupKey);
+      if (lastTime && now - lastTime < 4000) {
+        return;
+      }
+      recentActivityEventsMapRef.current.set(dedupKey, now);
+
+      if (recentActivityEventsMapRef.current.size > 50) {
+        for (const [k, t] of recentActivityEventsMapRef.current.entries()) {
+          if (now - t > 10000) {
+            recentActivityEventsMapRef.current.delete(k);
+          }
+        }
+      }
+
+      activityEventQueueRef.current.push(event);
+      processNextActivityEvent();
+    },
+    [processNextActivityEvent],
+  );
+
+  const handleActivityDismiss = useCallback(() => {
+    setCurrentActivityEvent(null);
+    isProcessingActivityRef.current = false;
+    setTimeout(() => {
+      processNextActivityEvent();
+    }, 150);
+  }, [processNextActivityEvent]);
+
+  const handleActivityClap = useCallback(
+    async (event) => {
+      if (!event?.user || !roomId) return;
+      const targetUser = event.user;
+      const targetName = targetUser.name || targetUser.username || "Friend";
+      const greeting =
+        event.type === "exit" || event.type === "leave"
+          ? `@${targetName} Bye! 👋 See you soon!`
+          : event.type === "seat" || event.type === "seated"
+            ? `@${targetName} 🎙️ Welcome to the mic!`
+            : `@${targetName} 👏 Welcome to the room!`;
+      try {
+        await appendOutgoingMessage(greeting);
+        await wsService.sendRoomMessage(String(roomId), greeting);
+      } catch {
+        // safe fallback
+      }
+    },
+    [roomId],
+  );
 
   useEffect(() => {
-    if (!onlineUsers || !prevOnlineUsersRef.current) {
-      prevOnlineUsersRef.current = onlineUsers || [];
+    setCanShowEntryBanner(false);
+    if (!roomLoading && roomId) {
+      const timer = setTimeout(() => {
+        setCanShowEntryBanner(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [roomLoading, roomId]);
+
+  // Track Real-Time Seated Events
+  useEffect(() => {
+    if (!seats || !Array.isArray(seats)) return;
+
+    if (!hasInitializedSeatsRef.current) {
+      prevSeatsRef.current = seats;
+      hasInitializedSeatsRef.current = true;
       return;
     }
-    const prevIds = new Set(prevOnlineUsersRef.current.map((u) => u.id));
-    const newJoins = onlineUsers.filter((u) => !prevIds.has(u.id));
 
-    if (newJoins.length > 0) {
-      setRecentEntries((prev) => [...prev, ...newJoins]);
-    }
-    prevOnlineUsersRef.current = onlineUsers;
-  }, [onlineUsers]);
+    const prevSeats = prevSeatsRef.current || [];
+    seats.forEach((seat) => {
+      const prevSeat = prevSeats.find((s) => s.id === seat.id);
+      const currUser = seat.user;
+      const prevUser = prevSeat?.user;
 
-  const handleEntryComplete = useCallback((userId) => {
-    setRecentEntries((prev) => prev.filter((u) => u.id !== userId));
+      const currId = currUser?.id != null ? String(currUser.id) : null;
+      const prevId = prevUser?.id != null ? String(prevUser.id) : null;
+
+      if (currId && currId !== prevId) {
+        enqueueActivityEvent({
+          id: `seat-${currId}-${seat.id}-${Date.now()}`,
+          type: "seat",
+          seatId: seat.id,
+          user: currUser,
+        });
+      }
+    });
+
+    prevSeatsRef.current = seats;
+  }, [seats, enqueueActivityEvent]);
+
+  const handleEntryComplete = useCallback((entryKeyOrId) => {
+    setRecentEntries((prev) =>
+      prev.filter(
+        (u) =>
+          u._entryKey !== entryKeyOrId &&
+          u.id !== entryKeyOrId &&
+          u.userId !== entryKeyOrId,
+      ),
+    );
   }, []);
   const [messages, setMessages] = useState([]);
   // The logged-in user's own VIP cosmetics (profile/entry/chat frame + logo) —
@@ -600,6 +2274,12 @@ export default function VoiceParty() {
     chatFrame: null,
     logo: null,
   });
+  // The logged-in user's own premium tier logo — same badge shown on the
+  // Profile tab, wherever this room shows the current user's own VIP logo.
+  const [myPremiumLogo, setMyPremiumLogo] = useState(null);
+  // The logged-in user's own gamification level — same value shown on the
+  // Profile tab's level badge, used for the room's mini profile popup.
+  const [myLevel, setMyLevel] = useState(1);
   // Current name/avatar fetched per-userId for chat senders who aren't in the
   // room's live participant/seat lists — see resolveChatSenderName/Avatar below.
   const [userProfileCache, setUserProfileCache] = useState({});
@@ -616,38 +2296,209 @@ export default function VoiceParty() {
   const [voiceDiagnostics, setVoiceDiagnostics] = useState(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [reportTarget, setReportTarget] = useState(null);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
+  const [claimedRewardModal, setClaimedRewardModal] = useState(null);
+  const [showActiveUsersModal, setShowActiveUsersModal] = useState(false);
+  const [showFollowModal, setShowFollowModal] = useState(false);
+  const [showRoomProfileModal, setShowRoomProfileModal] = useState(false);
+  const [roomModalTab, setRoomModalTab] = useState("profile");
+  const [roomBadgeSubTab, setRoomBadgeSubTab] = useState("achievement");
+  const [hostProfileDetails, setHostProfileDetails] = useState(null);
+  const [followerSearchQuery, setFollowerSearchQuery] = useState("");
+  const [roomFollowersList, setRoomFollowersList] = useState([]);
+  const [followersLoading, setFollowersLoading] = useState(false);
+  const [showEditRoomModal, setShowEditRoomModal] = useState(false);
+  const [editRoomName, setEditRoomName] = useState("");
+  const [editRoomImageUri, setEditRoomImageUri] = useState(null);
+  const [editRoomImageAsset, setEditRoomImageAsset] = useState(null);
+  const [isSavingRoomDetails, setIsSavingRoomDetails] = useState(false);
+  const [isUpdatingRoomPhoto, setIsUpdatingRoomPhoto] = useState(false);
+  const {
+    keyboardHeight: editRoomKeyboardRaw,
+    syncKeyboardHeight: syncEditRoomKeyboard,
+  } = useModalKeyboardInset(showEditRoomModal);
+  const editRoomKeyboardHeight = editRoomKeyboardRaw;
+
+  const displayActiveUsers = useMemo(() => {
+    const list = Array.isArray(onlineUsers) ? [...onlineUsers] : [];
+    const seenIds = new Set(
+      list.map((u) => String(u?.id ?? u?.userId ?? "")).filter(Boolean),
+    );
+
+    // Include seated users if not already in list
+    (seats || []).forEach((seat) => {
+      const u = seat?.user;
+      const uId =
+        u?.id != null
+          ? String(u.id)
+          : u?.userId != null
+            ? String(u.userId)
+            : null;
+      if (u && uId && !seenIds.has(uId)) {
+        seenIds.add(uId);
+        list.push({
+          ...u,
+          id: uId,
+          userId: uId,
+          name: u.name || u.username || "User",
+        });
+      }
+    });
+
+    // Include local session user / self if not in list
+    if (myUserId && !seenIds.has(String(myUserId))) {
+      seenIds.add(String(myUserId));
+      list.push({
+        ...(localSessionUser || {}),
+        id: String(myUserId),
+        userId: String(myUserId),
+        name: localSessionUser?.name || localSessionUser?.username || "You",
+        avatar:
+          localSessionUser?.avatar ||
+          localSessionUser?.profilePicUrl ||
+          localSessionUser?.profileImageUrl ||
+          null,
+        profileImageUrl:
+          localSessionUser?.profileImageUrl ||
+          localSessionUser?.profilePicUrl ||
+          null,
+      });
+    }
+
+    // Include room host/owner if not in list
+    if (hostId && !seenIds.has(String(hostId))) {
+      seenIds.add(String(hostId));
+      list.push({
+        id: String(hostId),
+        userId: String(hostId),
+        name: roomInfo?.hostName || roomInfo?.name || "Host",
+        avatar: roomInfo?.profileImageUrl || roomInfo?.avatar || null,
+        profileImageUrl: roomInfo?.profileImageUrl || null,
+      });
+    }
+
+    // Sort order: Owner/Host first, then Seated users, then Audience members
+    list.sort((a, b) => {
+      const aId = String(a?.userId ?? a?.id ?? "");
+      const bId = String(b?.userId ?? b?.id ?? "");
+      const aIsHost = hostId && aId === String(hostId);
+      const bIsHost = hostId && bId === String(hostId);
+      if (aIsHost && !bIsHost) return -1;
+      if (!aIsHost && bIsHost) return 1;
+
+      const aSeated = (seats || []).some(
+        (s) => s?.user && String(s.user.id || s.user.userId) === aId,
+      );
+      const bSeated = (seats || []).some(
+        (s) => s?.user && String(s.user.id || s.user.userId) === bId,
+      );
+      if (aSeated && !bSeated) return -1;
+      if (!aSeated && bSeated) return 1;
+
+      return 0;
+    });
+
+    return list;
+  }, [onlineUsers, seats, myUserId, localSessionUser, hostId, roomInfo]);
+
+  const isUserSeated = useCallback(
+    (userId) => {
+      if (!userId) return false;
+      return (seats || []).some((s) => {
+        const u = s?.user;
+        if (!u) return false;
+        return (
+          String(u.id || u.userId) === String(userId) ||
+          String(u.id) === String(userId) ||
+          String(u.userId) === String(userId)
+        );
+      });
+    },
+    [seats],
+  );
+
+  const seatedUsersCount = (seats || []).filter((s) => s?.user).length;
   const exitedRef = useRef(false);
   const onMicRef = useRef(false);
   const mySeatNumberRef = useRef(null);
   // Tracks consecutive presence-list misses per userId (see reconcileSeatAssignments).
   const staleSeatTrackerRef = useRef(new Map());
+  // Agora uids with a live remote audio stream right now (kept in sync from
+  // the voice-status subscription below) — lets reconcileSeatAssignments
+  // avoid clearing a seat whose user is still actually talking.
+  const activeVoiceUidsRef = useRef(new Set());
   // Bumped every time a live ui-state broadcast applies a seats update, so a
   // REST getRoomState() snapshot in flight can detect it's been superseded
   // by fresher socket data and skip overwriting it.
   const seatSyncTokenRef = useRef(0);
   const buyingGiftRef = useRef(false);
   const roomIdRef = useRef(roomIdParam);
+  const isNavigatingToInboxRef = useRef(false);
   const fetchedUiAssetIdsRef = useRef(new Set());
-  const { keyboardHeight, safeBottom, idleBottom } = useKeyboardInset();
+  const knownMuteStatesRef = useRef(new Map());
+  const { keyboardHeight, safeBottom, idleBottom, composerBottom, isKeyboardVisible } = useKeyboardInset();
+
+  useEffect(() => {
+    if (isKeyboardVisible) {
+      setShowEmojiPicker(false);
+    }
+  }, [isKeyboardVisible]);
   const [showPlayCenter, setShowPlayCenter] = useState(false);
+  const [showTopGiftingRanking, setShowTopGiftingRanking] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // keyed by userId → { id, emoji, mediaUrl, mediaType, userId } (latest one wins)
+  const [seatEmojiOverlays, setSeatEmojiOverlays] = useState({});
   const [showGiftPanel, setShowGiftPanel] = useState(false);
   const [listenSeconds, setListenSeconds] = useState(0);
   const listenSecondsRef = useRef(0);
+  const syncedListenSecondsRef = useRef(0);
+  const activeListenSyncPromiseRef = useRef(null);
+  const currentUtcDateRef = useRef(new Date().toISOString().slice(0, 10));
+  const claimingRewardTierRef = useRef(null);
   const [rewardStates, setRewardStates] = useState([
     { claimed: false, rewardImg: null },
     { claimed: false, rewardImg: null },
     { claimed: false, rewardImg: null },
   ]);
+  const [showDiamondRecharge, setShowDiamondRecharge] = useState(false);
+  const [rechargeInitialTab, setRechargeInitialTab] = useState("diamonds");
   const [showTreasureBox, setShowTreasureBox] = useState(false);
+  const [showPkBattle, setShowPkBattle] = useState(false);
+  const [showPkTeamAccept, setShowPkTeamAccept] = useState(false);
+  const [activePkBattle, setActivePkBattle] = useState(null);
+  // Once a battle exists, its own echoed `roomId` is the authoritative id
+  // for all further PK lookups — never the route/session roomId, which can
+  // drift out of sync (whitespace, re-derived session ids, etc.) from what
+  // the PK subsystem itself considers this battle's room.
+  const pkPollRoomId =
+    activePkBattle?.roomId || (roomId != null ? String(roomId).trim() : null);
+  // The backend doesn't expose *which* side has accepted a pending battle
+  // (status just stays PENDING until both have) — so "did I already accept
+  // this one" has to be tracked locally, purely to swap this client's own
+  // accept/reject prompt for a "waiting on the other participant" banner.
+  const [myAcceptedBattleId, setMyAcceptedBattleId] = useState(null);
+  const myAcceptedBattleIdRef = useRef(null);
+  const [pkBattleActionLoading, setPkBattleActionLoading] = useState(false);
+  // Synchronous reentrancy guard — `pkBattleActionLoading` state only takes
+  // effect on the next render, so a real double-tap (two touch events before
+  // React re-renders) can slip two requests through the state check alone.
+  // The double request is what actually produces the "conflicts with
+  // existing data" 409: the first create/respond succeeds, the second hits
+  // the battle the first just made.
+  const pkBattleActionInFlightRef = useRef(false);
   const [showBackpack, setShowBackpack] = useState(false);
   const [backpackMainTab, setBackpackMainTab] = useState("Backpack");
   const [backpackSubTab, setBackpackSubTab] = useState("Gift");
   const [selectedGift, setSelectedGift] = useState(null);
+  const [backpackSelectedGifts, setBackpackSelectedGifts] = useState([]);
   const [giftQty, setGiftQty] = useState(1);
   const [purchaseGift, setPurchaseGift] = useState(null);
+  const [showSendGiftOptions, setShowSendGiftOptions] = useState(false);
+  const [sendGiftQuantity, setSendGiftQuantity] = useState("1");
+  const [sendGiftReceiverId, setSendGiftReceiverId] = useState(null);
+  const [sendingGift, setSendingGift] = useState(false);
   const [backpackGifts, setBackpackGifts] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
@@ -664,49 +2515,184 @@ export default function VoiceParty() {
   const [giftReceiverId, setGiftReceiverId] = useState(null);
   const [showGiftReceiverPicker, setShowGiftReceiverPicker] = useState(false);
   const giftReceiverTouchedRef = useRef(false);
-  const [giftPopup, setGiftPopup] = useState(null);
+  const [activeGiftDisplays, setActiveGiftDisplays] = useState([]);
+  const [activeRisingGifts, setActiveRisingGifts] = useState([]);
   const [activityEvent, setActivityEvent] = useState("Flamenco Fantasy");
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [currentVideo, setCurrentVideo] = useState(null);
+  const giftCatalogRef = useRef(giftCatalog);
+  useEffect(() => {
+    giftCatalogRef.current = giftCatalog;
+  }, [giftCatalog]);
+  const lastPlayedVideoIdRef = useRef(null);
+  const lastPlayedVideoTimeRef = useRef(0);
   // Frame data keyed by userId string — lives independently of seats/onlineUsers
   // so WebSocket seat resets can never wipe it.
   const [userFrameData, setUserFrameData] = useState({});
   // Empty-seat action sheet
   const [seatActionSheet, setSeatActionSheet] = useState(null); // { seatId }
   const [seatActionLoading, setSeatActionLoading] = useState(false);
+  const [adminSeatModal, setAdminSeatModal] = useState(null); // { seatId }
+  const [adminUnlockModal, setAdminUnlockModal] = useState(null); // { seatId }
+  const [lockedSeatNoticeModal, setLockedSeatNoticeModal] = useState(null); // { seatId }
   // Mic permission warning popup (stores pending seatId)
   const [micPermWarning, setMicPermWarning] = useState(null); // seatId | null
   // Pinned welcome message (editable by the host)
   const [welcomeMessage, setWelcomeMessage] = useState(
     "Welcome everyone! Let's chat and have fun together!",
   );
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [isMusicPaused, setIsMusicPaused] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(() => {
+    return typeof agoraVoice.getAudioMixingVolume === 'function'
+      ? agoraVoice.getAudioMixingVolume()
+      : 80;
+  });
+
+  const handleMusicVolumeChange = useCallback((vol) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(Number(vol) || 0)));
+    setMusicVolume(clamped);
+    if (typeof agoraVoice.setAudioMixingVolume === 'function') {
+      agoraVoice.setAudioMixingVolume(clamped);
+    }
+  }, []);
+
+  const [musicPlaylist, setMusicPlaylist] = useState([]);
+  const [currentMusicIndex, setCurrentMusicIndex] = useState(0);
+  const [showMusicPlaylist, setShowMusicPlaylist] = useState(false);
   const [showWelcomeEdit, setShowWelcomeEdit] = useState(false);
+  const {
+    keyboardHeight: welcomeKeyboardRaw,
+    safeBottom: welcomeSafeBottom,
+    syncKeyboardHeight: syncWelcomeKeyboard,
+  } = useModalKeyboardInset(showWelcomeEdit);
+  // Android keyboard height excludes the nav bar, but the edge-to-edge
+  // Modal extends behind it — add the inset so the sheet clears the keyboard.
+  const welcomeKeyboardHeight =
+    welcomeKeyboardRaw > 0 && Platform.OS === "android"
+      ? welcomeKeyboardRaw +
+      Math.max(
+        welcomeSafeBottom,
+        // screen - window also includes the status bar; strip it out
+        getAndroidNavBarInset() - (StatusBar.currentHeight || 0),
+      )
+      : welcomeKeyboardRaw;
+
+  useEffect(() => {
+    if (typeof agoraVoice.subscribeAudioMixing !== 'function') return;
+    const unsub = agoraVoice.subscribeAudioMixing(({ state, reason }) => {
+      // state 713 = Stopped, 714 = Completed. reason 721 = OneLoopCompleted, 723 = AllLoopsCompleted, 724 = StoppedByUser
+      if (
+        reason === 721 ||
+        reason === 723 ||
+        state === 714 ||
+        ((state === 713 || state === 'COMPLETED' || state === 'STOPPED') && reason !== 724)
+      ) {
+        DeviceEventEmitter.emit('AUDIO_MIXING_COMPLETED');
+      }
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('AUDIO_MIXING_COMPLETED', () => {
+      // If there are more songs left, play next. Otherwise, stop and show play icon.
+      if (musicPlaylist && musicPlaylist.length > 1 && currentMusicIndex < musicPlaylist.length - 1) {
+        handleNextMusic();
+      } else {
+        setIsMusicPaused(true);
+      }
+    });
+    return () => sub.remove();
+  }, [musicPlaylist, currentMusicIndex, handleNextMusic]);
   const [welcomeDraft, setWelcomeDraft] = useState("");
 
   const videoPlayer = useVideoPlayer(null, (p) => {
     p.loop = false;
   });
 
+  // Automatically close video modal when video finishes playing
+  useEffect(() => {
+    if (!videoPlayer) return;
+    const sub = videoPlayer.addListener("playToEnd", () => {
+      setShowVideoModal(false);
+      setCurrentVideo(null);
+    });
+    return () => {
+      sub?.remove?.();
+    };
+  }, [videoPlayer]);
+
   useEffect(() => {
     if (!showVideoModal || !currentVideo) {
-      videoPlayer.pause();
+      try {
+        videoPlayer?.pause?.();
+      } catch {}
       return undefined;
     }
 
+    const rawUrl = currentVideo.videoUrl ?? currentVideo.uri;
+    const isGif = isGifMedia(rawUrl) || Boolean(currentVideo.isGif);
+
+    // If media is a GIF, do not pass to videoPlayer (expo-video cannot play GIFs).
+    // Automatically close after 6 seconds of animation.
+    if (isGif) {
+      try {
+        videoPlayer?.pause?.();
+      } catch {}
+
+      let cancelled = false;
+      const gifTimer = setTimeout(() => {
+        if (!cancelled) {
+          setShowVideoModal(false);
+          setCurrentVideo(null);
+        }
+      }, 6000);
+
+      return () => {
+        cancelled = true;
+        clearTimeout(gifTimer);
+      };
+    }
+
     let cancelled = false;
-    const source = resolveVideoSource(
-      currentVideo.videoUrl ?? currentVideo.uri,
-    );
+    let videoTimer = null;
+    const source = resolveVideoSource(rawUrl);
     if (!source) return undefined;
+
+    // Safety timeout: automatically close if video loading hangs or fails to play
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) {
+        try {
+          videoPlayer?.pause?.();
+        } catch {}
+        setShowVideoModal(false);
+        setCurrentVideo(null);
+      }
+    }, 7000);
 
     (async () => {
       try {
         await videoPlayer.replaceAsync(source);
-        if (!cancelled) videoPlayer.play();
-      } catch (err) {
-        console.error("[VoiceParty] relationship video failed", err);
         if (!cancelled) {
-          Alert.alert("Video error", "Could not play this video. Try again.");
+          videoPlayer.currentTime = 0;
+          videoPlayer.play();
+
+          // Close video modal after 6 seconds of playback for all room participants
+          if (videoTimer) clearTimeout(videoTimer);
+          videoTimer = setTimeout(() => {
+            if (!cancelled) {
+              try {
+                videoPlayer?.pause?.();
+              } catch {}
+              setShowVideoModal(false);
+              setCurrentVideo(null);
+            }
+          }, 6000);
+        }
+      } catch (err) {
+        console.error("[VoiceParty] video playback failed", err);
+        if (!cancelled) {
           setShowVideoModal(false);
           setCurrentVideo(null);
         }
@@ -715,15 +2701,23 @@ export default function VoiceParty() {
 
     return () => {
       cancelled = true;
+      clearTimeout(safetyTimer);
+      if (videoTimer) clearTimeout(videoTimer);
     };
   }, [
     showVideoModal,
     currentVideo?.id,
     currentVideo?.videoUrl,
     currentVideo?.uri,
+    currentVideo?.isGif,
+    videoPlayer,
   ]);
   const [mediaSection, setMediaSection] = useState("emoji");
   const [emojiTab, setEmojiTab] = useState("smileys");
+  const [selectedEmoji, setSelectedEmoji] = useState("😊");
+  const [selectedEmojiRecipientId, setSelectedEmojiRecipientId] =
+    useState(null);
+  const [showEmojiReceiverPicker, setShowEmojiReceiverPicker] = useState(false);
   const [stickerTab, setStickerTab] = useState("reactions");
   const [gifTab, setGifTab] = useState("trending");
   const [showChatInput, setShowChatInput] = useState(false);
@@ -738,11 +2732,50 @@ export default function VoiceParty() {
   const [profileFollowLoading, setProfileFollowLoading] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
   const [localSessionUser, setLocalSessionUser] = useState(null);
-  const hostId = roomInfo?.hostId ?? null;
-  const isHostSelf = isSameUser(hostId, myUserId);
-  const { treasureState, selectChest } = useTreasureBoxProgress(
+  const myCountryFlag = useMyCountryFlag();
+  const hostId =
+    roomInfo?.hostId ?? roomInfo?.creatorId ?? roomInfo?.ownerId ?? null;
+  const isHostSelf =
+    isSameUser(hostId, myUserId) ||
+    isSameUser(roomInfo?.creatorId, myUserId) ||
+    isSameUser(roomInfo?.ownerId, myUserId);
+  const [roomAdminIds, setRoomAdminIds] = useState(new Set());
+  const isViewerAdmin = Boolean(myUserId && roomAdminIds.has(String(myUserId)));
+  const canManageRoomUsers = isHostSelf || isViewerAdmin;
+  const [clearingChat, setClearingChat] = useState(false);
+
+  // Only the creator/owner of the room can edit room name & photo
+  const currentAppUserId =
+    myUserId ||
+    localSessionUser?.id ||
+    localSessionUser?.userId ||
+    null;
+
+  const roomCreatorId =
+    roomInfo?.creatorId ||
+    roomInfo?.createdBy ||
+    roomInfo?.ownerId ||
+    roomInfo?.hostId ||
+    hostId ||
+    null;
+
+  const canEditRoom = Boolean(
+    currentAppUserId &&
+    roomCreatorId &&
+    (
+      isSameUser(roomInfo?.creatorId, currentAppUserId) ||
+      isSameUser(roomInfo?.createdBy, currentAppUserId) ||
+      isSameUser(roomInfo?.ownerId, currentAppUserId) ||
+      isSameUser(roomCreatorId, currentAppUserId)
+    )
+  );
+  const { treasureState, selectChest, updateTreasureState, refreshTreasureState } = useTreasureBoxProgress(
+    roomId,
     !roomLoading && Boolean(roomId),
   );
+  const [treasureUnlockEvent, setTreasureUnlockEvent] = useState(null);
+  const [pendingTreasureEvent, setPendingTreasureEvent] = useState(null);
+  const [showTreasureAnimation, setShowTreasureAnimation] = useState(false);
   const { diamonds: walletDiamonds } = useWalletBalance();
 
   useEffect(() => {
@@ -802,17 +2835,25 @@ export default function VoiceParty() {
   // survives any re-render. Chat senders are included so the NEW STAR badge
   // also appears for audience members who are not on a mic seat.
   useEffect(() => {
-    const seatUserIds = seats
-      .filter((seat) => seat.user?.id != null)
-      .map((seat) => String(seat.user.id));
-    const audienceUserIds = onlineUsers
-      .filter((u) => u?.id != null)
-      .map((u) => String(u.id));
-    const chatSenderIds = messages
+    const seatUserIds = (seats || [])
+      .filter((seat) => seat.user?.id != null || seat.user?.userId != null)
+      .map((seat) => String(seat.user.id ?? seat.user.userId));
+    const audienceUserIds = (onlineUsers || [])
+      .filter((u) => u?.id != null || u?.userId != null)
+      .map((u) => String(u.id ?? u.userId));
+    const activeUserIds = (displayActiveUsers || [])
+      .filter((u) => u?.id != null || u?.userId != null)
+      .map((u) => String(u.id ?? u.userId));
+    const chatSenderIds = (messages || [])
       .filter((m) => m?.userId != null)
       .map((m) => String(m.userId));
     const allIds = [
-      ...new Set([...seatUserIds, ...audienceUserIds, ...chatSenderIds]),
+      ...new Set([
+        ...seatUserIds,
+        ...audienceUserIds,
+        ...activeUserIds,
+        ...chatSenderIds,
+      ]),
     ];
     const pending = allIds.filter(
       (userId) => !fetchedUiAssetIdsRef.current.has(userId),
@@ -824,10 +2865,6 @@ export default function VoiceParty() {
       fetchedUiAssetIdsRef.current.add(userId);
       getUserUiAssets(userId)
         .then((response) => {
-          console.log(
-            `[VoiceParty] ui-assets userId=${userId}:`,
-            JSON.stringify(response),
-          );
           const showFrame = Boolean(
             response?.showNewUserFrame ??
             response?.hasNewUserFrame ??
@@ -846,15 +2883,12 @@ export default function VoiceParty() {
             extractVipProfileFrameUrl(response?.data);
           setUserFrameData((prev) => ({
             ...prev,
-<<<<<<< HEAD
-            [userId]: { ...prev[userId], hasNewUserFrame: showFrame, newUserFrameUrl: frameUrl, vipProfileFrameUrl },
-=======
             [userId]: {
+              ...prev[userId],
               hasNewUserFrame: showFrame,
               newUserFrameUrl: frameUrl,
               vipProfileFrameUrl,
             },
->>>>>>> 00c8b16 (UI issue fix)
           }));
         })
         .catch((err) => {
@@ -865,15 +2899,22 @@ export default function VoiceParty() {
             );
         });
 
-      // Backend-assigned decorations for this specific user (separate from
-      // the VIP/new-user frame system above) — badge + frame overlay.
-      fetchUserDecorations(userId).then(({ badgeUrl, frameUrl }) => {
-        if (!badgeUrl && !frameUrl) return;
-        setUserFrameData((prev) => ({
-          ...prev,
-          [userId]: { ...prev[userId], decorationBadgeUrl: badgeUrl, decorationFrameUrl: frameUrl },
-        }));
-      });
+      // Same decorations (badge + frame) API used on the profile screens —
+      // backend-assigned per user, independent of VIP tier — so the same
+      // "verified"/decoration badge shown there also appears below every
+      // sender's name here, not just the logged-in user's own messages.
+      fetchUserDecorations(userId)
+        .then(({ badgeUrl, frameUrl: decorationFrameUrl }) => {
+          setUserFrameData((prev) => ({
+            ...prev,
+            [userId]: {
+              ...prev[userId],
+              decorationBadgeUrl: badgeUrl,
+              decorationFrameUrl,
+            },
+          }));
+        })
+        .catch(() => {});
     });
   }, [seats, onlineUsers, messages]);
 
@@ -920,11 +2961,26 @@ export default function VoiceParty() {
     let cancelled = false;
     setCatalogLoading(true);
     Promise.all([
-      loadPartyGiftCatalog()
-        .then((catalog) => {
-          if (!cancelled) setGiftCatalog(catalog);
-        })
-        .catch(() => {}),
+      Promise.all([
+        loadPartyGiftCatalog().catch(() => null),
+        loadGiftCatalog("gift").catch(() => []),
+      ]).then(([catalog, giftItems]) => {
+        if (cancelled) return;
+        const nextCatalog = catalog ?? {
+          random: [],
+          gift: [],
+          activity: [],
+          activityByEvent: {},
+          relationship: [],
+          pk: [],
+          special: [],
+          vip: [],
+        };
+        setGiftCatalog({
+          ...nextCatalog,
+          gift: giftItems.length ? giftItems : nextCatalog.gift,
+        });
+      }),
       loadGiftInventory()
         .then((items) => {
           if (!cancelled) setBackpackGifts(items);
@@ -941,6 +2997,138 @@ export default function VoiceParty() {
       cancelled = true;
     };
   }, [showBackpack, catalogRefreshKey]);
+
+  const refreshListenRewardStatus = useCallback(async (isDateReset = false) => {
+    try {
+      const data = await loadListenRewardStatus();
+      if (!data) return;
+
+      const responseDate = data.date ? String(data.date) : null;
+      if (responseDate) {
+        currentUtcDateRef.current = responseDate;
+      }
+
+      if (typeof data.listenedSeconds === "number") {
+        const srvSec = Math.max(0, data.listenedSeconds);
+        if (isDateReset) {
+          // On date reset, set local baseline to server's new-day listenedSeconds
+          listenSecondsRef.current = srvSec;
+          setListenSeconds(srvSec);
+          syncedListenSecondsRef.current = srvSec;
+        } else {
+          // On normal load/mount, advance baselines if server value is higher
+          if (srvSec > listenSecondsRef.current) {
+            listenSecondsRef.current = srvSec;
+            setListenSeconds(srvSec);
+          }
+          if (srvSec > syncedListenSecondsRef.current) {
+            syncedListenSecondsRef.current = srvSec;
+          }
+        }
+      }
+
+      if (Array.isArray(data.tiers) && data.tiers.length > 0) {
+        setRewardStates((prev) =>
+          data.tiers.map((t, idx) => {
+            const existing = isDateReset ? {} : prev[idx] || {};
+            const threshold = Number(
+              t.thresholdSeconds ?? LISTEN_THRESHOLDS[idx] ?? 0,
+            );
+            const isUnlocked = Boolean(
+              t.unlocked ?? listenSecondsRef.current >= threshold,
+            );
+            const isClaimed = Boolean(t.claimed);
+            let rewardImg = existing.rewardImg;
+            if (t.reward?.imageUrl) {
+              rewardImg = { uri: t.reward.imageUrl };
+            }
+            return {
+              ...existing,
+              tier: t.tier ?? idx + 1,
+              thresholdSeconds: threshold,
+              label: t.label ?? LISTEN_THRESHOLD_LABELS[idx],
+              claimed: isClaimed,
+              claimedAt: t.claimedAt ?? null,
+              unlocked: isUnlocked,
+              reward: t.reward ?? existing.reward ?? null,
+              rewardImg,
+            };
+          }),
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[VoiceParty] Failed to load listen reward status:",
+        err?.message ?? err,
+      );
+    }
+  }, []);
+
+  // Load Listen Reward status when Listen Rewards modal opens or room initializes
+  useEffect(() => {
+    let cancelled = false;
+    refreshListenRewardStatus(false);
+    return () => {
+      cancelled = true;
+    };
+  }, [showGiftPanel, roomId, refreshListenRewardStatus]);
+
+  const flushListenRewardProgress = useCallback(async (targetRoomId) => {
+    const activeRoom = String(targetRoomId || roomIdRef.current || "");
+    if (!activeRoom) return;
+
+    // 1. Wait for any currently in-flight sync to complete
+    while (activeListenSyncPromiseRef.current) {
+      try {
+        await activeListenSyncPromiseRef.current;
+      } catch {
+        // Failure handled inside the sync promise
+      }
+    }
+
+    // 2. Sequentially drain remaining unsynced delta in chunks of at most 120s
+    while (true) {
+      const deltaSeconds =
+        listenSecondsRef.current - syncedListenSecondsRef.current;
+      if (deltaSeconds <= 0) break;
+
+      const sendDelta = Math.min(deltaSeconds, 120);
+
+      const syncPromise = (async () => {
+        try {
+          const res = await syncListenRewardProgress({
+            roomId: activeRoom,
+            deltaSeconds: sendDelta,
+          });
+          if (res && res.success !== false) {
+            syncedListenSecondsRef.current += sendDelta;
+            return true;
+          }
+          return false;
+        } catch (err) {
+          console.warn(
+            "[VoiceParty] Failed to sync listen reward progress:",
+            err?.message ?? err,
+          );
+          return false;
+        }
+      })();
+
+      activeListenSyncPromiseRef.current = syncPromise;
+
+      let success = false;
+      try {
+        success = await syncPromise;
+      } finally {
+        if (activeListenSyncPromiseRef.current === syncPromise) {
+          activeListenSyncPromiseRef.current = null;
+        }
+      }
+
+      // If a request fails, stop draining loop (keep remaining delta unsynced for future retry)
+      if (!success) break;
+    }
+  }, []);
 
   useEffect(() => {
     const keys = Object.keys(giftCatalog.activityByEvent);
@@ -1067,23 +3255,16 @@ export default function VoiceParty() {
       });
     };
 
-    if (hostId && !isSameUser(hostId, myUserId)) {
-      addRecipient({
-        id: hostId,
-        name: roomInfo?.name ?? "Host",
-        avatar: roomInfo?.profileImageUrl ?? null,
-        subtitle: "Host",
-      });
-    }
-
+    // Only add recipients who are actually present in the room (in onlineUsers or on seats)
     onlineUsers.forEach((user) => {
       const userId = resolveRecipientUserId(user);
       if (!userId) return;
+      const isHost = hostId && isSameUser(userId, hostId);
       addRecipient({
         id: userId,
-        name: user.name,
+        name: user.name || (isHost ? (roomInfo?.hostName || "Host") : "User"),
         avatar: user.avatar,
-        subtitle: "In room",
+        subtitle: isHost ? "Host" : "In room",
       });
     });
 
@@ -1091,36 +3272,203 @@ export default function VoiceParty() {
       if (!seat.user) return;
       const userId = resolveRecipientUserId(seat.user);
       if (!userId) return;
+      const isHost = hostId && isSameUser(userId, hostId);
       addRecipient({
         id: userId,
-        name: seat.user.name,
+        name: seat.user.name || (isHost ? (roomInfo?.hostName || "Host") : "User"),
         avatar: seat.user.avatar,
-        subtitle: `On mic · ${seat.id}`,
+        subtitle: isHost ? "Host · On mic" : `On mic · ${seat.id}`,
       });
     });
 
     return Array.from(byId.values());
   }, [hostId, roomInfo, onlineUsers, seats, myUserId, resolveRecipientUserId]);
 
+  const roomActiveUsers = useMemo(() => {
+    const byId = new Map();
+
+    const addCandidate = ({
+      id,
+      name,
+      avatar,
+      subtitle,
+      isSeated,
+      seatId,
+      isSelf,
+    }) => {
+      const normalizedId = id != null ? String(id) : null;
+      if (!normalizedId) return;
+
+      if (byId.has(normalizedId)) {
+        const existing = byId.get(normalizedId);
+        if (!existing.avatar && avatar) existing.avatar = avatar;
+        if (isSeated) {
+          existing.isSeated = true;
+          existing.seatId = seatId;
+          existing.subtitle = `Seat ${seatId}`;
+        }
+        return;
+      }
+
+      byId.set(normalizedId, {
+        id: normalizedId,
+        name: name || "User",
+        avatar: avatar || null,
+        subtitle: subtitle || (isSeated ? `Seat ${seatId}` : "In room"),
+        isSeated: Boolean(isSeated),
+        seatId: seatId ?? null,
+        isSelf: Boolean(isSelf),
+      });
+    };
+
+    // 1. Seated users on mic first (priority for emoji animation)
+    seats.forEach((seat) => {
+      if (!seat.user) return;
+      const uid = resolveRecipientUserId(seat.user);
+      if (!uid) return;
+      const isSelf = isSameUser(uid, myUserId);
+      addCandidate({
+        id: uid,
+        name: isSelf
+          ? `${seat.user.name || "You"} (Me)`
+          : seat.user.name || "User",
+        avatar:
+          seat.user.avatar ||
+          seat.user.avatarUrl ||
+          seat.user.profileImageUrl ||
+          null,
+        subtitle: `Seat ${seat.id}`,
+        isSeated: true,
+        seatId: seat.id,
+        isSelf,
+      });
+    });
+
+    // 2. Room Host (if not already seated)
+    if (hostId) {
+      const isSelf = isSameUser(hostId, myUserId);
+      addCandidate({
+        id: String(hostId),
+        name: isSelf
+          ? `${roomInfo?.name || "Host"} (Me)`
+          : roomInfo?.name || "Host",
+        avatar: roomInfo?.profileImageUrl || null,
+        subtitle: "Host",
+        isSeated: false,
+        seatId: null,
+        isSelf,
+      });
+    }
+
+    // 3. Online participants in the room
+    (onlineUsers || []).forEach((u) => {
+      const uid = resolveRecipientUserId(u);
+      if (!uid) return;
+      const isSelf = isSameUser(uid, myUserId);
+      addCandidate({
+        id: uid,
+        name: isSelf ? `${u.name || "You"} (Me)` : u.name || "User",
+        avatar: u.avatar || u.avatarUrl || u.profilePicUrl || null,
+        subtitle: "In room",
+        isSeated: false,
+        seatId: null,
+        isSelf,
+      });
+    });
+
+    // 4. Current user (if alone in room or not in the list yet)
+    if (myUserId && !byId.has(String(myUserId))) {
+      addCandidate({
+        id: String(myUserId),
+        name: `${localSessionUser?.name || localSessionUser?.username || "You"} (Me)`,
+        avatar:
+          localSessionUser?.avatarUrl ||
+          localSessionUser?.profilePicUrl ||
+          null,
+        subtitle: "Me",
+        isSeated: false,
+        seatId: null,
+        isSelf: true,
+      });
+    }
+
+    const list = Array.from(byId.values());
+
+    // Sort order:
+    // Seated users other than self first (since emoji is sent to friend seated in room)
+    // Then other online users / host
+    // Then current user (self) last
+    return list.sort((a, b) => {
+      if (a.isSelf !== b.isSelf) return a.isSelf ? 1 : -1;
+      if (a.isSeated !== b.isSeated) return a.isSeated ? -1 : 1;
+      return 0;
+    });
+  }, [
+    seats,
+    hostId,
+    roomInfo,
+    onlineUsers,
+    myUserId,
+    localSessionUser,
+    resolveRecipientUserId,
+  ]);
+
+  const selectedEmojiRecipient = useMemo(() => {
+    if (!roomActiveUsers.length) return null;
+    const found = roomActiveUsers.find(
+      (u) => String(u.id) === String(selectedEmojiRecipientId),
+    );
+    return found || roomActiveUsers[0];
+  }, [roomActiveUsers, selectedEmojiRecipientId]);
+
+  // const pkOpponentCandidates = useMemo(() => {
+  //   const byId = new Map();
+
+  //   // 1. Seated users on mic first
+  //   seats.forEach((seat) => {
+  //     if (!seat.user) return;
+  //     const u = seat.user;
+  //     const userId = u.id != null ? String(u.id) : (u.userId != null ? String(u.userId) : null);
+  //     if (!userId || isSameUser(userId, myUserId)) return;
+  //     byId.set(userId, {
+  //       id: userId,
+  //       name: u.name || u.username || "User",
+  //       avatar: u.avatar || u.profileImageUrl || u.avatarUrl || null,
+  //       seatId: seat.id,
+  //     });
+  //   });
+
+  //   // 2. Other online users in room
+  //   onlineUsers.forEach((user) => {
+  //     const userId = user.id != null ? String(user.id) : (user.userId != null ? String(user.userId) : null);
+  //     if (!userId || isSameUser(userId, myUserId) || byId.has(userId)) return;
+  //     byId.set(userId, {
+  //       id: userId,
+  //       name: user.name || user.username || "User",
+  //       avatar: user.avatar || user.profileImageUrl || user.avatarUrl || null,
+  //       seatId: null,
+  //     });
+  //   });
+
+  //   return Array.from(byId.values());
+  // }, [seats, onlineUsers, myUserId]);
+
   useEffect(() => {
     if (!showBackpack) setShowGiftReceiverPicker(false);
   }, [showBackpack]);
 
   useEffect(() => {
-    if (giftReceiverTouchedRef.current || giftReceiverId) return;
-    const preferred =
-      giftRecipientOptions[0]?.id ??
-      (hostId && !isSameUser(hostId, myUserId) ? String(hostId) : null) ??
-      null;
-    if (preferred) setGiftReceiverId(preferred);
-  }, [giftRecipientOptions, giftReceiverId, hostId, myUserId]);
-
-  useEffect(() => {
-    if (!showBackpack || giftReceiverTouchedRef.current || giftReceiverId)
+    if (giftRecipientOptions.length === 0) {
+      if (giftReceiverId) setGiftReceiverId(null);
       return;
-    const preferred = giftRecipientOptions[0]?.id ?? null;
-    if (preferred) setGiftReceiverId(preferred);
-  }, [showBackpack, giftRecipientOptions, giftReceiverId]);
+    }
+    const hasCurrent = giftRecipientOptions.some(
+      (opt) => String(opt.id) === String(giftReceiverId),
+    );
+    if (!hasCurrent) {
+      setGiftReceiverId(giftRecipientOptions[0]?.id ?? null);
+    }
+  }, [giftRecipientOptions, giftReceiverId]);
 
   useEffect(() => {
     getAppUserId()
@@ -1129,36 +3477,611 @@ export default function VoiceParty() {
   }, []);
 
   useEffect(() => {
-    if (!hostId || isSameUser(hostId, myUserId)) {
+    const targetRoomId = roomIdRef.current || roomId;
+    if (!targetRoomId || isHostSelf) {
       setIsFollowing(false);
       return;
     }
     let cancelled = false;
-    loadRelationshipStatus(hostId)
-      .then((status) => {
-        if (!cancelled) setIsFollowing(status.following);
+    loadFollowingRooms()
+      .then((rooms) => {
+        if (cancelled) return;
+        const list = Array.isArray(rooms) ? rooms : [];
+        const isFollowed = list.some((r) => {
+          const id = r?.id ?? r?.roomId;
+          return (
+            id != null &&
+            String(id).toLowerCase() === String(targetRoomId).toLowerCase()
+          );
+        });
+        setIsFollowing(Boolean(isFollowed));
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setIsFollowing(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [hostId, myUserId]);
+  }, [roomId, isHostSelf]);
+
+  useEffect(() => {
+    if (!showFollowModal && !showRoomProfileModal) return;
+    let cancelled = false;
+    const targetUserId = hostId || roomInfo?.hostId || roomInfo?.creatorId;
+    if (targetUserId) {
+      loadPublicProfile(targetUserId)
+        .then((res) => {
+          if (!cancelled && res?.profile) {
+            setHostProfileDetails(res.profile);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showFollowModal,
+    showRoomProfileModal,
+    hostId,
+    roomInfo?.hostId,
+    roomInfo?.creatorId,
+  ]);
+
+  useEffect(() => {
+    if (!showRoomProfileModal) return;
+    let cancelled = false;
+    const targetUserId =
+      hostId ||
+      roomInfo?.hostId ||
+      roomInfo?.creatorId ||
+      roomInfo?.userId ||
+      roomInfo?.ownerId;
+    if (targetUserId) {
+      setFollowersLoading(true);
+      loadFollowers(targetUserId)
+        .then((res) => {
+          if (!cancelled) {
+            setRoomFollowersList(Array.isArray(res) ? res : []);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRoomFollowersList([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setFollowersLoading(false);
+          }
+        });
+    } else {
+      setRoomFollowersList([]);
+      setFollowersLoading(false);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showRoomProfileModal,
+    hostId,
+    roomInfo?.hostId,
+    roomInfo?.creatorId,
+    roomInfo?.userId,
+    roomInfo?.ownerId,
+  ]);
+
+  const displayFollowersList = useMemo(() => {
+    const baseList = Array.isArray(roomFollowersList) ? roomFollowersList : [];
+    if (!followerSearchQuery.trim()) {
+      return baseList;
+    }
+    const q = followerSearchQuery.trim().toLowerCase();
+    return baseList.filter((u) => {
+      const name = String(u?.name || u?.username || "").toLowerCase();
+      const id = String(u?.id || u?.userId || "").toLowerCase();
+      return name.includes(q) || id.includes(q);
+    });
+  }, [roomFollowersList, followerSearchQuery]);
+
+  const [roomBadgesData, setRoomBadgesData] = useState(null);
+
+  useEffect(() => {
+    if (!showRoomProfileModal) return;
+    let cancelled = false;
+    const activeRoomId = String(
+      roomId || roomInfo?.id || roomInfo?.roomId || "",
+    );
+    if (activeRoomId) {
+      getRoomBadges(activeRoomId)
+        .then((res) => {
+          if (!cancelled && res) {
+            setRoomBadgesData(res);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [showRoomProfileModal, roomId, roomInfo?.id, roomInfo?.roomId]);
+
+  const roomLevel = hostProfileDetails?.level ?? roomInfo?.level ?? 1;
+  const roomGiftCount =
+    roomInfo?.giftCount ?? roomInfo?.totalGifts ?? roomInfo?.giftTotal ?? 0;
+  const roomPkWins =
+    roomInfo?.pkWins ?? roomInfo?.pkWinCount ?? roomInfo?.pkWinsCount ?? 0;
+  const roomFollowerCount =
+    hostProfileDetails?.followersCount ??
+    roomInfo?.followersCount ??
+    roomInfo?.followerCount ??
+    (Array.isArray(roomFollowersList) ? roomFollowersList.length : 0);
+
+  const achievementBadges = useMemo(() => {
+    // 1. Dynamic backend achievement badges if returned by API
+    const backendAchievements =
+      roomBadgesData?.achievementBadges ||
+      roomBadgesData?.achievements ||
+      roomInfo?.achievementBadges ||
+      roomInfo?.achievements;
+
+    if (Array.isArray(backendAchievements) && backendAchievements.length > 0) {
+      return backendAchievements.map((b, idx) => ({
+        id: b.id || b.code || `achievement_${idx}`,
+        title: b.title || b.name || "Achievement",
+        grade: b.grade || (b.level >= 20 ? "S" : b.level >= 10 ? "A" : "C"),
+        iconType: b.iconType || b.type || "room_level",
+        level: b.level ?? roomLevel,
+        unlocked: Boolean(
+          b.unlocked ?? b.isUnlocked ?? b.status === "UNLOCKED",
+        ),
+        desc:
+          b.desc || b.description || `Achievement badge for room milestones.`,
+        imageUrl: b.imageUrl || b.iconUrl || b.badgeUrl || null,
+        progress: b.progress,
+        target: b.target,
+      }));
+    }
+
+    // 2. Dynamically computed system achievement badges based on real-time room metrics
+    return [
+      {
+        id: "room_level",
+        title: "Room level",
+        grade: roomLevel >= 30 ? "S" : roomLevel >= 15 ? "A" : "C",
+        iconType: "room_level",
+        level: roomLevel,
+        unlocked: roomLevel >= 1,
+        desc: `Level ${roomLevel} Achievement badge. Level up your room to increase its status!`,
+      },
+      {
+        id: "pk_gift",
+        title: "Receive gift in PK",
+        grade: roomPkWins >= 10 ? "S" : roomPkWins >= 3 ? "A" : "C",
+        iconType: "pk_gift",
+        unlocked: Boolean(
+          roomInfo?.hasPkGiftBadge ||
+          roomPkWins > 0 ||
+          roomInfo?.pkGiftCount > 0,
+        ),
+        desc:
+          roomPkWins > 0
+            ? `Receive gifts during PK battles (${roomPkWins} PK wins recorded).`
+            : "Receive gifts during PK battles to unlock this badge.",
+      },
+      {
+        id: "room_receive_gift",
+        title: "Room receive gift",
+        grade: roomGiftCount >= 100 ? "S" : roomGiftCount >= 20 ? "A" : "C",
+        iconType: "receive_gift",
+        unlocked: Boolean(roomInfo?.hasReceiveGiftBadge || roomGiftCount > 0),
+        desc:
+          roomGiftCount > 0
+            ? `Receive gifts in the voice room (Total gifts received: ${roomGiftCount}).`
+            : "Receive gifts in the voice room to unlock this badge.",
+      },
+      {
+        id: "room_pk_gift",
+        title: "Receive gift in Room PK",
+        grade: (roomInfo?.roomPkGifts ?? 0) >= 20 ? "S" : "C",
+        iconType: "room_pk",
+        unlocked: Boolean(
+          roomInfo?.hasRoomPkBadge || (roomInfo?.roomPkGifts ?? 0) > 0,
+        ),
+        desc: "Receive gifts in Room PK battles to unlock this badge.",
+      },
+      {
+        id: "lucky_gift",
+        title: "Receive lucky gift",
+        grade: (roomInfo?.luckyGiftCount ?? 0) >= 10 ? "S" : "C",
+        iconType: "lucky_gift",
+        unlocked: Boolean(
+          roomInfo?.hasLuckyGiftBadge || (roomInfo?.luckyGiftCount ?? 0) > 0,
+        ),
+        desc: "Receive lucky 777 gifts to unlock this badge.",
+      },
+      {
+        id: "high_value_gift",
+        title: "Receive high value gift",
+        grade: (roomInfo?.highValueGiftCount ?? 0) >= 5 ? "S" : "C",
+        iconType: "high_value_gift",
+        unlocked: Boolean(
+          roomInfo?.hasHighValueGiftBadge ||
+          (roomInfo?.highValueGiftCount ?? 0) > 0,
+        ),
+        desc: "Receive high-value luxury gifts to unlock this badge.",
+      },
+    ];
+  }, [roomBadgesData, roomLevel, roomGiftCount, roomPkWins, roomInfo]);
+
+  const honorBadges = useMemo(() => {
+    // 1. Dynamic backend honor badges if returned by API
+    const backendHonors =
+      roomBadgesData?.honorBadges ||
+      roomBadgesData?.honors ||
+      roomInfo?.honorBadges ||
+      roomInfo?.honors;
+
+    if (Array.isArray(backendHonors) && backendHonors.length > 0) {
+      return backendHonors.map((h, idx) => ({
+        id: h.id || h.code || `honor_${idx}`,
+        title: h.title || h.name || "Honor Badge",
+        grade: h.grade || "S",
+        iconType: h.iconType || h.type || "dragon_top1",
+        unlocked: Boolean(
+          h.unlocked ?? h.isUnlocked ?? h.status === "UNLOCKED",
+        ),
+        desc:
+          h.desc ||
+          h.description ||
+          "Prestigious room honor badge awarded for tournament and seasonal achievements.",
+        imageUrl: h.imageUrl || h.iconUrl || h.badgeUrl || null,
+      }));
+    }
+
+    // 2. Dynamically evaluated honor badges based on custom honor records and tournaments
+    const customHonors = Array.isArray(roomInfo?.honorBadges)
+      ? roomInfo.honorBadges
+      : Array.isArray(hostProfileDetails?.honorBadges)
+        ? hostProfileDetails.honorBadges
+        : [];
+
+    return [
+      {
+        id: "imperial_aqua",
+        title: "Imperial Aqua",
+        grade: "A",
+        iconType: "aqua",
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "imperial_aqua" ||
+            h?.name === "Imperial Aqua" ||
+            h?.code === "imperial_aqua",
+        ),
+        desc: "Imperial Aqua Honor badge awarded to outstanding aquatic themed rooms.",
+      },
+      {
+        id: "sapphire_crest",
+        title: "Sapphire Crest",
+        grade: "S",
+        iconType: "dragon_top3",
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "sapphire_crest" ||
+            h?.name === "Sapphire Crest" ||
+            h?.code === "sapphire_crest",
+        ),
+        desc: "Top 3 Room ranking in the Sapphire League.",
+      },
+      {
+        id: "golden_glory",
+        title: "Golden Glory",
+        grade: "S",
+        iconType: "dragon_top2",
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "golden_glory" ||
+            h?.name === "Golden Glory" ||
+            h?.code === "golden_glory",
+        ),
+        desc: "Top 2 Room ranking in the Golden Glory League.",
+      },
+      {
+        id: "ruby_supreme",
+        title: "Ruby Supreme",
+        grade: "S",
+        iconType: "dragon_top1",
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "ruby_supreme" ||
+            h?.name === "Ruby Supreme" ||
+            h?.code === "ruby_supreme",
+        ),
+        desc: "Top 1 Champion Room ranking in the Ruby Supreme Tournament.",
+      },
+      {
+        id: "pisces_champion",
+        title: "Pisces Champion",
+        grade: "S",
+        iconType: "pisces_top1",
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "pisces_champion" ||
+            h?.name === "Pisces Champion" ||
+            h?.code === "pisces_champion",
+        ),
+        desc: "Top 1 Pisces Champion in seasonal constellation events.",
+      },
+      {
+        id: "pisces_runner_up",
+        title: "Pisces Runner-up",
+        grade: "S",
+        iconType: "pisces_top2",
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "pisces_runner_up" ||
+            h?.name === "Pisces Runner-up" ||
+            h?.code === "pisces_runner_up",
+        ),
+        desc: "Top 2 Pisces Runner-up in seasonal constellation events.",
+      },
+      {
+        id: "pisces_third",
+        title: "Pisces Third",
+        grade: "S",
+        iconType: "pisces_top3",
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "pisces_third" ||
+            h?.name === "Pisces Third" ||
+            h?.code === "pisces_third",
+        ),
+        desc: "Top 3 Pisces Finalist in seasonal constellation events.",
+      },
+      {
+        id: "gilded_holy_egg",
+        title: "Gilded Holy Egg",
+        grade: "S",
+        iconType: "holy_egg",
+        unlocked: customHonors.some(
+          (h) =>
+            h?.id === "gilded_holy_egg" ||
+            h?.name === "Gilded Holy Egg" ||
+            h?.code === "gilded_holy_egg",
+        ),
+        desc: "Honor badge for special Gilded Holy Egg event champions.",
+      },
+    ];
+  }, [roomBadgesData, roomInfo, hostProfileDetails]);
+
+  const handleBadgePress = useCallback((badge) => {
+    if (!badge) return;
+    const statusText = badge.unlocked
+      ? "Status: Unlocked ✨"
+      : "Status: Locked 🔒";
+    const gradeText = badge.grade ? `Grade: [${badge.grade}]` : "";
+    Alert.alert(
+      badge.title,
+      `${gradeText ? gradeText + "\n" : ""}${statusText}\n\n${badge.desc || "Earn badges by actively hosting and receiving gifts in your voice room."}`,
+    );
+  }, []);
+
+  const handleBadgeWallHelp = useCallback(() => {
+    Alert.alert(
+      "Room Badge Wall Rules",
+      "1. Achievement Badges: Earned by leveling up the room, PK participation, and receiving lucky or special gifts.\n\n2. Honor Badges: Exclusive prestige badges awarded to top-ranking rooms in seasonal tournaments and events.\n\n3. Badges are dynamic and reflect your room's active accomplishments.",
+    );
+  }, []);
+
+  const handleCopyRoomId = async () => {
+    const targetId = String(roomId || roomInfo?.id || roomInfo?.roomId || "");
+    if (!targetId) return;
+    try {
+      await Clipboard.setStringAsync(targetId);
+      if (Platform.OS === "android") {
+        ToastAndroid.show(`ID: ${targetId} copied`, ToastAndroid.SHORT);
+      } else {
+        Alert.alert("Copied", `Room ID ${targetId} copied to clipboard`);
+      }
+    } catch {
+      Alert.alert("Copied", `Room ID: ${targetId}`);
+    }
+  };
+
+  const handleOpenEditRoomModal = () => {
+    if (!canEditRoom) return;
+    const currentName =
+      roomInfo?.name || roomInfo?.title || hostProfileDetails?.name || "";
+    setEditRoomName(currentName);
+    setEditRoomImageUri(
+      roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl || null,
+    );
+    setEditRoomImageAsset(null);
+    setShowEditRoomModal(true);
+  };
+
+  const handlePickRoomImageForEdit = async () => {
+    if (!canEditRoom) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission needed",
+          "Gallery access is required to select a room photo.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images ?? ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        setEditRoomImageUri(asset.uri);
+        setEditRoomImageAsset(asset);
+      }
+    } catch (err) {
+      console.warn("[voice-party] Pick image failed:", err);
+    }
+  };
+
+  const handleSaveRoomDetails = async () => {
+    if (!canEditRoom) return;
+    const targetRoomId = String(roomId || roomInfo?.id || roomInfo?.roomId || "");
+    if (!targetRoomId) {
+      Alert.alert("Error", "Room ID not found.");
+      return;
+    }
+    const trimmedName = editRoomName.trim();
+    if (!trimmedName) {
+      Alert.alert("Invalid Name", "Room name cannot be empty.");
+      return;
+    }
+
+    setIsSavingRoomDetails(true);
+    try {
+      const payload = {
+        name: trimmedName,
+      };
+      if (editRoomImageAsset) {
+        payload.imageUri = editRoomImageAsset.uri;
+        payload.mimeType = editRoomImageAsset.mimeType;
+        payload.fileName = editRoomImageAsset.fileName ?? "room-cover.jpg";
+      }
+
+      const res = await updateRoom(targetRoomId, payload);
+
+      const newImageUrl =
+        res?.profileImageUrl ||
+        res?.imageUrl ||
+        res?.room?.profileImageUrl ||
+        res?.data?.profileImageUrl ||
+        (editRoomImageAsset ? editRoomImageAsset.uri : null);
+      const newName =
+        res?.name ||
+        res?.title ||
+        res?.room?.name ||
+        res?.data?.name ||
+        trimmedName;
+
+      setRoomInfo((prev) => ({
+        ...prev,
+        ...(res && typeof res === "object" ? res : {}),
+        name: newName,
+        title: newName,
+        profileImageUrl: newImageUrl || prev?.profileImageUrl,
+      }));
+
+      setShowEditRoomModal(false);
+      Alert.alert("Success", "Room updated successfully!");
+    } catch (err) {
+      console.error("[voice-party] Save room details failed:", err);
+      const msg =
+        err?.responseData?.message ||
+        err?.responseData?.error ||
+        err?.message ||
+        "Failed to update room details.";
+      Alert.alert("Update Failed", String(msg));
+    } finally {
+      setIsSavingRoomDetails(false);
+    }
+  };
+
+  const handlePickAndUploadRoomPhoto = async () => {
+    if (!canEditRoom) return;
+    const targetRoomId = String(roomId || roomInfo?.id || roomInfo?.roomId || "");
+    if (!targetRoomId) {
+      Alert.alert("Error", "Room ID not found.");
+      return;
+    }
+
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission needed",
+          "Gallery access is required to update room photo.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images ?? ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        setIsUpdatingRoomPhoto(true);
+
+        const res = await updateRoom(targetRoomId, {
+          imageUri: asset.uri,
+          mimeType: asset.mimeType,
+          fileName: asset.fileName ?? "room-cover.jpg",
+        });
+
+        const newImageUrl =
+          res?.profileImageUrl ||
+          res?.imageUrl ||
+          res?.room?.profileImageUrl ||
+          res?.data?.profileImageUrl ||
+          asset.uri;
+
+        setRoomInfo((prev) => ({
+          ...prev,
+          ...(res && typeof res === "object" ? res : {}),
+          profileImageUrl: newImageUrl,
+        }));
+
+        Alert.alert("Success", "Room photo updated successfully!");
+      }
+    } catch (err) {
+      console.error("[voice-party] Update room photo failed:", err);
+      const msg =
+        err?.responseData?.message ||
+        err?.responseData?.error ||
+        err?.message ||
+        "Failed to update room photo.";
+      Alert.alert("Upload Failed", String(msg));
+    } finally {
+      setIsUpdatingRoomPhoto(false);
+    }
+  };
 
   const handleFollowToggle = async () => {
-    if (!hostId || isHostSelf) return;
+    const targetRoomId = roomIdRef.current || roomId;
+    if (!targetRoomId || isHostSelf) return;
     setFollowLoading(true);
     try {
       if (isFollowing) {
-        await unfollowUser(hostId);
+        await unfollowRoom(targetRoomId);
+        setIsFollowing(false);
       } else {
-        await followUser(hostId);
+        await followRoom(targetRoomId);
+        setIsFollowing(true);
       }
-      setIsFollowing((v) => !v);
     } catch (err) {
-      Alert.alert(
-        isFollowing ? "Unfollow failed" : "Follow failed",
-        err.message || "Please try again.",
-      );
+      const rawError =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "";
+      const lowerMsg = String(rawError).toLowerCase();
+
+      // If backend reports out-of-sync state, sync local state
+      if (lowerMsg.includes("not following")) {
+        setIsFollowing(false);
+      } else if (lowerMsg.includes("already follow")) {
+        setIsFollowing(true);
+      } else {
+        Alert.alert(
+          isFollowing ? "Unfollow failed" : "Follow failed",
+          typeof rawError === "string" ? rawError : "Please try again.",
+        );
+      }
     } finally {
       setFollowLoading(false);
     }
@@ -1181,18 +4104,240 @@ export default function VoiceParty() {
 
   useEffect(() => {
     let cancelled = false;
+    // const initRoom = async () => {
+    //   setRoomLoading(true);
+    //   exitedRef.current = false;
+    //   await refreshTokenCache();
+    //   try {
+    //     await syncNewUserFrameForSession();
+    //     const levelData = await syncUserLevelForSession();
+    //     if (!cancelled && levelData?.level != null) setMyLevel(levelData.level);
+    //     let loadedVip = null;
+    //     try {
+    //       loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
+    //       console.log("[VoiceParty] myVipAssets loaded:", JSON.stringify(loadedVip));
+    //       if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
+    //     } catch (e) {
+    //       console.log("[VoiceParty] myVipAssets load threw:", e?.message ?? e);
+    //     }
+    //     try {
+    //       const premiumAssets = await loadMyPremiumAssets();
+    //       if (!cancelled) setMyPremiumLogo(premiumAssets?.logo ?? null);
+    //     } catch {
+    //       // Non-critical — badge just stays hidden.
+    //     }
+    //     let session;
+    //     if (isRandomParty) {
+    //       session = await enterRandomPartySession();
+    //     } else if (roomIdParam) {
+    //       session = await enterRoomSession(String(roomIdParam));
+    //     } else {
+    //       throw new Error("Room id is required.");
+    //     }
+    //     if (cancelled) return;
+    //     setRoomId(session.roomId);
+    //     roomIdRef.current = session.roomId;
+    //     setRoomInfo(session.room);
+    //     if (session.room?.body) setWelcomeMessage(session.room.body);
+    //     fetchRoomAnnouncement(session.roomId)
+    //       .then((announcement) => {
+    //         if (!cancelled && announcement) setWelcomeMessage(announcement);
+    //       })
+    //       .catch(() => { });
+    //     onMicRef.current = false;
+    //     mySeatNumberRef.current = null;
+    //     setOnMic(false);
+    //     setMySeatNumber(null);
+    //     setSeats(
+    //       reconcileSeatAssignments(session.seats, {
+    //         onlineUsers: session.onlineUsers,
+    //         myUserId,
+    //         mySeatNumber: null,
+    //         staleSeatTracker: staleSeatTrackerRef.current,
+    //         activeVoiceUids: activeVoiceUidsRef.current,
+    //       }),
+    //     );
+    //     setOnlineUsers(session.onlineUsers);
+    //     setOnlineCount(session.onlineCount);
+
+    //     // Show entry toast banner immediately upon entering the room
+    //     const localUser = await getUser();
+    //     if (localUser && !cancelled) {
+    //       const resolvedAvatar =
+    //         resolveProfileAvatarUri(localUser) ??
+    //         localUser?.profilePicUrl ??
+    //         localUser?.avatarUrl;
+    //       const selfEntryUser = {
+    //         id: localUser.id || "my-id",
+    //         name: localUser.name || localUser.username || "You",
+    //         avatar: resolvedAvatar,
+    //         entryFrameUrl:
+    //           loadedVip?.entryFrame || localUser?.newUserFrameUrl,
+    //         newUserFrameUrl: localUser?.newUserFrameUrl,
+    //         profileFrameUrl:
+    //           loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
+    //       };
+
+    //       // Immediately display real-time "entered the room" toast banner
+    //       enqueueActivityEvent({
+    //         id: `enter-self-${Date.now()}`,
+    //         type: "enter",
+    //         user: selfEntryUser,
+    //       });
+
+    //       // Also trigger VIP entry banner if equipped
+    //       setRecentEntries((prev) => [...prev, selfEntryUser]);
+    //     }
+
+    //     // Chat is session-local: start with a clean screen on every entry
+    //     // instead of replaying the room's persisted message history.
+    //     sessionMessageBaselineRef.current = session.messages.length;
+    //     setMessages([]);
+
+    //     // Deferred reconcile — fetch a fresh room snapshot a few seconds after
+    //     // entry so any ghost/stale seat users the backend cleaned up are removed.
+    //     setTimeout(async () => {
+    //       if (cancelled) return;
+    //       const tokenAtRequest = seatSyncTokenRef.current;
+    //       try {
+    //         const freshState = await getRoomState(String(session.roomId));
+    //         if (cancelled) return;
+    //         // A live ui-state broadcast already superseded this REST snapshot
+    //         // while it was in flight — applying it now would clobber fresher
+    //         // socket-driven seat data with stale REST data.
+    //         if (seatSyncTokenRef.current !== tokenAtRequest) return;
+    //         const freshOnline = parseOnlineUsers(freshState, null);
+    //         const freshSeats = parseSeats(freshState?.seats, freshState);
+    //         if (freshOnline.length > 0) {
+    //           setOnlineUsers(freshOnline);
+    //           setOnlineCount(freshOnline.length);
+    //         }
+    //         setSeats((prev) =>
+    //           reconcileSeatAssignments(freshSeats, {
+    //             onlineUsers: freshOnline.length > 0 ? freshOnline : null,
+    //             myUserId,
+    //             mySeatNumber: mySeatNumberRef.current,
+    //             staleSeatTracker: staleSeatTrackerRef.current,
+    //             activeVoiceUids: activeVoiceUidsRef.current,
+    //           }),
+    //         );
+    //       } catch {
+    //         // Non-critical — ignore failures
+    //       }
+    //     }, 5000);
+
+    //     setVoiceListenStatus("connecting");
+    //     setIsSpeakerMuted(false);
+    //     agoraVoice.toggleRemoteMute(false);
+
+    //     const connectRoomAudio = async (attempt = 1) => {
+    //       if (partyVoice.getActiveRoomId() === String(session.roomId)) {
+    //         if (!cancelled) {
+    //           setVoiceListenStatus("ready");
+    //           agoraVoice.toggleRemoteMute(false);
+    //         }
+    //         return;
+    //       }
+    //       try {
+    //         await partyVoice.joinAsListener(String(session.roomId));
+    //         if (!cancelled) {
+    //           setVoiceListenStatus("ready");
+    //           agoraVoice.toggleRemoteMute(false);
+    //         }
+    //       } catch (voiceErr) {
+    //         if (cancelled) return;
+    //         if (attempt < 2) {
+    //           await new Promise((resolve) => setTimeout(resolve, 900));
+    //           return connectRoomAudio(attempt + 1);
+    //         }
+    //         setVoiceListenStatus("failed");
+    //         const msg = voiceErr?.message ?? "Could not connect to room audio.";
+    //         if (__DEV__) {
+    //           console.warn("[voice-party] joinAsListener failed:", msg);
+    //         }
+    //         Alert.alert(
+    //           "Voice audio unavailable",
+    //           `${msg}\n\nYou can still chat in the room. Tap Reconnect to try audio again, or Claim seat to speak.`,
+    //           [
+    //             {
+    //               text: "Reconnect",
+    //               onPress: async () => {
+    //                 setVoiceListenStatus("connecting");
+    //                 try {
+    //                   await partyVoice.reconnectAsListener(
+    //                     String(session.roomId),
+    //                   );
+    //                   setVoiceListenStatus("ready");
+    //                   agoraVoice.toggleRemoteMute(false);
+    //                   setIsSpeakerMuted(false);
+    //                 } catch (retryErr) {
+    //                   setVoiceListenStatus("failed");
+    //                   Alert.alert(
+    //                     "Reconnect failed",
+    //                     retryErr?.message ?? "Could not reconnect room audio.",
+    //                   );
+    //                 }
+    //               },
+    //             },
+    //             { text: "OK", style: "cancel" },
+    //           ],
+    //         );
+    //       }
+    //     };
+
+    //     await connectRoomAudio();
+    //   } catch (err) {
+    //     if (!cancelled) {
+    //       Alert.alert(
+    //         isRandomParty ? "Could not join party room" : "Could not join room",
+    //         err?.message || "Please try again.",
+    //       );
+    //       router.back();
+    //     }
+    //   } finally {
+    //     if (!cancelled) setRoomLoading(false);
+    //   }
+    // };
+
     const initRoom = async () => {
       setRoomLoading(true);
       exitedRef.current = false;
       await refreshTokenCache();
-      try {
-        await syncNewUserFrameForSession();
-        const levelData = await syncUserLevelForSession();
+
+      // ── Cosmetics: run in parallel, never block the room from showing ──
+      const frameSyncPromise = syncNewUserFrameForSession().catch(() => null);
+
+      const cosmeticsPromise = (async () => {
+        await frameSyncPromise;
+        const levelData = await syncUserLevelForSession().catch(() => null);
+        if (!cancelled && levelData?.level != null) setMyLevel(levelData.level);
+
         let loadedVip = null;
         try {
           loadedVip = await loadMyVipAssets(levelData?.xp?.totalXp);
           if (!cancelled && loadedVip) setMyVipAssets(loadedVip);
-        } catch (e) {}
+        } catch (e) {
+          if (__DEV__)
+            console.log(
+              "[VoiceParty] myVipAssets load threw:",
+              e?.message ?? e,
+            );
+        }
+        try {
+          const premiumAssets = await loadMyPremiumAssets();
+          if (!cancelled) setMyPremiumLogo(premiumAssets?.logo ?? null);
+        } catch {
+          // Non-critical — badge just stays hidden.
+        }
+        return loadedVip;
+      })();
+
+      // Local user profile — also in parallel
+      const localUserPromise = getUser().catch(() => null);
+      isNavigatingToInboxRef.current = false;
+
+      try {
+        // ── Critical path: only the room session itself ──
         let session;
         if (isRandomParty) {
           session = await enterRandomPartySession();
@@ -1202,79 +4347,72 @@ export default function VoiceParty() {
           throw new Error("Room id is required.");
         }
         if (cancelled) return;
+
         setRoomId(session.roomId);
         roomIdRef.current = session.roomId;
         setRoomInfo(session.room);
-        const initialSeatNumber = session.reservedSeatNumber ?? null;
-        if (initialSeatNumber) {
-          mySeatNumberRef.current = initialSeatNumber;
-          setMySeatNumber(initialSeatNumber);
-          const enrichedSeats = await enrichSeatsWithMyProfile(
-            session.seats,
-            initialSeatNumber,
-          );
-          setSeats(
-            reconcileSeatAssignments(enrichedSeats, {
-              onlineUsers: session.onlineUsers,
-              myUserId,
-              mySeatNumber: initialSeatNumber,
-              staleSeatTracker: staleSeatTrackerRef.current,
-            }),
-          );
-        } else {
-          setSeats(
-            reconcileSeatAssignments(session.seats, {
-              onlineUsers: session.onlineUsers,
-              myUserId,
-              mySeatNumber: null,
-              staleSeatTracker: staleSeatTrackerRef.current,
-            }),
-          );
-        }
-        setOnlineUsers(session.onlineUsers);
-        console.log(
-          `[joinRoom onlineCount] room ${roomId}: onlineCount=${session.onlineCount}, onlineUsers.length=${session.onlineUsers?.length}`
+        if (session.room?.body) setWelcomeMessage(session.room.body);
+        fetchRoomAnnouncement(session.roomId)
+          .then((announcement) => {
+            if (!cancelled && announcement) setWelcomeMessage(announcement);
+          })
+          .catch(() => {});
+
+        onMicRef.current = false;
+        mySeatNumberRef.current = null;
+        setOnMic(false);
+        setMySeatNumber(null);
+        setSeats(
+          reconcileSeatAssignments(session.seats, {
+            onlineUsers: session.onlineUsers,
+            myUserId,
+            mySeatNumber: null,
+            staleSeatTracker: staleSeatTrackerRef.current,
+            activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
+          }),
         );
+        setOnlineUsers(session.onlineUsers);
         setOnlineCount(session.onlineCount);
 
-        // Show our own entry banner
-        const localUser = await getUser();
-        if (localUser && !cancelled) {
-          const resolvedAvatar =
-            resolveProfileAvatarUri(localUser) ??
-            localUser?.profilePicUrl ??
-            localUser?.avatarUrl;
-          setRecentEntries((prev) => [
-            ...prev,
-            {
+        // Chat is session-local: start with a clean screen on every entry
+        sessionMessageBaselineRef.current = session.messages.length;
+        setMessages([]);
+
+        // Self entry toast / VIP banner — fires when local user + VIP data are ready
+        Promise.all([localUserPromise, cosmeticsPromise]).then(
+          ([localUser, loadedVip]) => {
+            if (!localUser || cancelled) return;
+            const resolvedAvatar =
+              resolveProfileAvatarUri(localUser) ??
+              localUser?.profilePicUrl ??
+              localUser?.avatarUrl;
+            const selfEntryUser = {
               id: localUser.id || "my-id",
-              name: localUser.name || localUser.username || "Me",
+              name: localUser.name || localUser.username || "You",
               avatar: resolvedAvatar,
               entryFrameUrl:
                 loadedVip?.entryFrame || localUser?.newUserFrameUrl,
               newUserFrameUrl: localUser?.newUserFrameUrl,
               profileFrameUrl:
                 loadedVip?.profileFrame || localUser?.vipProfileFrameUrl,
-            },
-          ]);
-        }
+            };
+            enqueueActivityEvent({
+              id: `enter-self-${Date.now()}`,
+              type: "enter",
+              user: selfEntryUser,
+            });
+            setRecentEntries((prev) => [...prev, selfEntryUser]);
+          },
+        );
 
-        // Chat is session-local: start with a clean screen on every entry
-        // instead of replaying the room's persisted message history.
-        sessionMessageBaselineRef.current = session.messages.length;
-        setMessages([]);
-
-        // Deferred reconcile — fetch a fresh room snapshot a few seconds after
-        // entry so any ghost/stale seat users the backend cleaned up are removed.
+        // Deferred reconcile — unchanged
         setTimeout(async () => {
           if (cancelled) return;
           const tokenAtRequest = seatSyncTokenRef.current;
           try {
             const freshState = await getRoomState(String(session.roomId));
             if (cancelled) return;
-            // A live ui-state broadcast already superseded this REST snapshot
-            // while it was in flight — applying it now would clobber fresher
-            // socket-driven seat data with stale REST data.
             if (seatSyncTokenRef.current !== tokenAtRequest) return;
             const freshOnline = parseOnlineUsers(freshState, null);
             const freshSeats = parseSeats(freshState?.seats, freshState);
@@ -1288,18 +4426,31 @@ export default function VoiceParty() {
                 myUserId,
                 mySeatNumber: mySeatNumberRef.current,
                 staleSeatTracker: staleSeatTrackerRef.current,
+                activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
               }),
             );
           } catch {
-            // Non-critical — ignore failures
+            // Non-critical
           }
         }, 5000);
 
+        // ── Room is usable now: drop the loading overlay immediately ──
+        if (!cancelled) setRoomLoading(false);
+
+        // ── Audio connects in the background (no longer blocks the UI) ──
         setVoiceListenStatus("connecting");
         setIsSpeakerMuted(false);
         agoraVoice.toggleRemoteMute(false);
 
         const connectRoomAudio = async (attempt = 1) => {
+          if (partyVoice.getActiveRoomId() === String(session.roomId)) {
+            if (!cancelled) {
+              setVoiceListenStatus("ready");
+              agoraVoice.toggleRemoteMute(false);
+            }
+            return;
+          }
           try {
             await partyVoice.joinAsListener(String(session.roomId));
             if (!cancelled) {
@@ -1314,12 +4465,11 @@ export default function VoiceParty() {
             }
             setVoiceListenStatus("failed");
             const msg = voiceErr?.message ?? "Could not connect to room audio.";
-            if (__DEV__) {
+            if (__DEV__)
               console.warn("[voice-party] joinAsListener failed:", msg);
-            }
             Alert.alert(
               "Voice audio unavailable",
-              `${msg}\n\nYou can still chat in the room. Tap Reconnect to try audio again, or Take Mic to speak.`,
+              `${msg}\n\nYou can still chat in the room. Tap Reconnect to try audio again, or Claim seat to speak.`,
               [
                 {
                   text: "Reconnect",
@@ -1347,7 +4497,7 @@ export default function VoiceParty() {
           }
         };
 
-        await connectRoomAudio();
+        connectRoomAudio(); // intentionally not awaited
       } catch (err) {
         if (!cancelled) {
           Alert.alert(
@@ -1364,15 +4514,14 @@ export default function VoiceParty() {
     return () => {
       cancelled = true;
       const activeRoomId = roomIdRef.current;
+      if (isNavigatingToInboxRef.current) {
+        // User opened Inbox/Chat — keep room session & audio alive
+        return;
+      }
       if (activeRoomId && !exitedRef.current) {
         exitedRef.current = true;
-        const seatToLeave = onMicRef.current ? mySeatNumberRef.current : null;
         const cleanup = async () => {
-          if (seatToLeave) {
-            await partyVoice
-              .leaveMic(String(activeRoomId), seatToLeave)
-              .catch(() => {});
-          }
+          await flushListenRewardProgress(activeRoomId).catch(() => {});
           await partyVoice.teardownVoice().catch(() => {});
           await exitRoomSession(String(activeRoomId)).catch(() => {});
         };
@@ -1387,11 +4536,75 @@ export default function VoiceParty() {
     if (!roomId) return undefined;
     return partyVoice.subscribeVoiceSessionStatus((diag) => {
       setVoiceDiagnostics(diag);
+      activeVoiceUidsRef.current = new Set(diag?.remoteSpeakerUids ?? []);
       if (__DEV__ && diag?.lastError) {
         console.warn("[voice-party] Agora:", diag.lastError.message);
       }
     });
   }, [roomId]);
+
+  const lastSpeakingStatusRef = useRef(false);
+
+  useEffect(() => {
+    if (!roomId || !mySeatNumber || isMicMuted) {
+      if (lastSpeakingStatusRef.current) {
+         wsService.sendSpeakingStatus(String(roomId), false);
+         lastSpeakingStatusRef.current = false;
+      }
+      return;
+    }
+    
+    const unsub = agoraVoice.subscribeSpeaking(({ uid, isSpeaking }) => {
+      if (uid === 0) {
+         if (isSpeaking !== lastSpeakingStatusRef.current) {
+            lastSpeakingStatusRef.current = isSpeaking;
+            wsService.sendSpeakingStatus(String(roomId), isSpeaking);
+         }
+      }
+    });
+    return unsub;
+  }, [roomId, mySeatNumber, isMicMuted]);
+
+  useEffect(() => {
+    const unsub = agoraVoice.subscribeMuteState(({ uid, muted }) => {
+      const targetId = String(uid);
+      knownMuteStatesRef.current.set(targetId, muted);
+      setSeats((prev) =>
+        prev.map((seat) => {
+          if (!seat.user || String(seat.user.id) !== targetId) return seat;
+          return { ...seat, user: { ...seat.user, muted } };
+        }),
+      );
+      setOnlineUsers((prev) =>
+        prev.map((u) => {
+          if (String(u.id) !== targetId) return u;
+          return { ...u, muted };
+        }),
+      );
+    });
+    return unsub;
+  }, []);
+
+  const autoOpenedFollowModalRef = useRef(false);
+
+  useEffect(() => {
+    autoOpenedFollowModalRef.current = false;
+  }, [roomId]);
+
+  useEffect(() => {
+    if (
+      !roomLoading &&
+      roomId &&
+      !autoOpenedFollowModalRef.current &&
+      !isHostSelf
+    ) {
+      autoOpenedFollowModalRef.current = true;
+      const timer = setTimeout(() => {
+        setShowFollowModal(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [roomLoading, roomId, isHostSelf]);
 
   useEffect(() => {
     messageCountRef.current = messages.length;
@@ -1417,20 +4630,282 @@ export default function VoiceParty() {
     return () => clearTimeout(timer);
   }, [roomId, messages.length]);
 
+  const handleGiftAnimationComplete = useCallback((displayKey) => {
+    setActiveGiftDisplays((prev) =>
+      prev.filter((g) => (g._displayKey || g.id) !== displayKey),
+    );
+  }, []);
+
+  const handleRisingGiftComplete = useCallback((riseKey) => {
+    setActiveRisingGifts((prev) =>
+      prev.filter((g) => (g._riseKey || g.id) !== riseKey),
+    );
+  }, []);
+
+  // Last time a banner was shown per sender+gift+qty, so a gift that arrives
+  // via both the gift-animation topic and its chat echo only shows once.
+  const recentGiftBannersRef = useRef(new Map());
+  // Chat lines this device just sent as gifts — the server echoes them back.
+  const mySentGiftTextsRef = useRef(new Map());
+  const myDisplayNameRef = useRef("");
+  useEffect(() => {
+    myDisplayNameRef.current = String(
+      localSessionUser?.name ??
+      localSessionUser?.username ??
+      localSessionUser?.nickname ??
+      "",
+    ).trim();
+  }, [localSessionUser]);
+
+  const isPkGiftItem = useCallback((giftOrPayload) => {
+    if (!giftOrPayload) return false;
+
+    // Check source tab first
+    const sourceTab = String(
+      giftOrPayload._sourceTab ||
+      giftOrPayload.sourceTab ||
+      giftOrPayload.tab ||
+      ""
+    ).toUpperCase();
+    if (sourceTab === "PK") return true;
+    if (sourceTab === "GIFT" || sourceTab === "BACKPACK") return false;
+
+    // Explicit PK flags
+    if (giftOrPayload.isPk || giftOrPayload.isPkGift || giftOrPayload.fromPk) {
+      return true;
+    }
+
+    // Explicit category check
+    const cat = String(
+      giftOrPayload.category ||
+      giftOrPayload.giftCategory ||
+      ""
+    ).toLowerCase();
+    if (cat === "pk") return true;
+    if (cat === "gift") return false;
+
+    // Check if it belongs to giftCatalog.gift vs giftCatalog.pk
+    const pkItems = giftCatalogRef.current?.pk || [];
+    const giftItems = giftCatalogRef.current?.gift || [];
+
+    const targetCode = String(
+      giftOrPayload.giftCode ||
+      giftOrPayload.id ||
+      giftOrPayload.giftId ||
+      giftOrPayload.databaseId ||
+      ""
+    ).toLowerCase().trim();
+    const targetName = String(
+      giftOrPayload.name ||
+      giftOrPayload.giftName ||
+      ""
+    ).toLowerCase().trim();
+
+    // If it explicitly matches an item in the Gift session catalog, then it's NOT a PK gift
+    if (giftItems.length > 0 && (targetCode || targetName)) {
+      const inGiftCatalog = giftItems.some((it) => {
+        const itCode = String(it.giftCode || it.id || it.databaseId || "").toLowerCase().trim();
+        const itName = String(it.name || "").toLowerCase().trim();
+        return (
+          (itCode && targetCode && (itCode === targetCode || targetCode === String(it.databaseId))) ||
+          (itName && targetName && itName === targetName)
+        );
+      });
+      if (inGiftCatalog) return false;
+    }
+
+    // Check if it matches an item in the PK session catalog
+    if (pkItems.length > 0 && (targetCode || targetName)) {
+      const inPkCatalog = pkItems.some((it) => {
+        const itCode = String(it.giftCode || it.id || it.databaseId || "").toLowerCase().trim();
+        const itName = String(it.name || "").toLowerCase().trim();
+        return (
+          (itCode && targetCode && (itCode === targetCode || targetCode === String(it.databaseId))) ||
+          (itName && targetName && itName === targetName)
+        );
+      });
+      if (inPkCatalog) return true;
+    }
+
+    return false;
+  }, []);
+
   const revealGiftAnimation = useCallback((payload, fallbackGift) => {
     const animated = normalizeGiftAnimation(payload, fallbackGift);
-    setGiftPopup({
-      gift: animated,
-      qty: animated.quantity,
+    recentGiftBannersRef.current.set(giftBannerKey(animated), Date.now());
+    const key = `gift-disp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const riseKey = `gift-rise-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setActiveGiftDisplays((prev) => {
+      const next = [
+        ...prev,
+        {
+          ...animated,
+          receiverIsMe: Boolean(payload?.receiverIsMe),
+          _displayKey: key,
+        },
+      ];
+      return next.length > 3 ? next.slice(next.length - 3) : next;
     });
-    setTimeout(() => setGiftPopup(null), 2800);
-  }, []);
+    setActiveRisingGifts((prev) => {
+      const next = [...prev, { ...animated, _riseKey: riseKey }];
+      return next.length > 5 ? next.slice(next.length - 5) : next;
+    });
+
+    // Safety timeout to ensure banner is cleared even in edge cases
+    setTimeout(() => {
+      setActiveGiftDisplays((prev) =>
+        prev.filter((g) => (g._displayKey || g.id) !== key),
+      );
+    }, 3000);
+
+    // Video or GIF animation playback: ONLY for PK session gifts
+    const isPk =
+      isPkGiftItem(payload) ||
+      isPkGiftItem(fallbackGift) ||
+      isPkGiftItem(animated);
+
+    if (!isPk) {
+      // User requirement: video and GIF should NOT show when gift is sent from gift session,
+      // ONLY when gift is sent from PK session!
+      return;
+    }
+
+    let animationUrl =
+      animated.videoUrl ||
+      payload?.videoUrl ||
+      payload?.videoPath ||
+      payload?.animationUrl ||
+      payload?.gifUrl ||
+      fallbackGift?.videoUrl ||
+      fallbackGift?.videoPath ||
+      fallbackGift?.animationUrl;
+
+    if (!animationUrl) {
+      const possibleGif =
+        animated.imageUrl ||
+        payload?.imageUrl ||
+        payload?.imagePath ||
+        fallbackGift?.imageUrl ||
+        fallbackGift?.imagePath;
+      if (typeof possibleGif === "string" && isGifMedia(possibleGif)) {
+        animationUrl = possibleGif;
+      }
+    }
+
+    if (!animationUrl && giftCatalogRef.current) {
+      const pkItems = giftCatalogRef.current.pk || [];
+      const targetName = String(animated.name || payload?.giftName || "").toLowerCase().trim();
+      const targetCode = String(animated.giftCode || animated.id || payload?.giftId || payload?.giftCode || "").toLowerCase().trim();
+
+      const match = pkItems.find((it) => {
+        const itCode = String(it.giftCode || it.id || it.databaseId || "").toLowerCase().trim();
+        const itName = String(it.name || "").toLowerCase().trim();
+        return (
+          (itCode && targetCode && (itCode === targetCode || targetCode.includes(itCode) || itCode.includes(targetCode))) ||
+          (itName && targetName && (itName === targetName || targetName.includes(itName) || itName.includes(targetName)))
+        );
+      });
+      if (match) {
+        animationUrl =
+          match.videoUrl ||
+          match.videoPath ||
+          match.animationUrl ||
+          (match.imageUrl && isGifMedia(match.imageUrl) ? match.imageUrl : null) ||
+          (match.imagePath && isGifMedia(match.imagePath) ? match.imagePath : null);
+      }
+    }
+
+    if (animationUrl) {
+      const videoKey = String(payload?.id || animated.id || animated.name);
+      const now = Date.now();
+      if (lastPlayedVideoIdRef.current === videoKey && (now - lastPlayedVideoTimeRef.current < 4000)) {
+        // Skip duplicate playback if recently triggered
+      } else {
+        lastPlayedVideoIdRef.current = videoKey;
+        lastPlayedVideoTimeRef.current = now;
+        setCurrentVideo({
+          id: animated.id,
+          name: animated.name,
+          videoUrl: animationUrl,
+          uri: animationUrl,
+          isGif: isGifMedia(animationUrl),
+          senderName: animated.senderName,
+          receiverName: animated.receiverName,
+        });
+        setShowVideoModal(true);
+      }
+    }
+  }, [isPkGiftItem]);
 
   useEffect(() => {
     if (!roomId) return undefined;
+    const activeRoomId = String(roomId);
+
+    wsService
+      .connect()
+      .then(() => {
+        wsService.joinRoom(activeRoomId);
+      })
+      .catch((err) => {
+        console.error("[VoiceParty] WS connection error:", err?.message || err);
+      });
+
+    // Pull whatever PK card already exists for this room on entry — the
+    // `pk` topic below only pushes *changes*, so a battle created before
+    // this client joined (or missed while briefly disconnected) needs an
+    // explicit fetch, not just a subscription.
+    loadActivePkBattle(activeRoomId)
+      .then((battle) => {
+        console.log("[VoiceParty][PK] initial active battle ->", battle);
+        setActivePkBattle(battle);
+      })
+      .catch(() => {
+        // Non-critical — the `pk` topic or the fallback poll will catch it.
+      });
+
+    const revealGiftFromChat = (payload) => {
+      const msg = normalizeChatMessage(payload);
+      const gift = parseGiftChatText(msg.text);
+      if (!gift) return;
+
+      // Skip the echo of a gift this device sent — its banner already showed.
+      const now = Date.now();
+      const sentAt = mySentGiftTextsRef.current.get(msg.text);
+      if (sentAt && now - sentAt < 15000) {
+        mySentGiftTextsRef.current.delete(msg.text);
+        return;
+      }
+      if (msg.userId != null && isSameUser(msg.userId, myUserId)) return;
+
+      const senderName = msg.user && msg.user !== "User" ? msg.user : "User";
+      const key = giftBannerKey({ senderName, ...gift });
+      const shownAt = recentGiftBannersRef.current.get(key);
+      if (shownAt && now - shownAt < 1500) return;
+
+      const myName = myDisplayNameRef.current.toLowerCase();
+      const receiverIsMe = Boolean(
+        myName && gift.receiverName?.toLowerCase() === myName,
+      );
+      revealGiftAnimation({
+        id: msg.id,
+        giftName: gift.name,
+        emoji: gift.emoji,
+        quantity: gift.quantity,
+        senderName,
+        senderAvatar: msg.avatar,
+        receiverName: gift.receiverName,
+        receiverIsMe,
+      });
+    };
+
     const appendChatMessage = (payload) => {
+      if (payload?.type === "CHAT_CLEARED") {
+        setMessages([]);
+        return;
+      }
       setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      revealGiftFromChat(payload);
     };
 
     const unsubChat = wsService.onRoomChat(String(roomId), appendChatMessage);
@@ -1476,30 +4951,101 @@ export default function VoiceParty() {
       // entry here rather than resetting every occupied seat on a guess.
       if (payload?.seats && Object.keys(payload.seats).length > 0) {
         seatSyncTokenRef.current += 1;
-        const nextSeats = parseSeats(payload.seats, payload);
+        // `payload.seats` can be a partial/diff broadcast — just the seat(s)
+        // that actually changed, not the full 15. parseSeats only returns
+        // entries for the keys present, so patching those onto the PREVIOUS
+        // full seats array (instead of replacing it outright) keeps every
+        // occupied seat the payload doesn't mention exactly as it was,
+        // rather than it vanishing from the grid until the next full sync.
+        const patchSeats = parseSeats(payload.seats, payload);
+        const mergeOntoPrev = (prev, patch) => {
+          const base = Array.isArray(prev) && prev.length ? prev : micSeats;
+          const byId = new Map(patch.map((s) => [s.id, s]));
+          return base.map((seat) => byId.get(seat.id) ?? seat);
+        };
         if (mySeatNumber) {
-          enrichSeatsWithMyProfile(nextSeats, mySeatNumber).then((enriched) =>
-            setSeats(
-              reconcileSeatAssignments(enriched, {
+          enrichSeatsWithMyProfile(patchSeats, mySeatNumber).then((enriched) =>
+            setSeats((prev) =>
+              reconcileSeatAssignments(mergeOntoPrev(prev, enriched), {
                 onlineUsers: hasPresenceSnapshot ? users : null,
                 myUserId,
                 mySeatNumber,
                 staleSeatTracker: staleSeatTrackerRef.current,
+                activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
               }),
             ),
           );
         } else {
-          setSeats(
-            reconcileSeatAssignments(nextSeats, {
+          setSeats((prev) =>
+            reconcileSeatAssignments(mergeOntoPrev(prev, patchSeats), {
               onlineUsers: hasPresenceSnapshot ? users : null,
               myUserId,
               mySeatNumber,
               staleSeatTracker: staleSeatTrackerRef.current,
+              activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
             }),
           );
         }
       }
     });
+
+    const unsubTreasure = wsService.onRoomTreasure(
+      String(roomId),
+      async (payload) => {
+        try {
+          const event =
+            typeof payload === "string" ? JSON.parse(payload) : payload;
+
+          if (event?.type === "TREASURE_PROGRESS") {
+            updateTreasureState({
+              currentAmount: event.currentAmount,
+              currentTarget: event.currentTarget,
+              remainingAmount: event.remainingAmount,
+              completedRound: event.completedRound,
+              status: event.status,
+            });
+          } else if (event?.type === "TREASURE_UNLOCKED") {
+            console.log(
+              "[VoiceParty] TREASURE_UNLOCKED event received:",
+              JSON.stringify(event, null, 2),
+            );
+            console.log("[VoiceParty] Current myUserId:", myUserId);
+
+            const myReward = event.rewards?.find(
+              (r) => String(r.userId) === String(myUserId),
+            );
+
+            if (myReward) {
+              // Show the animation immediately, wait for it to complete to show popup
+              setPendingTreasureEvent({ ...event, myReward });
+              setShowTreasureAnimation(true);
+
+              if (myReward.rewardType === "TOP_RANK_REWARD") {
+                // Refresh backpack in background
+                loadGiftInventory()
+                  .then(setBackpackGifts)
+                  .catch(() => {});
+              }
+              if (
+                myReward.rewardType === "PARTICIPATION_REWARD" ||
+                myReward.rewardAmount
+              ) {
+                // Refresh wallet in background
+                refreshWalletBalance().catch(() => {});
+              }
+            }
+
+            // Refresh state from backend instead of relying purely on WS data for the new round
+            refreshTreasureState();
+          }
+        } catch (err) {
+          console.error("[VoiceParty] Error handling treasure event:", err);
+        }
+      },
+    );
+
     const unsubSpeaking = wsService.onRoomSpeaking(
       String(roomId),
       (payload) => {
@@ -1507,16 +5053,25 @@ export default function VoiceParty() {
         if (!speakerId) return;
         const isSpeaking = Boolean(payload.isSpeaking);
         setOnlineUsers((prev) =>
-          prev.map((u) => ({
-            ...u,
-            isSpeaking: u.id === speakerId ? isSpeaking : u.isSpeaking,
-          })),
+          prev.map((u) => {
+            if (u.id !== speakerId) return u;
+            const updatedUser = { ...u, isSpeaking };
+            if (payload.isMuted !== undefined) {
+              updatedUser.muted = Boolean(payload.isMuted);
+            }
+            return updatedUser;
+          }),
         );
         setSeats((prev) =>
           prev.map((seat) => {
             if (!seat.user || String(seat.user.id) !== String(speakerId))
               return seat;
-            return { ...seat, user: { ...seat.user, active: isSpeaking } };
+            
+            const updatedUser = { ...seat.user, active: isSpeaking };
+            if (payload.isMuted !== undefined) {
+              updatedUser.muted = Boolean(payload.isMuted);
+            }
+            return { ...seat, user: updatedUser };
           }),
         );
         setSpeakingUserIds((prev) => {
@@ -1533,15 +5088,87 @@ export default function VoiceParty() {
     const unsubGiftAnimation = wsService.onRoomGiftAnimation(
       String(roomId),
       (payload) => {
-        revealGiftAnimation(payload);
-        const senderName = payload?.senderName ?? payload?.sender ?? "Someone";
-        const giftName = payload?.giftName ?? payload?.name ?? "a gift";
-        const qty = Math.max(1, Number(payload?.quantity ?? 1));
+        const senderId =
+          payload?.senderId ??
+          payload?.userId ??
+          payload?.fromUserId ??
+          payload?.from;
+        let matchedUser = null;
+        if (senderId) {
+          matchedUser =
+            onlineUsers.find(
+              (u) => String(u.id || u.userId) === String(senderId),
+            ) ||
+            seats.find(
+              (s) =>
+                s.user &&
+                String(s.user.id || s.user.userId) === String(senderId),
+            )?.user;
+        }
+
+        const senderName =
+          payload?.senderName ??
+          payload?.sender ??
+          payload?.userName ??
+          payload?.username ??
+          payload?.user?.name ??
+          payload?.fromUser?.name ??
+          payload?.nickname ??
+          matchedUser?.name ??
+          matchedUser?.username ??
+          "User";
+
+        const senderAvatar =
+          payload?.senderAvatar ??
+          payload?.avatar ??
+          payload?.user?.avatar ??
+          payload?.profileImageUrl ??
+          payload?.profilePicUrl ??
+          matchedUser?.profileImageUrl ??
+          matchedUser?.avatar ??
+          null;
+
+        const receiverId = payload?.receiverId ?? payload?.toUserId;
+        let matchedReceiver = null;
+        if (receiverId) {
+          matchedReceiver =
+            onlineUsers.find(
+              (u) => String(u.id || u.userId) === String(receiverId),
+            ) ||
+            seats.find(
+              (s) =>
+                s.user &&
+                String(s.user.id || s.user.userId) === String(receiverId),
+            )?.user ||
+            (isSameUser(receiverId, hostId)
+              ? { name: roomInfo?.name ?? "Host" }
+              : null);
+        }
+
+        const receiverName =
+          payload?.receiverName ??
+          payload?.receiver ??
+          payload?.toUser?.name ??
+          matchedReceiver?.name ??
+          (isSameUser(receiverId, hostId) ? "Host" : null);
+
+        const enrichedPayload = {
+          ...payload,
+          senderName,
+          senderAvatar,
+          receiverName,
+        };
+
+        revealGiftAnimation(enrichedPayload);
+        const giftName =
+          payload?.giftName ?? payload?.name ?? payload?.gift?.name ?? "a gift";
+        const qty = Math.max(1, Number(payload?.quantity ?? payload?.qty ?? 1));
         const giftText = `sent ${payload?.emoji ?? "🎁"} ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
         const normalized = normalizeChatMessage({
           id: payload?.id ?? `gift-ws-${Date.now()}`,
           message: `${senderName} ${giftText}`,
           senderName,
+          avatar: senderAvatar,
           text: `${senderName} ${giftText}`,
           isGift: true,
         });
@@ -1559,6 +5186,420 @@ export default function VoiceParty() {
         );
       },
     );
+    // The room's live PK card — pushed on create/accept/reject/score
+    // change/finish. This is what lets the challenged opponent (and
+    // everyone else in the room) see the battle without polling.
+    const unsubPk = wsService.onRoomPk(String(roomId), (payload) => {
+      console.log("[VoiceParty][PK] WS push ->", payload);
+      setActivePkBattle(normalizePkBattle(payload));
+    });
+
+    const unsubNotifications = wsService.onRoomNotifications(
+      String(roomId),
+      (payload) => {
+        if (!payload) return;
+        const eventType = String(
+          payload.eventType || payload.type || "",
+        ).toUpperCase();
+        const uId = payload.userId != null ? String(payload.userId) : null;
+        const uName =
+          payload.userName || payload.senderName || payload.name || "User";
+        const uAvatar =
+          payload.profileImage ||
+          payload.avatar ||
+          payload.avatarUrl ||
+          payload.profilePicUrl ||
+          null;
+
+        switch (eventType) {
+          case "USER_JOINED":
+          case "JOIN":
+          case "USER_ENTERED": {
+            if (uId) {
+              const joinedUser = {
+                id: uId,
+                userId: uId,
+                name: uName,
+                avatar: uAvatar,
+                profileImageUrl: uAvatar,
+                profilePicUrl: uAvatar,
+              };
+
+              // Only enqueue toast if not self (self entry toast is triggered on room enter)
+              if (String(uId) !== String(myUserId)) {
+                enqueueActivityEvent({
+                  id: `ws-enter-${uId}-${Date.now()}`,
+                  type: "enter",
+                  user: joinedUser,
+                });
+              }
+
+              setOnlineUsers((prev) => {
+                const exists = prev.some(
+                  (u) => String(u?.id ?? u?.userId) === uId,
+                );
+                if (exists) return prev;
+                return [...prev, joinedUser];
+              });
+              setOnlineCount((prev) => prev + 1);
+            }
+            break;
+          }
+
+          case "USER_LEFT":
+          case "LEAVE":
+          case "EXIT":
+          case "USER_EXIT": {
+            if (uId) {
+              const leftUser = {
+                id: uId,
+                userId: uId,
+                name: uName,
+                avatar: uAvatar,
+              };
+
+              enqueueActivityEvent({
+                id: `ws-exit-${uId}-${Date.now()}`,
+                type: "exit",
+                user: leftUser,
+              });
+
+              setOnlineUsers((prev) =>
+                prev.filter((u) => String(u?.id ?? u?.userId) !== uId),
+              );
+              setOnlineCount((prev) => Math.max(0, prev - 1));
+
+              // Clear seat if left user was seated
+              setSeats((prev) =>
+                prev.map((seat) => {
+                  if (
+                    seat.user &&
+                    String(seat.user.id ?? seat.user.userId) === uId
+                  ) {
+                    return { ...seat, user: null };
+                  }
+                  return seat;
+                }),
+              );
+            }
+            break;
+          }
+
+          case "CHAT_CLEARED": {
+            setMessages([]);
+            break;
+          }
+
+          case "CHAT_MESSAGE":
+          case "CHAT": {
+            const chatMsgText =
+              payload.message || payload.text || payload.content || "";
+            if (!chatMsgText) break;
+            const normalized = normalizeChatMessage({
+              id:
+                payload.id ??
+                `ws-chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              message: chatMsgText,
+              text: chatMsgText,
+              senderName: uName,
+              user: uName,
+              userId: uId,
+              avatar: uAvatar,
+              createdAt: payload.timestamp || new Date().toISOString(),
+            });
+            setMessages((prev) => upsertChatMessage(prev, normalized));
+            setTimeout(
+              () => scrollRef.current?.scrollToEnd({ animated: true }),
+              100,
+            );
+            break;
+          }
+
+          case "GIFT_SENT":
+          case "GIFT": {
+            const giftName = payload.giftName || payload.name || "a gift";
+            const qty = Math.max(
+              1,
+              Number(payload.quantity || payload.qty || 1),
+            );
+            const receiverName =
+              payload.receiverName || payload.receiver || null;
+            revealGiftAnimation(
+              {
+                ...payload,
+                senderName: uName,
+                senderAvatar: uAvatar,
+                receiverName,
+                giftName,
+                quantity: qty,
+              },
+              {
+                senderName: uName,
+                senderAvatar: uAvatar,
+                receiverName,
+                name: giftName,
+                quantity: qty,
+              },
+            );
+
+            const giftChatText = `sent 🎁 ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
+            const normalized = normalizeChatMessage({
+              id: payload.id ?? `ws-gift-${Date.now()}`,
+              message: `${uName} ${giftChatText}`,
+              text: `${uName} ${giftChatText}`,
+              senderName: uName,
+              avatar: uAvatar,
+              isGift: true,
+            });
+            setMessages((prev) => upsertChatMessage(prev, normalized));
+            setTimeout(
+              () => scrollRef.current?.scrollToEnd({ animated: true }),
+              100,
+            );
+            break;
+          }
+
+          case "MIC_MUTED":
+          case "MIC_UNMUTED": {
+            const isMuted =
+              eventType === "MIC_MUTED" || payload.isMuted === true;
+            const targetSeatId = Number(payload.seatNumber || payload.seatId);
+            setSeats((prev) =>
+              prev.map((seat) => {
+                const matches = targetSeatId
+                  ? seat.id === targetSeatId
+                  : uId && String(seat.user?.id ?? seat.user?.userId) === uId;
+                if (!matches || !seat.user) return seat;
+                return {
+                  ...seat,
+                  user: { ...seat.user, muted: isMuted },
+                };
+              }),
+            );
+            break;
+          }
+
+          case "SEAT_TAKEN":
+          case "SEAT_CLAIMED": {
+            const targetSeatId = Number(payload.seatNumber || payload.seatId);
+            if (targetSeatId) {
+              setSeats((prev) =>
+                prev.map((seat) => {
+                  if (seat.id === targetSeatId) {
+                    return {
+                      ...seat,
+                      user: {
+                        ...(seat.user || {}),
+                        id: uId,
+                        userId: uId,
+                        name: uName,
+                        avatar: uAvatar,
+                        active: false,
+                        muted: false,
+                      },
+                    };
+                  }
+                  return seat;
+                }),
+              );
+
+              enqueueActivityEvent({
+                id: `ws-seat-${uId}-${targetSeatId}-${Date.now()}`,
+                type: "seat",
+                seatId: targetSeatId,
+                user: { id: uId, userId: uId, name: uName, avatar: uAvatar },
+              });
+            }
+            break;
+          }
+
+          case "SEAT_RELEASED":
+          case "SEAT_LEFT": {
+            const targetSeatId = Number(payload.seatNumber || payload.seatId);
+            setSeats((prev) =>
+              prev.map((seat) => {
+                const matches = targetSeatId
+                  ? seat.id === targetSeatId
+                  : uId && String(seat.user?.id ?? seat.user?.userId) === uId;
+                if (matches) {
+                  return { ...seat, user: null };
+                }
+                return seat;
+              }),
+            );
+            break;
+          }
+
+          case "USER_KICKED":
+          case "KICKED": {
+            const kickedUserId =
+              payload.userId != null
+                ? String(payload.userId)
+                : payload.targetUserId != null
+                  ? String(payload.targetUserId)
+                  : null;
+            if (kickedUserId) {
+              if (myUserId && kickedUserId === String(myUserId)) {
+                Alert.alert(
+                  "Removed from Room",
+                  "You have been removed from this room by the host or an administrator.",
+                  [{ text: "OK", onPress: () => handleExitRoom() }],
+                  { cancelable: false },
+                );
+                handleExitRoom();
+                return;
+              }
+
+              // Another user was kicked
+              setSeats((prev) =>
+                prev.map((seat) => {
+                  if (
+                    seat.user &&
+                    String(seat.user.id ?? seat.user.userId) === kickedUserId
+                  ) {
+                    return { ...seat, user: null };
+                  }
+                  return seat;
+                }),
+              );
+              setOnlineUsers((prev) =>
+                prev.filter((u) => String(u?.id ?? u?.userId) !== kickedUserId),
+              );
+              setOnlineCount((prev) => Math.max(0, prev - 1));
+
+              enqueueActivityEvent({
+                id: `ws-kick-${kickedUserId}-${Date.now()}`,
+                type: "exit",
+                user: {
+                  id: kickedUserId,
+                  userId: kickedUserId,
+                  name: uName,
+                  avatar: uAvatar,
+                },
+              });
+            }
+            break;
+          }
+
+          default:
+            break;
+        }
+      },
+    );
+
+    const unsubKicked = wsService.onRoomKicked(String(roomId), (payload) => {
+      if (!payload) return;
+      const kickedUserId =
+        payload.userId != null
+          ? String(payload.userId)
+          : payload.targetUserId != null
+            ? String(payload.targetUserId)
+            : null;
+      const kickedUserName =
+        payload.userName || payload.targetUserName || payload.name || "User";
+      if (!kickedUserId) return;
+
+      if (myUserId && kickedUserId === String(myUserId)) {
+        Alert.alert(
+          "Removed from Room",
+          "You have been removed from this room by the host or an administrator.",
+          [{ text: "OK", onPress: () => handleExitRoom() }],
+          { cancelable: false },
+        );
+        handleExitRoom();
+        return;
+      }
+
+      setSeats((prev) =>
+        prev.map((seat) => {
+          if (
+            seat.user &&
+            String(seat.user.id ?? seat.user.userId) === kickedUserId
+          ) {
+            return { ...seat, user: null };
+          }
+          return seat;
+        }),
+      );
+      setOnlineUsers((prev) =>
+        prev.filter((u) => String(u?.id ?? u?.userId) !== kickedUserId),
+      );
+      setOnlineCount((prev) => Math.max(0, prev - 1));
+
+      enqueueActivityEvent({
+        id: `ws-kicked-${kickedUserId}-${Date.now()}`,
+        type: "exit",
+        user: { id: kickedUserId, userId: kickedUserId, name: kickedUserName },
+      });
+    });
+
+    const unsubModeration = wsService.onRoomModeration(
+      String(roomId),
+      (payload) => {
+        if (!payload) return;
+        const eventType = String(
+          payload.type || payload.eventType || "",
+        ).toUpperCase();
+        if (
+          eventType === "USER_KICKED" ||
+          eventType === "KICKED" ||
+          payload.action === "KICK"
+        ) {
+          const kickedUserId =
+            payload.userId != null
+              ? String(payload.userId)
+              : payload.targetUserId != null
+                ? String(payload.targetUserId)
+                : null;
+          if (!kickedUserId) return;
+          if (myUserId && kickedUserId === String(myUserId)) {
+            Alert.alert(
+              "Removed from Room",
+              "You have been removed from this room by the host or an administrator.",
+              [{ text: "OK", onPress: () => handleExitRoom() }],
+              { cancelable: false },
+            );
+            handleExitRoom();
+            return;
+          }
+
+          setSeats((prev) =>
+            prev.map((seat) => {
+              if (
+                seat.user &&
+                String(seat.user.id ?? seat.user.userId) === kickedUserId
+              ) {
+                return { ...seat, user: null };
+              }
+              return seat;
+            }),
+          );
+          setOnlineUsers((prev) =>
+            prev.filter((u) => String(u?.id ?? u?.userId) !== kickedUserId),
+          );
+          setOnlineCount((prev) => Math.max(0, prev - 1));
+        }
+      },
+    );
+
+    const subUserKicked = DeviceEventEmitter.addListener(
+      "userKickedFromRoom",
+      (payload) => {
+        if (!payload) return;
+        const kickedRoomId =
+          payload.roomId != null ? String(payload.roomId) : null;
+        if (!kickedRoomId || kickedRoomId === String(roomId)) {
+          Alert.alert(
+            "Removed from Room",
+            "You have been removed from this room by the host or an administrator.",
+            [{ text: "OK", onPress: () => handleExitRoom() }],
+            { cancelable: false },
+          );
+          handleExitRoom();
+        }
+      },
+    );
+
     // STOMP delivers no backlog to a resubscribing client, so any seat/chat
     // updates broadcast during a brief drop (backgrounding, network blip)
     // are otherwise lost until the user leaves and re-enters the room.
@@ -1580,34 +5621,195 @@ export default function VoiceParty() {
               myUserId,
               mySeatNumber: mySeatNumberRef.current,
               staleSeatTracker: staleSeatTrackerRef.current,
+              activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
             }),
           );
         })
         .catch(() => {
           // Non-critical — a later reconnect or user action will re-sync.
         });
+      loadActivePkBattle(pkPollRoomId)
+        .then(setActivePkBattle)
+        .catch(() => {
+          // Non-critical — the `pk` topic or the fallback poll will catch it.
+        });
     });
+    // ── Emoji / Sticker / GIF broadcast subscription ──────────────────────
+    const unsubEmoji = wsService.onRoomEmoji(String(roomId), (payload) => {
+      if (!payload) return;
+      if (payload.eventType && payload.eventType !== "EMOJI_SENT") return;
+
+      const emojiId = `${Date.now()}-${Math.random()}`;
+      const senderUserId =
+        payload.userId != null ? String(payload.userId) : null;
+
+      let rawEmoji = payload.rawEmoji || payload.emoji || "😊";
+      let targetUserId =
+        payload.targetUserId != null
+          ? String(payload.targetUserId)
+          : payload.receiverId != null
+          ? String(payload.receiverId)
+          : payload.recipientId != null
+          ? String(payload.recipientId)
+          : payload.toUserId != null
+          ? String(payload.toUserId)
+          : payload.targetId != null
+          ? String(payload.targetId)
+          : null;
+
+      // Extract targetUserId if encoded in the emoji string (e.g. "😍__TARGET__10002")
+      if (typeof rawEmoji === "string" && rawEmoji.includes("__TARGET__")) {
+        const parts = rawEmoji.split("__TARGET__");
+        rawEmoji = parts[0] || "😊";
+        if (!targetUserId && parts[1]) {
+          targetUserId = parts[1].trim();
+        }
+      }
+
+      // If a recipient is targeted, display ONLY on that target user's profile avatar.
+      // Do NOT display on the sender when a target is chosen!
+      const displayUserId = targetUserId || senderUserId;
+
+      const item = {
+        id: emojiId,
+        emoji: rawEmoji,
+        mediaUrl: payload.mediaUrl || null,
+        mediaType: payload.mediaType || "emoji",
+        userId: displayUserId,
+        senderUserId: senderUserId,
+        targetUserId: targetUserId,
+        userName: payload.targetUserName || payload.userName || "User",
+        profileImage: payload.profileImage || null,
+      };
+
+      // Show overlay on the target user's seat avatar, and ensure the sender does NOT show it
+      if (displayUserId) {
+        setSeatEmojiOverlays((prev) => {
+          const next = { ...prev };
+          // If this emoji is targeted to someone else, ensure the sender NEVER shows this emoji on their avatar
+          if (targetUserId && senderUserId && !isSameUser(targetUserId, senderUserId)) {
+            Object.keys(next).forEach((k) => {
+              if (isSameUser(k, senderUserId)) {
+                delete next[k];
+              }
+            });
+          }
+          next[displayUserId] = item;
+          return next;
+        });
+      }
+    });
+
     return () => {
       unsubChat();
       unsubChatSummary();
       unsubUi();
       unsubSpeaking();
+      unsubTreasure();
       unsubGiftAnimation();
+      unsubPk();
+      unsubNotifications();
+      unsubKicked();
+      unsubEmoji();
+      unsubModeration();
+      subUserKicked.remove();
       unsubReconnect();
+      if (!isNavigatingToInboxRef.current) {
+        wsService.leaveRoom(activeRoomId);
+      }
     };
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
+  const handleToggleMusic = useCallback(async () => {
+    let hasMicPermission = true;
+    if (Platform.OS === "android") {
+      hasMicPermission = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      );
+    }
+
+    if (!hasMicPermission) {
+      setMicPermWarning("music");
+      return;
+    }
+
+    try {
+      let DocumentPicker = null;
+      try {
+        DocumentPicker = require("expo-document-picker");
+      } catch (e) {
+        console.warn(
+          "[voice-party] expo-document-picker unavailable:",
+          e?.message ?? e,
+        );
+      }
+
+      if (
+        !DocumentPicker ||
+        typeof DocumentPicker.getDocumentAsync !== "function"
+      ) {
+        Alert.alert(
+          "Music Feature Unavailable",
+          "Audio file picker is not available on this build.",
+        );
+        return;
+      }
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        copyToCacheDirectory: false,
+        multiple: true,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        if (onMic && isMicMuted && roomId && mySeatNumber) {
+          try {
+            await partyVoice.toggleMicMute(String(roomId), mySeatNumber, false);
+            setIsMicMuted(false);
+          } catch (e) {}
+        }
+
+        setMusicPlaylist(result.assets);
+        setCurrentMusicIndex(0);
+
+        const localUri = result.assets[0].uri;
+        agoraVoice.playAudioForEveryone(localUri);
+        setIsMusicPlaying(true);
+        setIsMusicPaused(false);
+      }
+    } catch (err) {
+      console.error("Audio selection error:", err);
+    }
+  }, [onMic, isMicMuted, roomId, mySeatNumber]);
+
+  const handleNextMusic = useCallback(() => {
+    if (musicPlaylist.length > 0) {
+      let nextIndex = currentMusicIndex + 1;
+      if (nextIndex >= musicPlaylist.length) {
+        nextIndex = 0; // loop back to start
+      }
+      setCurrentMusicIndex(nextIndex);
+      const nextUri = musicPlaylist[nextIndex].uri;
+      agoraVoice.playAudioForEveryone(nextUri);
+      setIsMusicPlaying(true);
+      setIsMusicPaused(false);
+    }
+  }, [musicPlaylist, currentMusicIndex]);
+
   const handleExitRoom = useCallback(async () => {
     setShowPowerMenu(false);
+    isNavigatingToInboxRef.current = false;
     if (!roomId || exitedRef.current) {
       router.back();
       return;
     }
     exitedRef.current = true;
     try {
-      if (onMic && mySeatNumber) {
-        await partyVoice.leaveMic(String(roomId), mySeatNumber).catch(() => {});
-      }
+      await flushListenRewardProgress(roomId);
+    } catch {
+      // Non-blocking for room exit
+    }
+    try {
       await partyVoice.teardownVoice();
       await exitRoomSession(String(roomId));
     } catch {
@@ -1618,12 +5820,38 @@ export default function VoiceParty() {
     setOnMic(false);
     setMySeatNumber(null);
     router.back();
-  }, [roomId, onMic, mySeatNumber, router]);
+  }, [roomId, router, flushListenRewardProgress]);
+
+  const promptExitConfirmation = useCallback(() => {
+    Alert.alert(
+      "Leave Room?",
+      "Are you sure you want to leave the room?",
+      [
+        {
+          text: "No",
+          style: "cancel",
+          onPress: () => {
+            // Keep user in the room
+          },
+        },
+        {
+          text: "Yes",
+          style: "destructive",
+          onPress: () => {
+            handleExitRoom();
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  }, [handleExitRoom]);
 
   // Intercept Android hardware back button — close any open chat input /
-  // pickers first; only exit the room when none of those are open.
-  useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+  // pickers / modals in order; show confirmation popup before leaving room.
+  // ONLY active when the voice party room screen is focused.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (showTagPicker) {
         setShowTagPicker(false);
         return true;
@@ -1637,11 +5865,121 @@ export default function VoiceParty() {
         Keyboard.dismiss();
         return true;
       }
-      handleExitRoom();
+      if (showGiftReceiverPicker) {
+        setShowGiftReceiverPicker(false);
+        return true;
+      }
+      if (purchaseGift) {
+        setPurchaseGift(null);
+        return true;
+      }
+      if (showBackpack) {
+        setShowBackpack(false);
+        return true;
+      }
+      if (showGiftPanel) {
+        setShowGiftPanel(false);
+        return true;
+      }
+      if (showTreasureBox) {
+        setShowTreasureBox(false);
+        return true;
+      }
+      if (showPlayCenter) {
+        setShowPlayCenter(false);
+        return true;
+      }
+      if (showPowerMenu) {
+        setShowPowerMenu(false);
+        return true;
+      }
+      if (showRoomProfileModal) {
+        setShowRoomProfileModal(false);
+        return true;
+      }
+      if (showFollowModal) {
+        setShowFollowModal(false);
+        return true;
+      }
+      if (showActiveUsersModal) {
+        setShowActiveUsersModal(false);
+        return true;
+      }
+      if (showMoreMenu) {
+        setShowMoreMenu(false);
+        return true;
+      }
+      if (showReportModal) {
+        setShowReportModal(false);
+        setReportTarget(null);
+        return true;
+      }
+      if (showVideoModal) {
+        setShowVideoModal(false);
+        setCurrentVideo(null);
+        return true;
+      }
+      if (profilePopupUser || profilePopupLoading) {
+        closeProfilePopup();
+        return true;
+      }
+      if (seatActionSheet) {
+        setSeatActionSheet(null);
+        return true;
+      }
+      if (adminSeatModal) {
+        setAdminSeatModal(null);
+        return true;
+      }
+      if (adminUnlockModal) {
+        setAdminUnlockModal(null);
+        return true;
+      }
+      if (lockedSeatNoticeModal) {
+        setLockedSeatNoticeModal(null);
+        return true;
+      }
+      if (micPermWarning) {
+        setMicPermWarning(null);
+        return true;
+      }
+      if (showWelcomeEdit) {
+        setShowWelcomeEdit(false);
+        return true;
+      }
+
+      // No modal is open — prompt exit confirmation
+      promptExitConfirmation();
       return true; // prevent default navigation
     });
     return () => sub.remove();
-  }, [handleExitRoom, showChatInput, showEmojiPicker, showTagPicker]);
+  }, [
+    promptExitConfirmation,
+    showChatInput,
+    showEmojiPicker,
+    showTagPicker,
+    showGiftReceiverPicker,
+    purchaseGift,
+    showBackpack,
+    showGiftPanel,
+    showTreasureBox,
+    showPlayCenter,
+    showPowerMenu,
+    showFollowModal,
+    showActiveUsersModal,
+    showMoreMenu,
+    showReportModal,
+    showVideoModal,
+    profilePopupUser,
+    profilePopupLoading,
+    seatActionSheet,
+    adminSeatModal,
+    adminUnlockModal,
+    lockedSeatNoticeModal,
+    micPermWarning,
+    showWelcomeEdit,
+    closeProfilePopup,
+  ]));
 
   // Listen Rewards — tick every second while in the room.
   // Component unmounts on exit so counters reset automatically.
@@ -1664,7 +6002,7 @@ export default function VoiceParty() {
     return () => clearInterval(interval);
   }, []);
 
-  // Mic-seat heartbeat — fires every 25 s while user is on a seat.
+  // Mic-seat heartbeat — fires every 15 s while user is on a seat.
   // Backend removes the seat automatically after 30 s of silence.
   // Uses WebSocket publish when connected, REST POST as fallback.
   useEffect(() => {
@@ -1672,19 +6010,38 @@ export default function VoiceParty() {
 
     const ping = async () => {
       try {
-        if (wsService.connected) {
-          wsService.sendSeatHeartbeat(String(roomId));
-        } else {
-          await postSeatHeartbeat(String(roomId));
+        if (__DEV__) {
+          console.log('[HEARTBEAT] Seat heartbeat ping', {
+            roomId: String(roomId),
+            seatNumber: mySeatNumber,
+            wsConnected: wsService.connected,
+          });
         }
-      } catch {
+        if (wsService.connected) {
+          wsService.sendSeatHeartbeat(String(roomId), mySeatNumber);
+        } else {
+          await postSeatHeartbeat(String(roomId), mySeatNumber);
+        }
+      } catch (err) {
+        if (__DEV__) {
+          console.log('[HEARTBEAT] Seat heartbeat failed (non-critical):', err?.message);
+        }
         // Non-critical — backend will evict after the timeout automatically
       }
     };
 
     ping(); // send immediately when seat is taken
-    const interval = setInterval(ping, 25_000);
-    return () => clearInterval(interval);
+    const interval = setInterval(ping, 15_000);
+
+    // Send immediate heartbeat on WebSocket reconnection if still on mic
+    const unsubReconnect = wsService.onReconnect(() => {
+      ping();
+    });
+
+    return () => {
+      clearInterval(interval);
+      unsubReconnect?.();
+    };
   }, [onMic, mySeatNumber, roomId]);
 
   // Room presence heartbeat — fires every 25 s for ANY user in the room
@@ -1712,30 +6069,99 @@ export default function VoiceParty() {
     return () => clearInterval(interval);
   }, [roomId]);
 
-  // Room user-count badge — refresh from the public count endpoint.
+  // Belt-and-braces poll for the room's PK card — the `pk` WS topic should
+  // push every create/accept/reject/score/finish, but if the backend only
+  // wires up the *later* events (not the initial create), the challenged
+  // opponent would otherwise never learn a battle exists until they leave
+  // and re-enter the room. Cheap enough to just poll while one might be
+  // pending/live; stops once we know there's nothing to wait on.
   useEffect(() => {
-    if (!roomId) return;
-    let cancelled = false;
+    if (!pkPollRoomId) return undefined;
+    if (
+      activePkBattle &&
+      activePkBattle.status !== "PENDING" &&
+      activePkBattle.status !== "LIVE"
+    ) {
+      return undefined;
+    }
 
-    const fetchUserCount = async () => {
-      try {
-        const response = await getRoomUserCount(String(roomId));
-        console.log(`[getRoomUserCount] room ${roomId} response:`, response);
-        if (cancelled) return;
-        const count = typeof response === "number" ? response : response?.onlineCount;
-        if (typeof count === "number") setOnlineCount(count);
-      } catch (error) {
-        console.log(`[getRoomUserCount] room ${roomId} error:`, error?.message ?? error);
+    const interval = setInterval(() => {
+      loadActivePkBattle(pkPollRoomId)
+        .then((battle) => {
+          console.log("[VoiceParty][PK] poll active battle ->", battle);
+          setActivePkBattle((current) => {
+            // `.../active` only ever reports LIVE/PENDING battles, so a
+            // request that was already in flight when the battle finished
+            // resolves with `null` right as (or just after) the `pk`
+            // websocket push shows the COMPLETED/DRAW result — without this
+            // guard that lagging response wipes the result card the instant
+            // it appears.
+            if (
+              !battle &&
+              current &&
+              !["PENDING", "LIVE"].includes(current.status)
+            ) {
+              return current;
+            }
+            return battle;
+          });
+        })
+        .catch(() => {
+          // Non-critical — next tick or the WS push will catch it.
+        });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [pkPollRoomId, activePkBattle]);
+
+  // Listen Rewards progress sync & UTC midnight reset check — every 30 s
+  useEffect(() => {
+    if (!roomId) return undefined;
+
+    const interval = setInterval(async () => {
+      if (exitedRef.current || !roomId) return;
+
+      const nowUtc = new Date().toISOString().slice(0, 10);
+      if (currentUtcDateRef.current && nowUtc !== currentUtcDateRef.current) {
+        // 1. Flush any remaining unsynced seconds for the ending UTC day first
+        await flushListenRewardProgress(roomId);
+        // 2. Fetch new day's backend status and reset baselines/tiers
+        await refreshListenRewardStatus(true);
+      } else {
+        // Normal 30s progress sync
+        await flushListenRewardProgress(roomId);
       }
-    };
+    }, 30_000);
 
-    fetchUserCount();
-    const interval = setInterval(fetchUserCount, 15_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [roomId]);
+    return () => clearInterval(interval);
+  }, [roomId, flushListenRewardProgress, refreshListenRewardStatus]);
+
+  // User count is now kept in sync exclusively via WebSocket `ui-state`
+  // and `notifications` (USER_JOINED/USER_LEFT) pushes.
+
+  const applySeatsAfterClaim = async (claimData, seatNumber) => {
+    const claimedState = roomStateFromPayload(claimData);
+    let nextState = claimedState;
+    if (!claimedState?.seats) {
+      nextState = await getRoomState(String(roomId));
+    }
+    const nextSeats = await enrichSeatsWithMyProfile(
+      parseSeats(nextState?.seats, nextState),
+      seatNumber,
+    );
+    setSeats(
+      reconcileSeatAssignments(nextSeats, {
+        onlineUsers,
+        myUserId,
+        mySeatNumber: seatNumber,
+        staleSeatTracker: staleSeatTrackerRef.current,
+        activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
+      }),
+    );
+    if (typeof nextState?.onlineCount === "number") {
+      setOnlineCount(nextState.onlineCount);
+    }
+  };
 
   const handleTakeMic = async () => {
     if (!roomId || voiceConnecting) return;
@@ -1756,6 +6182,8 @@ export default function VoiceParty() {
             myUserId,
             mySeatNumber: null,
             staleSeatTracker: staleSeatTrackerRef.current,
+            activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
           }),
         );
       } catch (err) {
@@ -1778,6 +6206,8 @@ export default function VoiceParty() {
           myUserId,
           mySeatNumber,
           staleSeatTracker: staleSeatTrackerRef.current,
+          activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
         }),
       );
 
@@ -1800,12 +6230,14 @@ export default function VoiceParty() {
       }
 
       let targetSeat = null;
+      let claimData = null;
 
       // Try each candidate seat until one succeeds
       for (const seatId of candidates) {
         try {
-          await partyVoice.takeMic(String(roomId), seatId);
+          const taken = await partyVoice.takeMic(String(roomId), seatId);
           targetSeat = seatId;
+          claimData = taken?.claimData ?? taken;
           break; // success — stop trying
         } catch (err) {
           const status = err?.status ?? err?.response?.status;
@@ -1858,53 +6290,7 @@ export default function VoiceParty() {
       if (isSpeakerMuted) {
         agoraVoice.toggleRemoteMute(true);
       }
-
-      const localUser = await getUser();
-      const localUserId = await getAppUserId().catch(() => null);
-      const localAvatar =
-        resolveProfileAvatarUri(localUser) ??
-        localUser?.avatarUrl ??
-        localUser?.avatar ??
-        null;
-      const localName = localUser?.name ?? localUser?.username ?? "User";
-      setSeats((prev) =>
-        prev.map((seat) => {
-          if (seat.id !== targetSeat) return seat;
-          const existing = seat.user ?? {};
-          return {
-            ...seat,
-            user: {
-              ...existing,
-              id: existing.id ?? localUserId,
-              name:
-                existing.name && existing.name !== "Guest"
-                  ? existing.name
-                  : (localName ?? existing.name ?? "User"),
-              username: existing.username ?? localUser?.username ?? localName,
-              avatar: existing.avatar ?? localAvatar,
-              hasNewUserFrame: Boolean(localUser?.hasNewUserFrame),
-              newUserFrameUrl: localUser?.newUserFrameUrl ?? null,
-              active: true,
-              muted: false,
-            },
-          };
-        }),
-      );
-
-      const state = await getRoomState(String(roomId));
-      const nextSeats = await enrichSeatsWithMyProfile(
-        parseSeats(state?.seats, state),
-        targetSeat,
-      );
-      setSeats(
-        reconcileSeatAssignments(nextSeats, {
-          onlineUsers,
-          myUserId: localUserId ?? myUserId,
-          mySeatNumber: targetSeat,
-          staleSeatTracker: staleSeatTrackerRef.current,
-        }),
-      );
-      setOnlineCount(state?.onlineCount ?? onlineCount);
+      await applySeatsAfterClaim(claimData, targetSeat);
     } catch (err) {
       const msg = err?.message ?? "Could not start voice.";
       if (
@@ -1918,7 +6304,7 @@ export default function VoiceParty() {
           "Please allow microphone access to speak in the room.",
         );
       } else {
-        Alert.alert("Take mic failed", msg);
+        Alert.alert("Claim seat failed", msg);
       }
     } finally {
       setVoiceConnecting(false);
@@ -1940,13 +6326,275 @@ export default function VoiceParty() {
       await partyVoice.toggleMicMute(String(roomId), mySeatNumber, nextMuted);
       setIsMicMuted(nextMuted);
     } catch (err) {
-      Alert.alert("Mic mute failed", err?.message ?? "Please try again.");
+      if (partyVoice.isNotOnSeatError(err)) {
+        // Backend says we're no longer on this seat — local state is stale
+        // (kicked, seat expired, left from another device). Resync instead
+        // of retrying a mute toggle that will keep failing.
+        onMicRef.current = false;
+        mySeatNumberRef.current = null;
+        setOnMic(false);
+        setMySeatNumber(null);
+        setIsMicMuted(true);
+        try {
+          const state = await getRoomState(String(roomId));
+          setSeats(
+            reconcileSeatAssignments(parseSeats(state?.seats, state), {
+              onlineUsers,
+              myUserId,
+              mySeatNumber: null,
+              staleSeatTracker: staleSeatTrackerRef.current,
+              activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
+            }),
+          );
+        } catch (e) {
+          // Non-critical — a later poll/reconnect will re-sync seats.
+        }
+      } else {
+        Alert.alert("Mic mute failed", err?.message ?? "Please try again.");
+      }
     } finally {
       setVoiceConnecting(false);
     }
   };
 
+  const getSharePayload = useCallback(() => {
+    const activeRoomId = String(
+      roomInfo?.roomId ?? roomInfo?.id ?? roomIdRef.current ?? roomId ?? "",
+    ).trim();
+    if (!activeRoomId) return null;
+    const roomTitle = roomInfo?.name?.trim() || "Newbie Welcome Room";
+    const playStoreUrl =
+      "https://play.google.com/store/apps/details?id=tuk.tuk.app";
+
+    const shareMessage = `We have funny conversation in here! Come to Tuk-Tuk to join 「${roomTitle}」${activeRoomId}!\n${playStoreUrl}`;
+
+    return { activeRoomId, playStoreUrl, roomTitle, shareMessage };
+  }, [roomId, roomInfo?.roomId, roomInfo?.id, roomInfo?.name]);
+
+  const handleShareToChatList = useCallback(() => {
+    const activeRoomId = roomIdRef.current || roomId;
+    if (!activeRoomId) return;
+    isNavigatingToInboxRef.current = true;
+    setShowShareMenu(false);
+    router.push({
+      pathname: "/(tabs)/chat",
+      params: {
+        fromRoom: String(activeRoomId),
+        shareRoomId: String(activeRoomId),
+        shareRoomTitle: String(roomInfo?.name || "Voice Party Room"),
+      },
+    });
+  }, [roomId, roomInfo?.name, router]);
+
+  const handleShareRoom = useCallback(async () => {
+    const payload = getSharePayload();
+    if (!payload) {
+      Alert.alert(
+        "Share Room",
+        "Cannot share room because room ID is unavailable.",
+      );
+      return;
+    }
+
+    try {
+      await Share.share(
+        Platform.select({
+          ios: {
+            message: payload.shareMessage,
+            url: payload.playStoreUrl,
+          },
+          default: {
+            title: `Join ${payload.roomTitle} on Tuk-Tuk`,
+            message: payload.shareMessage,
+          },
+        }),
+      );
+    } catch (err) {
+      if (err?.name !== "AbortError" && !err?.message?.includes("dismiss")) {
+        console.warn("[VoiceParty] Native share failed:", err);
+        Alert.alert("Share", "Could not open share options. Please try again.");
+      }
+    }
+  }, [getSharePayload]);
+
+  const handleShareWhatsApp = useCallback(async () => {
+    const payload = getSharePayload();
+    if (!payload) return;
+    const waUrl = `whatsapp://send?text=${encodeURIComponent(payload.shareMessage)}`;
+    try {
+      const supported = await Linking.canOpenURL(waUrl);
+      if (supported) {
+        await Linking.openURL(waUrl);
+      } else {
+        await Linking.openURL(
+          `https://api.whatsapp.com/send?text=${encodeURIComponent(payload.shareMessage)}`,
+        );
+      }
+    } catch {
+      handleShareRoom();
+    }
+  }, [getSharePayload, handleShareRoom]);
+
+  const handleShareFacebook = useCallback(async () => {
+    const payload = getSharePayload();
+    if (!payload) return;
+    const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+      payload.playStoreUrl,
+    )}&quote=${encodeURIComponent(payload.shareMessage)}`;
+    try {
+      await Linking.openURL(fbUrl);
+    } catch {
+      handleShareRoom();
+    }
+  }, [getSharePayload, handleShareRoom]);
+
+  const handleShareInstagram = useCallback(async () => {
+    const payload = getSharePayload();
+    if (!payload) return;
+    try {
+      const igUrl = "instagram://app";
+      const supported = await Linking.canOpenURL(igUrl);
+      if (supported) {
+        await Linking.openURL(igUrl);
+      } else {
+        handleShareRoom();
+      }
+    } catch {
+      handleShareRoom();
+    }
+  }, [getSharePayload, handleShareRoom]);
+
+  const handleCopyRoomLink = useCallback(async () => {
+    const payload = getSharePayload();
+    if (!payload?.activeRoomId) {
+      Alert.alert(
+        "Copy Link",
+        "Cannot copy link because room ID is unavailable.",
+      );
+      return;
+    }
+    try {
+      await Clipboard.setStringAsync(payload.playStoreUrl);
+      Alert.alert("Copied", "Play Store link copied to clipboard!");
+    } catch (err) {
+      console.warn("[VoiceParty] Copy link failed:", err);
+      Alert.alert("Copy Link", "Failed to copy link.");
+    }
+  }, [getSharePayload]);
+
   const [shareTab, setShareTab] = useState("Recently");
+  const [shareSearch, setShareSearch] = useState("");
+  const [shareChatUsers, setShareChatUsers] = useState([]);
+  const [shareFollowingUsers, setShareFollowingUsers] = useState([]);
+  const [shareFollowersUsers, setShareFollowersUsers] = useState([]);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [sentUserIds, setSentUserIds] = useState({});
+  const [sendingUserIds, setSendingUserIds] = useState({});
+
+  const loadShareUsers = useCallback(async () => {
+    setShareLoading(true);
+    try {
+      const [convosRes, followingRes, followersRes] = await Promise.allSettled([
+        loadConversations(),
+        loadFollowing(),
+        loadFollowers(),
+      ]);
+
+      if (convosRes.status === "fulfilled" && Array.isArray(convosRes.value)) {
+        setShareChatUsers(convosRes.value);
+      }
+      if (
+        followingRes.status === "fulfilled" &&
+        Array.isArray(followingRes.value)
+      ) {
+        setShareFollowingUsers(followingRes.value);
+      }
+      if (
+        followersRes.status === "fulfilled" &&
+        Array.isArray(followersRes.value)
+      ) {
+        setShareFollowersUsers(followersRes.value);
+      }
+    } catch (err) {
+      console.warn("[VoiceParty] Failed to load share users:", err);
+    } finally {
+      setShareLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showShareMenu) {
+      loadShareUsers();
+    } else {
+      setShareSearch("");
+    }
+  }, [showShareMenu, loadShareUsers]);
+
+  const handleSendDirectInvite = useCallback(
+    async (user) => {
+      const targetId = String(user?.userId ?? user?.id ?? "");
+      const targetName = user?.name ?? user?.username ?? "Friend";
+      if (!targetId || sentUserIds[targetId] || sendingUserIds[targetId])
+        return;
+
+      const activeRoomId = roomIdRef.current || roomId;
+      if (!activeRoomId) {
+        Alert.alert("Invite", "Room ID is currently unavailable.");
+        return;
+      }
+
+      setSendingUserIds((prev) => ({ ...prev, [targetId]: true }));
+      try {
+        await wsService.connect();
+        const inviteMsg = createRoomInviteMessage({
+          roomId: String(activeRoomId),
+          roomTitle: String(roomInfo?.name || "Voice Party Room"),
+        });
+        wsService.sendMessage(targetId, inviteMsg);
+        setSentUserIds((prev) => ({ ...prev, [targetId]: true }));
+      } catch (err) {
+        console.warn("[VoiceParty] Failed to send direct invite:", err);
+        Alert.alert(
+          "Invite Failed",
+          `Could not send room invite to ${targetName}.`,
+        );
+      } finally {
+        setSendingUserIds((prev) => {
+          const next = { ...prev };
+          delete next[targetId];
+          return next;
+        });
+      }
+    },
+    [roomId, roomInfo?.name, sentUserIds, sendingUserIds],
+  );
+
+  const displayedShareUsers = useMemo(() => {
+    let list = [];
+    if (shareTab === "Recently") {
+      list = shareChatUsers;
+    } else if (shareTab === "Friends") {
+      list = shareFollowingUsers;
+    } else if (shareTab === "Followers") {
+      list = shareFollowersUsers;
+    }
+
+    if (!shareSearch.trim()) return list;
+    const q = shareSearch.trim().toLowerCase();
+    return list.filter((u) => {
+      const name = String(u?.name ?? u?.username ?? "").toLowerCase();
+      const handle = String(u?.handle ?? "").toLowerCase();
+      return name.includes(q) || handle.includes(q);
+    });
+  }, [
+    shareTab,
+    shareChatUsers,
+    shareFollowingUsers,
+    shareFollowersUsers,
+    shareSearch,
+  ]);
+
   const scrollRef = useRef(null);
   const messageCountRef = useRef(0);
   // Total historical message count on the server at the moment this session
@@ -1954,23 +6602,63 @@ export default function VoiceParty() {
   // re-syncs messages sent DURING this session, never replays pre-entry history.
   const sessionMessageBaselineRef = useRef(0);
 
-  const shareTabs = ["Recently", "Friends", "Followers", "Room Followers"];
+  const shareTabs = ["Recently", "Friends", "Followers"];
 
   const sharePlatforms = [
-    { label: "Moment", bg: "#7c4dff", icon: "🪐" },
-    { label: "Facebook", bg: "#1877f2", icon: "f" },
-    { label: "Instagram", bg: "#e1306c", icon: "📸" },
-    { label: "WhatsApp", bg: "#25d366", icon: "💬" },
+    {
+      label: "Share",
+      bg: "#7c4dff",
+      icon: <Ionicons name="share-social" size={23} color="#ffffff" />,
+      onPress: handleShareRoom,
+    },
+    {
+      label: "Copy Link",
+      bg: "#4f46e5",
+      icon: <Ionicons name="link-outline" size={24} color="#ffffff" />,
+      onPress: handleCopyRoomLink,
+    },
+    {
+      label: "WhatsApp",
+      bg: "#25d366",
+      icon: <FontAwesome name="whatsapp" size={25} color="#ffffff" />,
+      onPress: handleShareWhatsApp,
+    },
+    {
+      label: "Facebook",
+      bg: "#1877f2",
+      icon: <FontAwesome name="facebook" size={23} color="#ffffff" />,
+      onPress: handleShareFacebook,
+    },
+    {
+      label: "Instagram",
+      bg: "#e1306c",
+      icon: <FontAwesome name="instagram" size={24} color="#ffffff" />,
+      onPress: handleShareInstagram,
+    },
+    {
+      label: "Chat Inbox",
+      bg: "#8b5cf6",
+      icon: <Ionicons name="chatbubbles-outline" size={23} color="#ffffff" />,
+      onPress: handleShareToChatList,
+    },
   ];
 
   const handleReportRoomSubmit = async (reason) => {
     try {
-      await reportUser(hostId, reason);
+      const targetUserId = reportTarget?.userId || hostId;
+      if (!roomId) {
+        throw new Error("Room ID is missing.");
+      }
+      if (!targetUserId) {
+        throw new Error("Target user ID is missing.");
+      }
+      await reportRoomUser(roomId, targetUserId, reason);
       setShowReportModal(false);
-      Alert.alert("Reported", "This room has been reported. Thank you.");
+      setReportTarget(null);
+      Alert.alert("Reported", "Your report has been submitted. Thank you.");
     } catch (e) {
       throw new Error(
-        e?.message || "Could not submit report. Please try again.",
+        e?.response?.data?.message || e?.message || "Could not submit report. Please try again.",
       );
     }
   };
@@ -1993,6 +6681,11 @@ export default function VoiceParty() {
           Alert.alert("Report", "Could not identify room host.");
           return;
         }
+        setReportTarget({
+          userId: hostId,
+          name: roomInfo?.name || "this room",
+          isRoom: true,
+        });
         setShowReportModal(true);
       },
     },
@@ -2024,15 +6717,32 @@ export default function VoiceParty() {
   ];
 
   const handleOpenChatTab = () => {
-    router.push("/(tabs)/chat");
+    isNavigatingToInboxRef.current = true;
+    const activeId = String(
+      roomId ||
+        roomIdParam ||
+        roomIdRef.current ||
+        roomInfo?.roomId ||
+        roomInfo?.id ||
+        partyVoice.getActiveRoomId?.() ||
+        "",
+    );
+    router.push({
+      pathname: "/(tabs)/chat",
+      params: { fromRoom: activeId },
+    });
   };
 
   const handleOpenPartyChat = () => {
+    setShowEmojiPicker(false);
+    setShowEmojiReceiverPicker(false);
     setShowChatInput(true);
   };
 
   const handleOpenMediaPicker = () => {
-    setShowChatInput(true);
+    Keyboard.dismiss();
+    setShowChatInput(false);
+    setShowEmojiReceiverPicker(false);
     setShowEmojiPicker(true);
   };
 
@@ -2042,7 +6752,10 @@ export default function VoiceParty() {
       text,
       user: user?.name ?? user?.username ?? user?.nickname ?? "You",
       avatar: user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null,
-      extra: { level: user?.level ?? 1, ...extra },
+      // userId is set here (not left to the server echo) so the sender's own
+      // VIP/decoration badges show immediately — the local echo never used
+      // to carry userId at all, so isSenderSelf was permanently false for it.
+      extra: { level: user?.level ?? 1, userId: myUserId, ...extra },
     });
     setMessages((prev) => [...prev, localMsg]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -2060,25 +6773,118 @@ export default function VoiceParty() {
     }
   };
 
+  // Rate-limit guard — prevent flooding the room with rapid taps
+  const lastEmojiSendRef = useRef(0);
+
+  const sendRoomEmojiReaction = useCallback(
+    async ({
+      emoji,
+      mediaUrl,
+      mediaType,
+      targetUserId: explicitTargetId,
+    }) => {
+      if (!roomId) return;
+      const now = Date.now();
+      if (now - lastEmojiSendRef.current < 400) return; // rate-limit guard
+      lastEmojiSendRef.current = now;
+
+      const targetId = explicitTargetId || selectedEmojiRecipient?.id || null;
+      const targetUser =
+        roomActiveUsers.find((u) => String(u.id) === String(targetId)) ||
+        selectedEmojiRecipient;
+      const targetUserName = targetUser?.name || "User";
+
+      // 1. Close the modal immediately
+      setShowEmojiPicker(false);
+      setShowChatInput(false);
+      setShowEmojiReceiverPicker(false);
+      Keyboard.dismiss();
+
+      // 2. Immediately trigger local overlay on the target user's seat avatar with the animation!
+      if (targetId) {
+        const emojiId = `${Date.now()}-${Math.random()}`;
+        setSeatEmojiOverlays((prev) => {
+          const next = { ...prev };
+          // Ensure sender's seat avatar NEVER shows this emoji
+          if (myUserId && !isSameUser(myUserId, targetId)) {
+            Object.keys(next).forEach((key) => {
+              if (isSameUser(key, myUserId)) {
+                delete next[key];
+              }
+            });
+          }
+          next[String(targetId)] = {
+            id: emojiId,
+            emoji: emoji || "😊",
+            mediaUrl: mediaUrl || null,
+            mediaType: mediaType || "emoji",
+            userId: String(targetId),
+            targetUserId: String(targetId),
+            senderUserId: String(myUserId),
+            userName: targetUserName,
+          };
+          return next;
+        });
+      }
+
+      // 3. Send via dedicated emoji WebSocket endpoint (NOT posted to live chat or comments)
+      try {
+        wsService.sendRoomEmoji(String(roomId), {
+          emoji,
+          rawEmoji: emoji,
+          mediaUrl,
+          mediaType,
+          targetUserId: targetId ? String(targetId) : undefined,
+          targetUserName: targetUserName,
+          receiverId: targetId ? String(targetId) : undefined,
+          recipientId: targetId ? String(targetId) : undefined,
+        });
+      } catch (err) {
+        console.warn("Failed to send room emoji:", err);
+      }
+    },
+    [roomId, selectedEmojiRecipient, roomActiveUsers, myUserId],
+  );
+
   const handleEmojiPick = (emoji) => {
-    setShowChatInput(true);
-    setInputText((prev) => prev + emoji);
+    // Select the emoji to be sent
+    setSelectedEmoji(emoji);
   };
 
+  const handleSendSelectedEmoji = useCallback(() => {
+    sendRoomEmojiReaction({
+      emoji: selectedEmoji || "😊",
+      mediaType: "emoji",
+      targetUserId: selectedEmojiRecipient?.id || null,
+    });
+  }, [selectedEmoji, selectedEmojiRecipient, sendRoomEmojiReaction]);
+
   const handleStickerPick = (sticker) => {
-    setShowChatInput(true);
     if (sticker.image) {
-      sendPickerMessage(sticker.image);
-      setShowEmojiPicker(false);
+      // Sticker with image URL
+      sendRoomEmojiReaction({
+        emoji: sticker.emoji || "🎭",
+        mediaUrl: sticker.image,
+        mediaType: "sticker",
+        targetUserId: selectedEmojiRecipient?.id || null,
+      });
     } else if (sticker.emoji) {
-      setInputText((prev) => prev + sticker.emoji);
+      // Text-only sticker treated as emoji
+      sendRoomEmojiReaction({
+        emoji: sticker.emoji,
+        mediaType: "emoji",
+        targetUserId: selectedEmojiRecipient?.id || null,
+      });
     }
   };
 
   const handleGifPick = (gif) => {
-    setShowChatInput(true);
-    sendPickerMessage(gif.url);
-    setShowEmojiPicker(false);
+    sendRoomEmojiReaction({
+      emoji: "🎞️",
+      mediaUrl: gif.url,
+      mediaType: "gif",
+      targetUserId: selectedEmojiRecipient?.id || null,
+    });
   };
 
   const sendMessage = async () => {
@@ -2088,6 +6894,7 @@ export default function VoiceParty() {
     setInputText("");
     setTaggedUser(null);
     setShowChatInput(false);
+    setShowEmojiPicker(false);
     Keyboard.dismiss();
     await appendOutgoingMessage(text);
 
@@ -2097,6 +6904,61 @@ export default function VoiceParty() {
       Alert.alert("Send failed", err?.message || "WebSocket not connected.");
     }
   };
+
+  const handleConfirmClearChat = useCallback(() => {
+    Alert.alert(
+      "Clear Chat",
+      "Are you sure you want to clear the room chat history?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear",
+          style: "destructive",
+          onPress: async () => {
+            const targetRoomId = roomIdRef.current || roomId;
+            if (!targetRoomId) return;
+            setClearingChat(true);
+            try {
+              const res = await deleteRoomChatMessages(String(targetRoomId));
+              setMessages([]);
+              const msg =
+                res?.message || "Room chat history deleted successfully.";
+              if (Platform.OS === "android") {
+                ToastAndroid.show(msg, ToastAndroid.SHORT);
+              } else {
+                Alert.alert("Success", msg);
+              }
+            } catch (err) {
+              const status = err?.status ?? err?.response?.status;
+              const errorMsg =
+                err?.response?.data?.message ??
+                err?.response?.data?.error ??
+                err?.message ??
+                "";
+              if (
+                status === 403 ||
+                String(errorMsg).toLowerCase().includes("host")
+              ) {
+                Alert.alert(
+                  "Permission Denied",
+                  "Only the room host can delete chat history.",
+                );
+              } else {
+                Alert.alert(
+                  "Clear Chat Failed",
+                  typeof errorMsg === "string" && errorMsg
+                    ? errorMsg
+                    : "Only the room host can delete chat history.",
+                );
+              }
+            } finally {
+              setClearingChat(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [roomId]);
 
   // Build a deduplicated list of all people currently in the room
   // (mic seat users + audience), excluding the current user.
@@ -2127,6 +6989,55 @@ export default function VoiceParty() {
     });
   }, [seats, onlineUsers, myUserId]);
 
+  // PK battle participant slots — anyone present in the room (seated or
+  // audience), including the host themself: the host organizing the battle
+  // no longer has to be one of the two combatants, so they need to be able
+  // to pick themselves back in as either side too.
+  const pkParticipantCandidates = useMemo(() => {
+    const seatUsers = (seats || [])
+      .filter((s) => s?.user && s.user.id != null)
+      .map((s) => ({
+        id: String(s.user.id),
+        name: s.user.name ?? s.user.username ?? "User",
+        avatar: s.user.avatar ?? s.user.avatarUrl ?? null,
+      }));
+    const audienceUsers = (onlineUsers || [])
+      .filter((u) => u?.id != null)
+      .map((u) => ({
+        id: String(u.id),
+        name: u.name ?? u.username ?? "User",
+        avatar: u.avatar ?? u.avatarUrl ?? null,
+      }));
+    const seen = new Set();
+    const merged = [...seatUsers, ...audienceUsers].filter((u) => {
+      if (seen.has(u.id)) return false;
+      seen.add(u.id);
+      return true;
+    });
+
+    const selfId = myUserId != null ? String(myUserId) : null;
+    if (!selfId) return merged;
+    const selfIdx = merged.findIndex((u) => u.id === selfId);
+    if (selfIdx === -1) {
+      // Not seated and not yet in the audience list — fall back to the
+      // local session profile so the host is still selectable.
+      merged.unshift({
+        id: selfId,
+        name: localSessionUser?.name || localSessionUser?.username || "You",
+        avatar:
+          localSessionUser?.avatar ||
+          localSessionUser?.avatarUrl ||
+          localSessionUser?.profileImageUrl ||
+          null,
+      });
+    } else if (selfIdx > 0) {
+      // Pin self first — the most likely pick for one of the two sides.
+      const [self] = merged.splice(selfIdx, 1);
+      merged.unshift(self);
+    }
+    return merged;
+  }, [seats, onlineUsers, myUserId, localSessionUser]);
+
   const handleTagUser = (member) => {
     setTaggedUser(member);
     const mention = `@${member.username ?? member.name} `;
@@ -2139,8 +7050,91 @@ export default function VoiceParty() {
     setShowChatInput(true);
   };
 
-  const openGiftPurchase = (gift) => {
-    setPurchaseGift(gift);
+  const openGiftPurchase = (gift, sourceTab = backpackMainTab) => {
+    setPurchaseGift({
+      ...gift,
+      _sourceTab: sourceTab || backpackMainTab,
+    });
+  };
+
+  const confirmSendGift = async () => {
+    if (!purchaseGift || !giftReceiverId || !sendGiftQuantity || giftRecipientOptions.length === 0) {
+      Alert.alert("Notice", "Room me koi member nahi hai jise gift send kiya ja sake.");
+      return;
+    }
+
+    const price = Math.max(0, Number(purchaseGift.price ?? 0)) * Number(sendGiftQuantity);
+    if (price > 0 && walletDiamonds < price) {
+      Alert.alert(
+        "Not enough diamonds",
+        `You need 💎 ${formatGiftPrice(price)} but only have 💎 ${formatGiftPrice(walletDiamonds)}. Recharge to continue.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Recharge",
+            onPress: () => {
+              setRechargeInitialTab("diamonds");
+              setShowDiamondRecharge(true);
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    setSendingGift(true);
+    try {
+      const payload = {
+        receiverId: Number(giftReceiverId),
+        giftId: String(purchaseGift.databaseId || purchaseGift.id || ""),
+        giftCode: Number(purchaseGift.giftCode || 0),
+        quantity: Number(sendGiftQuantity),
+      };
+      const response = await API.post(`/api/v1/tuktuk/rooms/${roomId}/buy/and/send/gift`, payload);
+
+      if (response?.data?.wallet) {
+        applyWalletFromSources({ walletData: response.data.wallet });
+      } else {
+        await refreshWalletBalance();
+      }
+
+      setShowSendGiftOptions(false);
+      const sentGift = purchaseGift;
+      setPurchaseGift(null);
+      setShowBackpack(false);
+
+      // Play video / GIF immediately for sender ONLY if sent from PK session
+      const isFromPkSession = isPkGiftItem(sentGift);
+
+      if (isFromPkSession) {
+        const sentMediaUrl =
+          sentGift?.videoUrl ||
+          sentGift?.videoPath ||
+          sentGift?.animationUrl ||
+          (sentGift?.imageUrl && isGifMedia(sentGift.imageUrl) ? sentGift.imageUrl : null) ||
+          (sentGift?.imagePath && isGifMedia(sentGift.imagePath) ? sentGift.imagePath : null);
+
+        if (sentMediaUrl) {
+          const videoKey = String(sentGift?.databaseId || sentGift?.id || sentGift?.name);
+          lastPlayedVideoIdRef.current = videoKey;
+          lastPlayedVideoTimeRef.current = Date.now();
+          setCurrentVideo({
+            id: sentGift.id,
+            name: sentGift.name,
+            videoUrl: sentMediaUrl,
+            uri: sentMediaUrl,
+            isGif: isGifMedia(sentMediaUrl),
+            senderName: localSessionUser?.name || "You",
+            receiverName: giftReceiverName,
+          });
+          setShowVideoModal(true);
+        }
+      }
+    } catch (err) {
+      Alert.alert("Failed", err?.response?.data?.message || err?.message || "Could not send gift");
+    } finally {
+      setSendingGift(false);
+    }
   };
 
   const handleBuyGift = async () => {
@@ -2161,6 +7155,16 @@ export default function VoiceParty() {
       Alert.alert(
         "Not enough diamonds",
         `You need 💎 ${formatGiftPrice(price)} but only have 💎 ${formatGiftPrice(walletDiamonds)}. Recharge to continue.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Recharge",
+            onPress: () => {
+              setRechargeInitialTab("diamonds");
+              setShowDiamondRecharge(true);
+            },
+          },
+        ],
       );
       return;
     }
@@ -2168,8 +7172,11 @@ export default function VoiceParty() {
     buyingGiftRef.current = true;
     setCatalogLoading(true);
     try {
+      // API call commented out as per request
+      /*
       const result = await buyGiftToBackpack({
         giftCode,
+        giftId: purchaseGift.databaseId,
         quantity: 1,
       });
       if (result?.wallet) {
@@ -2197,9 +7204,8 @@ export default function VoiceParty() {
       setBackpackMainTab("Backpack");
       setBackpackSubTab("Gift");
       Alert.alert(
-        "Purchased",
-        `${bought.emoji} ${bought.name} was added to your backpack.`,
-      );
+      */
+      // Just do nothing for now (no API call, no closing popup)
     } catch (err) {
       Alert.alert(
         "Purchase failed",
@@ -2211,23 +7217,205 @@ export default function VoiceParty() {
     }
   };
 
+  const toNumericId = (id) => {
+    const n = Number(id);
+    return Number.isFinite(n) ? n : id;
+  };
+
+  const handlePkConfirm = async ({
+    mode,
+    participantAId,
+    participantBId,
+    teamMemberIds,
+    teamBMemberIds,
+    durationMinutes,
+  }) => {
+    if (!isHostSelf) {
+      Alert.alert("Not allowed", "Only the room host can start a PK battle.");
+      return;
+    }
+    if (pkBattleActionInFlightRef.current) return;
+    pkBattleActionInFlightRef.current = true;
+    setPkBattleActionLoading(true);
+    try {
+      const battle = await startPkBattle({
+        roomId,
+        participantAId: toNumericId(participantAId),
+        participantBId: toNumericId(participantBId),
+        durationMinutes,
+        teamAMemberIds:
+          mode === "team" && teamMemberIds?.length
+            ? teamMemberIds.map(toNumericId)
+            : [],
+        teamBMemberIds:
+          mode === "team" && teamBMemberIds?.length
+            ? teamBMemberIds.map(toNumericId)
+            : [],
+      });
+      setActivePkBattle(battle);
+      setShowPkBattle(false);
+    } catch (err) {
+      if (err?.status === 409) {
+        // A battle for this room already exists server-side (most often
+        // one this same request duplicated) — pull the real one and show
+        // it instead of leaving the user stuck on a bare error.
+        setShowPkBattle(false);
+        loadActivePkBattle(pkPollRoomId)
+          .then((fresh) => {
+            if (fresh) {
+              setActivePkBattle(fresh);
+            } else {
+              Alert.alert(
+                "Couldn't start PK",
+                err?.message || "Please try again.",
+              );
+            }
+          })
+          .catch(() =>
+            Alert.alert(
+              "Couldn't start PK",
+              err?.message || "Please try again.",
+            ),
+          );
+      } else {
+        Alert.alert("Couldn't start PK", err?.message || "Please try again.");
+      }
+    } finally {
+      pkBattleActionInFlightRef.current = false;
+      setPkBattleActionLoading(false);
+    }
+  };
+
+  const handlePkRespond = async (accepted, teamMemberIds) => {
+    if (!activePkBattle?.id || pkBattleActionInFlightRef.current) return;
+    pkBattleActionInFlightRef.current = true;
+    setPkBattleActionLoading(true);
+    try {
+      const battle = await respondPkBattle(
+        activePkBattle.id,
+        accepted,
+        Array.isArray(teamMemberIds) && teamMemberIds.length
+          ? teamMemberIds.map(toNumericId)
+          : undefined,
+      );
+      if (accepted) {
+        myAcceptedBattleIdRef.current = activePkBattle.id;
+        setMyAcceptedBattleId(activePkBattle.id);
+      }
+      setActivePkBattle(battle);
+      setShowPkTeamAccept(false);
+    } catch (err) {
+      Alert.alert(
+        accepted ? "Couldn't accept" : "Couldn't reject",
+        err?.message || "Please try again.",
+      );
+    } finally {
+      pkBattleActionInFlightRef.current = false;
+      setPkBattleActionLoading(false);
+    }
+  };
+
+  // A challenge left un-accepted for 2 minutes is auto-discarded: whichever
+  // of the two participants hasn't responded yet has their client reject it
+  // on their behalf (freeing the room for a new challenge server-side);
+  // anyone else (organizer who isn't fighting, bystanders) just loses the
+  // popup locally.
+  const PK_CHALLENGE_TIMEOUT_MS = 2 * 60 * 1000;
+  useEffect(() => {
+    if (!activePkBattle || activePkBattle.status !== "PENDING")
+      return undefined;
+    const battleId = activePkBattle.id;
+
+    const timer = setTimeout(() => {
+      setActivePkBattle((current) => {
+        if (
+          !current ||
+          current.id !== battleId ||
+          current.status !== "PENDING"
+        ) {
+          return current;
+        }
+        const role = getPkBattleRole(current, myUserId);
+        const iHaventRespondedYet =
+          (role === "hostA" || role === "hostB") &&
+          myAcceptedBattleIdRef.current !== battleId;
+        if (iHaventRespondedYet) {
+          handlePkRespond(false);
+        }
+        return null;
+      });
+    }, PK_CHALLENGE_TIMEOUT_MS);
+
+    return () => clearTimeout(timer);
+  }, [activePkBattle?.id, activePkBattle?.status, myUserId]);
+
+  // Once a LIVE battle's timer runs out, actively fetch the authoritative
+  // final result instead of just waiting on the `pk` websocket push — a
+  // missed/delayed push (brief disconnect, app backgrounded) would otherwise
+  // leave the card frozen on the last-seen LIVE score forever.
+  useEffect(() => {
+    if (
+      !activePkBattle ||
+      activePkBattle.status !== "LIVE" ||
+      !activePkBattle.endsAt
+    ) {
+      return undefined;
+    }
+    const battleId = activePkBattle.id;
+    const msLeft = new Date(activePkBattle.endsAt).getTime() - Date.now();
+
+    const fetchFinalResult = () => {
+      loadPkBattle(battleId)
+        .then((fresh) => {
+          if (!fresh) return;
+          setActivePkBattle((current) =>
+            current && current.id === battleId ? fresh : current,
+          );
+        })
+        .catch(() => {
+          // Non-critical — the poll or a later WS push will catch it.
+        });
+    };
+
+    if (msLeft <= 0) {
+      fetchFinalResult();
+      return undefined;
+    }
+    const timer = setTimeout(fetchFinalResult, msLeft + 1500);
+    return () => clearTimeout(timer);
+  }, [activePkBattle?.id, activePkBattle?.status, activePkBattle?.endsAt]);
+
   const handleSendBackpackGift = async () => {
-    if (!selectedGift) {
-      Alert.alert("Select a gift", "Choose a gift from your backpack first.");
+    if (backpackSelectedGifts.length === 0) {
+      Alert.alert("Select a gift", "Choose at least one gift from your backpack first.");
       return;
     }
 
-    const owned = findInventoryGift(backpackGifts, selectedGift);
     const qty = Math.max(1, Number(giftQty) || 1);
 
-    const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
-    const hasBackpackStock = ownedQty >= qty;
-    const totalCost = Math.max(0, Number(selectedGift.price ?? 0)) * qty;
+    let totalCost = 0;
+    let allInStock = true;
+    for (const g of backpackSelectedGifts) {
+      const owned = findInventoryGift(backpackGifts, g);
+      const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
+      if (ownedQty < qty) allInStock = false;
+      totalCost += Math.max(0, Number(g.price ?? 0)) * qty;
+    }
 
-    if (!hasBackpackStock && totalCost > 0 && walletDiamonds < totalCost) {
+    if (!allInStock && totalCost > 0 && walletDiamonds < totalCost) {
       Alert.alert(
         "Not enough diamonds",
         `You need 💎 ${formatGiftPrice(totalCost)} but only have 💎 ${formatGiftPrice(walletDiamonds)}.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Recharge",
+            onPress: () => {
+              setRechargeInitialTab("diamonds");
+              setShowDiamondRecharge(true);
+            },
+          },
+        ],
       );
       return;
     }
@@ -2236,7 +7424,7 @@ export default function VoiceParty() {
     if (!receiverId) {
       Alert.alert(
         "Select a person",
-        "Tap the name next to ❤️ to choose who receives this gift.",
+        "Tap the name to choose who receives this gift.",
       );
       openGiftReceiverPicker();
       return;
@@ -2248,63 +7436,150 @@ export default function VoiceParty() {
         user?.name ?? user?.username ?? user?.nickname ?? "You";
       const senderAvatar =
         user?.avatarUrl ?? user?.profilePicUrl ?? user?.avatar ?? null;
-      const giftText = `sent ${selectedGift.emoji} ${selectedGift.name} ×${qty}`;
+      const receiverDisplayName =
+        giftReceiverName && giftReceiverName !== "Select person"
+          ? giftReceiverName
+          : null;
 
-      const result = await sendPartyRoomGift({
-        roomId,
-        gift: owned ?? selectedGift,
-        receiverId,
-        quantity: qty,
-        senderName,
-        backpackQty: ownedQty,
-      });
+      let optimisticInventory = [...backpackGifts];
 
-      const optimisticInventory = hasBackpackStock
-        ? adjustInventoryQty(backpackGifts, owned ?? selectedGift, -qty)
-        : backpackGifts;
+      for (const g of backpackSelectedGifts) {
+        const owned = findInventoryGift(backpackGifts, g);
+        const ownedQty = Math.max(0, Number(owned?.qty ?? 0));
+        const hasBackpackStock = ownedQty >= qty;
 
-      let inventory = await loadGiftInventory();
-      inventory = reconcileInventory(inventory, optimisticInventory, {
-        preferLowerQty: hasBackpackStock,
-      });
-      setBackpackGifts(inventory);
+        const giftText = buildGiftChatText({
+          emoji: g.emoji,
+          name: g.name,
+          quantity: qty,
+          receiverName: receiverDisplayName,
+        });
 
-      const remaining = findInventoryGift(inventory, selectedGift);
-      setSelectedGift(remaining?.qty > 0 ? remaining : null);
-      await refreshWalletBalance();
+        const result = await sendPartyRoomGift({
+          roomId,
+          gift: owned ?? g,
+          receiverId,
+          quantity: qty,
+          senderName,
+          backpackQty: ownedQty,
+        });
 
-      revealGiftAnimation(result, selectedGift);
+        if (hasBackpackStock) {
+          optimisticInventory = adjustInventoryQty(optimisticInventory, owned ?? g, -qty);
+        }
 
-      const localMsg = createLocalChatMessage({
-        text: giftText,
-        user: senderName,
-        avatar: senderAvatar,
-        extra: {
-          diamonds: Number(selectedGift.price ?? 0) * qty,
-          isGift: true,
-          pending: false,
-        },
-      });
+        revealGiftAnimation(
+          {
+            ...result,
+            senderName,
+            senderAvatar,
+            receiverName: giftReceiverName,
+          },
+          {
+            ...g,
+            senderName,
+            senderAvatar,
+            receiverName: giftReceiverName,
+            quantity: qty,
+          },
+        );
 
-      setMessages((prev) => [...prev, localMsg]);
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+        const localMsg = createLocalChatMessage({
+          text: giftText,
+          user: senderName,
+          avatar: senderAvatar,
+          extra: {
+            userId: myUserId,
+            diamonds: Number(g.price ?? 0) * qty,
+            isGift: true,
+            pending: false,
+          },
+        });
 
-      if (roomId) {
-        try {
-          wsService.sendRoomMessage(String(roomId), giftText);
-        } catch {
-          // Chat message already added locally.
+        setMessages((prev) => [...prev, localMsg]);
+
+        if (roomId) {
+          mySentGiftTextsRef.current.set(giftText, Date.now());
+          try {
+            wsService.sendRoomMessage(String(roomId), giftText);
+          } catch {
+            // Chat message already added locally.
+          }
         }
       }
 
-      setSelectedGift(null);
+      let inventory = await loadGiftInventory();
+      inventory = reconcileInventory(inventory, optimisticInventory, {
+        preferLowerQty: true,
+      });
+      setBackpackGifts(inventory);
+
+      const newSelected = backpackSelectedGifts.filter(g => {
+        const rem = findInventoryGift(inventory, g);
+        return rem?.qty > 0;
+      });
+      setBackpackSelectedGifts(newSelected);
+
+      await refreshWalletBalance();
+
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+
+      if (newSelected.length === 0) {
+        setShowBackpack(false);
+        setShowGiftPanel(false);
+        setShowGiftReceiverPicker(false);
+      }
       setGiftQty(1);
     } catch (err) {
       Alert.alert("Send failed", err?.message || "Could not send gift.");
     }
   };
 
-  const displayRandomGifts = giftCatalog.random;
+  // Inventory rows don't always carry the gift artwork, so fall back to the
+  // catalog entry for the same gift code before showing the emoji placeholder.
+  const resolveBackpackGiftImage = useCallback(
+    (gift) => {
+      const direct =
+        gift?.imageUrl ||
+        gift?.icon ||
+        gift?.image ||
+        gift?.iconUrl ||
+        gift?.img ||
+        gift?.thumbnailUrl;
+      if (direct && typeof direct === "string" && direct.trim().length > 0) {
+        return direct.trim();
+      }
+      const catalogGifts = [
+        ...giftCatalog.gift,
+        ...giftCatalog.random,
+        ...giftCatalog.activity,
+        ...giftCatalog.relationship,
+        ...giftCatalog.pk,
+        ...giftCatalog.special,
+        ...giftCatalog.vip,
+        ...Object.values(giftCatalog.activityByEvent || {}).flat(),
+      ];
+      const found = catalogGifts.find((item) => giftsMatch(item, gift));
+      const foundUrl =
+        found?.imageUrl ??
+        found?.icon ??
+        found?.image ??
+        found?.iconUrl ??
+        found?.img ??
+        found?.thumbnailUrl ??
+        null;
+      if (
+        foundUrl &&
+        typeof foundUrl === "string" &&
+        foundUrl.trim().length > 0
+      ) {
+        return foundUrl.trim();
+      }
+      return null;
+    },
+    [giftCatalog],
+  );
+
   const displayGiftItems = giftCatalog.gift;
   const displayPkGifts = giftCatalog.pk;
   const displaySpecialGifts = giftCatalog.special;
@@ -2321,20 +7596,12 @@ export default function VoiceParty() {
     const found = giftRecipientOptions.find(
       (person) => String(person.id) === String(giftReceiverId),
     );
-    if (found) return found;
-    return {
-      id: String(giftReceiverId),
-      name: isSameUser(giftReceiverId, hostId)
-        ? (roomInfo?.name ?? "Host")
-        : "User",
-      avatar: isSameUser(giftReceiverId, hostId)
-        ? (roomInfo?.profileImageUrl ?? null)
-        : null,
-      subtitle: isSameUser(giftReceiverId, hostId) ? "Host" : null,
-    };
-  }, [giftReceiverId, giftRecipientOptions, hostId, roomInfo]);
+    return found ?? null;
+  }, [giftReceiverId, giftRecipientOptions]);
 
-  const giftReceiverName = selectedGiftRecipient?.name ?? "Select person";
+  const giftReceiverName =
+    selectedGiftRecipient?.name ??
+    (giftRecipientOptions.length === 0 ? "No one in room" : "Select person");
   const giftSendBarBottom = Math.max(22, idleBottom + 6);
 
   const renderGiftRecipientAvatar = (
@@ -2387,8 +7654,18 @@ export default function VoiceParty() {
     const lockedAvatarSource = resolveRoomUserAvatarSource(userLike);
     const initial = {
       id: userId,
-      name: userLike?.name ?? "User",
-      username: userLike?.username ?? userLike?.name,
+      name:
+        userLike?.name ?? userLike?.displayName ?? userLike?.username ?? "User",
+      username: userLike?.username ?? userLike?.handle ?? userLike?.name,
+      avatar:
+        userLike?.avatar ?? userLike?.profilePicUrl ?? userLike?.avatarUrl,
+      profilePicUrl: userLike?.profilePicUrl ?? userLike?.avatar,
+      gender: userLike?.gender,
+      level: userLike?.level ?? userLike?.userLevel,
+      countryName: userLike?.countryName,
+      countryCode: userLike?.countryCode,
+      flagUrl: userLike?.flagUrl,
+      badgeUrl: userLike?.badgeUrl,
     };
     setProfilePopupAvatarSource(lockedAvatarSource);
     setProfilePopupUser(initial);
@@ -2403,25 +7680,86 @@ export default function VoiceParty() {
         setProfilePopupFollowing(Boolean(status?.following));
       }
 
-      if (!isSameUser(userId, myUserId)) {
-        try {
-          const detail = await loadUserDetail(userId);
+      // Fetch dynamic profile: GET /api/app/users/user/profile/:userId
+      try {
+        const profileData = await getUserProfile(userId);
+        const userProfile =
+          profileData?.data ?? profileData?.user ?? profileData;
+        if (userProfile) {
           setProfilePopupUser((prev) => ({
             ...(prev ?? initial),
-            id: userId,
+            ...userProfile,
+            id: userProfile.id ?? userId,
             name:
-              detail?.name ?? detail?.displayName ?? prev?.name ?? initial.name,
-            username:
-              detail?.username ??
-              detail?.handle ??
-              prev?.username ??
-              initial.username,
+              userProfile.name ??
+              userProfile.displayName ??
+              userProfile.username ??
+              prev?.name ??
+              initial.name,
+            gender: userProfile.gender ?? prev?.gender,
+            level: userProfile.level ?? prev?.level,
+            countryCode: userProfile.countryCode ?? prev?.countryCode,
+            countryName: userProfile.countryName ?? prev?.countryName,
+            flagUrl: userProfile.flagUrl ?? prev?.flagUrl,
+            badgeUrl: userProfile.badgeUrl ?? prev?.badgeUrl,
+            avatar:
+              userProfile.avatar ?? userProfile.profilePicUrl ?? prev?.avatar,
+            profilePicUrl:
+              userProfile.profilePicUrl ??
+              userProfile.avatar ??
+              prev?.profilePicUrl,
           }));
-          if (!lockedAvatarSource) {
-            setProfilePopupAvatarSource(resolveRoomUserAvatarSource(detail));
+          if (
+            !lockedAvatarSource &&
+            (userProfile.avatar || userProfile.profilePicUrl)
+          ) {
+            setProfilePopupAvatarSource(
+              resolveRoomUserAvatarSource(userProfile),
+            );
           }
-        } catch {
-          // keep initial profile from room state
+        }
+      } catch (err) {
+        console.warn(
+          "[voice-party] getUserProfile error:",
+          err?.message ?? err,
+        );
+        if (!isSameUser(userId, myUserId)) {
+          try {
+            const detail = await loadUserDetail(userId);
+            setProfilePopupUser((prev) => ({
+              ...(prev ?? initial),
+              id: userId,
+              name:
+                detail?.name ??
+                detail?.displayName ??
+                prev?.name ??
+                initial.name,
+              username:
+                detail?.username ??
+                detail?.handle ??
+                prev?.username ??
+                initial.username,
+              gender: detail?.gender ?? prev?.gender,
+            }));
+            if (!lockedAvatarSource) {
+              setProfilePopupAvatarSource(resolveRoomUserAvatarSource(detail));
+            }
+          } catch {
+            // keep initial profile from room state
+          }
+
+          try {
+            const { profile: publicProfile } = await loadPublicProfile(userId);
+            if (publicProfile?.level != null) {
+              setProfilePopupUser((prev) => ({
+                ...(prev ?? initial),
+                level: publicProfile.level,
+                gender: publicProfile.gender ?? prev?.gender,
+              }));
+            }
+          } catch {
+            // no level badge for this user if the endpoint fails
+          }
         }
       }
     } finally {
@@ -2453,17 +7791,251 @@ export default function VoiceParty() {
     }
   };
 
+  const handlePopupChat = useCallback(() => {
+    if (!profilePopupUser) return;
+    const targetUser = {
+      userId: profilePopupUser.id,
+      name: profilePopupUser.name || profilePopupUser.username || "User",
+      avatar:
+        profilePopupAvatarSource?.uri ||
+        profilePopupUser.profilePicUrl ||
+        profilePopupUser.avatar ||
+        profilePopupUser.profileImageUrl,
+      level: profilePopupUser.level,
+    };
+    closeProfilePopup();
+    isNavigatingToInboxRef.current = true;
+    openUserChat(router, targetUser);
+  }, [profilePopupUser, profilePopupAvatarSource, router]);
+
+  const handlePopupSendGift = useCallback(() => {
+    if (!profilePopupUser) return;
+    const targetId = String(profilePopupUser.id);
+    closeProfilePopup();
+    giftReceiverTouchedRef.current = true;
+    setGiftReceiverId(targetId);
+    setShowBackpack(true);
+    setBackpackMainTab("Gift");
+  }, [profilePopupUser]);
+
+  const handlePopupMention = useCallback(() => {
+    if (!profilePopupUser) return;
+    const targetMember = {
+      id: String(profilePopupUser.id),
+      name: profilePopupUser.name || "User",
+      username: profilePopupUser.username || profilePopupUser.name || "User",
+    };
+    closeProfilePopup();
+    handleTagUser(targetMember);
+  }, [profilePopupUser, handleTagUser]);
+
+  const handlePopupReport = useCallback(() => {
+    if (!profilePopupUser) return;
+    const targetId = profilePopupUser.id ?? profilePopupUser.userId;
+    const targetName = profilePopupUser.name ?? profilePopupUser.username ?? "user";
+    closeProfilePopup();
+    setReportTarget({
+      userId: targetId,
+      name: targetName,
+      isRoom: false,
+    });
+    setShowReportModal(true);
+  }, [profilePopupUser]);
+
+  const handlePopupToggleAdmin = useCallback(
+    (targetUser) => {
+      const targetId = String(targetUser?.id ?? targetUser?.userId ?? "");
+      const targetName = targetUser?.name ?? targetUser?.username ?? "User";
+      if (!targetId || isSameUser(targetId, myUserId)) return;
+
+      if (!isHostSelf && !isViewerAdmin) {
+        Alert.alert(
+          "Unauthorized",
+          "Only the room owner or admin can manage admin permissions.",
+        );
+        return;
+      }
+
+      const isCurrentlyAdmin = roomAdminIds.has(targetId);
+      if (isCurrentlyAdmin) {
+        setRoomAdminIds((prev) => {
+          const next = new Set(prev);
+          next.delete(targetId);
+          return next;
+        });
+        if (roomId) {
+          wsService.sendRoomMessage(
+            String(roomId),
+            `🛡️ ${targetName} is no longer a room admin.`,
+          );
+        }
+        Alert.alert(
+          "Admin Removed",
+          `${targetName} is no longer a room admin.`,
+        );
+      } else {
+        setRoomAdminIds((prev) => {
+          const next = new Set(prev);
+          next.add(targetId);
+          return next;
+        });
+        if (roomId) {
+          wsService.sendRoomMessage(
+            String(roomId),
+            `🛡️ ${targetName} has been appointed as a room admin!`,
+          );
+        }
+        Alert.alert("Admin Granted", `${targetName} is now a room admin.`);
+      }
+      closeProfilePopup();
+    },
+    [
+      roomId,
+      myUserId,
+      isHostSelf,
+      isViewerAdmin,
+      roomAdminIds,
+      closeProfilePopup,
+    ],
+  );
+
+  const handlePopupInviteMic = useCallback(
+    (targetUser) => {
+      const targetId = String(targetUser?.id ?? targetUser?.userId ?? "");
+      const targetName = targetUser?.name ?? targetUser?.username ?? "User";
+      if (!targetId || isSameUser(targetId, myUserId)) return;
+
+      if (isUserSeated(targetId)) {
+        Alert.alert(
+          "Already on Mic",
+          `${targetName} is already on a mic seat.`,
+        );
+        return;
+      }
+
+      if (roomId) {
+        wsService.sendRoomMessage(
+          String(roomId),
+          `🎙️ @${targetName} you have been invited to join the mic!`,
+        );
+      }
+      Alert.alert(
+        "Mic Invitation Sent",
+        `Invited ${targetName} to join the mic.`,
+      );
+      closeProfilePopup();
+    },
+    [roomId, myUserId, isUserSeated, closeProfilePopup],
+  );
+
+  const handlePopupKickOut = useCallback(
+    (targetUser) => {
+      const targetId = String(targetUser?.id ?? targetUser?.userId ?? "");
+      const targetName = targetUser?.name ?? targetUser?.username ?? "User";
+      if (!targetId || isSameUser(targetId, myUserId)) return;
+
+      if (!isHostSelf && !isViewerAdmin) {
+        Alert.alert(
+          "Unauthorized",
+          "Only the room owner or admin can kick users out of the room.",
+        );
+        return;
+      }
+
+      if (hostId && isSameUser(targetId, hostId)) {
+        Alert.alert(
+          "Action Not Allowed",
+          "The room host cannot be kicked out.",
+        );
+        return;
+      }
+
+      Alert.alert(
+        "Kick out user?",
+        `Are you sure you want to remove ${targetName} from the room?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Kick Out",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                // Call POST /api/v1/tuktuk/rooms/{roomId}/kick
+                await kickRoomUser(String(roomId), targetId);
+
+                // 1. Clear from mic seats if seated
+                setSeats((prev) =>
+                  prev.map((seat) => {
+                    if (
+                      seat?.user &&
+                      isSameUser(seat.user.id ?? seat.user.userId, targetId)
+                    ) {
+                      return { ...seat, user: null };
+                    }
+                    return seat;
+                  }),
+                );
+
+                // 2. Remove from online audience
+                setOnlineUsers((prev) =>
+                  prev.filter((u) => !isSameUser(u?.id ?? u?.userId, targetId)),
+                );
+                setOnlineCount((prev) => Math.max(0, prev - 1));
+
+                // 3. Broadcast removal to room chat
+                if (roomId) {
+                  wsService.sendRoomMessage(
+                    String(roomId),
+                    `🚪 ${targetName} was removed from the room.`,
+                  );
+                }
+
+                closeProfilePopup();
+                Alert.alert(
+                  "User Kicked",
+                  `${targetName} has been removed from the room.`,
+                );
+              } catch (err) {
+                const errMsg =
+                  err?.response?.data?.message ||
+                  err?.response?.data?.error ||
+                  err?.message ||
+                  "Could not kick user from room.";
+                Alert.alert("Kick Failed", errMsg);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [roomId, myUserId, isHostSelf, isViewerAdmin, hostId, closeProfilePopup],
+  );
+
   const handleUserAvatarPress = (userLike) => {
     if (!userLike) return;
     openUserProfile(userLike);
   };
 
   const handleSeatPress = async (seat) => {
-    if (seat?.user) {
+    if (!seat) return;
+    if (seat.user) {
       handleUserAvatarPress(seat.user);
       return;
     }
-    if (!seat?.locked) {
+
+    if (seat.locked) {
+      if (canManageRoomUsers) {
+        setAdminUnlockModal({ seatId: seat.id });
+      } else {
+        setLockedSeatNoticeModal({ seatId: seat.id });
+      }
+      return;
+    }
+
+    // Seat is empty and unlocked
+    if (canManageRoomUsers) {
+      setAdminSeatModal({ seatId: seat.id });
+    } else {
       let micGranted = false;
       try {
         if (Platform.OS === "android") {
@@ -2486,6 +8058,73 @@ export default function VoiceParty() {
     }
   };
 
+  const handleAdminClaimOption = async (seatId) => {
+    setAdminSeatModal(null);
+    let micGranted = false;
+    try {
+      if (Platform.OS === "android") {
+        micGranted = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        );
+      } else {
+        const { status } = await Audio.getPermissionsAsync();
+        micGranted = status === "granted";
+      }
+    } catch {
+      micGranted = false;
+    }
+
+    if (micGranted) {
+      setSeatActionSheet({ seatId });
+    } else {
+      setMicPermWarning(seatId);
+    }
+  };
+
+  const handleLockSeat = async (seatId) => {
+    if (!roomId || seatActionLoading) return;
+    setSeatActionLoading(true);
+    try {
+      await lockSeat(String(roomId), seatId);
+      setSeats((prev) =>
+        prev.map((s) =>
+          s.id === seatId ? { ...s, locked: true, user: null } : s,
+        ),
+      );
+      setAdminSeatModal(null);
+    } catch (err) {
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Could not lock this seat. Please try again.";
+      Alert.alert("Lock Seat Failed", errMsg);
+    } finally {
+      setSeatActionLoading(false);
+    }
+  };
+
+  const handleUnlockSeat = async (seatId) => {
+    if (!roomId || seatActionLoading) return;
+    setSeatActionLoading(true);
+    try {
+      await unlockSeat(String(roomId), seatId);
+      setSeats((prev) =>
+        prev.map((s) => (s.id === seatId ? { ...s, locked: false } : s)),
+      );
+      setAdminUnlockModal(null);
+    } catch (err) {
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Could not unlock this seat. Please try again.";
+      Alert.alert("Unlock Seat Failed", errMsg);
+    } finally {
+      setSeatActionLoading(false);
+    }
+  };
+
   const handleTakeSeat = async (targetSeatId) => {
     if (!roomId || voiceConnecting || seatActionLoading) return;
     setSeatActionLoading(true);
@@ -2500,29 +8139,21 @@ export default function VoiceParty() {
         setMySeatNumber(null);
       }
       setVoiceConnecting(true);
-      await partyVoice.takeMic(String(roomId), targetSeatId);
+      const taken = await partyVoice.takeMic(String(roomId), targetSeatId);
       onMicRef.current = true;
       mySeatNumberRef.current = targetSeatId;
       setOnMic(true);
       setMySeatNumber(targetSeatId);
       setIsMicMuted(false);
       setVoiceListenStatus("ready");
-      const freshState = await getRoomState(String(roomId));
-      const freshSeats = freshState?.seats
-        ? parseSeats(freshState.seats, freshState)
-        : seats;
-      const enriched = await enrichSeatsWithMyProfile(freshSeats, targetSeatId);
-      setSeats(
-        reconcileSeatAssignments(enriched, {
-          onlineUsers,
-          myUserId,
-          mySeatNumber: targetSeatId,
-          staleSeatTracker: staleSeatTrackerRef.current,
-        }),
-      );
+      await applySeatsAfterClaim(taken?.claimData ?? taken, targetSeatId);
     } catch (err) {
+      onMicRef.current = false;
+      mySeatNumberRef.current = null;
+      setOnMic(false);
+      setMySeatNumber(null);
       Alert.alert(
-        "Take seat failed",
+        "Claim seat failed",
         err?.message || "Could not take that seat. Please try again.",
       );
     } finally {
@@ -2547,7 +8178,12 @@ export default function VoiceParty() {
       : imageStyle;
     const size = resolvedStyle?.width ?? resolvedStyle?.height ?? 48;
     // Merge in fetched frame data so WebSocket seat resets don't lose it.
-    const userId = user?.id != null ? String(user.id) : null;
+    const userId =
+      user?.id != null
+        ? String(user.id)
+        : user?.userId != null
+          ? String(user.userId)
+          : null;
     const fetched = userId ? (userFrameData[userId] ?? {}) : {};
     const userWithFrame = user
       ? {
@@ -2557,37 +8193,31 @@ export default function VoiceParty() {
         }
       : user;
     const imageSource = resolveRoomUserAvatarSource(userWithFrame);
-    // Mic seats show the same circular VIP profile-frame ring used everywhere
-    // else in the app — the entry frame (a wide horizontal banner asset) is
-    // only for the one-time "entered the room" moment, not a permanent seat
-    // decoration. Self uses the already-fetched myVipAssets; other seats use
-    // the seat's own ui-assets fetch (fetched.vipProfileFrameUrl) — the
-    // backend embeds this only when that user's own XP clears the threshold.
+    // Mic seats & audience avatars show circular VIP / decoration / new-user profile-frame ring
     const isSelf =
       userId != null && myUserId != null && userId === String(myUserId);
     const selfVipProfileFrame =
       isSelf && myVipAssets.unlocked ? myVipAssets.profileFrame : null;
     const otherUserVipProfileFrame =
-<<<<<<< HEAD
-      !isSelf && fetched.vipProfileFrameUrl ? { uri: fetched.vipProfileFrameUrl } : null;
-    // A user-specific decoration frame (backend-assigned, independent of VIP
-    // tier) takes priority over the VIP frame when both are present.
-    const decorationFrame = fetched.decorationFrameUrl ? { uri: fetched.decorationFrameUrl } : null;
-    const isVipProfileFrame = Boolean(selfVipProfileFrame || otherUserVipProfileFrame);
-    const frameSource =
-      decorationFrame ?? selfVipProfileFrame ?? otherUserVipProfileFrame ?? resolveNewUserFrameSource(userWithFrame);
-=======
-      !isSelf && fetched.vipProfileFrameUrl
-        ? { uri: fetched.vipProfileFrameUrl }
+      !isSelf &&
+      (fetched.vipProfileFrameUrl || userWithFrame?.vipProfileFrameUrl)
+        ? {
+            uri: fetched.vipProfileFrameUrl || userWithFrame.vipProfileFrameUrl,
+          }
         : null;
     const isVipProfileFrame = Boolean(
       selfVipProfileFrame || otherUserVipProfileFrame,
     );
+    const decorationFrame =
+      fetched?.decorationFrameUrl ??
+      userWithFrame?.decorationFrameUrl ??
+      userWithFrame?.frameUrl ??
+      null;
     const frameSource =
+      (decorationFrame ? { uri: decorationFrame } : null) ??
       selfVipProfileFrame ??
       otherUserVipProfileFrame ??
       resolveNewUserFrameSource(userWithFrame);
->>>>>>> 00c8b16 (UI issue fix)
     const hasFrame = Boolean(frameSource);
     const activeFrameConfig = isVipProfileFrame
       ? VIP_PROFILE_FRAME_LAYOUT
@@ -2599,7 +8229,6 @@ export default function VoiceParty() {
         avatarSource={imageSource}
         frameSource={frameSource}
         size={typeof size === "number" ? size : 48}
-<<<<<<< HEAD
         {...(decorationFrame
           ? {
               // Decoration frames: no explicit props — ProfileAvatarWithFrame
@@ -2607,37 +8236,22 @@ export default function VoiceParty() {
               frameResizeMode: "contain",
             }
           : {
-              frameScale: hasFrame ? activeFrameConfig.frameScale : NEW_USER_FRAME_LAYOUT.frameScale,
-              frameResizeMode: hasFrame ? activeFrameConfig.frameResizeMode : "contain",
+              frameScale: hasFrame
+                ? activeFrameConfig.frameScale
+                : NEW_USER_FRAME_LAYOUT.frameScale,
+              frameResizeMode: hasFrame
+                ? activeFrameConfig.frameResizeMode
+                : "contain",
               frameOffsetX: hasFrame ? activeFrameConfig.frameOffsetX : 0,
               frameOffsetY: hasFrame ? activeFrameConfig.frameOffsetY : 0,
               frameBleed: hasFrame ? activeFrameConfig.frameBleed : 0,
-              avatarBoost: hasFrame ? activeFrameConfig.avatarBoost : NEW_USER_FRAME_LAYOUT.avatarBoost,
-              avatarOffsetY: hasFrame ? activeFrameConfig.avatarOffsetY : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
+              avatarBoost: hasFrame
+                ? activeFrameConfig.avatarBoost
+                : NEW_USER_FRAME_LAYOUT.avatarBoost,
+              avatarOffsetY: hasFrame
+                ? activeFrameConfig.avatarOffsetY
+                : NEW_USER_FRAME_LAYOUT.avatarOffsetY,
             })}
-=======
-        frameScale={
-          hasFrame
-            ? activeFrameConfig.frameScale
-            : NEW_USER_FRAME_LAYOUT.frameScale
-        }
-        frameResizeMode={
-          hasFrame ? activeFrameConfig.frameResizeMode : "contain"
-        }
-        frameOffsetX={hasFrame ? activeFrameConfig.frameOffsetX : 0}
-        frameOffsetY={hasFrame ? activeFrameConfig.frameOffsetY : 0}
-        frameBleed={hasFrame ? activeFrameConfig.frameBleed : 0}
-        avatarBoost={
-          hasFrame
-            ? activeFrameConfig.avatarBoost
-            : NEW_USER_FRAME_LAYOUT.avatarBoost
-        }
-        avatarOffsetY={
-          hasFrame
-            ? activeFrameConfig.avatarOffsetY
-            : NEW_USER_FRAME_LAYOUT.avatarOffsetY
-        }
->>>>>>> 00c8b16 (UI issue fix)
         avatarStyle={imageStyle}
         placeholderStyle={placeholderStyle}
         initialStyle={initialStyle}
@@ -2666,7 +8280,12 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowGiftReceiverPicker(false)}
         />
-        <View style={styles.giftReceiverSheet}>
+        <View
+          style={[
+            styles.giftReceiverSheet,
+            { paddingBottom: Math.max(32, idleBottom + 16) },
+          ]}
+        >
           <View style={styles.shareHandle} />
           <Text style={styles.giftReceiverTitle}>Send gift to</Text>
           <Text style={styles.giftReceiverSubtitle}>
@@ -2682,6 +8301,7 @@ export default function VoiceParty() {
           ) : (
             <ScrollView
               style={styles.giftRecipientList}
+              contentContainerStyle={styles.giftRecipientListContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
@@ -2727,6 +8347,93 @@ export default function VoiceParty() {
     );
   };
 
+  const renderEmojiRecipientPickerOverlay = () => {
+    if (!showEmojiReceiverPicker) return null;
+
+    return (
+      <View
+        style={[
+          styles.giftReceiverInlineOverlay,
+          { zIndex: 10050, elevation: 10050 },
+        ]}
+        pointerEvents="box-none"
+      >
+        <TouchableOpacity
+          style={styles.giftReceiverInlineBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowEmojiReceiverPicker(false)}
+        />
+        <View
+          style={[
+            styles.giftReceiverSheet,
+            { paddingBottom: Math.max(32, idleBottom + 16) },
+          ]}
+        >
+          <View style={styles.shareHandle} />
+          <Text style={styles.giftReceiverTitle}>Send emoji to</Text>
+          <Text style={styles.giftReceiverSubtitle}>
+            Choose who receives your emoji
+          </Text>
+          {roomActiveUsers.length === 0 ? (
+            <View style={styles.giftRecipientEmpty}>
+              <Text style={styles.giftRecipientEmptyText}>
+                No one else is in the room yet. Invite friends to join, then
+                pick them here.
+              </Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.giftRecipientList}
+              contentContainerStyle={styles.giftRecipientListContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {roomActiveUsers.map((person) => {
+                const selected =
+                  String(selectedEmojiRecipient?.id) === String(person.id);
+                return (
+                  <TouchableOpacity
+                    key={person.id}
+                    style={[
+                      styles.giftRecipientRow,
+                      selected && styles.giftRecipientRowActive,
+                    ]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setSelectedEmojiRecipientId(String(person.id));
+                      setShowEmojiReceiverPicker(false);
+                    }}
+                  >
+                    {renderGiftRecipientAvatar(
+                      person,
+                      styles.giftRecipientAvatar,
+                    )}
+                    <View style={styles.giftRecipientInfo}>
+                      <Text style={styles.giftRecipientName} numberOfLines={1}>
+                        {person.name}
+                      </Text>
+                      {person.subtitle ? (
+                        <Text
+                          style={styles.giftRecipientMeta}
+                          numberOfLines={1}
+                        >
+                          {person.subtitle}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {selected ? (
+                      <Text style={styles.giftRecipientCheck}>✓</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    );
+  };
+
   const renderGiftSendBar = () => (
     <View style={[styles.bpSendBar, { paddingBottom: giftSendBarBottom }]}>
       {renderGiftRecipientAvatar(selectedGiftRecipient)}
@@ -2735,19 +8442,28 @@ export default function VoiceParty() {
         activeOpacity={0.8}
         onPress={openGiftReceiverPicker}
       >
-        <Text style={styles.bpSendHeart}>❤️ </Text>
         <Text style={styles.bpSendName} numberOfLines={1}>
           {giftReceiverName}
         </Text>
         <Text style={styles.bpSendChev}> ▼</Text>
       </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.bpSendQtyBtn}
-        activeOpacity={0.8}
-        onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-      >
-        <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-      </TouchableOpacity>
+      <View style={styles.bpSendQtyBtn}>
+        <TouchableOpacity
+          style={styles.bpQtyStepBtn}
+          activeOpacity={0.8}
+          onPress={() => setGiftQty((q) => Math.max(1, (Number(q) || 1) - 1))}
+        >
+          <Text style={styles.bpQtyStepText}>−</Text>
+        </TouchableOpacity>
+        <Text style={styles.bpSendQtyText}>{giftQty}</Text>
+        <TouchableOpacity
+          style={styles.bpQtyStepBtn}
+          activeOpacity={0.8}
+          onPress={() => setGiftQty((q) => Math.min(99, (Number(q) || 1) + 1))}
+        >
+          <Text style={styles.bpQtyStepText}>+</Text>
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity
         style={styles.bpSendBtn}
         activeOpacity={0.8}
@@ -2770,6 +8486,92 @@ export default function VoiceParty() {
     return `${h}:${m}:${s}`;
   };
 
+  const handleClaimListenReward = async (reward, index) => {
+    const tier = reward?.tier ?? index + 1;
+    const threshold = Number(
+      reward?.thresholdSeconds ?? LISTEN_THRESHOLDS[index] ?? 0,
+    );
+    const isReady =
+      !reward?.claimed &&
+      (reward?.unlocked ||
+        reward?.rewardImg != null ||
+        listenSeconds >= threshold);
+    const isClaimed = Boolean(reward?.claimed);
+    const remaining = Math.max(0, threshold - listenSeconds);
+
+    if (isClaimed) {
+      return;
+    }
+
+    if (!isReady) {
+      Alert.alert("Keep Listening", `Unlock in ${formatListenTime(remaining)}`);
+      return;
+    }
+
+    if (claimingRewardTierRef.current === tier) {
+      return;
+    }
+
+    claimingRewardTierRef.current = tier;
+    try {
+      const response = await claimRewardToBackpack({
+        tier,
+        roomId,
+      });
+
+      if (response && response.success !== false) {
+        setRewardStates((prev) =>
+          prev.map((r, idx) => {
+            const itemTier = r.tier ?? idx + 1;
+            if (itemTier === tier || idx === index) {
+              const rewardObj = response.reward ?? r.reward;
+              const rewardImg = rewardObj?.imageUrl
+                ? { uri: rewardObj.imageUrl }
+                : r.rewardImg;
+              return {
+                ...r,
+                claimed: true,
+                claimedAt: response.claimedAt ?? new Date().toISOString(),
+                reward: rewardObj,
+                rewardImg,
+              };
+            }
+            return r;
+          }),
+        );
+
+        try {
+          const inventory = await loadGiftInventory();
+          if (Array.isArray(inventory)) {
+            setBackpackGifts(inventory);
+          }
+        } catch (invErr) {
+          console.warn(
+            "[VoiceParty] Failed to refresh backpack inventory after claim:",
+            invErr,
+          );
+        }
+
+        Alert.alert(
+          "🎁 Reward Claimed!",
+          response?.message || "You received a gift! Check your backpack.",
+        );
+      } else {
+        const errMsg = response?.message || "Could not claim reward.";
+        Alert.alert("Claim Failed", errMsg);
+      }
+    } catch (err) {
+      console.warn("[VoiceParty] Failed to claim listen reward:", err);
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Could not claim reward.";
+      Alert.alert("Claim Failed", errMsg);
+    } finally {
+      claimingRewardTierRef.current = null;
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar
@@ -2778,156 +8580,94 @@ export default function VoiceParty() {
         backgroundColor="transparent"
       />
 
-      {/* ── VIDEO PLAYER MODAL ── */}
+      {/* ── VIDEO / GIF ANIMATION MODAL ── */}
       <Modal
-        visible={showVideoModal}
-        transparent={false}
-        animationType="slide"
+        visible={showVideoModal && Boolean(currentVideo)}
+        transparent={true}
+        animationType="fade"
         statusBarTranslucent
         onRequestClose={() => {
+          try {
+            videoPlayer?.pause?.();
+          } catch {}
           setShowVideoModal(false);
           setCurrentVideo(null);
         }}
       >
-        <View style={styles.videoPlayerContainer}>
-          <StatusBar barStyle="light-content" backgroundColor="black" />
+        {(() => {
+          const rawMediaUrl = currentVideo?.videoUrl ?? currentVideo?.uri;
+          const isGif = isGifMedia(rawMediaUrl) || Boolean(currentVideo?.isGif);
 
-          {/* Header */}
-          <View style={styles.videoHeader}>
+          return (
             <TouchableOpacity
-              style={styles.videoCloseBtn}
+              activeOpacity={1}
+              style={[
+                styles.videoPlayerContainer,
+                { backgroundColor: isGif ? "rgba(0,0,0,0.55)" : "#000" },
+              ]}
               onPress={() => {
+                try {
+                  videoPlayer?.pause?.();
+                } catch {}
                 setShowVideoModal(false);
                 setCurrentVideo(null);
               }}
             >
-              <Text style={styles.videoCloseBtnText}>✕</Text>
-            </TouchableOpacity>
-            <Text style={styles.videoHeaderTitle} numberOfLines={1}>
-              {currentVideo?.name ?? ""}
-            </Text>
-            <View style={{ width: 42 }} />
-          </View>
+              <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-          {/* Video */}
-          <View style={styles.videoWrapper}>
-            <VideoView
-              player={videoPlayer}
-              style={styles.videoPlayer}
-              nativeControls
-              allowsFullscreen
-              contentFit="contain"
-            />
-          </View>
-        </View>
+
+              {/* Media animation content */}
+              <View
+                style={[
+                  styles.videoWrapper,
+                  { backgroundColor: isGif ? "transparent" : "#000" },
+                ]}
+                pointerEvents="box-none"
+              >
+                {isGif ? (
+                  <ExpoImage
+                    source={resolveImageSource(rawMediaUrl)}
+                    style={styles.videoPlayer}
+                    contentFit="contain"
+                    autoplay
+                  />
+                ) : (
+                  <VideoView
+                    player={videoPlayer}
+                    style={styles.videoPlayer}
+                    nativeControls={false}
+                    allowsFullscreen={false}
+                    contentFit="contain"
+                  />
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })()}
       </Modal>
 
       {/* ── GIFT PURCHASE MODAL ── */}
-      <Modal
-        visible={Boolean(purchaseGift)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPurchaseGift(null)}
-      >
-        <TouchableOpacity
-          style={styles.giftPurchaseOverlay}
-          activeOpacity={1}
-          onPress={() => setPurchaseGift(null)}
-        >
-          <TouchableOpacity activeOpacity={1} style={styles.giftPurchaseBox}>
-            {purchaseGift &&
-              (() => {
-                const purchasePrice = Math.max(
-                  0,
-                  Number(purchaseGift.price ?? 0),
-                );
-                const canAfford =
-                  purchasePrice <= 0 || walletDiamonds >= purchasePrice;
-                return (
-                  <>
-                    <LinearGradient
-                      colors={["#2a0d50", "#4a1d80"]}
-                      style={styles.giftPurchaseEmojiWrap}
-                    >
-                      <Text style={styles.giftPurchaseEmoji}>
-                        {purchaseGift.emoji}
-                      </Text>
-                    </LinearGradient>
-                    <Text style={styles.giftPurchaseName}>
-                      {purchaseGift.name}
-                    </Text>
-                    <Text style={styles.giftPurchasePrice}>
-                      💎 {formatGiftPrice(purchasePrice)}
-                    </Text>
-                    <Text style={styles.giftPurchaseBalance}>
-                      Your balance: 💎 {formatGiftPrice(walletDiamonds)}
-                    </Text>
-                    {!canAfford ? (
-                      <Text style={styles.giftPurchaseWarning}>
-                        Not enough diamonds to buy this gift.
-                      </Text>
-                    ) : null}
-                    <View style={styles.giftPurchaseActions}>
-                      <TouchableOpacity
-                        style={styles.giftPurchaseCloseBtn}
-                        activeOpacity={0.85}
-                        onPress={() => setPurchaseGift(null)}
-                      >
-                        <Text style={styles.giftPurchaseCloseText}>Close</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.giftPurchaseBuyBtn,
-                          (!canAfford || catalogLoading) &&
-                            styles.giftPurchaseBuyBtnDisabled,
-                        ]}
-                        activeOpacity={0.85}
-                        disabled={!canAfford || catalogLoading}
-                        onPress={handleBuyGift}
-                      >
-                        <LinearGradient
-                          colors={
-                            canAfford && !catalogLoading
-                              ? ["#7c4dff", "#4a6cf7"]
-                              : ["#4a4a5a", "#3a3a4a"]
-                          }
-                          style={styles.giftPurchaseBuyGrad}
-                        >
-                          <Text style={styles.giftPurchaseBuyText}>
-                            {catalogLoading ? "Buying..." : "Buy"}
-                          </Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                );
-              })()}
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* ── GIFT SEND POPUP ── */}
-      <Modal visible={Boolean(giftPopup)} transparent animationType="fade">
-        <View style={styles.giftPopupOverlay} pointerEvents="none">
-          <View style={styles.giftPopupCard}>
-            {giftPopup?.gift?.imageUrl ? (
-              <ExpoImage
-                source={resolveImageSource(giftPopup.gift.imageUrl)}
-                style={styles.giftPopupImage}
-                contentFit="contain"
-              />
-            ) : (
-              <Text style={styles.giftPopupEmoji}>
-                {giftPopup?.gift?.emoji}
-              </Text>
-            )}
-            <Text style={styles.giftPopupTitle}>Gift Sent!</Text>
-            <Text style={styles.giftPopupSub}>
-              {giftPopup?.gift?.name} ×{giftPopup?.qty}
-            </Text>
-          </View>
-        </View>
-      </Modal>
+      <GiftPurchaseModal
+        purchaseGift={purchaseGift}
+        setPurchaseGift={setPurchaseGift}
+        showSendGiftOptions={showSendGiftOptions}
+        setShowSendGiftOptions={setShowSendGiftOptions}
+        walletDiamonds={walletDiamonds}
+        sendGiftQuantity={sendGiftQuantity}
+        setSendGiftQuantity={setSendGiftQuantity}
+        selectedGiftRecipient={selectedGiftRecipient}
+        giftReceiverName={giftReceiverName}
+        openGiftReceiverPicker={openGiftReceiverPicker}
+        giftReceiverId={giftReceiverId}
+        sendingGift={sendingGift}
+        catalogLoading={catalogLoading}
+        confirmSendGift={confirmSendGift}
+        handleBuyGift={handleBuyGift}
+        renderGiftRecipientAvatar={renderGiftRecipientAvatar}
+        formatGiftPrice={formatGiftPrice}
+        giftRecipientOptions={giftRecipientOptions}
+        renderGiftRecipientPickerOverlay={renderGiftRecipientPickerOverlay}
+      />
 
       {/* ── BACKPACK MODAL ── */}
       <Modal
@@ -2945,37 +8685,19 @@ export default function VoiceParty() {
             style={styles.backpackBox}
             onStartShouldSetResponder={() => true}
           >
-            <View style={{ height: H * 0.82 }}>
+            <View style={{ height: H * 0.58 }}>
               {/* Handle */}
               <View style={styles.shareHandle} />
-
-              {/* Promo banner */}
-              <LinearGradient
-                colors={["#3b0f6e", "#7c4dff", "#5c1fa8"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.bpBanner}
-              >
-                <Text style={styles.bpBannerGift}>🎁</Text>
-                <Text style={styles.bpBannerText}>
-                  Get newbie bonus, recharge for free lottery.
-                </Text>
-                <TouchableOpacity
-                  style={styles.bpBannerArrow}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.bpBannerArrowText}>›</Text>
-                </TouchableOpacity>
-                <View style={styles.bpPkBadge}>
-                  <Text style={styles.bpPkBadgeText}>🏆 Room PK Challenge</Text>
-                </View>
-              </LinearGradient>
 
               {/* Currency row */}
               <View style={styles.bpCurrencyRow}>
                 <TouchableOpacity
                   style={styles.bpCurrencyItem}
                   activeOpacity={0.8}
+                  onPress={() => {
+                    setRechargeInitialTab("diamonds");
+                    setShowDiamondRecharge(true);
+                  }}
                 >
                   <Text style={styles.bpDiamondIcon}>💎</Text>
                   <Text style={styles.bpCurrencyVal}>
@@ -2986,6 +8708,10 @@ export default function VoiceParty() {
                 <TouchableOpacity
                   style={styles.bpCurrencyItem}
                   activeOpacity={0.8}
+                  onPress={() => {
+                    setRechargeInitialTab("golds");
+                    setShowDiamondRecharge(true);
+                  }}
                 >
                   <Text style={styles.bpCoinIcon}>🪙</Text>
                   <Text style={styles.bpCurrencyVal}>0</Text>
@@ -3056,59 +8782,6 @@ export default function VoiceParty() {
                     showsVerticalScrollIndicator={false}
                     style={{ flex: 1 }}
                   >
-                    {/* Random gifts row */}
-                    <View style={styles.bpRandomRow}>
-                      <LinearGradient
-                        colors={["#4a1080", "#7c4dff"]}
-                        style={styles.bpRandomBox}
-                      >
-                        <Text style={styles.bpRandomBoxEmoji}>🎲</Text>
-                        <Text style={styles.bpRandomBoxLabel}>
-                          Random{"\n"}gifts
-                        </Text>
-                      </LinearGradient>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        style={{ flex: 1 }}
-                      >
-                        {displayRandomGifts.map((orb) => (
-                          <TouchableOpacity
-                            key={orb.id}
-                            style={styles.bpOrbWrap}
-                            activeOpacity={0.8}
-                            onPress={() => openGiftPurchase(orb)}
-                          >
-                            <LinearGradient
-                              colors={["#2a1060", "#5c2daf"]}
-                              style={styles.bpOrbCircle}
-                            >
-                              <Text style={styles.bpOrbEmoji}>{orb.emoji}</Text>
-                            </LinearGradient>
-                            <Text style={styles.bpOrbPrice}>
-                              💎 {formatGiftPrice(orb.price)}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-
-                    {/* Event banner */}
-                    <LinearGradient
-                      colors={["#1a0a2e", "#2d1060", "#1a0a2e"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.bpEventBanner}
-                    >
-                      <Text style={styles.bpEventIcon}>✨</Text>
-                      <Text style={styles.bpEventText}>
-                        2026 TukTuk Carnival
-                      </Text>
-                      <View style={styles.bpEventArrow}>
-                        <Text style={styles.bpEventArrowText}>›</Text>
-                      </View>
-                    </LinearGradient>
-
                     {/* Gift grid */}
                     <View style={styles.bpGiftGrid}>
                       {displayGiftItems.map((gift) => (
@@ -3116,22 +8789,31 @@ export default function VoiceParty() {
                           key={gift.id}
                           style={styles.bpGiftCard}
                           activeOpacity={0.8}
-                          onPress={() => openGiftPurchase(gift)}
+                          onPress={() => openGiftPurchase(gift, "Gift")}
                         >
                           {gift.hot && (
                             <View style={styles.bpHotBadge}>
                               <Text style={styles.bpHotText}>HOT</Text>
                             </View>
                           )}
-                          <View style={styles.bpGiftSendBtn}>
-                            <Text style={{ fontSize: 9 }}>🎁</Text>
-                          </View>
-                          <LinearGradient
-                            colors={["#2a0d50", "#4a1d80"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#2a0d50", "#4a1d80"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>
+                                {gift.emoji}
+                              </Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>
@@ -3178,40 +8860,60 @@ export default function VoiceParty() {
                       style={{ flex: 1 }}
                     >
                       <View style={styles.bpGiftGrid}>
-                        {backpackGifts.map((gift) => (
-                          <TouchableOpacity
-                            key={gift.id}
-                            style={[
-                              styles.bpGiftCard,
-                              giftsMatch(selectedGift, gift) &&
+                        {backpackGifts.map((gift) => {
+                          const giftImageUrl = resolveBackpackGiftImage(gift);
+                          return (
+                            <TouchableOpacity
+                              key={gift.id}
+                              style={[
+                                styles.bpGiftCard,
+                                backpackSelectedGifts.some(g => giftsMatch(g, gift)) &&
                                 styles.bpGiftCardSelected,
-                            ]}
-                            activeOpacity={0.8}
-                            onPress={() => setSelectedGift(gift)}
-                          >
-                            <View style={styles.bpGiftQtyBadge}>
-                              <Text style={styles.bpGiftQtyBadgeText}>
-                                ×{gift.qty}
-                              </Text>
-                            </View>
-                            <LinearGradient
-                              colors={["#2a0d50", "#4a1d80"]}
-                              style={styles.bpGiftEmojiWrap}
+                              ]}
+                              activeOpacity={0.8}
+                              onPress={() => {
+                                setBackpackSelectedGifts((prev) => {
+                                  if (prev.some(g => giftsMatch(g, gift))) {
+                                    return prev.filter(g => !giftsMatch(g, gift));
+                                  }
+                                  return [...prev, gift];
+                                });
+                              }}
                             >
-                              <Text style={styles.bpGiftEmoji}>
-                                {gift.emoji}
+                              <View style={styles.bpGiftQtyBadge}>
+                                <Text style={styles.bpGiftQtyBadgeText}>
+                                  ×{gift.qty}
+                                </Text>
+                              </View>
+                              {giftImageUrl ? (
+                                <View style={styles.bpGiftImageWrap}>
+                                  <Image
+                                    source={resolveImageSource(giftImageUrl)}
+                                    style={styles.bpGiftImage}
+                                    resizeMode="contain"
+                                  />
+                                </View>
+                              ) : (
+                                <LinearGradient
+                                  colors={["#2a0d50", "#4a1d80"]}
+                                  style={styles.bpGiftEmojiWrap}
+                                >
+                                  <Text style={styles.bpGiftEmoji}>
+                                    {gift.emoji}
+                                  </Text>
+                                </LinearGradient>
+                              )}
+                              <Text style={styles.bpGiftName} numberOfLines={1}>
+                                {gift.name}
                               </Text>
-                            </LinearGradient>
-                            <Text style={styles.bpGiftName} numberOfLines={1}>
-                              {gift.name}
-                            </Text>
-                            <View style={styles.bpGiftPriceRow}>
-                              <Text style={styles.bpGiftPriceText}>
-                                💎 {formatGiftPrice(gift.price)}
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                        ))}
+                              <View style={styles.bpGiftPriceRow}>
+                                <Text style={styles.bpGiftPriceText}>
+                                  💎 {formatGiftPrice(gift.price)}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
                     </ScrollView>
                   ) : (
@@ -3276,17 +8978,24 @@ export default function VoiceParty() {
                           key={gift.id}
                           style={styles.bpGiftCard}
                           activeOpacity={0.8}
-                          onPress={() => openGiftPurchase(gift)}
+                          onPress={() => openGiftPurchase(gift, "Activity")}
                         >
-                          <View style={styles.bpGiftSendBtn}>
-                            <Text style={{ fontSize: 9 }}>🎁</Text>
-                          </View>
-                          <LinearGradient
-                            colors={["#2a0d50", "#4a1d80"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#2a0d50", "#4a1d80"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>
@@ -3382,19 +9091,32 @@ export default function VoiceParty() {
                       activeOpacity={0.8}
                       onPress={openGiftReceiverPicker}
                     >
-                      <Text style={styles.bpSendHeart}>❤️ </Text>
                       <Text style={styles.bpSendName} numberOfLines={1}>
                         {giftReceiverName}
                       </Text>
                       <Text style={styles.bpSendChev}> ▼</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.bpSendQtyBtn}
-                      activeOpacity={0.8}
-                      onPress={() => setGiftQty((q) => (q < 99 ? q + 1 : 1))}
-                    >
-                      <Text style={styles.bpSendQtyText}>{giftQty} ▼</Text>
-                    </TouchableOpacity>
+                    <View style={styles.bpSendQtyBtn}>
+                      <TouchableOpacity
+                        style={styles.bpQtyStepBtn}
+                        activeOpacity={0.8}
+                        onPress={() =>
+                          setGiftQty((q) => Math.max(1, (Number(q) || 1) - 1))
+                        }
+                      >
+                        <Text style={styles.bpQtyStepText}>−</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.bpSendQtyText}>{giftQty}</Text>
+                      <TouchableOpacity
+                        style={styles.bpQtyStepBtn}
+                        activeOpacity={0.8}
+                        onPress={() =>
+                          setGiftQty((q) => Math.min(99, (Number(q) || 1) + 1))
+                        }
+                      >
+                        <Text style={styles.bpQtyStepText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
                     <TouchableOpacity
                       style={styles.bpSendBtn}
                       activeOpacity={0.8}
@@ -3428,22 +9150,29 @@ export default function VoiceParty() {
                           key={gift.id}
                           style={styles.bpGiftCard}
                           activeOpacity={0.8}
-                          onPress={() => openGiftPurchase(gift)}
+                          onPress={() => openGiftPurchase(gift, "PK")}
                         >
                           {gift.hot && (
                             <View style={styles.bpHotBadge}>
                               <Text style={styles.bpHotText}>HOT</Text>
                             </View>
                           )}
-                          <View style={styles.bpGiftSendBtn}>
-                            <Text style={{ fontSize: 9 }}>🎁</Text>
-                          </View>
-                          <LinearGradient
-                            colors={["#2a0d50", "#4a1d80"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#2a0d50", "#4a1d80"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>
@@ -3472,22 +9201,29 @@ export default function VoiceParty() {
                           key={gift.id}
                           style={styles.bpGiftCard}
                           activeOpacity={0.8}
-                          onPress={() => openGiftPurchase(gift)}
+                          onPress={() => openGiftPurchase(gift, "Special")}
                         >
                           {gift.isNew && (
                             <View style={styles.bpNewBadge}>
                               <Text style={styles.bpNewBadgeText}>NEW</Text>
                             </View>
                           )}
-                          <View style={styles.bpGiftSendBtn}>
-                            <Text style={{ fontSize: 9 }}>🎁</Text>
-                          </View>
-                          <LinearGradient
-                            colors={["#1a0a3e", "#6a1590"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#1a0a3e", "#6a1590"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>
@@ -3536,12 +9272,22 @@ export default function VoiceParty() {
                             )
                           }
                         >
-                          <LinearGradient
-                            colors={["#2a1800", "#5c3a00"]}
-                            style={styles.bpGiftEmojiWrap}
-                          >
-                            <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
-                          </LinearGradient>
+                          {gift.imageUrl ? (
+                            <View style={styles.bpGiftImageWrap}>
+                              <Image
+                                source={resolveImageSource(gift.imageUrl)}
+                                style={styles.bpGiftImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          ) : (
+                            <LinearGradient
+                              colors={["#2a1800", "#5c3a00"]}
+                              style={styles.bpGiftEmojiWrap}
+                            >
+                              <Text style={styles.bpGiftEmoji}>{gift.emoji}</Text>
+                            </LinearGradient>
+                          )}
                           <Text style={styles.bpGiftName} numberOfLines={1}>
                             {gift.name}
                           </Text>
@@ -3633,37 +9379,28 @@ export default function VoiceParty() {
             {/* Reward cards */}
             <View style={styles.giftCardsRow}>
               {rewardStates.map((reward, i) => {
-                const remaining = Math.max(
-                  0,
-                  LISTEN_THRESHOLDS[i] - listenSeconds,
-                );
-                const isReady = reward.rewardImg != null && !reward.claimed;
-                const isClaimed = reward.claimed;
-                const img = reward.rewardImg ?? LISTEN_LOCKED_IMGS[i];
+                const threshold =
+                  reward.thresholdSeconds ?? LISTEN_THRESHOLDS[i] ?? 60;
+                const remaining = Math.max(0, threshold - listenSeconds);
+                const isReady =
+                  !reward.claimed &&
+                  (reward.unlocked ||
+                    reward.rewardImg != null ||
+                    listenSeconds >= threshold);
+                const isClaimed = Boolean(reward.claimed);
+                const img =
+                  (reward.reward?.imageUrl
+                    ? { uri: reward.reward.imageUrl }
+                    : null) ??
+                  reward.rewardImg ??
+                  LISTEN_LOCKED_IMGS[i];
 
                 return (
                   <TouchableOpacity
-                    key={i}
+                    key={reward.tier ?? i}
                     style={[styles.giftCard, isReady && styles.giftCardReady]}
                     activeOpacity={0.8}
-                    onPress={() => {
-                      if (isReady) {
-                        setRewardStates((prev) =>
-                          prev.map((r, idx) =>
-                            idx === i ? { ...r, claimed: true } : r,
-                          ),
-                        );
-                        Alert.alert(
-                          "🎁 Reward Claimed!",
-                          "You received a gift! Check your backpack.",
-                        );
-                      } else if (!isClaimed) {
-                        Alert.alert(
-                          "Keep Listening",
-                          `Unlock in ${formatListenTime(remaining)}`,
-                        );
-                      }
-                    }}
+                    onPress={() => handleClaimListenReward(reward, i)}
                   >
                     <View style={styles.giftCardImgWrap}>
                       <Image
@@ -3684,7 +9421,7 @@ export default function VoiceParty() {
                     </View>
 
                     <Text style={styles.giftCardLabel}>
-                      {LISTEN_THRESHOLD_LABELS[i]}
+                      {reward.label ?? LISTEN_THRESHOLD_LABELS[i]}
                     </Text>
 
                     <View
@@ -3723,262 +9460,283 @@ export default function VoiceParty() {
         onSelectChest={selectChest}
       />
 
+      <TreasureAnimationModal
+        visible={showTreasureAnimation}
+        onAnimationComplete={() => {
+          setShowTreasureAnimation(false);
+          if (pendingTreasureEvent) {
+            setTimeout(() => {
+              setTreasureUnlockEvent(pendingTreasureEvent);
+              setPendingTreasureEvent(null);
+            }, 100);
+          }
+        }}
+      />
+
+      <Modal
+        visible={showMusicPlaylist}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowMusicPlaylist(false)}
+      >
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{ backgroundColor: '#222', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '60%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+              <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>Music Queue</Text>
+              <TouchableOpacity onPress={() => setShowMusicPlaylist(false)}>
+                <X size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Music Volume Control Bar (Slow / Tez) */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#1a1f26',
+              borderRadius: 14,
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0.08)',
+              gap: 10,
+            }}>
+              <TouchableOpacity
+                onPress={() => {
+                  const nextVol = musicVolume === 0 ? 80 : 0;
+                  handleMusicVolumeChange(nextVol);
+                }}
+                style={{ padding: 4 }}
+              >
+                {musicVolume === 0 ? (
+                  <VolumeX size={18} color="#ff5722" />
+                ) : musicVolume < 50 ? (
+                  <Volume1 size={18} color="#aaa" />
+                ) : (
+                  <Volume2 size={18} color="#aaa" />
+                )}
+              </TouchableOpacity>
+
+              {/* Slow / Decrease */}
+              <TouchableOpacity
+                onPress={() => handleMusicVolumeChange(Math.max(0, musicVolume - 10))}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(255,255,255,0.12)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Minus size={14} color="white" />
+              </TouchableOpacity>
+
+              {/* Volume Progress Bar */}
+              <View style={{ flex: 1, height: 6, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 3, overflow: 'hidden' }}>
+                <View style={{ height: '100%', width: `${musicVolume}%`, backgroundColor: '#ff5722', borderRadius: 3 }} />
+              </View>
+
+              {/* Tez / Increase */}
+              <TouchableOpacity
+                onPress={() => handleMusicVolumeChange(Math.min(100, musicVolume + 10))}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(255,255,255,0.12)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Plus size={14} color="white" />
+              </TouchableOpacity>
+
+              <Text style={{ color: '#ff5722', fontWeight: 'bold', fontSize: 13, minWidth: 38, textAlign: 'right' }}>
+                {musicVolume}%
+              </Text>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {musicPlaylist.length === 0 ? (
+                <Text style={{ color: '#aaa', textAlign: 'center', padding: 20 }}>No songs selected.</Text>
+              ) : (
+                musicPlaylist.map((item, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 12,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#333'
+                    }}
+                    onPress={() => {
+                      setCurrentMusicIndex(index);
+                      agoraVoice.playAudioForEveryone(item.uri);
+                      setIsMusicPlaying(true);
+                      setIsMusicPaused(false);
+                    }}
+                  >
+                    <View style={{ width: 30 }}>
+                      {index === currentMusicIndex ? (
+                        <Play size={16} color="#ff5722" fill="#ff5722" />
+                      ) : (
+                        <Text style={{ color: '#888' }}>{index + 1}</Text>
+                      )}
+                    </View>
+                    <Text style={{ color: index === currentMusicIndex ? '#ff5722' : 'white', flex: 1 }} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <TreasureWinnersModal
+        visible={Boolean(treasureUnlockEvent)}
+        onClose={() => setTreasureUnlockEvent(null)}
+        eventData={treasureUnlockEvent}
+      />
+      <PkBattleModal
+        visible={showPkBattle}
+        onClose={() => setShowPkBattle(false)}
+        roomUsers={pkParticipantCandidates}
+        submitting={pkBattleActionLoading}
+        onConfirm={handlePkConfirm}
+      />
+
+      <PkAcceptTeamModal
+        visible={showPkTeamAccept}
+        onClose={() => setShowPkTeamAccept(false)}
+        hostAName={activePkBattle?.hostAName}
+        roomUsers={pkParticipantCandidates.filter(
+          (u) => !isSameUser(u.id, activePkBattle?.hostAId),
+        )}
+        submitting={pkBattleActionLoading}
+        onConfirm={(teamMemberIds) => handlePkRespond(true, teamMemberIds)}
+      />
+
+      <PkLiveBanner
+        battle={activePkBattle}
+        role={getPkBattleRole(activePkBattle, myUserId)}
+        myAccepted={
+          myAcceptedBattleId != null &&
+          myAcceptedBattleId === activePkBattle?.id
+        }
+        actionLoading={pkBattleActionLoading}
+        topOffset={insets.top + 64}
+        resolveUser={(id) => {
+          const seat = (seats || []).find(
+            (s) => s?.user && isSameUser(s.user.id, id),
+          );
+          return seat
+            ? { name: seat.user.name, avatar: seat.user.avatar }
+            : null;
+        }}
+        onAccept={() => {
+          // The organizer can already set both full rosters at creation
+          // (Team gift PK's two-team picker) — side B only needs to pick
+          // their own teammates here if the organizer left that roster
+          // for them to fill in themselves.
+          const myRole = getPkBattleRole(activePkBattle, myUserId);
+          const needsTeamPick =
+            myRole === "hostB" &&
+            activePkBattle?.teamAMemberIds?.length &&
+            !activePkBattle?.teamBMemberIds?.length;
+          if (needsTeamPick) {
+            setShowPkTeamAccept(true);
+          } else {
+            handlePkRespond(true);
+          }
+        }}
+        onReject={() => handlePkRespond(false)}
+        onDismiss={() => setActivePkBattle(null)}
+      />
+
       <RoomUserProfilePopup
         visible={Boolean(profilePopupUser || profilePopupLoading)}
         user={profilePopupUser}
+        level={
+          isSameUser(profilePopupUser?.id, myUserId)
+            ? myLevel
+            : (profilePopupUser?.level ?? null)
+        }
         avatarSource={profilePopupAvatarSource}
         frameSource={
+          // Backend-assigned decorations (e.g. a room-owner frame) are a
+          // separate system from the VIP tier and always take priority
+          // when equipped, self included — same ordering as the main
+          // Profile tab. `frameLayout` below already accounted for this
+          // case (auto-fit layout when a decoration is equipped); this was
+          // the only place still missing the decoration URL itself, so a
+          // self-view here fell back to the VIP frame it hardcoded, while
+          // any other surface reading the same decoration data showed the
+          // decoration correctly.
           userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl ??
           (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.profileFrame
-<<<<<<< HEAD
-            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl ?? null)
+            : (userFrameData[String(profilePopupUser?.id)]
+                ?.vipProfileFrameUrl ?? null))
         }
         frameLayout={
           userFrameData[String(profilePopupUser?.id)]?.decorationFrameUrl
-            ? null  // decoration frames: auto-fit in ProfileAvatarWithFrame
-            : (isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked) ||
-              userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
-=======
-            : (userFrameData[String(profilePopupUser?.id)]
-                ?.vipProfileFrameUrl ?? null)
-        }
-        frameLayout={
-          (isSameUser(profilePopupUser?.id, myUserId) &&
-            myVipAssets.unlocked) ||
-          userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
->>>>>>> 00c8b16 (UI issue fix)
-            ? VIP_PROFILE_FRAME_LAYOUT
-            : null
+            ? null // decoration frames: auto-fit in ProfileAvatarWithFrame
+            : (isSameUser(profilePopupUser?.id, myUserId) &&
+                  myVipAssets.unlocked) ||
+                userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
+              ? VIP_PROFILE_FRAME_LAYOUT
+              : null
         }
         logoSource={
           isSameUser(profilePopupUser?.id, myUserId) && myVipAssets.unlocked
             ? myVipAssets.logo
-            : null
+            : userFrameData[String(profilePopupUser?.id)]?.vipProfileFrameUrl
+              ? VIP_LOGO_BY_TIER[
+                  resolveVipTierFromAssetUrl(
+                    userFrameData[String(profilePopupUser?.id)]
+                      ?.vipProfileFrameUrl,
+                  )
+                ]
+              : null
         }
-        badgeSource={userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ?? null}
+        premiumLogoSource={
+          // Premium is fetched only for the current user (GET /users/me/ui-assets
+          // has no per-other-user equivalent), so this only ever shows for self.
+          isSameUser(profilePopupUser?.id, myUserId) ? myPremiumLogo : null
+        }
+        badgeSource={
+          userFrameData[String(profilePopupUser?.id)]?.decorationBadgeUrl ??
+          null
+        }
         loading={profilePopupLoading}
         isFollowing={profilePopupFollowing}
         followLoading={profileFollowLoading}
         isSelf={isSameUser(profilePopupUser?.id, myUserId)}
+        isOwner={isSameUser(profilePopupUser?.id, hostId)}
+        isViewerOwner={isHostSelf}
+        isViewerAdmin={isViewerAdmin}
+        canManage={canManageRoomUsers}
+        targetIsAdmin={Boolean(
+          profilePopupUser?.id && roomAdminIds.has(String(profilePopupUser.id)),
+        )}
+        countryFlag={
+          isSameUser(profilePopupUser?.id, myUserId) ? myCountryFlag : null
+        }
         onClose={closeProfilePopup}
         onFollowToggle={handleProfileFollowToggle}
+        onChat={handlePopupChat}
+        onSendGift={handlePopupSendGift}
+        onMention={handlePopupMention}
+        onReport={handlePopupReport}
+        onToggleAdmin={handlePopupToggleAdmin}
+        onInviteMic={handlePopupInviteMic}
+        onKickOut={handlePopupKickOut}
       />
 
-      {/* ── EMOJI PICKER MODAL ── */}
-      <Modal
-        visible={showEmojiPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowEmojiPicker(false)}
-      >
-        <TouchableOpacity
-          style={styles.shareOverlay}
-          activeOpacity={1}
-          onPress={() => setShowEmojiPicker(false)}
-        >
-          <View style={styles.emojiBox} onStartShouldSetResponder={() => true}>
-            <View style={styles.shareHandle} />
 
-            <View style={styles.emojiBoxBody}>
-              <View style={styles.mediaSectionRow}>
-                {MEDIA_SECTIONS.map((section) => (
-                  <TouchableOpacity
-                    key={section.id}
-                    style={[
-                      styles.mediaSectionTab,
-                      mediaSection === section.id &&
-                        styles.mediaSectionTabActive,
-                    ]}
-                    onPress={() => setMediaSection(section.id)}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.mediaSectionTabText,
-                        mediaSection === section.id &&
-                          styles.mediaSectionTabTextActive,
-                      ]}
-                    >
-                      {section.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {mediaSection === "emoji" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaSubTabScroll}
-                  contentContainerStyle={styles.mediaSubTabContent}
-                >
-                  {emojiCategories.map((cat) => (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[
-                        styles.mediaSubTabItem,
-                        emojiTab === cat.id && styles.mediaSubTabItemActive,
-                      ]}
-                      onPress={() => setEmojiTab(cat.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
-                      <Text
-                        style={[
-                          styles.mediaSubTabLabel,
-                          emojiTab === cat.id && styles.mediaSubTabLabelActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {cat.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
-              {mediaSection === "stickers" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaSubTabScroll}
-                  contentContainerStyle={styles.mediaSubTabContent}
-                >
-                  {stickerPacks.map((pack) => (
-                    <TouchableOpacity
-                      key={pack.id}
-                      style={[
-                        styles.mediaSubTabItem,
-                        stickerTab === pack.id && styles.mediaSubTabItemActive,
-                      ]}
-                      onPress={() => setStickerTab(pack.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.mediaSubTabIcon}>{pack.tab}</Text>
-                      <Text
-                        style={[
-                          styles.mediaSubTabLabel,
-                          stickerTab === pack.id &&
-                            styles.mediaSubTabLabelActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {pack.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
-              {mediaSection === "gif" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.mediaSubTabScroll}
-                  contentContainerStyle={styles.mediaSubTabContent}
-                >
-                  {gifCategories.map((cat) => (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[
-                        styles.mediaSubTabItem,
-                        gifTab === cat.id && styles.mediaSubTabItemActive,
-                      ]}
-                      onPress={() => setGifTab(cat.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
-                      <Text
-                        style={[
-                          styles.mediaSubTabLabel,
-                          gifTab === cat.id && styles.mediaSubTabLabelActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {cat.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                style={styles.emojiGrid}
-                contentContainerStyle={styles.emojiGridContent}
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled
-              >
-                {mediaSection === "emoji" && (
-                  <View style={styles.emojiGridInner}>
-                    {emojiCategories
-                      .find((c) => c.id === emojiTab)
-                      ?.emojis.map((emoji, i) => (
-                        <TouchableOpacity
-                          key={`${emoji}-${i}`}
-                          style={styles.emojiCell}
-                          activeOpacity={0.7}
-                          onPress={() => handleEmojiPick(emoji)}
-                        >
-                          <Text style={styles.emojiCellText}>{emoji}</Text>
-                        </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
-
-                {mediaSection === "stickers" && (
-                  <View style={styles.stickerGridInner}>
-                    {stickerPacks
-                      .find((p) => p.id === stickerTab)
-                      ?.stickers.map((sticker) => (
-                        <TouchableOpacity
-                          key={sticker.id}
-                          style={styles.stickerCell}
-                          activeOpacity={0.7}
-                          onPress={() => handleStickerPick(sticker)}
-                        >
-                          {sticker.image ? (
-                            <Image
-                              source={{ uri: sticker.image }}
-                              style={styles.stickerCellImg}
-                              resizeMode="contain"
-                            />
-                          ) : (
-                            <Text style={styles.stickerCellEmoji}>
-                              {sticker.emoji}
-                            </Text>
-                          )}
-                        </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
-
-                {mediaSection === "gif" && (
-                  <View style={styles.gifGridInner}>
-                    {gifCategories
-                      .find((c) => c.id === gifTab)
-                      ?.gifs.map((gif) => (
-                        <TouchableOpacity
-                          key={gif.id}
-                          style={styles.gifCell}
-                          activeOpacity={0.7}
-                          onPress={() => handleGifPick(gif)}
-                        >
-                          <Image
-                            source={{ uri: gif.url }}
-                            style={styles.gifCellImg}
-                            resizeMode="cover"
-                          />
-                        </TouchableOpacity>
-                      ))}
-                  </View>
-                )}
-              </ScrollView>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* ── PLAY CENTER MODAL ── */}
       <Modal
@@ -3988,7 +9746,7 @@ export default function VoiceParty() {
         onRequestClose={() => setShowPlayCenter(false)}
       >
         <TouchableOpacity
-          style={styles.modalOverlay}
+          style={styles.playCenterOverlay}
           activeOpacity={1}
           onPress={() => setShowPlayCenter(false)}
         >
@@ -3996,19 +9754,23 @@ export default function VoiceParty() {
             <Text style={styles.playCenterTitle}>Play center</Text>
             <View style={styles.playCenterRow}>
               {/* Music */}
-              <TouchableOpacity
-                style={styles.playCenterItem}
-                activeOpacity={0.75}
-                onPress={() => {
-                  setShowPlayCenter(false);
-                  Alert.alert("Music", "Music player coming soon!");
-                }}
-              >
-                <View style={styles.playCenterIconWrap}>
-                  <Text style={styles.playCenterEmoji}>🎵</Text>
-                </View>
-                <Text style={styles.playCenterLabel}>Music</Text>
-              </TouchableOpacity>
+              {isHostSelf && (
+                <TouchableOpacity
+                  style={styles.playCenterItem}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    setShowPlayCenter(false);
+                    setTimeout(() => {
+                      handleToggleMusic();
+                    }, 400);
+                  }}
+                >
+                  <View style={styles.playCenterIconWrap}>
+                    <Text style={styles.playCenterEmoji}>🎵</Text>
+                  </View>
+                  <Text style={styles.playCenterLabel}>Music</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Lucky bag */}
               <TouchableOpacity
@@ -4023,6 +9785,56 @@ export default function VoiceParty() {
                   <Text style={styles.playCenterEmoji}>💰</Text>
                 </View>
                 <Text style={styles.playCenterLabel}>Lucky bag</Text>
+              </TouchableOpacity>
+
+              {/* Ranking / Calculator ranking */}
+              <TouchableOpacity
+                style={styles.playCenterItem}
+                activeOpacity={0.75}
+                onPress={() => {
+                  setShowPlayCenter(false);
+                  setTimeout(() => {
+                    setShowTopGiftingRanking(true);
+                  }, 200);
+                }}
+              >
+                <View style={styles.playCenterIconWrap}>
+                  <Text style={styles.playCenterEmoji}>🏆</Text>
+                </View>
+                <Text style={styles.playCenterLabel}>Ranking</Text>
+              </TouchableOpacity>
+
+              {/* PK — opens the PK battle setup sheet */}
+              <TouchableOpacity
+                style={styles.playCenterItem}
+                activeOpacity={0.75}
+                onPress={async () => {
+                  setShowPlayCenter(false);
+                  // Re-check with the server instead of trusting local state —
+                  // the initial room-join fetch may still be in flight, or a
+                  // websocket drop could have left `activePkBattle` stale,
+                  // and either way opening the sheet on stale info just gets
+                  // rejected by the backend with a 409 on Confirm.
+                  const fresh = await loadActivePkBattle(pkPollRoomId).catch(
+                    () => activePkBattle,
+                  );
+                  setActivePkBattle(fresh);
+                  if (isPkBattlePending(fresh) || isPkBattleLive(fresh)) {
+                    Alert.alert(
+                      "PK battle in progress",
+                      "This room already has an active PK battle. Wait for it to finish before starting a new one.",
+                    );
+                    return;
+                  }
+                  setTimeout(() => {
+                    setShowPkBattle(true);
+                  }, 400);
+                }}
+              >
+                <View style={styles.playCenterIconWrap}>
+                  <Text style={styles.playCenterEmoji}>⚔️</Text>
+                </View>
+                <Text style={styles.playCenterLabel}>PK</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -4051,7 +9863,7 @@ export default function VoiceParty() {
                 onPress={() => setShowPowerMenu(false)}
               >
                 <View style={styles.playCenterIconWrap}>
-                  <Minimize2 size={28} color="#a78bfa" />
+                  <Minimize2 size={20} color="#a78bfa" />
                 </View>
                 <Text style={styles.playCenterLabel}>Keep</Text>
               </TouchableOpacity>
@@ -4060,12 +9872,15 @@ export default function VoiceParty() {
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
-                onPress={handleExitRoom}
+                onPress={() => {
+                  setShowPowerMenu(false);
+                  promptExitConfirmation();
+                }}
               >
                 <View
                   style={[styles.playCenterIconWrap, styles.powerExitIconWrap]}
                 >
-                  <Power size={28} color="#ff6b6b" />
+                  <Power size={20} color="#ff6b6b" />
                 </View>
                 <Text style={[styles.playCenterLabel, { color: "#ff6b6b" }]}>
                   Exit
@@ -4076,7 +9891,1273 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── SHARE MODAL ── */}
+      {/* ── COMPACT FOLLOW MODAL (Triggered by + icon) ── */}
+      <Modal
+        visible={showFollowModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowFollowModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.compactFollowModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowFollowModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.compactFollowModalBox}
+          >
+            {/* Close button */}
+            <TouchableOpacity
+              style={styles.compactFollowModalCloseBtn}
+              onPress={() => setShowFollowModal(false)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <X size={16} color="#1a1a2e" />
+            </TouchableOpacity>
+
+            {/* Room / Host Avatar (Dynamic - Half Inside / Half Outside) */}
+            <View style={styles.compactFollowModalAvatarWrap}>
+              {roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl ? (
+                <Image
+                  source={{
+                    uri:
+                      roomInfo?.profileImageUrl ||
+                      hostProfileDetails?.avatarUrl,
+                  }}
+                  style={styles.compactFollowModalAvatar}
+                  resizeMode="cover"
+                />
+              ) : hostUserLike ? (
+                renderRoomUserAvatar(
+                  hostUserLike,
+                  styles.compactFollowModalAvatar,
+                  [
+                    styles.compactFollowModalAvatar,
+                    styles.ownerAvatarPlaceholder,
+                  ],
+                  styles.ownerInitial,
+                )
+              ) : (
+                <Image
+                  source={{
+                    uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                      roomInfo?.name || hostProfileDetails?.name || "Host",
+                    )}&background=7c4dff&color=fff`,
+                  }}
+                  style={styles.compactFollowModalAvatar}
+                  resizeMode="cover"
+                />
+              )}
+            </View>
+
+            {/* Room Name & ID */}
+            <Text style={styles.compactFollowModalRoomName} numberOfLines={1}>
+              {roomInfo?.name ?? "Voice Room"}
+            </Text>
+            <Text style={styles.compactFollowModalRoomId} numberOfLines={1}>
+              ID: {roomId ?? "—"}
+            </Text>
+
+            {/* Follow / Following Button */}
+            <TouchableOpacity
+              style={[
+                styles.compactFollowModalActionBtn,
+                isFollowing && styles.compactFollowModalActionBtnFollowing,
+              ]}
+              onPress={handleFollowToggle}
+              disabled={followLoading}
+              activeOpacity={0.85}
+            >
+              {followLoading ? (
+                <ActivityIndicator
+                  size="small"
+                  color={isFollowing ? "#7c4dff" : "#ffffff"}
+                />
+              ) : (
+                <View style={styles.compactFollowModalActionBtnContent}>
+                  <Plus
+                    size={16}
+                    color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    strokeWidth={2.5}
+                  />
+                  <Text
+                    style={[
+                      styles.compactFollowModalActionBtnText,
+                      isFollowing &&
+                        styles.compactFollowModalActionBtnTextFollowing,
+                    ]}
+                  >
+                    {isFollowing ? "Following" : "Follow"}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── ROOM PROFILE MODAL (Triggered by Avatar click) ── */}
+      <Modal
+        visible={showRoomProfileModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRoomProfileModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.followModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowRoomProfileModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.followModalBox}>
+            {/* Top Header Bar: Close Icon + Tabs */}
+            <View style={styles.followModalHeaderBar}>
+              <TouchableOpacity
+                style={styles.followModalCloseBtn}
+                onPress={() => setShowRoomProfileModal(false)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <X size={22} color="#6b7280" />
+              </TouchableOpacity>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.followModalTabsRow}
+              >
+                {/* Profile Tab */}
+                <TouchableOpacity
+                  onPress={() => setRoomModalTab("profile")}
+                  style={styles.followModalTabItem}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.followModalTabText,
+                      roomModalTab === "profile" &&
+                        styles.followModalTabTextActive,
+                    ]}
+                  >
+                    Profile
+                  </Text>
+                  {roomModalTab === "profile" && (
+                    <View style={styles.followModalActiveIndicator} />
+                  )}
+                </TouchableOpacity>
+
+                {/* Follower Tab */}
+                <TouchableOpacity
+                  onPress={() => setRoomModalTab("followers")}
+                  style={styles.followModalTabItem}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.followModalTabText,
+                      roomModalTab === "followers" &&
+                        styles.followModalTabTextActive,
+                    ]}
+                  >
+                    Follower (
+                    {hostProfileDetails?.followersCount ??
+                      roomInfo?.followersCount ??
+                      roomInfo?.followerCount ??
+                      (Array.isArray(roomFollowersList)
+                        ? roomFollowersList.length
+                        : 0)}
+                    )
+                  </Text>
+                  {roomModalTab === "followers" && (
+                    <View style={styles.followModalActiveIndicator} />
+                  )}
+                </TouchableOpacity>
+
+                {/* Events Tab */}
+                <TouchableOpacity
+                  onPress={() => setRoomModalTab("events")}
+                  style={styles.followModalTabItem}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.followModalTabText,
+                      roomModalTab === "events" &&
+                        styles.followModalTabTextActive,
+                    ]}
+                  >
+                    Events
+                  </Text>
+                  {roomModalTab === "events" && (
+                    <View style={styles.followModalActiveIndicator} />
+                  )}
+                </TouchableOpacity>
+
+                {/* Room badge wall Tab */}
+                <TouchableOpacity
+                  onPress={() => setRoomModalTab("rooms")}
+                  style={styles.followModalTabItem}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.followModalTabText,
+                      roomModalTab === "rooms" &&
+                        styles.followModalTabTextActive,
+                    ]}
+                  >
+                    Room badge wall
+                  </Text>
+                  {roomModalTab === "rooms" && (
+                    <View style={styles.followModalActiveIndicator} />
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+
+            {/* Modal Content Based on Active Tab */}
+            {roomModalTab === "profile" ? (
+              <View style={styles.followModalTabContainer}>
+                <ScrollView
+                  style={styles.followModalScroll}
+                  contentContainerStyle={styles.followModalContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {/* Top Profile Card: Avatar + Name + ID */}
+                  <View style={styles.followModalProfileCard}>
+                    {/* Avatar with Outer wrapper for Badge (Orange circle) */}
+                    <View style={styles.followModalAvatarOuter}>
+                      <View style={styles.followModalAvatarWrap}>
+                        {roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl ? (
+                          <Image
+                            source={{ uri: roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl }}
+                            style={styles.followModalAvatar}
+                            resizeMode="cover"
+                          />
+                        ) : hostUserLike ? (
+                          renderRoomUserAvatar(
+                            hostUserLike,
+                            styles.followModalAvatar,
+                            [styles.followModalAvatar, styles.ownerAvatarPlaceholder],
+                            styles.ownerInitial,
+                          )
+                        ) : (
+                          <Image
+                            source={{
+                              uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                roomInfo?.name || hostProfileDetails?.name || "Host",
+                              )}&background=7c4dff&color=fff`,
+                            }}
+                            style={styles.followModalAvatar}
+                            resizeMode="cover"
+                          />
+                        )}
+
+                        {/* Loading overlay for direct avatar upload */}
+                        {isUpdatingRoomPhoto && (
+                          <View style={styles.followModalAvatarLoadingOverlay}>
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Edit Avatar Badge (Orange circle in image) */}
+                      {canEditRoom && (
+                        <TouchableOpacity
+                          style={styles.followModalAvatarEditBadge}
+                          onPress={handlePickAndUploadRoomPhoto}
+                          disabled={isUpdatingRoomPhoto}
+                          activeOpacity={0.8}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="camera" size={13} color="#ffffff" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {/* Name & ID Column */}
+                    <View style={styles.followModalInfoCol}>
+                      <Text
+                        style={styles.followModalRoomName}
+                        numberOfLines={2}
+                      >
+                        {roomInfo?.name ||
+                          roomInfo?.title ||
+                          hostProfileDetails?.name ||
+                          "Voice Room"}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.followModalIdRow}
+                        onPress={handleCopyRoomId}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.followModalRoomId}>
+                          ID:
+                          {roomId ||
+                            roomInfo?.id ||
+                            roomInfo?.roomId ||
+                            hostProfileDetails?.userId ||
+                            "—"}
+                        </Text>
+                        <Ionicons
+                          name="copy-outline"
+                          size={15}
+                          color="#9ca3af"
+                        />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Edit Room Details Icon Button (Red circle in image) */}
+                    {canEditRoom && (
+                      <TouchableOpacity
+                        style={styles.followModalEditBtn}
+                        onPress={handleOpenEditRoomModal}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="create-outline" size={20} color="#7c4dff" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Level Section */}
+                  <View style={styles.followModalSection}>
+                    <Text style={styles.followModalSectionLabel}>Level</Text>
+                    <Text style={styles.followModalLevelValue}>
+                      LV.{hostProfileDetails?.level ?? roomInfo?.level ?? 1}
+                    </Text>
+                  </View>
+
+                  <View style={styles.followModalDivider} />
+
+                  {/* Tag Section */}
+                  <View style={styles.followModalRow}>
+                    <Text style={styles.followModalRowLabel}>Tag</Text>
+                    <Text style={styles.followModalRowValue}>
+                      {roomInfo?.category || roomInfo?.tag || "Chat"}
+                    </Text>
+                  </View>
+
+                  {/* Announcement Section */}
+                  <TouchableOpacity
+                    style={styles.followModalAnnouncementSection}
+                    onPress={() => {
+                      if (canEditRoom) {
+                        setWelcomeDraft(
+                          welcomeMessage ||
+                            roomInfo?.body ||
+                            roomInfo?.announcement ||
+                            "",
+                        );
+                        setShowWelcomeEdit(true);
+                      }
+                    }}
+                    activeOpacity={canEditRoom ? 0.7 : 1}
+                  >
+                    <View style={styles.followModalRowHeader}>
+                      <Text style={styles.followModalRowLabel}>
+                        Announcement
+                      </Text>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={16}
+                        color="#d1d5db"
+                      />
+                    </View>
+                    <Text style={styles.followModalAnnouncementText}>
+                      {welcomeMessage ||
+                        roomInfo?.body ||
+                        roomInfo?.announcement ||
+                        "Welcome everyone! Let's chat and have fun together!"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.followModalDivider} />
+
+                  {/* Follower Section */}
+                  <View style={styles.followModalRow}>
+                    <Text style={styles.followModalRowLabel}>Follower</Text>
+                    <Text style={styles.followModalRowValue}>
+                      {hostProfileDetails?.followersCount ??
+                        roomInfo?.followersCount ??
+                        roomInfo?.followerCount ??
+                        16}
+                    </Text>
+                  </View>
+
+                  {/* Country Section */}
+                  <View style={styles.followModalRow}>
+                    <Text style={styles.followModalRowLabel}>Country</Text>
+                    <Text style={styles.followModalRowValue}>
+                      {hostProfileDetails?.countryName ||
+                        hostProfileDetails?.countryCode ||
+                        roomInfo?.country ||
+                        "India"}
+                    </Text>
+                  </View>
+                </ScrollView>
+
+                {/* Follow Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.followModalActionBtn,
+                    isFollowing && styles.followModalActionBtnFollowing,
+                  ]}
+                  onPress={handleFollowToggle}
+                  disabled={followLoading}
+                  activeOpacity={0.88}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.followModalActionBtnText,
+                        isFollowing && styles.followModalActionBtnTextFollowing,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : roomModalTab === "followers" ? (
+              <View style={styles.followModalTabContainer}>
+                {/* Search Bar */}
+                <View style={styles.followerSearchContainer}>
+                  <Ionicons
+                    name="search-outline"
+                    size={17}
+                    color="#9ca3af"
+                    style={styles.followerSearchIcon}
+                  />
+                  <TextInput
+                    style={styles.followerSearchInput}
+                    placeholder="Search by username or ID"
+                    placeholderTextColor="#9ca3af"
+                    value={followerSearchQuery}
+                    onChangeText={setFollowerSearchQuery}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {followerSearchQuery ? (
+                    <TouchableOpacity
+                      onPress={() => setFollowerSearchQuery("")}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#9ca3af" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {/* Followers List */}
+                <ScrollView
+                  style={styles.followerListScroll}
+                  contentContainerStyle={styles.followerListContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {followersLoading ? (
+                    <View style={styles.followerNotFoundWrap}>
+                      <ActivityIndicator size="small" color="#7c4dff" />
+                      <Text
+                        style={[styles.followerNotFoundText, { marginTop: 10 }]}
+                      >
+                        Loading followers...
+                      </Text>
+                    </View>
+                  ) : displayFollowersList &&
+                    displayFollowersList.length > 0 ? (
+                    displayFollowersList.map((follower, idx) => {
+                      const isMale = follower?.gender !== "female";
+                      const userAge =
+                        follower?.age ??
+                        follower?.profile?.age ??
+                        (isMale ? 24 : 21);
+                      const userLevel =
+                        follower?.level ?? follower?.profile?.level ?? 1;
+                      const diamondCount =
+                        follower?.diamond ??
+                        follower?.diamonds ??
+                        follower?.wealth ??
+                        0;
+                      const leafCount = follower?.leaf ?? follower?.charm ?? 0;
+                      const isNew =
+                        follower?.statusBadge === "New." || follower?.isNew;
+                      const isReturn =
+                        follower?.statusBadge === "Return" ||
+                        follower?.isReturn;
+
+                      return (
+                        <View
+                          key={follower?.id || follower?.userId || idx}
+                          style={styles.followerListItem}
+                        >
+                          {/* User Avatar */}
+                          <View style={styles.followerItemAvatarWrap}>
+                            {follower?.avatar ||
+                            follower?.avatarUrl ||
+                            follower?.profilePicUrl ||
+                            follower?.profileImageUrl ? (
+                              <Image
+                                source={{
+                                  uri:
+                                    follower?.avatar ||
+                                    follower?.avatarUrl ||
+                                    follower?.profilePicUrl ||
+                                    follower?.profileImageUrl,
+                                }}
+                                style={styles.followerItemAvatar}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <Image
+                                source={{
+                                  uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                    follower?.name ||
+                                      follower?.username ||
+                                      "User",
+                                  )}&background=7c4dff&color=fff`,
+                                }}
+                                style={styles.followerItemAvatar}
+                                resizeMode="cover"
+                              />
+                            )}
+                          </View>
+
+                          {/* Info Column */}
+                          <View style={styles.followerItemInfoCol}>
+                            {/* Name & Badges Row */}
+                            <View style={styles.followerItemTopRow}>
+                              <Text
+                                style={styles.followerItemName}
+                                numberOfLines={1}
+                              >
+                                {follower?.name || follower?.username || "User"}
+                              </Text>
+
+                              {/* Gender & Age Badge */}
+                              <View
+                                style={[
+                                  styles.followerGenderBadge,
+                                  isMale
+                                    ? styles.followerGenderBadgeMale
+                                    : styles.followerGenderBadgeFemale,
+                                ]}
+                              >
+                                <Ionicons
+                                  name={isMale ? "male" : "female"}
+                                  size={10}
+                                  color="#ffffff"
+                                />
+                                <Text style={styles.followerGenderBadgeText}>
+                                  {userAge}
+                                </Text>
+                              </View>
+
+                              {/* Home Badge */}
+                              {follower?.hasHomeBadge && (
+                                <View style={styles.followerHomeBadge}>
+                                  <Ionicons
+                                    name="home"
+                                    size={10}
+                                    color="#ffffff"
+                                  />
+                                </View>
+                              )}
+
+                              {/* New. Status Badge */}
+                              {isNew && (
+                                <View style={styles.followerNewBadge}>
+                                  <Sparkles size={10} color="#ffffff" />
+                                  <Text style={styles.followerNewBadgeText}>
+                                    New.
+                                  </Text>
+                                </View>
+                              )}
+
+                              {/* Return Status Badge */}
+                              {isReturn && (
+                                <View style={styles.followerReturnBadge}>
+                                  <Text style={styles.followerReturnBadgeText}>
+                                    Return
+                                  </Text>
+                                </View>
+                              )}
+
+                              {/* Medallion Badge */}
+                              {follower?.medallion !== undefined && (
+                                <View style={styles.followerMedallionBadge}>
+                                  <Ionicons
+                                    name="shield-checkmark"
+                                    size={10}
+                                    color="#10b981"
+                                  />
+                                  <Text style={styles.followerMedallionText}>
+                                    {follower.medallion}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+
+                            {/* Level & Attribute Badges Row */}
+                            <View style={styles.followerItemBottomRow}>
+                              {/* Rank Shield */}
+                              {follower?.rankBadge !== undefined && (
+                                <View style={styles.followerRankShield}>
+                                  <Ionicons
+                                    name="shield"
+                                    size={9}
+                                    color="#d1d5db"
+                                  />
+                                  <Text style={styles.followerRankText}>
+                                    {follower.rankBadge}
+                                  </Text>
+                                </View>
+                              )}
+
+                              {/* Level Badge */}
+                              <View
+                                style={[
+                                  styles.followerLevelPill,
+                                  userLevel >= 10
+                                    ? styles.followerLevelPillBlue
+                                    : styles.followerLevelPillGold,
+                                ]}
+                              >
+                                <Text style={styles.followerLevelPillText}>
+                                  Lv.{userLevel}
+                                </Text>
+                              </View>
+
+                              {/* Diamond Badge */}
+                              <View
+                                style={[
+                                  styles.followerDiamondPill,
+                                  diamondCount > 0
+                                    ? styles.followerDiamondPillBlue
+                                    : styles.followerDiamondPillBrown,
+                                ]}
+                              >
+                                <Ionicons
+                                  name="diamond"
+                                  size={9}
+                                  color="#ffffff"
+                                />
+                                <Text style={styles.followerDiamondPillText}>
+                                  {diamondCount}
+                                </Text>
+                              </View>
+
+                              {/* Leaf Badge */}
+                              <View style={styles.followerLeafPill}>
+                                <Ionicons
+                                  name="water"
+                                  size={9}
+                                  color="#ffffff"
+                                />
+                                <Text style={styles.followerLeafPillText}>
+                                  {leafCount}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <View style={styles.followerNotFoundWrap}>
+                      <Text style={styles.followerNotFoundText}>
+                        {followerSearchQuery
+                          ? "No followers match your search"
+                          : "No followers found"}
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+
+                {/* Follow Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.followModalActionBtn,
+                    isFollowing && styles.followModalActionBtnFollowing,
+                  ]}
+                  onPress={handleFollowToggle}
+                  disabled={followLoading}
+                  activeOpacity={0.88}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.followModalActionBtnText,
+                        isFollowing && styles.followModalActionBtnTextFollowing,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : roomModalTab === "events" ? (
+              <View style={styles.followModalTabContainer}>
+                <View style={styles.eventsEmptyTabContainer}>
+                  <EventsEmptyIllustration />
+                  <Text style={styles.eventsEmptyText}>No content here</Text>
+                </View>
+                {/* Follow Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.followModalActionBtn,
+                    isFollowing && styles.followModalActionBtnFollowing,
+                  ]}
+                  onPress={handleFollowToggle}
+                  disabled={followLoading}
+                  activeOpacity={0.88}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.followModalActionBtnText,
+                        isFollowing && styles.followModalActionBtnTextFollowing,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.followModalTabContainer}>
+                {/* Sub-Header: Achievement | Honor and (?) Help */}
+                <View style={styles.badgeWallSubHeader}>
+                  <View style={styles.badgeWallSubTabsRow}>
+                    <TouchableOpacity
+                      style={styles.badgeWallSubTabItem}
+                      onPress={() => setRoomBadgeSubTab("achievement")}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.badgeWallSubTabText,
+                          roomBadgeSubTab === "achievement" &&
+                            styles.badgeWallSubTabTextActive,
+                        ]}
+                      >
+                        Achievement
+                      </Text>
+                      {roomBadgeSubTab === "achievement" && (
+                        <View style={styles.badgeWallSubActiveIndicator} />
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.badgeWallSubTabItem}
+                      onPress={() => setRoomBadgeSubTab("honor")}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.badgeWallSubTabText,
+                          roomBadgeSubTab === "honor" &&
+                            styles.badgeWallSubTabTextActive,
+                        ]}
+                      >
+                        Honor
+                      </Text>
+                      {roomBadgeSubTab === "honor" && (
+                        <View style={styles.badgeWallSubActiveIndicator} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.badgeWallHelpBtn}
+                    onPress={handleBadgeWallHelp}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="help-circle-outline"
+                      size={24}
+                      color="#374151"
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Badges Grid ScrollView */}
+                <ScrollView
+                  style={styles.badgeWallScroll}
+                  contentContainerStyle={styles.badgeWallGrid}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {(roomBadgeSubTab === "achievement"
+                    ? achievementBadges
+                    : honorBadges
+                  ).map((badge) => {
+                    return (
+                      <TouchableOpacity
+                        key={badge.id}
+                        style={styles.badgeWallCard}
+                        onPress={() => handleBadgePress(badge)}
+                        activeOpacity={0.75}
+                      >
+                        <View style={styles.badgeEmblemWrap}>
+                          <RoomBadgeEmblem badge={badge} />
+                          {badge.grade ? (
+                            <GradeCornerBadge grade={badge.grade} />
+                          ) : null}
+                        </View>
+                        <Text
+                          style={[
+                            styles.badgeWallCardTitle,
+                            badge.unlocked && styles.badgeWallCardTitleUnlocked,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {badge.title}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Follow Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.followModalActionBtn,
+                    isFollowing && styles.followModalActionBtnFollowing,
+                  ]}
+                  onPress={handleFollowToggle}
+                  disabled={followLoading}
+                  activeOpacity={0.88}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={isFollowing ? "#7c4dff" : "#ffffff"}
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.followModalActionBtnText,
+                        isFollowing && styles.followModalActionBtnTextFollowing,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── EDIT ROOM MODAL ── */}
+      <Modal
+        visible={showEditRoomModal}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!isSavingRoomDetails) {
+            Keyboard.dismiss();
+            setShowEditRoomModal(false);
+          }
+        }}
+      >
+        <TouchableOpacity
+          style={styles.editRoomModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isSavingRoomDetails) {
+              Keyboard.dismiss();
+              setShowEditRoomModal(false);
+            }
+          }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[
+              styles.editRoomModalBox,
+              editRoomKeyboardHeight > 0 && {
+                marginBottom: editRoomKeyboardHeight,
+                paddingBottom: 12,
+              },
+            ]}
+          >
+            {/* Modal Header */}
+            <View style={styles.editRoomModalHeader}>
+              <Text style={styles.editRoomModalTitle}>Edit Room Info</Text>
+              <TouchableOpacity
+                style={styles.editRoomModalCloseBtn}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setShowEditRoomModal(false);
+                }}
+                disabled={isSavingRoomDetails}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <X size={20} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              bounces={false}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.editRoomScrollContent}
+            >
+              {/* Room Avatar Picker inside Modal */}
+              <View
+                style={[
+                  styles.editRoomAvatarSection,
+                  editRoomKeyboardHeight > 0 && styles.editRoomAvatarSectionCompact,
+                ]}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.editRoomAvatarWrap,
+                    editRoomKeyboardHeight > 0 && styles.editRoomAvatarWrapCompact,
+                  ]}
+                  onPress={handlePickRoomImageForEdit}
+                  activeOpacity={0.8}
+                  disabled={isSavingRoomDetails}
+                >
+                  {editRoomImageUri ? (
+                    <Image
+                      source={{ uri: editRoomImageUri }}
+                      style={styles.editRoomAvatarImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.editRoomAvatarPlaceholder}>
+                      <Ionicons
+                        name="image-outline"
+                        size={editRoomKeyboardHeight > 0 ? 26 : 34}
+                        color="#9ca3af"
+                      />
+                    </View>
+                  )}
+                  <View style={styles.editRoomAvatarCameraBadge}>
+                    <Ionicons name="camera" size={13} color="#ffffff" />
+                  </View>
+                </TouchableOpacity>
+                <Text style={styles.editRoomAvatarHint}>Tap to change cover photo</Text>
+              </View>
+
+              {/* Room Name Input */}
+              <View style={styles.editRoomInputGroup}>
+                <View style={styles.editRoomInputLabelRow}>
+                  <Text style={styles.editRoomInputLabel}>Room Name</Text>
+                  <Text style={styles.editRoomInputCounter}>
+                    {editRoomName.length}/30
+                  </Text>
+                </View>
+                <TextInput
+                  style={styles.editRoomTextInput}
+                  value={editRoomName}
+                  onChangeText={(t) => setEditRoomName(t.slice(0, 30))}
+                  placeholder="Enter room name"
+                  placeholderTextColor="#9ca3af"
+                  maxLength={30}
+                  editable={!isSavingRoomDetails}
+                  onFocus={syncEditRoomKeyboard}
+                />
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.editRoomActionsRow}>
+                <TouchableOpacity
+                  style={styles.editRoomCancelBtn}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setShowEditRoomModal(false);
+                  }}
+                  disabled={isSavingRoomDetails}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.editRoomCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.editRoomSaveBtn,
+                    (!editRoomName.trim() || isSavingRoomDetails) &&
+                      styles.editRoomSaveBtnDisabled,
+                  ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    handleSaveRoomDetails();
+                  }}
+                  disabled={!editRoomName.trim() || isSavingRoomDetails}
+                  activeOpacity={0.88}
+                >
+                  {isSavingRoomDetails ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={styles.editRoomSaveText}>Save Changes</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── ACTIVE USERS MODAL ── */}
+      <Modal
+        visible={showActiveUsersModal}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setShowActiveUsersModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.activeUsersOverlay}
+          activeOpacity={1}
+          onPress={() => setShowActiveUsersModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.activeUsersBox}>
+            <View style={styles.activeUsersHeader}>
+              <View style={styles.activeUsersTitleRow}>
+                <Users size={16} color="#a78bfa" />
+                <Text style={styles.activeUsersTitle}>Active Users</Text>
+                <View style={styles.activeUsersBadge}>
+                  <Text style={styles.activeUsersBadgeText}>
+                    {onlineCount || displayActiveUsers.length}
+                  </Text>
+                </View>
+                <View style={styles.activeUsersSeatedBadge}>
+                  <Text style={styles.activeUsersSeatedBadgeText}>
+                    🎙️ {seatedUsersCount} Seated
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowActiveUsersModal(false)}
+                style={styles.activeUsersCloseBtn}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={styles.activeUsersCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.activeUsersList}
+              contentContainerStyle={styles.activeUsersListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {displayActiveUsers.length === 0 ? (
+                <View style={styles.activeUsersEmpty}>
+                  <Text style={styles.activeUsersEmptyText}>
+                    No active users in room
+                  </Text>
+                </View>
+              ) : (
+                displayActiveUsers.map((user, idx) => {
+                  const uId = user.userId || user.id;
+                  const seated = isUserSeated(uId);
+                  const isMeOnSeat =
+                    seated &&
+                    ((myUserId != null && String(uId) === String(myUserId)) ||
+                      user.name === "You" ||
+                      user.id === "local-user");
+                  // Same level/VIP/decoration badge row shown in the chat and the
+                  // mini profile popup — derived from the same per-user
+                  // userFrameData fetch (already covers every online user, see
+                  // the effect that builds `audienceUserIds`), so every row here
+                  // gets the same badges without any extra network calls.
+                  const isRowSelf =
+                    myUserId != null &&
+                    uId != null &&
+                    String(uId) === String(myUserId);
+                  const rowIsVip = isRowSelf && myVipAssets.unlocked;
+                  const rowVipTier = !isRowSelf
+                    ? resolveVipTierFromAssetUrl(
+                        userFrameData[String(uId)]?.vipProfileFrameUrl,
+                      )
+                    : null;
+                  const rowVipLogo = rowIsVip
+                    ? myVipAssets.logo
+                    : rowVipTier
+                      ? VIP_LOGO_BY_TIER[rowVipTier]
+                      : null;
+                  const rowDecorationBadge =
+                    uId != null
+                      ? (userFrameData[String(uId)]?.decorationBadgeUrl ?? null)
+                      : null;
+                  const rowVipLogoSource = rowVipLogo
+                    ? typeof rowVipLogo === "string" &&
+                      rowVipLogo.trim().length > 0
+                      ? {
+                          uri: rowVipLogo
+                            .trim()
+                            .replace(
+                              /\/vip-frame\/vip8\/viplogo8\.png/i,
+                              "/vip-frame/vip8/Viplogo8.png",
+                            ),
+                        }
+                      : typeof rowVipLogo === "number" ||
+                          (typeof rowVipLogo === "object" && rowVipLogo?.uri)
+                        ? rowVipLogo
+                        : null
+                    : null;
+                  const rowDecorationBadgeSource = rowDecorationBadge
+                    ? typeof rowDecorationBadge === "string" &&
+                      rowDecorationBadge.trim().length > 0
+                      ? { uri: rowDecorationBadge.trim() }
+                      : typeof rowDecorationBadge === "number" ||
+                          (typeof rowDecorationBadge === "object" &&
+                            rowDecorationBadge?.uri)
+                        ? rowDecorationBadge
+                        : null
+                    : null;
+                  // Premium (like VIP) is only ever known for the current user —
+                  // no per-other-user premium data is available from this list.
+                  const rowPremiumLogoSource =
+                    isRowSelf && myPremiumLogo ? { uri: myPremiumLogo } : null;
+                  return (
+                    <TouchableOpacity
+                      key={uId ?? `active-user-${idx}`}
+                      style={styles.activeUserCard}
+                      activeOpacity={0.75}
+                      onPress={() => {
+                        setShowActiveUsersModal(false);
+                        handleOnlineUserPress(user);
+                      }}
+                    >
+                      <View style={styles.activeUserAvatarWrap}>
+                        {renderRoomUserAvatar(
+                          user,
+                          styles.activeUserAvatar,
+                          [
+                            styles.activeUserAvatar,
+                            styles.activeUserAvatarPlaceholder,
+                          ],
+                          styles.activeUserInitial,
+                        )}
+                        {user.muted ? (
+                          <View
+                            style={[
+                              styles.activeUserMicDot,
+                              { backgroundColor: "#ef4444" },
+                            ]}
+                          >
+                            <MicOff size={7} color="white" />
+                          </View>
+                        ) : user.isSpeaking ? (
+                          <View
+                            style={[
+                              styles.activeUserMicDot,
+                              { backgroundColor: "#22c55e" },
+                            ]}
+                          >
+                            <Mic size={7} color="white" />
+                          </View>
+                        ) : null}
+                      </View>
+                      <View style={styles.activeUserInfo}>
+                        <View style={styles.activeUserNameRow}>
+                          <Text style={styles.activeUserName} numberOfLines={1}>
+                            {user.name || user.username || `User ${uId || ""}`}
+                          </Text>
+                          <AutoBadgeImage
+                            source={resolveLocalLevelBadge(user.level)}
+                            style={styles.activeUserLevelImg}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={rowVipLogoSource}
+                            style={styles.activeUserVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={rowPremiumLogoSource}
+                            style={styles.activeUserVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={rowDecorationBadgeSource}
+                            style={styles.activeUserDecorationBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={
+                              user.verifiedBadgeUrl
+                                ? { uri: user.verifiedBadgeUrl }
+                                : null
+                            }
+                            style={styles.activeUserVerifiedBadge}
+                            resizeMode="contain"
+                          />
+                        </View>
+                        <Text style={styles.activeUserStatus}>
+                          {uId != null && String(uId) === String(hostId)
+                            ? seated
+                              ? "👑 Owner (Seated)"
+                              : "👑 Owner"
+                            : seated
+                              ? "🎙️ Seated"
+                              : "🎧 Audience"}
+                        </Text>
+                      </View>
+                      <View style={styles.activeUserActionsRow}>
+                        {uId != null && String(uId) === String(hostId) ? (
+                          <View style={styles.ownerStatusBadge}>
+                            <Text style={styles.ownerStatusText}>Owner</Text>
+                          </View>
+                        ) : seated ? (
+                          <View style={styles.seatStatusBadge}>
+                            <Text style={styles.seatStatusText}>Seated</Text>
+                          </View>
+                        ) : (
+                          <View
+                            style={[
+                              styles.seatStatusBadge,
+                              styles.audienceStatusBadge,
+                            ]}
+                          >
+                            <Text style={styles.audienceStatusText}>
+                              Audience
+                            </Text>
+                          </View>
+                        )}
+                        {isMeOnSeat && (
+                          <TouchableOpacity
+                            style={styles.leaveSeatBtn}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                              setShowActiveUsersModal(false);
+                              handleTakeMic();
+                            }}
+                          >
+                            <Text style={styles.leaveSeatBtnText}>Leave</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── SHARE MODAL (Instagram-style) ── */}
       <Modal
         visible={showShareMenu}
         transparent
@@ -4092,37 +11173,37 @@ export default function VoiceParty() {
             activeOpacity={1}
             style={[
               styles.shareBox,
-              { paddingBottom: Math.max(30, safeBottom + 16) },
+              { paddingBottom: Math.max(24, safeBottom + 12) },
             ]}
           >
             {/* Handle bar */}
             <View style={styles.shareHandle} />
 
-            <Text style={styles.shareTitle}>Invite your friends</Text>
+            <Text style={styles.shareTitle}>Share Room</Text>
 
-            {/* Platform icons */}
-            <View style={styles.sharePlatformRow}>
-              {sharePlatforms.map((p) => (
+            {/* Search Input */}
+            <View style={styles.shareSearchBox}>
+              <Search
+                size={16}
+                color="rgba(255,255,255,0.45)"
+                style={{ marginRight: 8 }}
+              />
+              <TextInput
+                style={styles.shareSearchInput}
+                placeholder="Search friends & chats..."
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                value={shareSearch}
+                onChangeText={setShareSearch}
+                autoCapitalize="none"
+              />
+              {shareSearch.length > 0 && (
                 <TouchableOpacity
-                  key={p.label}
-                  style={styles.sharePlatformItem}
-                  activeOpacity={0.8}
+                  onPress={() => setShareSearch("")}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <View
-                    style={[
-                      styles.sharePlatformIcon,
-                      { backgroundColor: p.bg },
-                    ]}
-                  >
-                    {typeof p.icon === "string" ? (
-                      <Text style={styles.sharePlatformEmoji}>{p.icon}</Text>
-                    ) : (
-                      p.icon
-                    )}
-                  </View>
-                  <Text style={styles.sharePlatformLabel}>{p.label}</Text>
+                  <X size={15} color="rgba(255,255,255,0.6)" />
                 </TouchableOpacity>
-              ))}
+              )}
             </View>
 
             {/* Tabs */}
@@ -4149,6 +11230,141 @@ export default function VoiceParty() {
               ))}
             </View>
 
+            {/* User List Section */}
+            <View style={styles.shareUsersSection}>
+              {shareLoading ? (
+                <View style={styles.shareLoadingWrap}>
+                  <ActivityIndicator size="small" color="#a78bfa" />
+                  <Text style={styles.shareLoadingText}>Loading users...</Text>
+                </View>
+              ) : displayedShareUsers.length === 0 ? (
+                <View style={styles.shareEmptyWrap}>
+                  <Text style={styles.shareEmptyText}>
+                    {shareSearch.trim()
+                      ? "No users matching your search"
+                      : shareTab === "Recently"
+                        ? "No recent chats found"
+                        : shareTab === "Friends"
+                          ? "No following users found"
+                          : "No followers found"}
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView
+                  style={styles.shareUsersScroll}
+                  contentContainerStyle={styles.shareUsersScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                >
+                  {displayedShareUsers.map((u, idx) => {
+                    const uId = String(u.userId ?? u.id ?? idx);
+                    const isSent = Boolean(sentUserIds[uId]);
+                    const isSending = Boolean(sendingUserIds[uId]);
+                    const displayName = u.name || u.username || "User";
+                    const subtitle =
+                      u.handle ||
+                      (u.lastMsg
+                        ? u.lastMsg.slice(0, 26)
+                        : `@${u.username || "user"}`);
+
+                    return (
+                      <View key={uId} style={styles.shareUserRow}>
+                        <View style={styles.shareUserAvatarWrap}>
+                          {u.avatar ? (
+                            <Image
+                              source={{ uri: u.avatar }}
+                              style={styles.shareUserAvatar}
+                            />
+                          ) : (
+                            <View style={styles.shareUserAvatarFallback}>
+                              <Text style={styles.shareUserAvatarInitials}>
+                                {displayName.slice(0, 2).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          {Boolean(u.online || u.isOnline) && (
+                            <View style={styles.shareUserOnlineDot} />
+                          )}
+                        </View>
+
+                        <View style={styles.shareUserInfoCol}>
+                          <Text style={styles.shareUserName} numberOfLines={1}>
+                            {displayName}
+                          </Text>
+                          <Text
+                            style={styles.shareUserHandle}
+                            numberOfLines={1}
+                          >
+                            {subtitle}
+                          </Text>
+                        </View>
+
+                        {isSent ? (
+                          <View style={styles.shareUserSentBadge}>
+                            <Check size={12} color="#4ade80" />
+                            <Text style={styles.shareUserSentText}>Sent</Text>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.shareUserSendBtn}
+                            activeOpacity={0.8}
+                            disabled={isSending}
+                            onPress={() => handleSendDirectInvite(u)}
+                          >
+                            {isSending ? (
+                              <ActivityIndicator size="small" color="white" />
+                            ) : (
+                              <Text style={styles.shareUserSendBtnText}>
+                                Send
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
+
+            {/* Platform Sharing Row */}
+            <View style={styles.sharePlatformSection}>
+              <Text style={styles.sharePlatformSectionTitle}>
+                Share to other apps
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.sharePlatformRow}
+              >
+                {sharePlatforms.map((p) => (
+                  <TouchableOpacity
+                    key={p.label}
+                    style={styles.sharePlatformItem}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setShowShareMenu(false);
+                      p.onPress?.();
+                    }}
+                  >
+                    <View
+                      style={[
+                        styles.sharePlatformIcon,
+                        { backgroundColor: p.bg },
+                      ]}
+                    >
+                      {typeof p.icon === "string" ? (
+                        <Text style={styles.sharePlatformEmoji}>{p.icon}</Text>
+                      ) : (
+                        p.icon
+                      )}
+                    </View>
+                    <Text style={styles.sharePlatformLabel}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
             {/* Cancel */}
             <TouchableOpacity
               style={styles.shareCancelBtn}
@@ -4161,7 +11377,9 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── SEAT ACTION POPUP (centered) ── */}
+      {/* ── SEAT ACTION POPUP (centered) — same illustrated card as the
+          mic-permission warning, so every "confirm before joining a mic"
+          prompt in the room looks consistent. ── */}
       <Modal
         visible={Boolean(seatActionSheet)}
         transparent
@@ -4173,53 +11391,72 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setSeatActionSheet(null)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.seatActionCard}>
-            {/* Header */}
-            <View style={styles.seatActionHeader}>
-              <Text style={styles.seatActionHeaderEmoji}>🎙️</Text>
-              <Text style={styles.seatActionHeaderTitle}>
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            {/* ── Illustrated header area ── */}
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              {/* Decorative glow blobs */}
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              {/* Main illustration — mic inside a phone-shaped card */}
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                <View style={styles.micPermMicCircle}>
+                  <Mic size={16} color="#7c4dff" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+
+              {/* Small floating badge */}
+              <View style={styles.micPermBadge}>
+                <View style={styles.micPermBadgeDot} />
+                <View style={styles.micPermBadgeLine} />
+              </View>
+            </LinearGradient>
+
+            {/* ── Body text ── */}
+            <View style={styles.micPermBody}>
+              <Text
+                style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}
+              >
                 Seat {seatActionSheet?.seatId}
               </Text>
-              <Text style={styles.seatActionHeaderSub}>
-                What would you like to do?
+              <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
+                Do you want to claim this seat and join the mic?
               </Text>
             </View>
 
-            {/* Divider */}
-            <View style={styles.seatActionDivider} />
+            {/* ── Buttons ── */}
+            <View style={styles.micPermBtnRow}>
+              <TouchableOpacity
+                style={styles.micPermCancelBtn}
+                activeOpacity={0.7}
+                onPress={() => setSeatActionSheet(null)}
+              >
+                <Text style={styles.micPermCancelText}>Cancel</Text>
+              </TouchableOpacity>
 
-            {/* Take a Seat */}
-            <TouchableOpacity
-              style={styles.seatActionBtn}
-              activeOpacity={0.8}
-              disabled={seatActionLoading}
-              onPress={() => handleTakeSeat(seatActionSheet?.seatId)}
-            >
-              <LinearGradient
-                colors={["#7c4dff", "#a855f7"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.seatActionBtnGradient}
+              <View style={styles.micPermBtnDivider} />
+
+              <TouchableOpacity
+                style={styles.micPermOkBtn}
+                activeOpacity={0.7}
+                disabled={seatActionLoading}
+                onPress={() => handleTakeSeat(seatActionSheet?.seatId)}
               >
                 {seatActionLoading ? (
-                  <ActivityIndicator color="white" />
+                  <ActivityIndicator color="#a855f7" size="small" />
                 ) : (
-                  <>
-                    <Text style={styles.seatActionBtnIcon}>🎤</Text>
-                    <Text style={styles.seatActionBtnText}>Take a Seat</Text>
-                  </>
+                  <Text style={styles.micPermOkText}>Claim seat</Text>
                 )}
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Cancel */}
-            <TouchableOpacity
-              style={styles.seatActionCancelBtn}
-              activeOpacity={0.8}
-              onPress={() => setSeatActionSheet(null)}
-            >
-              <Text style={styles.seatActionCancelText}>Cancel</Text>
-            </TouchableOpacity>
+              </TouchableOpacity>
+            </View>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -4254,7 +11491,7 @@ export default function VoiceParty() {
                 <View style={styles.micPermPhoneBar2} />
                 {/* Mic icon inside the card */}
                 <View style={styles.micPermMicCircle}>
-                  <Mic size={22} color="#7c4dff" strokeWidth={2} />
+                  <Mic size={16} color="#7c4dff" strokeWidth={2} />
                 </View>
                 <View style={styles.micPermPhoneBar3} />
               </View>
@@ -4289,9 +11526,250 @@ export default function VoiceParty() {
               <TouchableOpacity
                 style={styles.micPermOkBtn}
                 activeOpacity={0.7}
-                onPress={() => setMicPermWarning(null)}
+                onPress={async () => {
+                  const pendingSeatId = micPermWarning;
+                  setMicPermWarning(null);
+                  const granted = await agoraVoice.requestMicPermission();
+                  if (granted) {
+                    if (pendingSeatId === "music") {
+                      // Automatically try toggling music again now that permission is granted
+                      handleToggleMusic();
+                    } else if (pendingSeatId != null) {
+                      handleTakeSeat(pendingSeatId);
+                    }
+                  }
+                }}
               >
                 <Text style={styles.micPermOkText}>Ok</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── ADMIN SEAT ACTIONS POPUP (Claim / Lock) ── */}
+      <Modal
+        visible={Boolean(adminSeatModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAdminSeatModal(null)}
+      >
+        <TouchableOpacity
+          style={styles.seatActionOverlay}
+          activeOpacity={1}
+          onPress={() => setAdminSeatModal(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            {/* ── Header section ── */}
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                <View style={styles.micPermMicCircle}>
+                  <Lock size={16} color="#c084fc" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+
+              <View style={styles.micPermBadge}>
+                <View style={styles.micPermBadgeDot} />
+                <View style={styles.micPermBadgeLine} />
+              </View>
+            </LinearGradient>
+
+            {/* ── Body ── */}
+            <View style={styles.micPermBody}>
+              <Text
+                style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}
+              >
+                Seat {adminSeatModal?.seatId}
+              </Text>
+              <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
+                Choose an action for this seat:
+              </Text>
+            </View>
+
+            {/* ── Action buttons ── */}
+            <View style={styles.adminSeatBtnRow}>
+              <TouchableOpacity
+                style={styles.adminSeatActionBtn}
+                activeOpacity={0.7}
+                disabled={seatActionLoading}
+                onPress={() => handleAdminClaimOption(adminSeatModal?.seatId)}
+              >
+                <Mic size={15} color="#c084fc" style={{ marginRight: 5 }} />
+                <Text style={styles.adminSeatActionClaimText}>Claim Seat</Text>
+              </TouchableOpacity>
+
+              <View style={styles.micPermBtnDivider} />
+
+              <TouchableOpacity
+                style={styles.adminSeatActionBtn}
+                activeOpacity={0.7}
+                disabled={seatActionLoading}
+                onPress={() => handleLockSeat(adminSeatModal?.seatId)}
+              >
+                {seatActionLoading ? (
+                  <ActivityIndicator color="#f87171" size="small" />
+                ) : (
+                  <>
+                    <Lock
+                      size={15}
+                      color="#f87171"
+                      style={{ marginRight: 5 }}
+                    />
+                    <Text style={styles.adminSeatActionLockText}>
+                      Lock Seat
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.adminSeatCancelBtn}
+              activeOpacity={0.7}
+              onPress={() => setAdminSeatModal(null)}
+            >
+              <Text style={styles.micPermCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── ADMIN UNLOCK SEAT POPUP ── */}
+      <Modal
+        visible={Boolean(adminUnlockModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAdminUnlockModal(null)}
+      >
+        <TouchableOpacity
+          style={styles.seatActionOverlay}
+          activeOpacity={1}
+          onPress={() => setAdminUnlockModal(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                <View style={styles.micPermMicCircle}>
+                  <Unlock size={16} color="#4ade80" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+            </LinearGradient>
+
+            <View style={styles.micPermBody}>
+              <Text
+                style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}
+              >
+                Seat {adminUnlockModal?.seatId}
+              </Text>
+              <Text style={[styles.micPermMsg, { marginTop: 4 }]}>
+                This seat is locked. Do you want to unlock it?
+              </Text>
+            </View>
+
+            <View style={styles.micPermBtnRow}>
+              <TouchableOpacity
+                style={styles.micPermCancelBtn}
+                activeOpacity={0.7}
+                onPress={() => setAdminUnlockModal(null)}
+              >
+                <Text style={styles.micPermCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <View style={styles.micPermBtnDivider} />
+
+              <TouchableOpacity
+                style={styles.micPermOkBtn}
+                activeOpacity={0.7}
+                disabled={seatActionLoading}
+                onPress={() => handleUnlockSeat(adminUnlockModal?.seatId)}
+              >
+                {seatActionLoading ? (
+                  <ActivityIndicator color="#4ade80" size="small" />
+                ) : (
+                  <Text style={[styles.micPermOkText, { color: "#4ade80" }]}>
+                    Unlock Seat
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── NORMAL USER LOCKED SEAT NOTICE POPUP ── */}
+      <Modal
+        visible={Boolean(lockedSeatNoticeModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLockedSeatNoticeModal(null)}
+      >
+        <TouchableOpacity
+          style={styles.seatActionOverlay}
+          activeOpacity={1}
+          onPress={() => setLockedSeatNoticeModal(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.micPermCard}>
+            <LinearGradient
+              colors={["#2a0f5e", "#4a1fa8", "#3b1580"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.micPermIllustration}
+            >
+              <View style={styles.micPermBlob1} />
+              <View style={styles.micPermBlob2} />
+
+              <View style={styles.micPermPhoneCard}>
+                <View style={styles.micPermPhoneBar1} />
+                <View style={styles.micPermPhoneBar2} />
+                <View style={styles.micPermMicCircle}>
+                  <Lock size={16} color="#fbbf24" strokeWidth={2} />
+                </View>
+                <View style={styles.micPermPhoneBar3} />
+              </View>
+            </LinearGradient>
+
+            <View style={styles.micPermBody}>
+              <Text
+                style={[styles.seatActionHeaderTitle, { textAlign: "center" }]}
+              >
+                Seat {lockedSeatNoticeModal?.seatId}
+              </Text>
+              <Text
+                style={[styles.micPermMsg, { marginTop: 4, color: "#fef08a" }]}
+              >
+                This seat is locked by owner
+              </Text>
+            </View>
+
+            <View style={styles.micPermBtnRow}>
+              <TouchableOpacity
+                style={[styles.micPermOkBtn, { flex: 1 }]}
+                activeOpacity={0.7}
+                onPress={() => setLockedSeatNoticeModal(null)}
+              >
+                <Text style={styles.micPermOkText}>OK</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -4303,6 +11781,7 @@ export default function VoiceParty() {
         visible={showWelcomeEdit}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setShowWelcomeEdit(false)}
       >
         <TouchableOpacity
@@ -4310,8 +11789,20 @@ export default function VoiceParty() {
           activeOpacity={1}
           onPress={() => setShowWelcomeEdit(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.welcomeEditBox}>
-            <View style={styles.shareHandle} />
+          {/* Edge-to-edge Modals don't resize for the keyboard — lift the sheet manually */}
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[
+              styles.welcomeEditBox,
+              welcomeKeyboardHeight > 0 && {
+                marginBottom: welcomeKeyboardHeight,
+                paddingBottom: 12,
+              },
+            ]}
+          >
+            <View
+              style={[styles.shareHandle, { marginTop: 4, marginBottom: 10 }]}
+            />
             <Text style={styles.welcomeEditTitle}>Edit Welcome Message</Text>
             <TextInput
               style={styles.welcomeEditInput}
@@ -4322,6 +11813,7 @@ export default function VoiceParty() {
               multiline
               maxLength={120}
               autoFocus
+              onFocus={syncWelcomeKeyboard}
             />
             <Text style={styles.welcomeEditCount}>
               {welcomeDraft.length}/120
@@ -4338,8 +11830,16 @@ export default function VoiceParty() {
                 style={styles.welcomeEditSave}
                 activeOpacity={0.8}
                 onPress={() => {
-                  if (welcomeDraft.trim())
-                    setWelcomeMessage(welcomeDraft.trim());
+                  const trimmed = welcomeDraft.trim();
+                  if (trimmed) {
+                    setWelcomeMessage(trimmed);
+                    saveRoomAnnouncement(roomId, trimmed).catch((err) => {
+                      console.warn(
+                        "[voice-party] Announcement save failed:",
+                        err,
+                      );
+                    });
+                  }
                   setShowWelcomeEdit(false);
                 }}
               >
@@ -4381,13 +11881,24 @@ export default function VoiceParty() {
         </TouchableOpacity>
       </Modal>
 
-      {/* ── REPORT ROOM MODAL ── */}
+      {/* ── REPORT ROOM / USER MODAL ── */}
       <ReportReasonModal
         visible={showReportModal}
-        title="Report Room"
-        targetLabel="this room"
-        onClose={() => setShowReportModal(false)}
+        title={reportTarget?.isRoom ? "Report Room" : "Report User"}
+        targetLabel={reportTarget?.name ? reportTarget.name : "this room"}
+        onClose={() => {
+          setShowReportModal(false);
+          setReportTarget(null);
+        }}
         onSubmit={handleReportRoomSubmit}
+      />
+
+      {/* ── DIAMOND RECHARGE MODAL ── */}
+      <DiamondRechargeModal
+        visible={showDiamondRecharge}
+        onClose={() => setShowDiamondRecharge(false)}
+        currentDiamonds={walletDiamonds}
+        initialTab={rechargeInitialTab}
       />
 
       {roomLoading && (
@@ -4415,63 +11926,87 @@ export default function VoiceParty() {
       >
         {/* ── HEADER ── */}
         <View style={styles.header}>
-          {/* Room info + follow button */}
-          <View style={styles.ownerSection}>
-            {roomInfo?.profileImageUrl ? (
+          {/* Room info capsule with integrated + follow button and diamond accent */}
+          <View style={styles.ownerSectionWrapper}>
+            <View style={styles.ownerSection}>
+              {/* Capsule Frame Background Image */}
               <Image
-                source={{ uri: roomInfo.profileImageUrl }}
-                style={styles.ownerAvatar}
+                source={ROOM_HEADER_BG}
+                style={styles.ownerSectionBg}
+                resizeMode="stretch"
               />
-            ) : hostUserLike ? (
-              renderRoomUserAvatar(
-                hostUserLike,
-                styles.ownerAvatar,
-                [styles.ownerAvatar, styles.ownerAvatarPlaceholder],
-                styles.ownerInitial,
-              )
-            ) : (
-              <Image
-                source={{
-                  uri: "https://randomuser.me/api/portraits/men/32.jpg",
-                }}
-                style={styles.ownerAvatar}
-              />
-            )}
-            <View style={styles.ownerTextCol}>
-              <Text
-                style={styles.ownerName}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {roomInfo?.name ?? "Voice Room"}
-              </Text>
-              <Text
-                style={styles.ownerId}
-                numberOfLines={1}
-                ellipsizeMode="middle"
-              >
-                ID:{roomId ?? "—"}
-              </Text>
-            </View>
-            {!isHostSelf && (
+
+              {/* Dynamic Host / Room Avatar inside left crest spot (Opens Room Profile Modal) */}
               <TouchableOpacity
-                style={[styles.plusBtn, isFollowing && styles.plusBtnFollowing]}
-                onPress={handleFollowToggle}
-                disabled={followLoading}
+                style={styles.ownerAvatarSpot}
                 activeOpacity={0.8}
+                onPress={() => setShowRoomProfileModal(true)}
               >
-                {followLoading ? (
-                  <ActivityIndicator size="small" color="white" />
+                {roomInfo?.profileImageUrl ? (
+                  <Image
+                    source={{ uri: roomInfo.profileImageUrl }}
+                    style={styles.ownerAvatarCircle}
+                    resizeMode="cover"
+                  />
+                ) : hostUserLike ? (
+                  renderRoomUserAvatar(
+                    hostUserLike,
+                    styles.ownerAvatarCircle,
+                    [styles.ownerAvatarCircle, styles.ownerAvatarPlaceholder],
+                    styles.ownerInitial,
+                  )
                 ) : (
-                  <Plus size={20} color="white" />
+                  <Image
+                    source={{
+                      uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                        roomInfo?.name || "Host",
+                      )}&background=7c4dff&color=fff`,
+                    }}
+                    style={styles.ownerAvatarCircle}
+                    resizeMode="cover"
+                  />
                 )}
               </TouchableOpacity>
-            )}
+
+              {/* Dynamic Room Name & Room ID */}
+              <View style={styles.ownerTextCol}>
+                <View style={styles.ownerNameRow}>
+                  <Text
+                    style={styles.ownerName}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {roomInfo?.name ?? "Voice Room"}
+                  </Text>
+                  {isHostSelf && !!myCountryFlag && (
+                    <Text style={styles.ownerCountryFlag}>{myCountryFlag}</Text>
+                  )}
+                </View>
+                <Text
+                  style={styles.ownerId}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  ID:{roomId ?? "—"}
+                </Text>
+              </View>
+
+              {/* + Follow Button inside capsule (Opens Follow / Unfollow Modal) */}
+              <TouchableOpacity
+                style={styles.capsulePlusBtn}
+                onPress={() => setShowFollowModal(true)}
+                activeOpacity={0.8}
+              >
+                <Plus size={13} color="white" strokeWidth={3} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <View style={styles.headerRight}>
+
             <TouchableOpacity
               style={styles.headerBtn}
+              activeOpacity={0.8}
               onPress={() => setShowShareMenu(true)}
             >
               <Share2 size={20} color="white" />
@@ -4494,51 +12029,79 @@ export default function VoiceParty() {
         {/* ── ONLINE USERS ROW ── */}
         <View style={styles.badgesRow}>
           <View style={styles.trophyBadge}>
-            <Text style={styles.trophyText}>👥 {onlineCount}</Text>
+            <Image
+              source={{
+                uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png",
+              }}
+              style={styles.trophyIcon}
+              resizeMode="cover"
+            />
+            <Text style={styles.trophyText}>
+              {onlineCount || displayActiveUsers.length}
+            </Text>
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.audienceScroll}
-            contentContainerStyle={styles.audienceScrollContent}
-          >
-            {onlineUsers.slice(0, 6).map((user, index) => (
-              <TouchableOpacity
-                key={user.id ?? `user-${index}`}
-                style={styles.audienceItem}
-                activeOpacity={0.85}
-                onPress={() => handleOnlineUserPress(user)}
-              >
-                {renderRoomUserAvatar(
-                  user,
-                  [
-                    styles.audienceAvatar,
-                    index > 0 && styles.audienceAvatarOverlap,
-                  ],
-                  [
-                    styles.audienceAvatar,
-                    styles.audienceAvatarPlaceholder,
-                    index > 0 && styles.audienceAvatarOverlap,
-                  ],
-                  styles.audienceInitial,
-                )}
-                <View style={styles.micStatusDot}>
-                  {user.muted ? (
-                    <MicOff size={9} color="#f87171" />
-                  ) : user.isSpeaking ? (
-                    <Mic size={9} color="#4ade80" />
-                  ) : (
-                    <Mic size={9} color="rgba(255,255,255,0.5)" />
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          {onlineCount > 6 && (
-            <View style={styles.audienceCount}>
-              <Text style={styles.audienceCountText}>+{onlineCount - 6}</Text>
+          <View style={styles.badgesRowRight}>
+            <View style={styles.audienceAvatarGroup}>
+              {displayActiveUsers.slice(0, 3).map((user, index) => {
+                const uId = user.userId || user.id;
+                const seated = isUserSeated(uId);
+                return (
+                  <TouchableOpacity
+                    key={uId || `user-${index}`}
+                    style={[
+                      styles.audienceItem,
+                      index > 0 && styles.audienceItemOverlap,
+                    ]}
+                    activeOpacity={0.85}
+                    onPress={() => handleOnlineUserPress(user)}
+                  >
+                    {renderRoomUserAvatar(
+                      user,
+                      styles.audienceAvatar,
+                      [styles.audienceAvatar, styles.audienceAvatarPlaceholder],
+                      styles.audienceInitial,
+                    )}
+                    <View style={styles.micStatusDot}>
+                      {user.muted ? (
+                        <MicOff size={8} color="#f87171" />
+                      ) : user.isSpeaking ? (
+                        <Mic size={8} color="#4ade80" />
+                      ) : seated ? (
+                        <Mic size={8} color="#a78bfa" />
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+              {Math.max(onlineCount || 0, displayActiveUsers.length) > 3 && (
+                <TouchableOpacity
+                  style={[
+                    styles.audienceItem,
+                    styles.audienceCountCircle,
+                    styles.audienceItemOverlap,
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    getClaimedSeats(String(roomId)).catch(() => {});
+                    setShowActiveUsersModal(true);
+                  }}
+                >
+                  <Text style={styles.audienceCountText}>
+                    +{Math.max(onlineCount || 0, displayActiveUsers.length) - 3}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
-          )}
+            <TouchableOpacity
+              style={styles.headerBtn}
+              onPress={() => {
+                getClaimedSeats(String(roomId)).catch(() => {});
+                setShowActiveUsersModal(true);
+              }}
+            >
+              <Users size={19} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ── MIC SEATS GRID ── */}
@@ -4549,7 +12112,6 @@ export default function VoiceParty() {
               style={styles.seatItem}
               activeOpacity={0.8}
               onPress={() => handleSeatPress(seat)}
-              disabled={seat.locked && !seat.user}
             >
               {seat.user ? (
                 <View style={styles.seatUserWrap}>
@@ -4567,22 +12129,59 @@ export default function VoiceParty() {
                     ],
                     styles.seatInitial,
                   )}
+                  {/* Seated green badge in top-right corner */}
+                  {/* <View style={styles.seatSeatedBadge}>
+                    <Text style={styles.seatSeatedBadgeText}>Seated</Text>
+                  </View> */}
+                  {/* Mic status badge in bottom-right corner */}
                   <View style={styles.seatMicIcon}>
-                    {seat.user.muted ? (
+                    {(seat.id === mySeatNumber ? isMicMuted : seat.user.muted) ? (
                       <MicOff size={12} color="#f87171" />
                     ) : (
-                      <Mic
-                        size={12}
-                        color={
-                          seat.user.active ? "#4ade80" : "rgba(255,255,255,0.8)"
-                        }
-                      />
+                      <Mic size={12} color="#4ade80" />
                     )}
                   </View>
+
+                  {/* Emoji / Sticker / GIF overlay — shown on seated avatar for 10 s */}
+                  {seat.user &&
+                    (seatEmojiOverlays[String(seat.user.id)] ||
+                     seatEmojiOverlays[String(seat.user.userId)] ||
+                     Object.entries(seatEmojiOverlays).find(([uid]) =>
+                       isSameUser(uid, seat.user.id ?? seat.user.userId)
+                     )?.[1]) && (
+                      <FloatingSeatEmojiOverlay
+                        key={
+                          (seatEmojiOverlays[String(seat.user.id)] ||
+                           seatEmojiOverlays[String(seat.user.userId)] ||
+                           Object.entries(seatEmojiOverlays).find(([uid]) =>
+                             isSameUser(uid, seat.user.id ?? seat.user.userId)
+                           )?.[1]).id
+                        }
+                        item={
+                          seatEmojiOverlays[String(seat.user.id)] ||
+                          seatEmojiOverlays[String(seat.user.userId)] ||
+                          Object.entries(seatEmojiOverlays).find(([uid]) =>
+                            isSameUser(uid, seat.user.id ?? seat.user.userId)
+                          )?.[1]
+                        }
+                        onComplete={() => {
+                          const sUserId = seat.user.id ?? seat.user.userId;
+                          setSeatEmojiOverlays((prev) => {
+                            const next = { ...prev };
+                            Object.keys(next).forEach((key) => {
+                              if (isSameUser(key, sUserId)) {
+                                delete next[key];
+                              }
+                            });
+                            return next;
+                          });
+                        }}
+                      />
+                    )}
                 </View>
               ) : seat.locked ? (
                 <View style={styles.seatEmpty}>
-                  <Text style={styles.lockIcon}>🔒</Text>
+                  <Lock size={18} color="#cbd5e1" />
                 </View>
               ) : (
                 <View style={styles.seatEmpty}>
@@ -4600,28 +12199,94 @@ export default function VoiceParty() {
         </View>
 
         {/* ── CHAT + RIGHT PANEL ── */}
-        <ScrollView
+        <View
           style={{ flex: 1 }}
-          contentContainerStyle={{
-            flexGrow: 1,
+          onTouchStart={() => {
+            Keyboard.dismiss();
+            if (showEmojiPicker) setShowEmojiPicker(false);
+            if (showEmojiReceiverPicker) setShowEmojiReceiverPicker(false);
           }}
         >
-          {/* Entry Banners */}
-          <View
-            style={{
-              width: Dimensions.get("screen").width,
-              overflow: "hidden",
-              flexDirection: "row",
-            }}
-          >
-            {recentEntries.map((user) => (
-              <UserEntryBanner
-                key={user.id}
-                user={user}
-                onComplete={handleEntryComplete}
-              />
-            ))}
-          </View>
+          {/* Bottom-to-Top Floating Gift Emoji Animation */}
+          {activeRisingGifts.map((item) => (
+            <FloatingGiftRiseItem
+              key={item._riseKey || item.id}
+              gift={item}
+              catalog={giftCatalog}
+              onComplete={() =>
+                handleRisingGiftComplete(item._riseKey || item.id)
+              }
+            />
+          ))}
+
+
+          {/* Floating Gift Display Overlay — non-blocking real-time animations for all users */}
+          {activeGiftDisplays.length > 0 && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                bottom: vs(155),
+                left: s(14),
+                zIndex: 10000,
+                elevation: 100,
+                maxWidth: W * 0.78,
+              }}
+            >
+              {activeGiftDisplays.map((item) => (
+                <GiftAnimationItem
+                  key={item._displayKey || item.id}
+                  gift={item}
+                  catalog={giftCatalog}
+                  onComplete={() =>
+                    handleGiftAnimationComplete(item._displayKey || item.id)
+                  }
+                />
+              ))}
+            </View>
+          )}
+
+          {/* Entry Banners (VIP badge) — overlay, displays after 10s of completed loading */}
+          {!roomLoading && canShowEntryBanner && recentEntries.length > 0 && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                bottom: vs(120),
+                left: 0,
+                right: 0,
+                alignItems: "center",
+                zIndex: 9999,
+                elevation: 99,
+              }}
+            >
+              {recentEntries.slice(-1).map((user, idx) => (
+                <UserEntryBanner
+                  key={
+                    user._entryKey ||
+                    `${user.id || user.userId || "entry"}-${idx}`
+                  }
+                  user={user}
+                  countryFlag={myCountryFlag}
+                  onComplete={() =>
+                    handleEntryComplete(
+                      user._entryKey || user.id || user.userId,
+                    )
+                  }
+                />
+              ))}
+            </View>
+          )}
+
+          {/* Real-time Room Activity Event Toast (Enter / Leave / Seated) */}
+          {!roomLoading && currentActivityEvent && (
+            <RoomActivityEventBanner
+              event={currentActivityEvent}
+              onDismiss={handleActivityDismiss}
+              onClap={handleActivityClap}
+            />
+          )}
+
           <View style={styles.chatArea}>
             <View style={styles.chatLeft}>
               <ScrollView
@@ -4629,7 +12294,11 @@ export default function VoiceParty() {
                 style={styles.chatScroll}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.chatScrollContent}
+                contentContainerStyle={[
+                  styles.chatScrollContent,
+                  canManageRoomUsers &&
+                    messages.length > 0 && { paddingBottom: vs(38) },
+                ]}
               >
                 {/* ── PINNED ROOM MESSAGES ── */}
 
@@ -4709,12 +12378,71 @@ export default function VoiceParty() {
                   const senderProfileFrame = isSenderVip
                     ? myVipAssets.profileFrame
                     : otherSenderVipProfileFrame;
+                  // VIP badge shown next to the name, for every sender — self
+                  // uses the confirmed logo from /api/app/vip/me/logo
+                  // (myVipAssets), other senders only expose the tier baked
+                  // into their profile-frame URL, so their badge is looked up
+                  // from that same VIP_TIER_THRESHOLDS table used elsewhere.
+                  const otherSenderVipTier = !isSenderSelf
+                    ? resolveVipTierFromAssetUrl(
+                        msg.vipProfileFrameUrl ??
+                          userFrameData[String(msg.userId)]?.vipProfileFrameUrl,
+                      )
+                    : null;
+                  const senderVipLogo = isSenderVip
+                    ? myVipAssets.logo
+                    : otherSenderVipTier
+                      ? VIP_LOGO_BY_TIER[otherSenderVipTier]
+                      : null;
+                  const senderDecorationBadge =
+                    msg.userId != null
+                      ? (userFrameData[String(msg.userId)]
+                          ?.decorationBadgeUrl ?? null)
+                      : null;
+                  const senderVipLogoSource = senderVipLogo
+                    ? typeof senderVipLogo === "string" &&
+                      senderVipLogo.trim().length > 0
+                      ? {
+                          uri: senderVipLogo
+                            .trim()
+                            .replace(
+                              /\/vip-frame\/vip8\/viplogo8\.png/i,
+                              "/vip-frame/vip8/Viplogo8.png",
+                            ),
+                        }
+                      : typeof senderVipLogo === "number" ||
+                          (typeof senderVipLogo === "object" &&
+                            senderVipLogo?.uri)
+                        ? senderVipLogo
+                        : null
+                    : null;
+                  const senderDecorationBadgeSource = senderDecorationBadge
+                    ? typeof senderDecorationBadge === "string" &&
+                      senderDecorationBadge.trim().length > 0
+                      ? { uri: senderDecorationBadge.trim() }
+                      : typeof senderDecorationBadge === "number" ||
+                          (typeof senderDecorationBadge === "object" &&
+                            senderDecorationBadge?.uri)
+                        ? senderDecorationBadge
+                        : null
+                    : null;
+                  // Premium (like VIP) is only ever known for the current user —
+                  // no per-other-sender premium data is available on `msg`.
+                  const senderPremiumLogoSource =
+                    isSenderSelf && myPremiumLogo
+                      ? { uri: myPremiumLogo }
+                      : null;
                   // Trimmed whole-image chat frame for this sender's tier (keyed
                   // by tier number, not by URL — the URL can vary once the real
                   // API is wired up). Falls back to the raw remote asset (old
-                  // behavior) for any tier without a trimmed image yet.
-                  const vipChatFrameAsset = isSenderVip
-                    ? VIP_CHAT_FRAME_FITTED_BY_TIER[myVipAssets.tier]
+                  // behavior) for any tier without a trimmed image yet. Other
+                  // VIP senders get the frame for the tier resolved from their
+                  // profile-frame URL, so every viewer sees it, not just self.
+                  const senderVipTier = isSenderVip
+                    ? myVipAssets.tier
+                    : otherSenderVipTier;
+                  const vipChatFrameAsset = senderVipTier
+                    ? (VIP_CHAT_FRAME_FITTED_BY_TIER[senderVipTier] ?? null)
                     : null;
                   // Re-wrapped as a bare {uri} (dropping the asset's known
                   // width/height) so resizeMode="stretch" fills the bubble's
@@ -4764,7 +12492,7 @@ export default function VoiceParty() {
                                 avatar: senderAvatar,
                               })}
                               frameSource={senderProfileFrame}
-                              size={32}
+                              size={28}
                               avatarStyle={styles.chatAvatar}
                               frameScale={VIP_PROFILE_FRAME_LAYOUT.frameScale}
                               frameResizeMode={
@@ -4800,7 +12528,7 @@ export default function VoiceParty() {
                             <Text
                               style={{
                                 color: "white",
-                                fontSize: 12,
+                                fontSize: 11,
                                 fontWeight: "700",
                               }}
                             >
@@ -4848,14 +12576,45 @@ export default function VoiceParty() {
                           >
                             <Text style={styles.chatUser}>{senderName}</Text>
                           </TouchableOpacity>
-                          <View style={styles.lvBadge}>
-                            <Text style={styles.lvText}>Lv.{msg.level}</Text>
-                          </View>
+                          {isSenderSelf && !!myCountryFlag && (
+                            <Text style={styles.chatUserFlag}>
+                              {myCountryFlag}
+                            </Text>
+                          )}
+                          <AutoBadgeImage
+                            source={resolveLocalLevelBadge(msg.level)}
+                            style={styles.lvBadgeImg}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={senderVipLogoSource}
+                            style={styles.chatVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={senderPremiumLogoSource}
+                            style={styles.chatVipBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={senderDecorationBadgeSource}
+                            style={styles.chatDecorationBadge}
+                            resizeMode="contain"
+                          />
+                          <AutoBadgeImage
+                            source={
+                              msg.verifiedBadgeUrl
+                                ? { uri: msg.verifiedBadgeUrl }
+                                : null
+                            }
+                            style={styles.chatVerifiedBadge}
+                            resizeMode="contain"
+                          />
                           {msg.userId != null &&
                             (userFrameData[String(msg.userId)]
                               ?.hasNewUserFrame ??
                               false) && (
-                              <Image
+                              <AutoBadgeImage
                                 source={NEW_START_BADGE}
                                 style={styles.newStartBadge}
                                 resizeMode="contain"
@@ -4891,73 +12650,125 @@ export default function VoiceParty() {
                   );
                 })}
               </ScrollView>
+
+              {/* Floating Clear Chat Button for Admin / Owner / Host */}
+              {canManageRoomUsers && messages.length > 0 && (
+                <TouchableOpacity
+                  style={styles.floatingClearChatBtn}
+                  activeOpacity={0.8}
+                  onPress={handleConfirmClearChat}
+                  disabled={clearingChat}
+                >
+                  <LinearGradient
+                    colors={[
+                      "rgba(239, 68, 68, 0.95)",
+                      "rgba(185, 28, 28, 0.95)",
+                    ]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.floatingClearChatGrad}
+                  >
+                    {clearingChat ? (
+                      <ActivityIndicator
+                        size="small"
+                        color="#ffffff"
+                        style={{ transform: [{ scale: 0.7 }] }}
+                      />
+                    ) : (
+                      <>
+                        <Trash2 size={12} color="#ffffff" />
+                        <Text style={styles.floatingClearChatText}>
+                          Clear Chat
+                        </Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Right panel */}
-            <View style={styles.chatRight}>
-              <TouchableOpacity
-                style={styles.treasureBoxBtn}
-                activeOpacity={0.85}
-                onPress={() => setShowTreasureBox(true)}
-              >
-                <ExpoImage
-                  source={TREASURE_BOX_GIF}
-                  style={styles.treasureBoxGif}
-                  contentFit="contain"
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.rightIconBtn}
-                onPress={() => setShowGiftPanel(true)}
-              >
-                <Text style={styles.rightIconEmoji}>🎁</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.rightIconBtn}
-                onPress={handleOpenChatTab}
-              >
-                <MessageSquare size={22} color="white" />
-                {chatUnreadCount > 0 && (
-                  <View style={styles.chatBadge}>
-                    <Text style={styles.chatBadgeText}>
-                      {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.takeMicBtn}
-                onPress={handleTakeMic}
-                disabled={voiceConnecting}
-              >
-                {voiceConnecting ? (
-                  <ActivityIndicator size="small" color="white" />
-                ) : (
-                  <>
-                    <Text style={styles.takeMicEmoji}>🎤</Text>
-                    <Text style={styles.takeMicText}>
-                      {onMic ? "Leave Mic" : "Take Mic"}
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              {onMic ? (
+            {!(isKeyboardVisible || showEmojiPicker) && (
+              <View style={styles.chatRight}>
                 <TouchableOpacity
-                  style={styles.micMuteBtn}
-                  onPress={handleToggleMic}
-                  disabled={voiceConnecting}
+                  style={styles.treasureBoxBtn}
+                  activeOpacity={0.85}
+                  onPress={() => setShowTreasureBox(true)}
                 >
-                  {isMicMuted ? (
-                    <MicOff size={20} color="#ff6b6b" />
-                  ) : (
-                    <Mic size={20} color="white" />
+                  <ExpoImage
+                    source={TREASURE_BOX_GIF}
+                    style={styles.treasureBoxImage}
+                    contentFit="contain"
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.rightIconBtn}
+                  onPress={() => setShowGiftPanel(true)}
+                >
+                  <View style={styles.giftPanelCropWrap}>
+                    <Image
+                      source={{ uri: GIFT_PANEL_ICON }}
+                      style={styles.giftPanelCropImage}
+                    />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.chatIconBtn}
+                  onPress={handleOpenChatTab}
+                >
+                  <View style={styles.chatCropWrap}>
+                    <Image
+                      source={{ uri: CHAT_ICON }}
+                      style={styles.chatCropImage}
+                    />
+                  </View>
+                  {chatUnreadCount > 0 && (
+                    <View style={styles.chatBadge}>
+                      <Text style={styles.chatBadgeText}>
+                        {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                      </Text>
+                    </View>
                   )}
                 </TouchableOpacity>
-              ) : null}
-            </View>
+                <TouchableOpacity
+                  style={styles.takeMicBtn}
+                  onPress={handleTakeMic}
+                  disabled={voiceConnecting}
+                >
+                  {voiceConnecting ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <>
+                      <View style={styles.micCropWrap}>
+                        <Image
+                          source={{ uri: MIC_ICON }}
+                          style={styles.micCropImage}
+                        />
+                      </View>
+                      <Text style={styles.takeMicText}>
+                        {onMic ? "Leave Mic" : "Take seat"}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                {onMic ? (
+                  <TouchableOpacity
+                    style={styles.micMuteBtn}
+                    onPress={handleToggleMic}
+                    disabled={voiceConnecting}
+                  >
+                    {isMicMuted ? (
+                      <MicOff size={20} color="#ff6b6b" />
+                    ) : (
+                      <Mic size={20} color="white" />
+                    )}
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            )}
           </View>
-        </ScrollView>
-        {(voiceListenStatus !== "idle" || voiceDiagnostics?.joined) && (
+        </View>
+        {/* {(voiceListenStatus !== "idle" || voiceDiagnostics?.joined) && (
           <Text style={styles.voiceDebugText} numberOfLines={2}>
             Audio: {voiceListenStatus}
             {voiceDiagnostics?.joined ? " · connected" : ""}
@@ -4968,19 +12779,25 @@ export default function VoiceParty() {
                 : ""}
             {isSpeakerMuted ? " · speaker off" : ""}
           </Text>
-        )}
+        )} */}
 
-        {/* ── BOTTOM DOCK: buttons above chat input ── */}
-        <View
-          style={[
-            styles.bottomDock,
-            {
-              paddingBottom: safeBottom > 0 ? safeBottom : 4,
-            },
-          ]}
-        >
-          {/* Input row — shown above bottom bar when chat is open */}
-          {showChatInput && (
+        {/* ── BOTTOM DOCK: buttons above chat input (hidden when emoji picker is active) ── */}
+        {!showEmojiPicker && (
+          <View
+            style={[
+              styles.bottomDock,
+              {
+                paddingBottom:
+                  Platform.OS === "ios"
+                    ? safeBottom > 0
+                      ? safeBottom
+                      : 4
+                    : Math.max(composerBottom, 4),
+              },
+            ]}
+          >
+            {/* Input row — shown above bottom bar when chat is open */}
+            {showChatInput && (
             <View style={styles.inputRow}>
               {/* @ Tag button */}
               <TouchableOpacity
@@ -5019,7 +12836,7 @@ export default function VoiceParty() {
                   }}
                   onSubmitEditing={sendMessage}
                   returnKeyType="send"
-                  autoFocus
+                  autoFocus={!showEmojiPicker}
                 />
               </View>
 
@@ -5101,49 +12918,299 @@ export default function VoiceParty() {
             </View>
           )}
 
-          {/* Bottom icon bar — always visible except on Android when typing to avoid adjustPan overlay issues */}
-          <View style={styles.bottomBar}>
-            <TouchableOpacity
-              style={styles.bottomIconBtn}
-              onPress={handleToggleSpeaker}
+          {isHostSelf && isMusicPlaying && (
+            <MiniMusicPlayer
+              isPlaying={!isMusicPaused}
+              volume={musicVolume}
+              onVolumeChange={handleMusicVolumeChange}
+              onTogglePlay={() => {
+                if (isMusicPaused) {
+                  if (typeof agoraVoice.resumeAudioForEveryone === 'function') agoraVoice.resumeAudioForEveryone();
+                  setIsMusicPaused(false);
+                } else {
+                  if (typeof agoraVoice.pauseAudioForEveryone === 'function') agoraVoice.pauseAudioForEveryone();
+                  setIsMusicPaused(true);
+                }
+              }}
+              onClose={() => {
+                agoraVoice.stopAudioForEveryone();
+                setIsMusicPlaying(false);
+                setIsMusicPaused(false);
+                setMusicPlaylist([]);
+              }}
+              onNext={handleNextMusic}
+              onOpenPlaylist={() => setShowMusicPlaylist(true)}
+            />
+          )}
+
+          {/* Bottom icon bar — hide when keyboard or emoji picker is visible */}
+          {!isKeyboardVisible && !showEmojiPicker && (
+            <View style={styles.bottomBar}>
+              <TouchableOpacity
+                style={styles.bottomIconBtn}
+                onPress={handleToggleSpeaker}
+              >
+                {isSpeakerMuted ? (
+                  <VolumeX size={20} color="white" />
+                ) : (
+                  <Volume2 size={20} color="white" />
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bottomIconBtn}
+                onPress={handleOpenMediaPicker}
+              >
+                <Smile size={20} color="white" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bottomIconBtn}
+                onPress={handleOpenPartyChat}
+              >
+                <MessageSquare
+                  size={20}
+                  color={showChatInput ? "#4dc8ff" : "white"}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.giftShortcutHighlight}
+                onPress={() => setShowBackpack(true)}
+              >
+                <View style={styles.rechargeBonusCropWrap}>
+                  <Image
+                    source={{ uri: RECHARGE_BONUS_ICON }}
+                    style={styles.rechargeBonusCropImage}
+                  />
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bottomIconBtn}
+                onPress={() => setShowPlayCenter(true)}
+              >
+                <LayoutGrid size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+
+        {/* ── TOP 3 GIFTING RANKING FLOATING WIDGET ── */}
+        {!roomLoading && showTopGiftingRanking && (
+          <TopGiftingRanking
+            roomId={roomId}
+            onUserPress={handleOnlineUserPress}
+            onClose={() => setShowTopGiftingRanking(false)}
+          />
+        )}
+      {/* ── EMOJI PICKER MODAL (FIXED TO BOTTOM) ── */}
+      <Modal
+        visible={showEmojiPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowEmojiPicker(false);
+          setShowEmojiReceiverPicker(false);
+        }}
+      >
+        <TouchableOpacity
+          style={styles.shareOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setShowEmojiPicker(false);
+            setShowEmojiReceiverPicker(false);
+          }}
+        >
+          <View
+            style={styles.emojiBox}
+            onStartShouldSetResponder={() => true}
+          >
+            <View
+              style={{
+                height: Math.min(H * 0.50, 420),
+                width: "100%",
+                paddingHorizontal: 12,
+                paddingTop: 8,
+              }}
             >
-              {isSpeakerMuted ? (
-                <VolumeX size={20} color="white" />
-              ) : (
-                <Volume2 size={20} color="white" />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.bottomIconBtn}
-              onPress={handleOpenMediaPicker}
+              {/* Handle */}
+              <View style={styles.shareHandle} />
+
+              {/* Emoji Sub-Categories (Smileys, Love, Gestures, Animals, Food, Fun) */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.mediaSubTabScroll}
+                contentContainerStyle={styles.mediaSubTabContent}
+              >
+                {emojiCategories.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.mediaSubTabItem,
+                      emojiTab === cat.id && styles.mediaSubTabItemActive,
+                    ]}
+                    onPress={() => setEmojiTab(cat.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.mediaSubTabIcon}>{cat.tab}</Text>
+                    <Text
+                      style={[
+                        styles.mediaSubTabLabel,
+                        emojiTab === cat.id && styles.mediaSubTabLabelActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Emojis Grid */}
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                style={styles.emojiGrid}
+                contentContainerStyle={styles.emojiGridContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.emojiGridInner}>
+                  {emojiCategories
+                    .find((c) => c.id === emojiTab)
+                    ?.emojis.map((emoji, i) => {
+                      const isSelected = selectedEmoji === emoji;
+                      return (
+                        <TouchableOpacity
+                          key={`${emoji}-${i}`}
+                          style={[
+                            styles.emojiCell,
+                            isSelected && styles.emojiCellSelected,
+                          ]}
+                          activeOpacity={0.7}
+                          onPress={() => handleEmojiPick(emoji)}
+                        >
+                          <Text style={styles.emojiCellText}>{emoji}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                </View>
+              </ScrollView>
+
+              {/* ── FIXED BOTTOM SEND BAR (MATCHING REFERENCE IMAGE) ── */}
+              <View
+                style={[
+                  styles.emojiSendBar,
+                  {
+                    paddingBottom: Math.max(
+                      Platform.OS === "ios" ? 22 : 12,
+                      idleBottom + 8,
+                    ),
+                  },
+                ]}
+              >
+                {/* Left: Avatar + Recipient Pill Dropdown Button */}
+                <View style={styles.emojiSendRecipientWrap}>
+                  {renderGiftRecipientAvatar(
+                    selectedEmojiRecipient,
+                    styles.emojiSendAvatar,
+                  )}
+                  <TouchableOpacity
+                    style={styles.emojiSendRecipient}
+                    activeOpacity={0.8}
+                    onPress={() => setShowEmojiReceiverPicker(true)}
+                  >
+                    <Text style={styles.emojiSendName} numberOfLines={1}>
+                      {selectedEmojiRecipient?.name || "Select User"}
+                    </Text>
+                    <Text style={styles.emojiSendChev}> ▼</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Right: Send Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.emojiSendBtn,
+                    (!selectedEmoji || !selectedEmojiRecipient) &&
+                      styles.emojiSendBtnDisabled,
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={handleSendSelectedEmoji}
+                >
+                  <Text style={styles.emojiSendBtnText}>Send</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* ── EMOJI RECIPIENT PICKER BOTTOM SHEET OVERLAY ── */}
+            {renderEmojiRecipientPickerOverlay()}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      </KeyboardAvoidingView>
+
+      {/* ── CUSTOM REWARD CLAIMED MODAL ── */}
+      <Modal
+        visible={Boolean(claimedRewardModal)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClaimedRewardModal(null)}
+      >
+        <View style={styles.rewardModalOverlay}>
+          <View style={styles.rewardModalOuter}>
+            {/* Bursting Gifts Overlay */}
+            <Image
+              source={{
+                uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/Rechargebonus/Popupheader/Popup.png",
+              }}
+              style={styles.rewardModalHeaderImg}
+              resizeMode="contain"
+            />
+
+            <LinearGradient
+              colors={["#ffd17f", "#fffbf0", "#ffffff"]}
+              style={styles.rewardModalContainer}
             >
-              <Smile size={20} color="white" />
-            </TouchableOpacity>
+              <View style={styles.rewardModalBody}>
+                <View style={styles.rewardModalGiftBox}>
+                  <Image
+                    source={claimedRewardModal}
+                    style={styles.rewardModalGiftImg}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.rewardModalGiftBadge}>x1d</Text>
+                </View>
+                <Text style={styles.rewardModalGiftLabel}>Gift</Text>
+
+                <Text style={styles.rewardModalTips}>
+                  Tips: Stay in the room long enough to earn a gift.
+                </Text>
+
+                <TouchableOpacity
+                  style={{ width: "100%", alignItems: "center" }}
+                  activeOpacity={0.8}
+                  onPress={() => setClaimedRewardModal(null)}
+                >
+                  <LinearGradient
+                    colors={["#ff7a00", "#ff007a"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.rewardModalOkBtn}
+                  >
+                    <Text style={styles.rewardModalOkText}>OK</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+
+            {/* Close Button floating above everything */}
             <TouchableOpacity
-              style={styles.bottomIconBtn}
-              onPress={handleOpenPartyChat}
+              style={styles.rewardModalCloseIcon}
+              activeOpacity={0.8}
+              onPress={() => setClaimedRewardModal(null)}
             >
-              <MessageSquare
-                size={20}
-                color={showChatInput ? "#4dc8ff" : "white"}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.bottomIconBtn, styles.giftShortcutHighlight]}
-              onPress={() => setShowBackpack(true)}
-            >
-              <Text style={styles.giftShortcutEmoji}>💰</Text>
-              <Text style={styles.giftShortcutLabel}>Recharge{"\n"}Bonus</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.bottomIconBtn}
-              onPress={() => setShowPlayCenter(true)}
-            >
-              <LayoutGrid size={20} color="white" />
+              <X color="white" size={26} />
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -5174,47 +13241,105 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   ownerRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
-  ownerSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  ownerSectionWrapper: {
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
-    marginRight: 8,
+    marginRight: s(6),
   },
-  ownerAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 2,
-    borderColor: "#a78bfa",
+  ownerSection: {
+    position: "relative",
+    height: vs(66),
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 0,
+    paddingRight: s(4),
+    overflow: "visible",
+  },
+  ownerSectionBg: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
+  },
+  ownerAvatarSpot: {
+    width: s(48),
+    height: vs(48),
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    marginLeft: s(10),
+  },
+  ownerAvatarCircle: {
+    width: s(32),
+    height: s(32),
+    borderRadius: s(16),
   },
   ownerAvatarPlaceholder: {
-    backgroundColor: "rgba(124,77,255,0.45)",
+    backgroundColor: "rgba(124, 77, 255, 0.45)",
     alignItems: "center",
     justifyContent: "center",
   },
   ownerInitial: {
     color: "white",
-    fontSize: 16,
+    fontSize: ms(15),
     fontWeight: "800",
   },
   ownerTextCol: {
-    gap: 2,
+    gap: vs(2.5),
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
+    marginLeft: s(6),
+    justifyContent: "center",
+  },
+  ownerNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(4),
+    minWidth: 0,
   },
   ownerName: {
-    color: "white",
-    fontSize: 13,
-    fontWeight: "700",
+    color: "#ffffff",
+    fontSize: ms(13),
+    fontWeight: "800",
+    letterSpacing: 0.1,
+    flexShrink: 1,
+  },
+  ownerCountryFlag: {
+    fontSize: ms(12.5),
   },
   ownerId: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: 11,
-    flexShrink: 1,
+    color: "#c4b5fd",
+    fontSize: ms(10),
+    fontWeight: "700",
+    letterSpacing: 0.1,
+  },
+  capsulePlusBtn: {
+    width: s(24),
+    height: s(24),
+    borderRadius: s(12),
+    borderColor: "#ffffff",
+    borderWidth: 1,
+    backgroundColor: "#7c4dff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 3,
+    flexShrink: 0,
+    marginLeft: s(4),
+    marginRight: s(24),
+  },
+  capsulePlusBtnFollowing: {
+    backgroundColor: "rgba(124, 77, 255, 0.45)",
+    borderWidth: 0.8,
+    borderColor: "rgba(167, 139, 250, 0.6)",
   },
   plusBtn: {
     width: 34,
@@ -5249,74 +13374,100 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  audienceScroll: { flex: 1, minWidth: 0 },
-  audienceScrollContent: {
+  audienceAvatarGroup: {
     flexDirection: "row",
     alignItems: "center",
-    paddingRight: 4,
   },
-  audienceItem: { position: "relative" },
-  audienceAvatarOverlap: { marginLeft: -8 },
+  audienceItem: {
+    position: "relative",
+    overflow: "visible",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  audienceItemOverlap: {
+    marginLeft: s(-7),
+  },
   micStatusDot: {
     position: "absolute",
     right: -2,
     bottom: -2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "rgba(15,7,32,0.9)",
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "rgba(15,7,32,0.95)",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.3)",
+    borderColor: "rgba(167,139,250,0.4)",
     zIndex: 10,
     elevation: 10,
   },
   audienceAvatarPlaceholder: {
-    backgroundColor: "rgba(124,77,255,0.35)",
+    backgroundColor: "rgba(124,77,255,0.4)",
     alignItems: "center",
     justifyContent: "center",
   },
   audienceInitial: {
     color: "white",
-    fontSize: 11,
+    fontSize: ms(10),
     fontWeight: "700",
   },
   audienceAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: s(26),
+    height: s(26),
+    borderRadius: s(13),
     borderWidth: 1.5,
     borderColor: "#1a0a2e",
   },
-  audienceCount: {
-    minWidth: 32,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.2)",
+  audienceCountCircle: {
+    width: s(26),
+    height: s(26),
+    borderRadius: s(13),
+    backgroundColor: "rgba(124,77,255,0.4)",
+    borderWidth: 1.5,
+    borderColor: "#1a0a2e",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
-    marginLeft: 4,
-    flexShrink: 0,
   },
-  audienceCountText: { color: "white", fontSize: 11, fontWeight: "700" },
+  audienceCountText: {
+    color: "#ffffff",
+    fontSize: ms(9.5),
+    fontWeight: "800",
+    textAlign: "center",
+    includeFontPadding: false,
+  },
   headerRight: { flexDirection: "row", gap: 6, flexShrink: 0 },
   badgesRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    gap: 8,
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
     marginBottom: 10,
     overflow: "visible",
   },
+  badgesRowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+    justifyContent: "flex-end",
+    marginLeft: "auto",
+  },
   trophyBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
     backgroundColor: "rgba(255,215,0,0.2)",
-    borderRadius: 10,
-    paddingHorizontal: 8,
+    borderRadius: 8,
+    paddingHorizontal: 6,
     paddingVertical: 3,
     borderWidth: 1,
     borderColor: "rgba(255,215,0,0.4)",
+    flexShrink: 0,
+  },
+  trophyIcon: {
+    width: 16,
+    height: 16,
   },
   trophyText: { color: "#ffd700", fontSize: 12, fontWeight: "700" },
   badgeDot: { color: "rgba(255,255,255,0.3)", fontSize: 16 },
@@ -5408,40 +13559,98 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   lockIcon: { fontSize: 16 },
-  seatNum: { color: "rgba(255,255,255,0.5)", fontSize: 10 },
+  seatSeatedBadge: {
+    position: "absolute",
+    top: -4,
+    right: -6,
+    backgroundColor: "#10b981",
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 7,
+    zIndex: 20,
+    elevation: 20,
+    borderWidth: 1.5,
+    borderColor: "#1a0a2e",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.35,
+    shadowRadius: 2,
+  },
+  seatSeatedBadgeText: {
+    color: "#ffffff",
+    fontSize: 8.5,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  seatNum: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+    textAlign: "center",
+  },
   seatName: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 10,
+    fontSize: ms(10),
     textAlign: "center",
     maxWidth: SEAT_SIZE,
   },
   chatArea: {
     flex: 1,
     flexDirection: "row",
-    paddingHorizontal: 12,
-    gap: 8,
+    paddingLeft: s(12),
+    paddingRight: 0,
+    gap: s(8),
     minHeight: 0,
   },
-  chatLeft: { flex: 1, minHeight: 0 },
+  chatLeft: { flex: 1, minHeight: 0, position: "relative" },
   chatScroll: { flex: 1 },
   chatScrollContent: {
-    gap: 8,
-    paddingTop: 4,
-    paddingBottom: 12,
+    gap: vs(8),
+    paddingTop: vs(4),
+    paddingBottom: vs(12),
+  },
+  floatingClearChatBtn: {
+    position: "absolute",
+    bottom: vs(4),
+    right: s(6),
+    zIndex: 20,
+    elevation: 5,
+    borderRadius: s(16),
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+  },
+  floatingClearChatGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: s(10),
+    paddingVertical: vs(5),
+    borderRadius: s(16),
+    gap: s(4),
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.25)",
+  },
+  floatingClearChatText: {
+    color: "#ffffff",
+    fontSize: ms(11),
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   systemMsg: {
     backgroundColor: "rgba(0,0,0,0.35)",
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    borderRadius: s(12),
+    paddingHorizontal: s(10),
+    paddingVertical: vs(5),
     alignSelf: "flex-start",
   },
-  systemMsgText: { color: "rgba(255,255,255,0.7)", fontSize: 12 },
-  chatMsg: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
+  systemMsgText: { color: "rgba(255,255,255,0.7)", fontSize: ms(12) },
+  chatMsg: { flexDirection: "row", alignItems: "flex-start", gap: s(5) },
   chatAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: s(28),
+    height: s(28),
+    borderRadius: s(14),
     borderWidth: 1.5,
     borderColor: "#7c4dff",
   },
@@ -5452,8 +13661,9 @@ const styles = StyleSheet.create({
   },
   chatBubble: {
     backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 12,
-    padding: 8,
+    borderRadius: s(10),
+    paddingHorizontal: s(8),
+    paddingVertical: vs(5),
     flex: 1,
     overflow: "hidden",
   },
@@ -5463,140 +13673,216 @@ const styles = StyleSheet.create({
   // chatBubble's default "hidden") lets the frame's crown/gem art bleed
   // above/below the bubble instead of being clipped — see vipChatFrameStyle.
   chatBubbleVipPadding: {
-    paddingHorizontal: 10,
-    paddingVertical: 12,
+    paddingHorizontal: s(10),
+    paddingVertical: vs(10),
+    paddingRight: s(22),
     overflow: "visible",
   },
   chatMeta: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 3,
+    gap: s(4),
+    marginBottom: vs(2),
     flexWrap: "wrap",
   },
-  chatUser: { color: "#b44dff", fontSize: 12, fontWeight: "700" },
-  lvBadge: {
-    backgroundColor: "#f5a623",
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+  chatUser: { color: "#b44dff", fontSize: ms(11), fontWeight: "700" },
+  chatUserFlag: { fontSize: ms(11) },
+  // Same level-badge image (and aspect ratio) shown on the Profile tab —
+  // 142/149 measured from the actual asset files, see levelBadge.js.
+  lvBadgeImg: { height: vs(14), width: vs(14) * (142 / 149) },
+  chatVipBadge: { width: vs(14), height: vs(14) },
+  chatDecorationBadge: { width: vs(14), height: vs(14) },
+  chatVerifiedBadge: { width: vs(13) * (438 / 179), height: vs(13) },
+  newStartBadge: {
+    width: s(44),
+    height: vs(24),
+    marginLeft: s(1),
+    marginTop: vs(-6),
   },
-  lvText: { color: "white", fontSize: 10, fontWeight: "700" },
-  newStartBadge: { width: 52, height: 24, marginLeft: 2 },
-  chatCoin: { fontSize: 11, color: "#ffd700" },
-  chatDiamond: { fontSize: 11, color: "#4dc8ff" },
-  chatText: { color: "white", fontSize: 13 },
+  chatCoin: { fontSize: ms(10), color: "#ffd700" },
+  chatDiamond: { fontSize: ms(10), color: "#4dc8ff" },
+  chatText: { color: "white", fontSize: ms(11.5), lineHeight: vs(16) },
   chatGiftText: { color: "#f9a8d4", fontWeight: "700" },
   chatRight: {
     // width: 60,
     alignItems: "center",
-    gap: 8,
+    gap: vs(10),
     justifyContent: "flex-end",
+    marginRight: -s(6),
   },
   luckyStarBox: {
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 10,
-    padding: 6,
-    width: 58,
+    borderRadius: s(10),
+    padding: s(6),
+    width: s(58),
   },
-  luckyStarEmoji: { fontSize: 22 },
+  luckyStarEmoji: { fontSize: ms(22) },
   luckyStarLabel: {
     color: "#ffd700",
-    fontSize: 8,
+    fontSize: ms(8),
     fontWeight: "800",
     letterSpacing: 0.5,
   },
   luckyProgress: {
     backgroundColor: "#8b0000",
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    marginTop: 2,
+    borderRadius: s(4),
+    paddingHorizontal: s(4),
+    paddingVertical: vs(2),
+    marginTop: vs(2),
   },
-  luckyProgressText: { color: "white", fontSize: 9, fontWeight: "700" },
+  luckyProgressText: { color: "white", fontSize: ms(9), fontWeight: "700" },
   rightIconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    width: s(33),
+    height: s(33),
+    borderRadius: s(16.5),
+    backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
   },
   treasureBoxBtn: {
-    width: 74,
-    height: 74,
+    width: s(70),
+    height: s(70),
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: -6,
   },
-  treasureBoxGif: {
-    width: 72,
-    height: 72,
+  treasureBoxImage: {
+    width: s(68),
+    height: s(68),
   },
-  rightIconEmoji: { fontSize: 22 },
+  // Crop wrappers below: each S3 icon is a 1280x720 canvas with its glyph
+  // confined to a small centered region (huge transparent margin baked in), so
+  // rendering it straight scales the whole padded canvas and looks tiny. Each
+  // wrapper is sized to the glyph's own scaled bounding box (overflow: hidden),
+  // and its Image child is drawn at the full scaled 1280x720 size then shifted
+  // left/top by -bboxLeft*scale / -bboxTop*scale so only the glyph lands inside.
+  giftPanelCropWrap: {
+    // gift+box2.png bbox (337,72)-(841,648) in a 1280x720 source, scaled so the
+    // glyph's own height fills 29px (matching the other right-panel icons).
+    width: s(25.38),
+    height: s(29),
+    overflow: "hidden",
+    position: "relative",
+  },
+  giftPanelCropImage: {
+    position: "absolute",
+    width: s(64.44),
+    height: s(36.25),
+    left: -s(16.97),
+    top: -s(3.62),
+  },
+  rechargeBonusCropWrap: {
+    // gift+box1.png bbox (371,73)-(909,646), glyph height scaled to 32px.
+    width: s(30.05),
+    height: s(32),
+    overflow: "hidden",
+    position: "relative",
+    marginTop: -vs(1),
+  },
+  rechargeBonusCropImage: {
+    position: "absolute",
+    width: s(71.48),
+    height: s(40.21),
+    left: -s(20.72),
+    top: -s(4.08),
+  },
+  micCropWrap: {
+    // mic.png bbox (502,83)-(773,606), glyph height scaled to 34px.
+    width: s(17.62),
+    height: s(34),
+    overflow: "hidden",
+    position: "relative",
+  },
+  micCropImage: {
+    position: "absolute",
+    width: s(83.21),
+    height: s(46.81),
+    left: -s(32.63),
+    top: -s(5.4),
+  },
+  chatIconBtn: {
+    width: s(30),
+    height: s(30),
+    borderRadius: s(15),
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatCropWrap: {
+    // chat.png bbox (447,166)-(748,477), glyph height scaled to 26px.
+    width: s(25.16),
+    height: s(26),
+    overflow: "hidden",
+    position: "relative",
+  },
+  chatCropImage: {
+    position: "absolute",
+    width: s(107.01),
+    height: s(60.19),
+    left: -s(37.37),
+    top: -s(13.88),
+  },
   rightBannerBtn: {
-    width: 44,
-    height: 60,
-    borderRadius: 10,
+    width: s(44),
+    height: vs(60),
+    borderRadius: s(10),
     backgroundColor: " rgba(61, 52, 88, 0.7)",
     alignItems: "center",
     justifyContent: "center",
   },
-  rightBannerText: { fontSize: 26 },
+  rightBannerText: { fontSize: ms(26) },
   chatBadge: {
     position: "absolute",
-    top: -4,
-    right: -4,
+    top: -vs(4),
+    right: -s(4),
     backgroundColor: "#4dc8ff",
-    borderRadius: 8,
-    minWidth: 18,
-    height: 18,
+    borderRadius: s(8),
+    minWidth: s(18),
+    height: vs(18),
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 3,
+    paddingHorizontal: s(3),
   },
-  chatBadgeText: { color: "white", fontSize: 9, fontWeight: "800" },
+  chatBadgeText: { color: "white", fontSize: ms(9), fontWeight: "800" },
   giftBadge: {
     position: "absolute",
-    bottom: -4,
-    right: -4,
+    bottom: -vs(4),
+    right: -s(4),
     backgroundColor: "#ff4ea3",
-    borderRadius: 6,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    borderRadius: s(6),
+    paddingHorizontal: s(4),
+    paddingVertical: vs(1),
   },
-  giftBadgeText: { color: "white", fontSize: 10, fontWeight: "700" },
+  giftBadgeText: { color: "white", fontSize: ms(10), fontWeight: "700" },
   takeMicBtn: {
     alignItems: "center",
-    backgroundColor: "#16131eb3",
-    borderRadius: 22,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    width: 54,
+    backgroundColor: "transparent",
+    borderRadius: s(22),
+    paddingVertical: 0,
+    paddingHorizontal: s(6),
+    width: s(38),
   },
-  takeMicEmoji: { fontSize: 20 },
   takeMicText: {
     color: "white",
-    fontSize: 9,
+    fontSize: ms(9),
     fontWeight: "700",
     textAlign: "center",
-    marginTop: 2,
+    marginTop: vs(2),
   },
   micMuteBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: s(36),
+    height: s(36),
+    borderRadius: s(18),
     backgroundColor: "rgba(0,0,0,0.35)",
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 6,
+    marginLeft: s(6),
   },
   voiceDebugText: {
     color: "rgba(255,255,255,0.55)",
-    fontSize: 10,
-    paddingHorizontal: 12,
-    paddingBottom: 4,
+    fontSize: ms(10),
+    paddingHorizontal: s(12),
+    paddingBottom: vs(4),
   },
   bottomDock: {
     borderTopWidth: 1,
@@ -5607,79 +13893,75 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingTop: 6,
-    paddingBottom: 6,
+    paddingHorizontal: s(12),
+    paddingTop: vs(6),
+    paddingBottom: vs(6),
   },
   bottomIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: s(40),
+    height: s(40),
+    borderRadius: s(20),
     backgroundColor: "rgba(255,255,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
-  giftRow: { flex: 1, flexDirection: "row", gap: 8, justifyContent: "center" },
+  giftRow: {
+    flex: 1,
+    flexDirection: "row",
+    gap: s(8),
+    justifyContent: "center",
+  },
   giftShortcut: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: s(40),
+    height: s(40),
+    borderRadius: s(20),
     backgroundColor: "rgba(255,255,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
   giftShortcutHighlight: {
-    backgroundColor: "rgba(255,255,255,0.1)",
-    width: 52,
-    height: 40,
-    borderRadius: 20,
-    paddingHorizontal: 2,
-  },
-  giftShortcutEmoji: { fontSize: 14 },
-  giftShortcutLabel: {
-    color: "#ffd700",
-    fontSize: 7,
-    fontWeight: "700",
-    textAlign: "center",
-    lineHeight: 8,
+    width: s(36),
+    height: s(36),
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: -vs(6),
   },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingBottom: Platform.OS === "android" ? 0 : 5,
-    paddingTop: 6,
-    gap: 8,
+    paddingHorizontal: s(10),
+    paddingBottom: vs(8),
+    paddingTop: vs(8),
+    gap: s(8),
     borderBottomWidth: Platform.OS === "android" ? 0 : 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
   input: {
     flex: 1,
-    height: Platform.OS === "android" ? 46 : 34,
+    height: Platform.OS === "android" ? vs(38) : vs(34),
     backgroundColor: "transparent",
     borderRadius: 0,
-    paddingHorizontal: 6,
+    paddingHorizontal: s(6),
     paddingVertical: 0,
-    paddingBottom: Platform.OS === "android" ? 12 : 0,
     color: "white",
-    fontSize: 14,
+    fontSize: ms(12),
     borderWidth: 0,
   },
   sendBtn: {
     backgroundColor: "#7c4dff",
-    borderRadius: 18,
-    height: 36,
-    paddingHorizontal: 14,
+    borderRadius: s(18),
+    height: Platform.OS === "android" ? vs(38) : vs(36),
+    paddingHorizontal: s(14),
     justifyContent: "center",
     alignItems: "center",
   },
-  sendBtnText: { color: "white", fontWeight: "700", fontSize: 13 },
+  sendBtnText: { color: "white", fontWeight: "700", fontSize: ms(13) },
 
   // Tag / @mention styles
   tagBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: Platform.OS === "android" ? vs(38) : s(34),
+    height: Platform.OS === "android" ? vs(38) : s(34),
+    borderRadius: Platform.OS === "android" ? vs(19) : s(17),
     backgroundColor: "rgba(124,77,255,0.25)",
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.6)",
@@ -5688,94 +13970,94 @@ const styles = StyleSheet.create({
   },
   tagBtnText: {
     color: "#b39dff",
-    fontSize: 17,
+    fontSize: ms(17),
     fontWeight: "800",
-    lineHeight: 20,
+    lineHeight: vs(20),
   },
   inputWrapper: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 18,
+    borderRadius: s(18),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
-    height: Platform.OS === "android" ? 46 : 36,
-    paddingHorizontal: 8,
+    height: Platform.OS === "android" ? vs(38) : vs(36),
+    paddingHorizontal: s(8),
     overflow: "hidden",
   },
   tagChip: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(124,77,255,0.4)",
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginRight: 4,
-    maxWidth: 110,
+    borderRadius: s(12),
+    paddingHorizontal: s(8),
+    paddingVertical: vs(3),
+    marginRight: s(4),
+    maxWidth: s(110),
   },
   tagChipText: {
     color: "#d8c8ff",
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "700",
     flexShrink: 1,
   },
   tagChipClose: {
     color: "rgba(255,255,255,0.6)",
-    fontSize: 10,
-    marginLeft: 4,
+    fontSize: ms(10),
+    marginLeft: s(4),
     fontWeight: "700",
   },
   tagPickerContainer: {
     backgroundColor: "rgba(30,10,60,0.97)",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: s(16),
+    borderTopRightRadius: s(16),
     borderTopWidth: 1,
     borderColor: "rgba(124,77,255,0.35)",
-    maxHeight: 260,
-    paddingBottom: 8,
+    maxHeight: vs(260),
+    paddingBottom: vs(8),
   },
   tagPickerHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: s(16),
+    paddingVertical: vs(10),
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
   tagPickerTitle: {
     color: "rgba(255,255,255,0.9)",
-    fontSize: 13,
+    fontSize: ms(13),
     fontWeight: "700",
     letterSpacing: 0.3,
   },
   tagPickerClose: {
     color: "rgba(255,255,255,0.5)",
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "700",
   },
   tagPickerEmpty: {
     color: "rgba(255,255,255,0.4)",
     textAlign: "center",
-    paddingVertical: 20,
-    fontSize: 13,
+    paddingVertical: vs(20),
+    fontSize: ms(13),
   },
   tagPickerList: {
-    paddingHorizontal: 8,
+    paddingHorizontal: s(8),
   },
   tagPickerItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    gap: 10,
+    paddingVertical: vs(8),
+    paddingHorizontal: s(8),
+    borderRadius: s(10),
+    gap: s(10),
   },
   tagPickerAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: s(36),
+    height: s(36),
+    borderRadius: s(18),
   },
   tagPickerAvatarFallback: {
     backgroundColor: "rgba(124,77,255,0.4)",
@@ -5784,7 +14066,7 @@ const styles = StyleSheet.create({
   },
   tagPickerAvatarInitial: {
     color: "white",
-    fontSize: 15,
+    fontSize: ms(15),
     fontWeight: "700",
   },
   tagPickerUserInfo: {
@@ -5792,22 +14074,22 @@ const styles = StyleSheet.create({
   },
   tagPickerName: {
     color: "white",
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "600",
   },
   tagPickerUsername: {
     color: "rgba(255,255,255,0.45)",
-    fontSize: 12,
-    marginTop: 1,
+    fontSize: ms(12),
+    marginTop: vs(1),
   },
   tagPickerMicBadge: {
     backgroundColor: "rgba(77,200,255,0.15)",
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: s(8),
+    paddingHorizontal: s(6),
+    paddingVertical: vs(2),
   },
   tagPickerMicText: {
-    fontSize: 12,
+    fontSize: ms(12),
   },
   modalOverlay: {
     flex: 1,
@@ -5862,12 +14144,13 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   shareBox: {
-    backgroundColor: "#1a0a2e",
+    backgroundColor: "#160728",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+    maxHeight: Dimensions.get("window").height * 0.85,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.4,
@@ -5875,95 +14158,247 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   shareHandle: {
-    width: 40,
+    width: 38,
     height: 4,
     borderRadius: 2,
     backgroundColor: "rgba(167,139,250,0.4)",
     alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 16,
+    marginTop: 10,
+    marginBottom: 12,
   },
   shareTitle: {
     color: "white",
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "700",
     textAlign: "center",
-    marginBottom: 20,
+    marginBottom: 14,
   },
-  sharePlatformRow: {
+  shareSearchBox: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 24,
-  },
-  sharePlatformItem: { alignItems: "center", gap: 6 },
-  sharePlatformIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
     alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
-  sharePlatformEmoji: { fontSize: 26 },
-  sharePlatformLabel: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 12,
-    fontWeight: "500",
+  shareSearchInput: {
+    flex: 1,
+    color: "white",
+    fontSize: 13.5,
+    padding: 0,
   },
   shareTabRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(167,139,250,0.15)",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   shareTabItem: {
+    flex: 1,
     paddingVertical: 8,
-    paddingHorizontal: 10,
     alignItems: "center",
   },
   shareTabText: {
-    color: "rgba(255,255,255,0.5)",
+    color: "rgba(255,255,255,0.45)",
     fontSize: 13,
     fontWeight: "600",
   },
-  shareTabTextActive: { color: "white" },
+  shareTabTextActive: {
+    color: "white",
+    fontWeight: "700",
+  },
   shareTabUnderline: {
     height: 2,
-    width: "100%",
+    width: "70%",
     backgroundColor: "#7c4dff",
     borderRadius: 2,
     marginTop: 4,
   },
-  shareBtn: {
-    backgroundColor: "#7c4dff",
-    borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
+  shareUsersSection: {
+    height: 190,
+    marginBottom: 12,
   },
-  shareBtnText: { color: "white", fontSize: 14, fontWeight: "700" },
+  shareUsersScroll: {
+    flex: 1,
+  },
+  shareUsersScrollContent: {
+    paddingVertical: 2,
+    gap: 10,
+  },
+  shareLoadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  shareLoadingText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12.5,
+  },
+  shareEmptyWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  shareEmptyText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 12.5,
+    textAlign: "center",
+  },
+  shareUserRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  shareUserAvatarWrap: {
+    position: "relative",
+    marginRight: 12,
+  },
+  shareUserAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  shareUserAvatarFallback: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#4c1d95",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareUserAvatarInitials: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  shareUserOnlineDot: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+    backgroundColor: "#22c55e",
+    borderWidth: 2,
+    borderColor: "#160728",
+  },
+  shareUserInfoCol: {
+    flex: 1,
+    marginRight: 10,
+  },
+  shareUserName: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  shareUserHandle: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 11.5,
+  },
+  shareUserSendBtn: {
+    backgroundColor: "#7c4dff",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    minWidth: 64,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareUserSendBtnText: {
+    color: "white",
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  shareUserSentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(34, 197, 94, 0.18)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(74, 222, 128, 0.4)",
+  },
+  shareUserSentText: {
+    color: "#4ade80",
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  sharePlatformSection: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+    paddingTop: 12,
+    marginBottom: 4,
+  },
+  sharePlatformSectionTitle: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+  sharePlatformRow: {
+    flexDirection: "row",
+    gap: 14,
+    paddingHorizontal: 4,
+  },
+  sharePlatformItem: {
+    alignItems: "center",
+    gap: 6,
+  },
+  sharePlatformIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  sharePlatformEmoji: {
+    fontSize: 22,
+  },
+  sharePlatformLabel: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 11,
+    fontWeight: "500",
+  },
   shareCancelBtn: {
-    marginTop: 16,
+    marginTop: 10,
     backgroundColor: "rgba(255,255,255,0.08)",
     borderRadius: 14,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.15)",
   },
   shareCancelText: {
     color: "rgba(255,255,255,0.7)",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
   },
 
   // ── Power modal ──
   powerBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minWidth: 220,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minWidth: 170,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -6004,14 +14439,22 @@ const styles = StyleSheet.create({
   },
 
   // ── Play center modal ──
+  playCenterOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+    alignItems: "flex-end",
+    paddingBottom: 90,
+    paddingRight: 12,
+  },
   playCenterBox: {
     backgroundColor: "#1a0a2e",
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minWidth: 220,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minWidth: 170,
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
@@ -6020,32 +14463,32 @@ const styles = StyleSheet.create({
   },
   playCenterTitle: {
     color: "white",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
-    marginBottom: 16,
+    marginBottom: 10,
   },
   playCenterRow: {
     flexDirection: "row",
-    gap: 24,
+    gap: 16,
   },
   playCenterItem: {
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   playCenterIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: "rgba(124,77,255,0.2)",
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
-  playCenterEmoji: { fontSize: 28 },
+  playCenterEmoji: { fontSize: 20 },
   playCenterLabel: {
     color: "rgba(255,255,255,0.85)",
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "600",
   },
   powerExitIconWrap: {
@@ -6169,23 +14612,20 @@ const styles = StyleSheet.create({
     color: "white",
   },
 
-  // ── Emoji / Stickers / GIF picker ──
+  // ── Emoji picker modal ──
   emojiBox: {
-    height: H * 0.52,
+    position: "relative",
     backgroundColor: "#1a0a2e",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === "ios" ? 28 : 20,
+    overflow: "hidden",
     shadowColor: "#7c4dff",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 10,
-    overflow: "hidden",
+    shadowRadius: 16,
+    elevation: 14,
   },
   emojiBoxBody: {
     flex: 1,
@@ -6276,8 +14716,91 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 12,
+  },
+  emojiCellSelected: {
+    backgroundColor: "rgba(124, 77, 255, 0.35)",
+    borderWidth: 1.5,
+    borderColor: "#c084fc",
+    transform: [{ scale: 1.15 }],
   },
   emojiCellText: { fontSize: 24 },
+  emojiPickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.2)",
+    zIndex: 9,
+  },
+  emojiSendBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === "ios" ? 18 : 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(167, 139, 250, 0.18)",
+    backgroundColor: "transparent",
+    marginTop: 4,
+  },
+  emojiSendRecipientWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginRight: 12,
+  },
+  emojiSendAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    borderColor: "#7c4dff",
+  },
+  emojiSendRecipient: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(124, 77, 255, 0.22)",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: "rgba(167, 139, 250, 0.35)",
+    maxWidth: 200,
+  },
+  emojiSendName: {
+    color: "#ffffff",
+    fontSize: 13.5,
+    fontWeight: "600",
+    flex: 1,
+  },
+  emojiSendChev: {
+    color: "#c084fc",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  emojiSendBtn: {
+    backgroundColor: "#7c4dff",
+    borderRadius: 22,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  emojiSendBtnDisabled: {
+    opacity: 0.45,
+  },
+  emojiSendBtnText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
   stickerGridInner: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -6322,55 +14845,89 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ── Entry Banner ──
+  // ── Entry Banner (overlay — floats over screen, takes no layout space) ──
   entryBannerContainer: {
-    // position: "relative",
-    alignSelf: "flex-start",
-    // minHeight: 56,
-    justifyContent: "center",
+    position: "relative",
+    overflow: "visible",
+    marginBottom: vs(6),
   },
   entryBannerBg: {
-    height: 85,
-    alignSelf: "center",
-    width: 300,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
   },
   entryBannerBgDefault: {
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    borderRadius: 18,
+    backgroundColor: "rgba(10, 4, 30, 0.85)",
+    borderRadius: s(16),
+    borderWidth: 1,
+    borderColor: "rgba(124, 77, 255, 0.45)",
   },
   entryBannerContent: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+    paddingLeft: s(22),
+    paddingRight: s(32),
     position: "absolute",
     top: 0,
-    left: 15,
+    left: 0,
     right: 0,
-    bottom: 10,
-    gap: 5,
+    bottom: 0,
+    height: "100%",
   },
-  entryBannerAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 30,
-    marginTop: 2,
+  entryBannerFramedAvatarWrap: {
+    position: "absolute",
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
   },
-  entryBannerTextContainer: {
-    marginLeft: 9,
+  entryBannerFramedTextWrap: {
+    position: "absolute",
     justifyContent: "center",
     alignItems: "center",
+    flexDirection: "row",
+    overflow: "hidden",
+    zIndex: 2,
+  },
+  entryBannerAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginLeft: 12,
+    alignSelf: "center",
+  },
+
+  entryBannerTextContainer: {
+    flex: 1,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 8,
   },
   entryBannerName: {
-    textAlign: "center",
     color: "#FFD700",
-    fontWeight: "bold",
-    fontSize: 13,
+    fontWeight: "800",
+    fontSize: 8.5,
+    letterSpacing: 0.1,
+    textAlign: "center",
+    textAlignVertical: "center",
+    includeFontPadding: false,
+  },
+  entryBannerJoined: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 9.5,
+    marginTop: 1.5,
+    textAlign: "center",
+    textAlignVertical: "center",
+    includeFontPadding: false,
   },
 
   // ── Backpack modal ──
   backpackBox: {
     position: "relative",
-    backgroundColor: "#0f0720",
+    backgroundColor: "#FFF0F5",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: "hidden",
@@ -6380,44 +14937,6 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 14,
   },
-  bpBanner: {
-    marginHorizontal: 16,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 12,
-    overflow: "hidden",
-  },
-  bpBannerGift: { fontSize: 30 },
-  bpBannerText: { flex: 1, color: "white", fontSize: 13, fontWeight: "700" },
-  bpBannerArrow: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bpBannerArrowText: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-    lineHeight: 22,
-  },
-  bpPkBadge: {
-    position: "absolute",
-    top: 6,
-    right: 50,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  bpPkBadgeText: { color: "#c4b5fd", fontSize: 10, fontWeight: "700" },
   bpCurrencyRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -6429,7 +14948,7 @@ const styles = StyleSheet.create({
   bpDiamondIcon: { fontSize: 20 },
   bpCoinIcon: { fontSize: 20 },
   bpCurrencyVal: {
-    color: "white",
+    color: "#1a1a2e",
     fontSize: 15,
     fontWeight: "700",
     marginLeft: 5,
@@ -6458,11 +14977,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   bpMainTabText: {
-    color: "rgba(255,255,255,0.4)",
+    color: "rgba(26,26,46,0.4)",
     fontSize: 15,
     fontWeight: "600",
   },
-  bpMainTabTextActive: { color: "white" },
+  bpMainTabTextActive: { color: "#1a1a2e" },
   bpMainTabUnderline: {
     height: 2,
     width: "80%",
@@ -6472,88 +14991,12 @@ const styles = StyleSheet.create({
   },
   bpScrollArea: { flex: 1 },
 
-  // Random gifts
-  bpRandomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginTop: 0,
-    marginBottom: 12,
-    gap: 10,
-  },
-  bpRandomBox: {
-    width: 72,
-    height: 72,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 6,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.4)",
-  },
-  bpRandomBoxEmoji: { fontSize: 26 },
-  bpRandomBoxLabel: {
-    color: "white",
-    fontSize: 10,
-    fontWeight: "700",
-    textAlign: "center",
-    marginTop: 3,
-  },
-  bpOrbWrap: { alignItems: "center", marginRight: 10, gap: 5 },
-  bpOrbCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.35)",
-  },
-  bpOrbEmoji: { fontSize: 28 },
-  bpOrbPrice: { color: "#c4b5fd", fontSize: 10, fontWeight: "700" },
-
-  // Event banner
-  bpEventBanner: {
-    marginHorizontal: 16,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.3)",
-  },
-  bpEventIcon: { fontSize: 22 },
-  bpEventText: {
-    flex: 1,
-    color: "white",
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  bpEventArrow: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "rgba(167,139,250,0.5)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bpEventArrowText: {
-    color: "#a78bfa",
-    fontSize: 18,
-    fontWeight: "700",
-    lineHeight: 22,
-  },
-
   // Gift grid
   bpGiftGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     paddingHorizontal: 16,
+    paddingTop: 12,
     gap: 8,
     paddingBottom: 16,
   },
@@ -6604,17 +15047,6 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   bpHotText: { color: "white", fontSize: 8, fontWeight: "800" },
-  bpGiftSendBtn: {
-    position: "absolute",
-    top: 5,
-    right: 5,
-    backgroundColor: "rgba(124,77,255,0.5)",
-    borderRadius: 8,
-    width: 18,
-    height: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   bpGiftEmojiWrap: {
     width: GIFT_CARD_W - 20,
     height: GIFT_CARD_W - 20,
@@ -6622,9 +15054,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  bpGiftImageWrap: {
+    width: GIFT_CARD_W - 16,
+    height: GIFT_CARD_W - 16,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    backgroundColor: "transparent",
+  },
+  bpGiftImage: {
+    width: "88%",
+    height: "88%",
+  },
   bpGiftEmoji: { fontSize: 32 },
   bpGiftName: {
-    color: "rgba(255,255,255,0.9)",
+    color: "#1a1a2e",
     fontSize: 11,
     fontWeight: "600",
     textAlign: "center",
@@ -6632,7 +15077,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   bpGiftPriceRow: { flexDirection: "row", alignItems: "center" },
-  bpGiftPriceText: { color: "#c4b5fd", fontSize: 10, fontWeight: "700" },
+  bpGiftPriceText: { color: "#3D1A80", fontSize: 10, fontWeight: "700" },
 
   // Send bar
   bpSendBar: {
@@ -6643,7 +15088,7 @@ const styles = StyleSheet.create({
     paddingBottom: 22,
     borderTopWidth: 1,
     borderTopColor: "rgba(167,139,250,0.15)",
-    backgroundColor: "#0f0720",
+    backgroundColor: "#FFF0F5",
     gap: 10,
   },
   bpSendAvatar: {
@@ -6664,18 +15109,40 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
   },
-  bpSendHeart: { fontSize: 13 },
-  bpSendName: { color: "white", fontSize: 13, fontWeight: "600", flex: 1 },
-  bpSendChev: { color: "#a78bfa", fontSize: 12 },
+  bpSendName: { color: "#3D1A80", fontSize: 13, fontWeight: "600", flex: 1 },
+  bpSendChev: { color: "#3D1A80", fontSize: 12 },
   bpSendQtyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     backgroundColor: "rgba(124,77,255,0.15)",
     borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
   },
-  bpSendQtyText: { color: "white", fontSize: 13, fontWeight: "700" },
+  bpQtyStepBtn: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7c4dff",
+  },
+  bpQtyStepText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  bpSendQtyText: {
+    color: "#3D1A80",
+    fontSize: 13,
+    fontWeight: "700",
+    minWidth: 16,
+    textAlign: "center",
+  },
   bpSendBtn: {
     backgroundColor: "#7c4dff",
     borderRadius: 20,
@@ -6705,15 +15172,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.55)",
   },
   giftReceiverSheet: {
-    backgroundColor: "#1a0a2e",
+    backgroundColor: "#FFF0F5",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 8,
     paddingBottom: 28,
     paddingHorizontal: 16,
     borderTopWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
-    maxHeight: H * 0.55,
+    borderColor: "rgba(124,77,255,0.15)",
+    maxHeight: H * 0.5,
     zIndex: 41,
     elevation: 41,
   },
@@ -6722,25 +15189,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   giftRecipientEmptyText: {
-    color: "rgba(255,255,255,0.65)",
+    color: "rgba(26,26,46,0.65)",
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
   },
   giftReceiverTitle: {
-    color: "white",
+    color: "#3D1A80",
     fontSize: 18,
     fontWeight: "700",
     marginTop: 8,
   },
   giftReceiverSubtitle: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(26,26,46,0.5)",
     fontSize: 13,
     marginTop: 4,
     marginBottom: 12,
   },
   giftRecipientList: {
-    maxHeight: H * 0.38,
+    maxHeight: H * 0.32,
+  },
+  giftRecipientListContent: {
+    paddingBottom: 8,
   },
   giftRecipientRow: {
     flexDirection: "row",
@@ -6750,13 +15220,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 14,
     marginBottom: 6,
-    backgroundColor: "rgba(124,77,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.85)",
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: "rgba(124,77,255,0.12)",
   },
   giftRecipientRowActive: {
-    backgroundColor: "rgba(124,77,255,0.22)",
-    borderColor: "rgba(167,139,250,0.45)",
+    backgroundColor: "rgba(124,77,255,0.12)",
+    borderColor: "rgba(124,77,255,0.35)",
   },
   giftRecipientAvatar: {
     width: 44,
@@ -6766,14 +15236,14 @@ const styles = StyleSheet.create({
     borderColor: "#7c4dff",
   },
   giftRecipientInfo: { flex: 1, minWidth: 0 },
-  giftRecipientName: { color: "white", fontSize: 15, fontWeight: "600" },
+  giftRecipientName: { color: "#3D1A80", fontSize: 15, fontWeight: "600" },
   giftRecipientMeta: {
-    color: "rgba(255,255,255,0.5)",
+    color: "rgba(26,26,46,0.5)",
     fontSize: 12,
     marginTop: 2,
   },
   giftRecipientCheck: {
-    color: "#a78bfa",
+    color: "#3D1A80",
     fontSize: 18,
     fontWeight: "700",
   },
@@ -6797,11 +15267,11 @@ const styles = StyleSheet.create({
     borderColor: "rgba(167,139,250,0.4)",
   },
   bpSubTabText: {
-    color: "rgba(255,255,255,0.4)",
+    color: "rgba(26,26,46,0.4)",
     fontSize: 13,
     fontWeight: "600",
   },
-  bpSubTabTextActive: { color: "white" },
+  bpSubTabTextActive: { color: "#1a1a2e" },
   bpEmptyState: {
     flex: 1,
     alignItems: "center",
@@ -6836,11 +15306,11 @@ const styles = StyleSheet.create({
     borderColor: "#a78bfa",
   },
   bpActEventText: {
-    color: "rgba(255,255,255,0.45)",
+    color: "rgba(26,26,46,0.45)",
     fontSize: 13,
     fontWeight: "600",
   },
-  bpActEventTextActive: { color: "white" },
+  bpActEventTextActive: { color: "#1a1a2e" },
 
   // ── Intimacy video thumbnail cards ──
   bpVideoThumb: {
@@ -6859,7 +15329,7 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   bpEmptyText: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(26,26,46,0.55)",
     fontSize: 13,
     textAlign: "center",
     paddingVertical: 24,
@@ -7128,38 +15598,198 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-  giftPopupOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
+  // ── Floating Gift Banner Display ──
+  giftBannerCard: {
+    maxWidth: W * 0.78,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 215, 0, 0.9)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.45,
+    shadowRadius: 6,
+    elevation: 8,
+    overflow: "visible",
+    marginBottom: vs(6),
+  },
+  giftBannerGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 5,
+    paddingLeft: 6,
+    paddingRight: 8,
+    borderRadius: 24,
+    backgroundColor: "rgba(22, 10, 46, 0.92)",
+  },
+  giftBannerAvatarWrap: {
+    position: "relative",
+    marginRight: 8,
+  },
+  giftBannerAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: "#FFD700",
+  },
+  giftBannerAvatarFallback: {
+    backgroundColor: "#6d28d9",
     alignItems: "center",
     justifyContent: "center",
   },
-  giftPopupCard: {
-    backgroundColor: "rgba(26,10,46,0.95)",
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.45)",
-    paddingHorizontal: 36,
-    paddingVertical: 28,
-    alignItems: "center",
-    shadowColor: "#ff4ea3",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  giftPopupEmoji: { fontSize: 64, marginBottom: 10 },
-  giftPopupImage: { width: 96, height: 96, marginBottom: 10 },
-  giftPopupTitle: {
-    color: "white",
-    fontSize: 22,
+  giftBannerAvatarInitial: {
+    color: "#ffffff",
     fontWeight: "800",
-    marginBottom: 4,
+    fontSize: 13,
   },
-  giftPopupSub: {
-    color: "#f9a8d4",
-    fontSize: 15,
-    fontWeight: "700",
+  giftBannerSparkleBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    backgroundColor: "#FFD700",
+    borderRadius: 6,
+    width: 13,
+    height: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  giftBannerTextCol: {
+    justifyContent: "center",
+    marginRight: 8,
+    maxWidth: W * 0.42,
+  },
+  giftBannerSenderName: {
+    color: "#FFE500",
+    fontWeight: "800",
+    fontSize: 12,
+    letterSpacing: 0.2,
+  },
+  giftBannerActionText: {
+    color: "#FFFFFF",
+    fontSize: 10.5,
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  giftBannerVisualWrap: {
+    marginLeft: "auto",
+    position: "relative",
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  giftBannerGlowBackdrop: {
+    position: "absolute",
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255, 215, 0, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 215, 0, 0.45)",
+  },
+  giftBannerImageContainer: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  giftBannerImage: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+  },
+  giftBannerEmojiMain: {
+    fontSize: 18,
+    textAlign: "center",
+    includeFontPadding: false,
+    alignSelf: "center",
+  },
+  giftBannerEmojiBig: {
+    fontSize: 22,
+    textAlign: "center",
+    includeFontPadding: false,
+  },
+  giftBannerMultiplierBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    borderRadius: 8,
+    overflow: "hidden",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+  },
+  giftBannerMultiplierGrad: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 8,
+  },
+  giftBannerMultiplierText: {
+    color: "#ffffff",
+    fontWeight: "900",
+    fontSize: 9.5,
+    fontStyle: "italic",
+  },
+
+  // ── Floating Gift Rise (Bottom to Top) ──
+  floatingGiftRiseWrap: {
+    position: "absolute",
+    top: 0,
+    zIndex: 10002,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  floatingGiftRiseGlow: {
+    width: s(68),
+    height: s(68),
+    borderRadius: s(34),
+    backgroundColor: "rgba(255, 215, 0, 0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#FFD700",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 16,
+    elevation: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 215, 0, 0.4)",
+  },
+  floatingGiftRiseImage: {
+    width: s(58),
+    height: s(58),
+  },
+  floatingGiftRiseEmoji: {
+    fontSize: ms(40),
+  },
+
+
+
+  // ── Seat emoji overlay (center of avatar) ──────────────────────
+  seatEmojiOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10005,
+    elevation: 102,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    padding: 0,
+  },
+  seatEmojiOverlayText: {
+    fontSize: ms(26),
+    textAlign: "center",
+    textAlignVertical: "center",
+    includeFontPadding: false,
+  },
+  seatEmojiOverlayImg: {
+    width: s(28),
+    height: s(28),
   },
 
   // ── Seat action popup (centered) ──
@@ -7168,81 +15798,20 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.65)",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 32,
-  },
-  seatActionCard: {
-    width: "100%",
-    backgroundColor: "#1e1035",
-    borderRadius: 24,
-    paddingHorizontal: 22,
-    paddingTop: 28,
-    paddingBottom: 22,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
-    shadowColor: "#7c4dff",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 20,
-    elevation: 16,
-  },
-  seatActionHeader: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  seatActionHeaderEmoji: {
-    fontSize: 38,
-    marginBottom: 8,
+    paddingHorizontal: 34,
   },
   seatActionHeaderTitle: {
     color: "white",
-    fontSize: 20,
-    fontWeight: "800",
-    marginBottom: 4,
-  },
-  seatActionHeaderSub: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 13,
-  },
-  seatActionDivider: {
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    marginBottom: 18,
-  },
-  seatActionBtn: {
-    borderRadius: 14,
-    overflow: "hidden",
-    marginBottom: 12,
-  },
-  seatActionBtnGradient: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 15,
-    gap: 10,
-  },
-  seatActionBtnIcon: { fontSize: 20 },
-  seatActionBtnText: {
-    color: "white",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  seatActionCancelBtn: {
-    marginTop: 4,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-  seatActionCancelText: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 14,
-    fontWeight: "600",
+    marginBottom: 1,
   },
 
   // ── Mic permission warning card ──
   micPermCard: {
-    width: "82%",
+    width: "68%",
     backgroundColor: "#12082b",
-    borderRadius: 22,
+    borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.3)",
@@ -7250,7 +15819,7 @@ const styles = StyleSheet.create({
   // Top illustrated gradient section
   micPermIllustration: {
     width: "100%",
-    height: 170,
+    height: 120,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -7258,50 +15827,50 @@ const styles = StyleSheet.create({
   // Decorative background blobs
   micPermBlob1: {
     position: "absolute",
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 85,
+    height: 85,
+    borderRadius: 43,
     backgroundColor: "rgba(124,77,255,0.25)",
-    top: -20,
-    left: -30,
+    top: -14,
+    left: -21,
   },
   micPermBlob2: {
     position: "absolute",
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: "rgba(168,85,247,0.2)",
-    bottom: -10,
-    right: -10,
+    bottom: -7,
+    right: -7,
   },
   // Phone-shaped card in the illustration
   micPermPhoneCard: {
-    width: 110,
+    width: 78,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1.5,
     borderColor: "rgba(168,85,247,0.5)",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     alignItems: "flex-start",
-    gap: 7,
+    gap: 5,
   },
   micPermPhoneBar1: {
     width: "80%",
-    height: 7,
-    borderRadius: 4,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.6)",
   },
   micPermPhoneBar2: {
     width: "55%",
-    height: 7,
-    borderRadius: 4,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   micPermMicCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: "rgba(124,77,255,0.25)",
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.5)",
@@ -7312,47 +15881,47 @@ const styles = StyleSheet.create({
   },
   micPermPhoneBar3: {
     width: "65%",
-    height: 7,
-    borderRadius: 4,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: "rgba(168,85,247,0.35)",
   },
   // Small floating badge bottom-right of illustration
   micPermBadge: {
     position: "absolute",
-    bottom: 22,
-    right: 36,
+    bottom: 16,
+    right: 26,
     backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.4)",
-    padding: 7,
+    padding: 5,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
   },
   micPermBadgeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: "#a855f7",
   },
   micPermBadgeLine: {
-    width: 24,
-    height: 5,
-    borderRadius: 3,
+    width: 18,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: "rgba(168,85,247,0.5)",
   },
   // Text body section
   micPermBody: {
-    paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   micPermMsg: {
     color: "rgba(255,255,255,0.75)",
-    fontSize: 14,
+    fontSize: 12,
     textAlign: "center",
-    lineHeight: 21,
+    lineHeight: 17,
   },
   // Button row
   micPermBtnRow: {
@@ -7363,12 +15932,12 @@ const styles = StyleSheet.create({
   },
   micPermCancelBtn: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 11,
     alignItems: "center",
   },
   micPermCancelText: {
     color: "rgba(255,255,255,0.35)",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "600",
   },
   micPermBtnDivider: {
@@ -7377,13 +15946,45 @@ const styles = StyleSheet.create({
   },
   micPermOkBtn: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 11,
     alignItems: "center",
   },
   micPermOkText: {
     color: "#a855f7",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "700",
+  },
+  adminSeatBtnRow: {
+    flexDirection: "row",
+    width: "100%",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  adminSeatActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  adminSeatActionClaimText: {
+    color: "#c084fc",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  adminSeatActionLockText: {
+    color: "#f87171",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  adminSeatCancelBtn: {
+    width: "100%",
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(255,255,255,0.02)",
   },
 
   // ── Pinned room message cards ──
@@ -7462,20 +16063,20 @@ const styles = StyleSheet.create({
   },
   welcomeEditBox: {
     backgroundColor: "#1a0a2e",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingBottom: 32,
-    paddingTop: 12,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+    paddingTop: 8,
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.2)",
   },
   welcomeEditTitle: {
     color: "white",
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "700",
     textAlign: "center",
-    marginBottom: 16,
+    marginBottom: 10,
   },
   welcomeEditInput: {
     backgroundColor: "rgba(255,255,255,0.07)",
@@ -7483,45 +16084,1289 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(167,139,250,0.25)",
     color: "white",
-    fontSize: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    minHeight: 90,
+    fontSize: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minHeight: 40,
+    maxHeight: 64,
     textAlignVertical: "top",
   },
   welcomeEditCount: {
     color: "rgba(255,255,255,0.4)",
     fontSize: 11,
     textAlign: "right",
-    marginTop: 4,
-    marginBottom: 16,
+    marginTop: 3,
+    marginBottom: 10,
   },
   welcomeEditActions: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
   },
   welcomeEditCancel: {
     flex: 1,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 14,
-    paddingVertical: 13,
+    borderRadius: 12,
+    paddingVertical: 9,
     alignItems: "center",
   },
   welcomeEditCancelText: {
     color: "rgba(255,255,255,0.7)",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
   },
   welcomeEditSave: {
     flex: 1,
     backgroundColor: "#7c4dff",
-    borderRadius: 14,
-    paddingVertical: 13,
+    borderRadius: 12,
+    paddingVertical: 9,
     alignItems: "center",
   },
   welcomeEditSaveText: {
     color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  // Custom Reward Claimed Modal
+  rewardModalOverlay: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0, 0, 0, 0.72)",
+    justifyContent: "center",
+  },
+  rewardModalOuter: {
+    width: "75%",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  activeUsersOverlay: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  activeUsersBox: {
+    backgroundColor: "#1e0e36",
+    borderRadius: 20,
+    borderWidth: 1.2,
+    borderColor: "rgba(167, 139, 250, 0.35)",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    width: "100%",
+    maxWidth: 350,
+    maxHeight: "65%",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  activeUsersHandle: {
+    width: 32,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(255, 215, 240, 0.4)",
+    alignSelf: "center",
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  activeUsersHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 215, 240, 0.18)",
+    marginBottom: 6,
+  },
+  activeUsersTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    flexWrap: "wrap",
+  },
+  activeUsersTitle: {
+    color: "white",
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+  activeUsersBadge: {
+    backgroundColor: "rgba(124,77,255,0.3)",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.4)",
+  },
+  activeUsersBadgeText: {
+    color: "#c4b5fd",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  activeUsersSeatedBadge: {
+    backgroundColor: "rgba(167, 139, 250, 0.22)",
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(167, 139, 250, 0.4)",
+  },
+  activeUsersSeatedBadgeText: {
+    color: "#e9d5ff",
+    fontSize: 9.5,
+    fontWeight: "700",
+  },
+  activeUsersCloseBtn: {
+    padding: 3,
+  },
+  activeUsersCloseText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  activeUsersList: {
+    maxHeight: 220,
+  },
+  activeUsersListContent: {
+    paddingVertical: 2,
+    gap: 5,
+  },
+  activeUsersEmpty: {
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  activeUsersEmptyText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+  },
+  activeUserCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    backgroundColor: "transparent",
+    gap: 7,
+  },
+  activeUserAvatarWrap: {
+    position: "relative",
+  },
+  activeUserAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
+  activeUserAvatarPlaceholder: {
+    backgroundColor: "#3b1580",
+    justifyContent: "center",
+  },
+  rewardModalHeaderImg: {
+    position: "absolute",
+    top: -70,
+    width: "110%",
+    height: 145,
+    zIndex: 10,
+    elevation: 10,
+    alignSelf: "center",
+  },
+  rewardModalContainer: {
+    width: "100%",
+    borderRadius: 20,
+    alignItems: "center",
+    paddingTop: 55,
+    paddingBottom: 20,
+    elevation: 5,
+  },
+  rewardModalCloseIcon: {
+    position: "absolute",
+    top: -60,
+    right: 0,
+    zIndex: 100,
+    padding: 5,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    borderRadius: 16,
+  },
+  rewardModalTitle: {
+    color: "white",
+    fontSize: 26,
+    fontWeight: "900",
+    textShadowColor: "#d6249f",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
+    zIndex: 20,
+    marginBottom: 20,
+  },
+  rewardModalBody: {
+    width: "100%",
+    paddingHorizontal: 20,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  rewardModalGiftBox: {
+    width: 100,
+    height: 100,
+    backgroundColor: "white",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#ffc107",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  activeUserInfo: {
+    flex: 1,
+  },
+  activeUserName: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 0,
+  },
+  activeUserStatus: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 10,
+  },
+  activeUserNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 0,
+  },
+  activeUserLevelImg: {
+    height: 13,
+    width: 13 * (142 / 149),
+    flexShrink: 0,
+  },
+  activeUserVipBadge: {
+    width: 13,
+    height: 13,
+    flexShrink: 0,
+  },
+  activeUserDecorationBadge: {
+    width: 13,
+    height: 13,
+    flexShrink: 0,
+  },
+  activeUserVerifiedBadge: {
+    width: 13 * (438 / 179),
+    height: 13,
+    flexShrink: 0,
+  },
+  activeUserActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+    marginLeft: 6,
+  },
+  seatStatusBadge: {
+    backgroundColor: "rgba(167, 139, 250, 0.2)",
+    borderWidth: 1,
+    borderColor: "#a78bfa",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  seatStatusText: {
+    color: "#e9d5ff",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  ownerStatusBadge: {
+    backgroundColor: "rgba(234, 179, 8, 0.2)",
+    borderWidth: 1,
+    borderColor: "#eab308",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ownerStatusText: {
+    color: "#fef08a",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  audienceStatusBadge: {
+    backgroundColor: "rgba(167, 139, 250, 0.12)",
+    borderColor: "rgba(167, 139, 250, 0.35)",
+  },
+  audienceStatusText: {
+    color: "#c4b5fd",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  leaveSeatBtn: {
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  leaveSeatBtnText: {
+    color: "#fca5a5",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  rewardModalGiftImg: {
+    width: "80%",
+    height: "80%",
+    position: "absolute",
+    top: "10%",
+    left: "10%",
+  },
+  rewardModalGiftBadge: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    color: "#e64a19",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  rewardModalGiftLabel: {
+    color: "#e64a19",
+    fontSize: 14,
+    fontWeight: "bold",
+    marginBottom: 12,
+  },
+  rewardModalTips: {
+    color: "#a0a0a0",
+    fontSize: 10,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  rewardModalOkBtn: {
+    width: "100%",
+    height: 42,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#ff007a",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  rewardModalOkText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+    letterSpacing: 1,
+  },
+
+  followModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+  },
+  followModalBox: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    height: Math.min(Dimensions.get("window").height * 0.8, 620),
+    width: "100%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 12,
+  },
+  followModalTabContainer: {
+    flex: 1,
+    justifyContent: "space-between",
+  },
+  followModalHeaderBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  followModalCloseBtn: {
+    paddingRight: 12,
+    paddingVertical: 4,
+  },
+  followModalTabsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 20,
+  },
+  followModalTabItem: {
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  followModalTabText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#6b7280",
+  },
+  followModalTabTextActive: {
+    fontWeight: "700",
+    color: "#111827",
+  },
+  followModalActiveIndicator: {
+    marginTop: 6,
+    width: 26,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#7c4dff",
+  },
+  followModalScroll: {
+    flex: 1,
+    width: "100%",
+  },
+  followModalContent: {
+    paddingTop: 6,
+    paddingBottom: 16,
+  },
+  followModalProfileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  followModalAvatarOuter: {
+    position: "relative",
+    width: 86,
+    height: 86,
+  },
+  followModalAvatarLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+  },
+  followModalAvatarEditBadge: {
+    position: "absolute",
+    bottom: -3,
+    right: -3,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#7c4dff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#ffffff",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    zIndex: 3,
+  },
+  followModalAvatarWrap: {
+    width: 86,
+    height: 86,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#f3f4f6",
+  },
+  followModalAvatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 16,
+  },
+  followModalInfoCol: {
+    flex: 1,
+    marginLeft: 16,
+    justifyContent: "center",
+  },
+  followModalEditBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#f5f3ff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 10,
+    borderWidth: 1,
+    borderColor: "#ede9fe",
+  },
+  followModalRoomName: {
+    color: "#111827",
+    fontSize: 17,
+    fontWeight: "700",
+    marginBottom: 8,
+    lineHeight: 22,
+  },
+  followModalIdRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  followModalRoomId: {
+    color: "#6b7280",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  editRoomModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "flex-end",
+  },
+  editRoomModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  editRoomModalBox: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    maxHeight: "88%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 12,
+  },
+  editRoomScrollContent: {
+    paddingBottom: 4,
+  },
+  editRoomModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  editRoomModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  editRoomModalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editRoomAvatarSection: {
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  editRoomAvatarSectionCompact: {
+    marginBottom: 10,
+  },
+  editRoomAvatarWrap: {
+    position: "relative",
+    width: 84,
+    height: 84,
+    borderRadius: 18,
+    backgroundColor: "#f3f4f6",
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#e5e7eb",
+  },
+  editRoomAvatarWrapCompact: {
+    width: 62,
+    height: 62,
+    borderRadius: 14,
+  },
+  editRoomAvatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 18,
+  },
+  editRoomAvatarPlaceholder: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f3f4f6",
+  },
+  editRoomAvatarCameraBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    left: 0,
+    height: 28,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editRoomAvatarHint: {
+    fontSize: 12,
+    color: "#7c4dff",
+    fontWeight: "600",
+    marginTop: 8,
+  },
+  editRoomInputGroup: {
+    marginBottom: 22,
+  },
+  editRoomInputLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  editRoomInputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  editRoomInputCounter: {
+    fontSize: 12,
+    color: "#9ca3af",
+  },
+  editRoomTextInput: {
+    height: 48,
+    backgroundColor: "#f9fafb",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: "#111827",
+  },
+  editRoomActionsRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 6,
+  },
+  editRoomCancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editRoomCancelText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#4b5563",
+  },
+  editRoomSaveBtn: {
+    flex: 2,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#7c4dff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  editRoomSaveBtnDisabled: {
+    opacity: 0.5,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  editRoomSaveText: {
     fontSize: 15,
     fontWeight: "700",
+    color: "#ffffff",
+  },
+  followModalSection: {
+    marginBottom: 10,
+  },
+  followModalSectionLabel: {
+    color: "#9ca3af",
+    fontSize: 14,
+    fontWeight: "500",
+    marginBottom: 6,
+  },
+  followModalLevelValue: {
+    color: "#7c4dff",
+    fontSize: 16,
+    fontWeight: "800",
+    fontStyle: "italic",
+  },
+  followModalDivider: {
+    height: 1,
+    backgroundColor: "#f3f4f6",
+    marginVertical: 12,
+  },
+  followModalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  followModalAnnouncementSection: {
+    paddingVertical: 10,
+  },
+  followModalRowHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  followModalRowLabel: {
+    color: "#9ca3af",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  followModalRowValue: {
+    color: "#111827",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  followModalAnnouncementText: {
+    color: "#111827",
+    fontSize: 14,
+    fontWeight: "400",
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  followModalActionBtn: {
+    backgroundColor: "#7c4dff",
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 12,
+    marginBottom: 4,
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+    width: "100%",
+  },
+  followModalActionBtnFollowing: {
+    backgroundColor: "rgba(124, 77, 255, 0.12)",
+    borderWidth: 1.5,
+    borderColor: "rgba(124, 77, 255, 0.4)",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  followModalActionBtnText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  followModalActionBtnTextFollowing: {
+    color: "#7c4dff",
+  },
+  followModalEmptyTab: {
+    flex: 1,
+    paddingVertical: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  followModalEmptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 8,
+  },
+  followModalEmptySub: {
+    fontSize: 13,
+    color: "#6b7280",
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  eventsEmptyTabContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 40,
+  },
+  eventsEmptyIllustrationWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  eventsEmptyText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#9ca3af",
+    textAlign: "center",
+    letterSpacing: 0.2,
+  },
+
+  // ── Follower Tab Styles (Matching uploaded image) ──
+  followerSearchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f3f4f6",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    height: 38,
+    marginBottom: 10,
+  },
+  followerSearchIcon: {
+    marginRight: 8,
+  },
+  followerSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#111827",
+    paddingVertical: 0,
+  },
+  followerListScroll: {
+    flex: 1,
+    width: "100%",
+  },
+  followerListContent: {
+    paddingVertical: 4,
+  },
+  followerListItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#f3f4f6",
+  },
+  followerItemAvatarWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    overflow: "hidden",
+    backgroundColor: "#f3f4f6",
+  },
+  followerItemAvatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 24,
+  },
+  followerItemInfoCol: {
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: "center",
+  },
+  followerItemTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  followerItemName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    maxWidth: 130,
+  },
+  followerGenderBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 10,
+  },
+  followerGenderBadgeMale: {
+    backgroundColor: "#38bdf8",
+  },
+  followerGenderBadgeFemale: {
+    backgroundColor: "#ec4899",
+  },
+  followerGenderBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerHomeBadge: {
+    backgroundColor: "#f59e0b",
+    borderRadius: 3,
+    padding: 2.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  followerNewBadge: {
+    backgroundColor: "#38bdf8",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  followerNewBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerReturnBadge: {
+    backgroundColor: "#f59e0b",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+  },
+  followerReturnBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerMedallionBadge: {
+    backgroundColor: "#ecfdf5",
+    borderWidth: 1.2,
+    borderColor: "#10b981",
+    borderRadius: 10,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  followerMedallionText: {
+    color: "#10b981",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerItemBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6,
+  },
+  followerRankShield: {
+    backgroundColor: "#374151",
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  followerRankText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerLevelPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+  },
+  followerLevelPillBlue: {
+    backgroundColor: "#60a5fa",
+  },
+  followerLevelPillGold: {
+    backgroundColor: "#d97706",
+  },
+  followerLevelPillText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerDiamondPill: {
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  followerDiamondPillBlue: {
+    backgroundColor: "#3b82f6",
+  },
+  followerDiamondPillBrown: {
+    backgroundColor: "#78716c",
+  },
+  followerDiamondPillText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerLeafPill: {
+    backgroundColor: "#8b5cf6",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  followerLeafPillText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  followerNotFoundWrap: {
+    paddingVertical: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  followerNotFoundText: {
+    color: "#9ca3af",
+    fontSize: 14,
+  },
+
+  // ── Room Badge Wall Tab Styles ──
+  badgeWallSubHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f3f4f6",
+    marginBottom: 6,
+  },
+  badgeWallSubTabsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 28,
+  },
+  badgeWallSubTabItem: {
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  badgeWallSubTabText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#9ca3af",
+  },
+  badgeWallSubTabTextActive: {
+    fontWeight: "700",
+    color: "#111827",
+  },
+  badgeWallSubActiveIndicator: {
+    marginTop: 4,
+    width: 22,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#7c4dff",
+  },
+  badgeWallHelpBtn: {
+    padding: 4,
+  },
+  badgeWallScroll: {
+    flex: 1,
+    width: "100%",
+  },
+  badgeWallGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-around",
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  badgeWallCard: {
+    width: "48%",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  badgeEmblemWrap: {
+    width: 104,
+    height: 104,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  badgeWallCardTitle: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#9ca3af",
+    textAlign: "center",
+    marginTop: 6,
+    maxWidth: 130,
+  },
+  badgeWallCardTitleUnlocked: {
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  // ── Compact Follow Modal (Triggered by + icon) ──
+  compactFollowModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingHorizontal: 0,
+  },
+  compactFollowModalBox: {
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 3,
+    borderColor: "#F8C8DC",
+    paddingHorizontal: 24,
+    paddingTop: 44,
+    paddingBottom: 32,
+    width: "100%",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 10,
+    position: "relative",
+  },
+  compactFollowModalCloseBtn: {
+    position: "absolute",
+    top: 14,
+    right: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(26, 26, 46, 0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 15,
+  },
+  compactFollowModalAvatarWrap: {
+    position: "absolute",
+    top: -40,
+    alignSelf: "center",
+    zIndex: 10,
+    elevation: 10,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+  },
+  compactFollowModalAvatar: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 2.5,
+    borderColor: "#ffffff",
+  },
+  compactFollowModalRoomName: {
+    color: "#1a1a2e",
+    fontSize: 16,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  compactFollowModalRoomId: {
+    color: "rgba(26, 26, 46, 0.55)",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  compactFollowModalActionBtn: {
+    backgroundColor: "#7c4dff",
+    paddingVertical: 11,
+    paddingHorizontal: 36,
+    borderRadius: 22,
+    minWidth: 150,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    marginBottom: 8,
+  },
+  compactFollowModalActionBtnFollowing: {
+    backgroundColor: "rgba(124, 77, 255, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(124, 77, 255, 0.35)",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  compactFollowModalActionBtnContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  compactFollowModalActionBtnText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  compactFollowModalActionBtnTextFollowing: {
+    color: "#7c4dff",
+  },
+
+  // ── Room Activity Event Banner (Enter / Leave / Seated) ──
+  activityBannerContainer: {
+    position: "absolute",
+    bottom: vs(155),
+    left: s(14),
+    zIndex: 9999,
+    elevation: 99,
+    maxWidth: W * 0.78,
+  },
+  activityBannerGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 5,
+    paddingLeft: 6,
+    paddingRight: 8,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(167, 139, 250, 0.4)",
+    backgroundColor: "rgba(22, 10, 46, 0.90)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.45,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  activityBannerAvatarWrap: {
+    marginRight: 8,
+  },
+  activityBannerAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.6)",
+  },
+  activityBannerAvatarFallback: {
+    backgroundColor: "#6d28d9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activityBannerAvatarInitial: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  activityBannerTextCol: {
+    justifyContent: "center",
+    marginRight: 10,
+    maxWidth: W * 0.46,
+  },
+  activityBannerName: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  activityBannerAction: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  activityBannerClapBtn: {
+    marginLeft: "auto",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  activityBannerClapGrad: {
+    paddingHorizontal: 9,
+    paddingVertical: 4.5,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activityBannerClapText: {
+    fontSize: 14,
   },
 });

@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
+  Image,
   Modal,
   TouchableOpacity,
   FlatList,
@@ -16,7 +17,18 @@ import { loadFollowing, loadFollowers } from "../src/services/relationshipServic
 import { loadProfileVisitsList } from "../src/services/profileStatsService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
+} from "../src/constants/vip";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
+
+// Same per-tier VIP "logo" crest already used as the VIP badge everywhere
+// else it appears (UserProfileView, RoomUserProfilePopup, WalletUserCard).
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
+);
 
 const TITLES = {
   following: "Following",
@@ -49,10 +61,10 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
     try {
       const loader = LOADERS[type];
       const list = await loader();
+      console.log(`[ProfileConnectionsModal] Loaded ${type} users list (${list?.length ?? 0} users):`, list);
       setUsers(list);
-      
     } catch (err) {
-      
+      console.error(`[ProfileConnectionsModal] Failed to load ${type} users list:`, err);
       setError(err?.message || "Could not load list.");
       setUsers([]);
     } finally {
@@ -77,6 +89,13 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
 
   const renderItem = ({ item }) => {
     const userId = item.userId ?? item.id;
+    // VIP logo + level badge: both derived from fields normalizeRelationshipUser
+    // already puts on every row (no extra request) — vipProfileFrameUrl and level.
+    // Decoration badge is still skipped: fetchUserDecorations is a per-user GET,
+    // and this list has no pagination and no existing per-row enrichment, so
+    // calling it per row risks an N+1 storm on a large followers/following list.
+    const vipTier = resolveVipTierFromAssetUrl(item.vipProfileFrameUrl);
+    const vipLogo = vipTier != null ? VIP_LOGO_BY_TIER[vipTier] : null;
     return (
       <TouchableOpacity
         style={styles.row}
@@ -84,35 +103,41 @@ export default function ProfileConnectionsModal({ visible, type, onClose }) {
         onPress={() => handleUserPress(item)}
       >
         <View style={styles.avatarWrap}>
-          {item.avatar ? (
-            <ProfileAvatarWithFrame
-              avatarSource={{ uri: item.avatar }}
-              frameSource={item.vipProfileFrameUrl}
-              size={48}
-              avatarStyle={styles.avatarImg}
-              {...(item.vipProfileFrameUrl
-                ? {
-                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                  }
-                : {})}
-            />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Ionicons name="person" size={22} color="#a78bfa" />
-            </View>
-          )}
+          <ProfileAvatarWithFrame
+            user={item}
+            avatarSource={item.avatar ? { uri: item.avatar } : undefined}
+            frameSource={item.vipProfileFrameUrl}
+            size={48}
+            avatarStyle={styles.avatarImg}
+            placeholderInitial={item.name?.[0]?.toUpperCase() ?? "?"}
+            {...(item.vipProfileFrameUrl
+              ? {
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
+              : {})}
+          />
           {item.online && <View style={styles.onlineDot} />}
         </View>
         <View style={styles.rowInfo}>
           <View style={styles.nameRow}>
             <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-            {item.verified && <Text style={styles.verified}>✓</Text>}
+            {item.verifiedBadgeUrl && <Text style={styles.verified}>✓</Text>}
+            {item.level != null && (
+              <Image
+                source={resolveLocalLevelBadge(item.level)}
+                style={styles.levelBadge}
+                resizeMode="contain"
+              />
+            )}
+            {vipLogo && (
+              <Image source={{ uri: vipLogo }} style={styles.vipBadge} resizeMode="contain" />
+            )}
           </View>
           {item.handle ? (
             <Text style={styles.handle} numberOfLines={1}>{item.handle}</Text>
@@ -258,6 +283,8 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   name: { color: "white", fontSize: 15, fontWeight: "700", flexShrink: 1 },
   verified: { color: "#4ade80", fontSize: 13, fontWeight: "800" },
+  vipBadge: { width: 16, height: 16, flexShrink: 0 },
+  levelBadge: { height: 16, width: 16 * (142 / 149), flexShrink: 0 },
   handle: { color: "rgba(255,255,255,0.45)", fontSize: 12 },
   empty: { alignItems: "center", paddingTop: 80, gap: 10, paddingHorizontal: 24 },
   emptyEmoji: { fontSize: 48 },

@@ -4,6 +4,7 @@ import {
   Text,
   Image,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   StyleSheet,
   StatusBar,
@@ -27,7 +28,6 @@ import {
   UserX,
   UserPlus,
   UserCheck,
-  Gift,
   Tag,
 } from "lucide-react-native";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
@@ -42,11 +42,12 @@ import { DECORATION_FRAME_LAYOUT } from "../src/constants/decorations";
 import { loadPublicProfile, toggleFollowUser } from "../src/services/publicProfileService";
 import { fetchVipProfileFrameForUser } from "../src/services/vipService";
 import { fetchUserDecorations } from "../src/services/decorationsService";
-import { blockUser } from "../src/services/relationshipService";
+import { blockUser, loadFollowing, isSameUser } from "../src/services/relationshipService";
 import { reportUser } from "../src/api/postApi";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { resolveImageSource } from "../src/utils/videoSource";
+import { isUserLive, isUserOnline, getUserLiveRoomId, useUserOnlineOrLiveStatus } from "../src/utils/liveStatus";
 import { s } from "../src/utils/responsive";
 
 // Same per-tier VIP "logo" crest already used as the VIP badge everywhere
@@ -55,7 +56,6 @@ const VIP_LOGO_BY_TIER = Object.fromEntries(
   VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
 );
 
-const VERIFIED_BADGE = require("../assets/Batches/verified-batch.png");
 const BADGE_HEIGHT = 20;
 const BADGE_ASPECT = { level: 142 / 149, verified: 438 / 179 };
 
@@ -88,6 +88,9 @@ export default function UserProfileView({ user, onBack }) {
   const [remarksVisible, setRemarksVisible] = useState(false);
   const [remarksText, setRemarksText] = useState("");
 
+  const activeUser = profile ?? user;
+  const isOnline = useUserOnlineOrLiveStatus(activeUser);
+
   const userId = user?.userId ? String(user.userId) : null;
 
   const refresh = useCallback(async () => {
@@ -99,18 +102,29 @@ export default function UserProfileView({ user, onBack }) {
     setLoading(true);
     setLoadFailed(false);
     try {
-      const [{ profile: loaded, status, posts: loadedPosts }, frameUrl, userDecorations] = await Promise.all([
+      const [{ profile: loaded, status, posts: loadedPosts }, frameUrl, userDecorations, followingList] = await Promise.all([
         loadPublicProfile(userId),
         fetchVipProfileFrameForUser(userId),
         fetchUserDecorations(userId),
+        loadFollowing().catch(() => []),
       ]);
       setProfile(loaded);
       setPosts(Array.isArray(loadedPosts) ? loadedPosts : []);
       setVipProfileFrameUrl(frameUrl);
       setDecorations(userDecorations);
-      setIsFollowing(Boolean(status?.following));
+      const followsFromList =
+        Array.isArray(followingList) &&
+        followingList.some((u) => isSameUser(u?.userId ?? u?.id, userId));
+      setIsFollowing(Boolean(status?.following) || followsFromList);
+      console.log(`[UserProfileView] Profile loaded for userId: ${userId}:`, {
+        profile: loaded,
+        status,
+        isOnline: isUserOnline(loaded),
+        isLive: isUserLive(loaded),
+      });
       if (!loaded) setLoadFailed(true);
-    } catch {
+    } catch (err) {
+      console.error(`[UserProfileView] Failed to load profile for userId: ${userId}`, err);
       setLoadFailed(true);
     } finally {
       setLoading(false);
@@ -201,7 +215,7 @@ export default function UserProfileView({ user, onBack }) {
       setReportVisible(false);
       Alert.alert("Report submitted", "Thank you for letting us know.");
     } catch (err) {
-      throw new Error(err?.message || "Could not submit report. Please try again.");
+      throw new Error(err?.response?.data?.message || err?.message || "Could not submit report. Please try again.");
     }
   };
 
@@ -217,10 +231,10 @@ export default function UserProfileView({ user, onBack }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0d0618" />
+      <StatusBar barStyle="dark-content" backgroundColor="#f7f5fb" />
       <LinearGradient
-        colors={["#1a0a2e", "#16082a", "#0d0618", "#1a0a2e", "#2d1b4e"]}
-        locations={[0, 0.25, 0.5, 0.75, 1]}
+        colors={["#faf8ff", "#f3eeff", "#ffffff"]}
+        locations={[0, 0.5, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -228,7 +242,7 @@ export default function UserProfileView({ user, onBack }) {
 
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={onBack}>
-          <ArrowLeft size={20} color="white" />
+          <ArrowLeft size={20} color="#2d1b4e" />
         </TouchableOpacity>
         <View style={{ flex: 1 }} />
         <TouchableOpacity
@@ -236,7 +250,7 @@ export default function UserProfileView({ user, onBack }) {
           activeOpacity={0.8}
           onPress={() => setMenuVisible((v) => !v)}
         >
-          <MoreHorizontal size={20} color="white" />
+          <MoreHorizontal size={20} color="#2d1b4e" />
         </TouchableOpacity>
       </View>
 
@@ -254,7 +268,7 @@ export default function UserProfileView({ user, onBack }) {
           />
           <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 14 }]}>
             <LinearGradient
-              colors={["#1e0a3c", "#16082a", "#0d0618"]}
+              colors={["#ffffff", "#faf8ff", "#f3eeff"]}
               style={StyleSheet.absoluteFill}
             />
             <LinearGradient
@@ -274,17 +288,17 @@ export default function UserProfileView({ user, onBack }) {
                   setReportVisible(true);
                 }}
               >
-                <Flag size={18} color="#e0d4ff" />
+                <Flag size={18} color="#7c4dff" />
                 <Text style={styles.sheetItemText}>Report User</Text>
               </TouchableOpacity>
               <View style={styles.sheetDivider} />
               <TouchableOpacity style={styles.sheetItem} activeOpacity={0.75} onPress={handleBlock}>
-                <UserX size={18} color="#ff6b6b" />
-                <Text style={[styles.sheetItemText, { color: "#ff6b6b" }]}>Block User</Text>
+                <UserX size={18} color="#e11d48" />
+                <Text style={[styles.sheetItemText, { color: "#e11d48" }]}>Block User</Text>
               </TouchableOpacity>
               <View style={styles.sheetDivider} />
               <TouchableOpacity style={styles.sheetItem} activeOpacity={0.75} onPress={handleOpenRemarks}>
-                <Tag size={18} color="#e0d4ff" />
+                <Tag size={18} color="#7c4dff" />
                 <Text style={styles.sheetItemText}>Set Remarks</Text>
               </TouchableOpacity>
             </View>
@@ -317,7 +331,7 @@ export default function UserProfileView({ user, onBack }) {
           />
           <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 14 }]}>
             <LinearGradient
-              colors={["#1e0a3c", "#16082a", "#0d0618"]}
+              colors={["#ffffff", "#faf8ff", "#f3eeff"]}
               style={StyleSheet.absoluteFill}
             />
             <LinearGradient
@@ -334,7 +348,7 @@ export default function UserProfileView({ user, onBack }) {
             <TextInput
               style={styles.remarksInput}
               placeholder="Enter a remark..."
-              placeholderTextColor="rgba(255,255,255,0.35)"
+              placeholderTextColor="rgba(0,0,0,0.35)"
               value={remarksText}
               onChangeText={setRemarksText}
               maxLength={40}
@@ -389,6 +403,9 @@ export default function UserProfileView({ user, onBack }) {
             <View style={styles.card}>
               <View style={styles.cardTopRow}>
                 <ProfileAvatarWithFrame
+                  user={activeUser}
+                  isLive={isUserLive(activeUser)}
+                  isOnline={isOnline}
                   avatarSource={avatarSource}
                   frameSource={profileFrameSource}
                   size={s(72)}
@@ -417,8 +434,14 @@ export default function UserProfileView({ user, onBack }) {
                     <Text style={styles.userId}>ID: {userId ?? "—"}</Text>
                     {userId && (
                       <TouchableOpacity onPress={handleCopyId} hitSlop={8} style={{ marginLeft: 6 }}>
-                        <Copy size={13} color="rgba(167,139,250,0.85)" />
+                        <Copy size={13} color="#7c4dff" />
                       </TouchableOpacity>
+                    )}
+                    {isOnline && (
+                      <View style={styles.onlineStatusPill}>
+                        <View style={styles.onlineStatusDot} />
+                        <Text style={styles.onlineStatusText}>Online</Text>
+                      </View>
                     )}
                     {profile?.gender && profile?.age != null && (
                       <View style={styles.genderPill}>
@@ -438,18 +461,41 @@ export default function UserProfileView({ user, onBack }) {
                         resizeMode="contain"
                       />
                     )}
+                    {profile?.verifiedBadgeUrl && (
+                      <Badge
+                        source={resolveImageSource(profile.verifiedBadgeUrl)}
+                        aspectRatio={BADGE_ASPECT.verified}
+                      />
+                    )}
                     {decorations?.badgeUrl && (
                       <Badge
                         source={resolveImageSource(decorations.badgeUrl)}
                         aspectRatio={BADGE_ASPECT.verified}
                       />
                     )}
-                    {profile?.verified && (
-                      <Badge source={VERIFIED_BADGE} aspectRatio={BADGE_ASPECT.verified} />
-                    )}
                   </View>
                 </View>
               </View>
+
+              {/* Live Room Direct Access */}
+              {getUserLiveRoomId(profile ?? user) && (
+                <TouchableOpacity
+                  style={styles.liveRoomBanner}
+                  activeOpacity={0.85}
+                  onPress={() => router.push({ pathname: "/voice-party", params: { roomId: String(getUserLiveRoomId(profile ?? user)) } })}
+                >
+                  <LinearGradient
+                    colors={["#ff2d55", "#e11d48", "#7c4dff"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.liveRoomBannerGrad}
+                  >
+                    <View style={styles.liveRoomDot} />
+                    <Text style={styles.liveRoomBannerText}>In Live Voice Room · Tap to Join</Text>
+                    <Text style={styles.liveRoomBannerArrow}>➔</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* ── STATS ── */}
@@ -547,62 +593,76 @@ export default function UserProfileView({ user, onBack }) {
 
           {/* ── STICKY BOTTOM ACTIONS ── */}
           <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-            <TouchableOpacity style={styles.chatBtn} activeOpacity={0.85} onPress={handleChat}>
-              <LinearGradient
-                colors={["#a855f7", "#ff4ea3"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.chatBtnGrad}
-              >
-                <View style={styles.iconBadge}>
-                  <LinearGradient
-                    colors={["rgba(255,255,255,0.65)", "rgba(255,255,255,0.05)"]}
-                    style={styles.iconBadgeGloss}
-                    pointerEvents="none"
-                  />
-                  <Gift size={14} color="white" />
-                </View>
-                <Text
-                  style={styles.chatBtnText}
-                  numberOfLines={1}
-                  allowFontScaling={false}
+            <Pressable onPress={handleChat} style={styles.actionBtn}>
+              {({ pressed, hovered }) => (
+                <LinearGradient
+                  colors={
+                    pressed || hovered
+                      ? ["#f3ecff", "#e9dcff"]
+                      : ["#ffffff", "#f3ecff"]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.actionBtnGrad}
                 >
-                  Chat
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.followBtn, isFollowing && styles.followBtnActive]}
-              activeOpacity={0.85}
-              onPress={handleFollowToggle}
-              disabled={followLoading}
-            >
-              {followLoading ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <>
-                  <View style={styles.iconBadge}>
-                    <LinearGradient
-                      colors={["rgba(255,255,255,0.65)", "rgba(255,255,255,0.05)"]}
-                      style={styles.iconBadgeGloss}
-                      pointerEvents="none"
+                  <View style={styles.actionIconBadge}>
+                    <Image
+                      source={{
+                        uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/chat.png",
+                      }}
+                      style={styles.chatIcon}
+                      resizeMode="contain"
                     />
-                    {isFollowing ? (
-                      <UserCheck size={14} color="white" />
-                    ) : (
-                      <UserPlus size={14} color="white" />
-                    )}
                   </View>
                   <Text
-                    style={styles.followBtnText}
+                    style={styles.actionBtnText}
                     numberOfLines={1}
                     allowFontScaling={false}
                   >
-                    {isFollowing ? "Following" : "Follow"}
+                    Chat
                   </Text>
-                </>
+                </LinearGradient>
               )}
-            </TouchableOpacity>
+            </Pressable>
+            <Pressable
+              onPress={handleFollowToggle}
+              disabled={followLoading}
+              style={styles.actionBtn}
+            >
+              {({ pressed, hovered }) => (
+                <LinearGradient
+                  colors={
+                    pressed || hovered
+                      ? ["#f3ecff", "#e9dcff"]
+                      : ["#ffffff", "#f3ecff"]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.actionBtnGrad}
+                >
+                  {followLoading ? (
+                    <ActivityIndicator size="small" color="#7c4dff" />
+                  ) : (
+                    <>
+                      <View style={styles.actionIconBadge}>
+                        {isFollowing ? (
+                          <UserCheck size={18} color="#7c4dff" />
+                        ) : (
+                          <UserPlus size={18} color="#7c4dff" />
+                        )}
+                      </View>
+                      <Text
+                        style={styles.actionBtnText}
+                        numberOfLines={1}
+                        allowFontScaling={false}
+                      >
+                        {isFollowing ? "Following" : "Follow"}
+                      </Text>
+                    </>
+                  )}
+                </LinearGradient>
+              )}
+            </Pressable>
           </View>
         </>
       )}
@@ -618,7 +678,7 @@ export default function UserProfileView({ user, onBack }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0d0618" },
+  container: { flex: 1, backgroundColor: "#faf8ff" },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -630,7 +690,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(124,77,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -646,7 +706,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 10,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
+    borderColor: "rgba(124,77,255,0.2)",
     borderBottomWidth: 0,
   },
   topGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
@@ -655,14 +715,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(124,77,255,0.25)",
     marginBottom: 16,
   },
   sheetCard: {
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "#ffffff",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: "rgba(124,77,255,0.15)",
     overflow: "hidden",
     marginBottom: 12,
   },
@@ -673,17 +733,17 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 18,
   },
-  sheetItemText: { color: "#e0d4ff", fontSize: 15, fontWeight: "600" },
-  sheetDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
+  sheetItemText: { color: "#2d1b4e", fontSize: 15, fontWeight: "600" },
+  sheetDivider: { height: 1, backgroundColor: "rgba(0,0,0,0.06)" },
   sheetCancelBtn: {
     flex: 1,
     paddingVertical: 15,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(124,77,255,0.08)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderColor: "rgba(124,77,255,0.18)",
   },
   // Same look as sheetCancelBtn but without flex:1 — this one sits alone in
   // the action sheet's column layout rather than a flexDirection:"row" pair,
@@ -694,15 +754,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(124,77,255,0.08)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderColor: "rgba(124,77,255,0.18)",
     marginBottom: 14,
   },
-  sheetCancelText: { color: "rgba(255,255,255,0.8)", fontSize: 15, fontWeight: "700" },
-  remarksTitle: { color: "white", fontSize: 19, fontWeight: "800", marginBottom: 6 },
+  sheetCancelText: { color: "#2d1b4e", fontSize: 15, fontWeight: "700" },
+  remarksTitle: { color: "#2d1b4e", fontSize: 19, fontWeight: "800", marginBottom: 6 },
   remarksSubtitle: {
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(45,27,78,0.6)",
     fontSize: 13,
     lineHeight: 18,
     marginBottom: 16,
@@ -710,10 +770,10 @@ const styles = StyleSheet.create({
   remarksInput: {
     height: 48,
     borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(124,77,255,0.06)",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.25)",
-    color: "white",
+    borderColor: "rgba(124,77,255,0.25)",
+    color: "#2d1b4e",
     fontSize: 14,
     paddingHorizontal: 14,
     marginBottom: 18,
@@ -731,12 +791,17 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16 },
   card: {
-    backgroundColor: "rgba(255,255,255,0.05)",
+    backgroundColor: "#ffffff",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(124,77,255,0.2)",
+    borderColor: "rgba(124,77,255,0.15)",
     padding: 16,
     marginBottom: 14,
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 1,
   },
   cardTopRow: { flexDirection: "row", gap: 14 },
   avatar: {
@@ -744,46 +809,73 @@ const styles = StyleSheet.create({
     height: s(72),
     borderRadius: s(36),
     borderWidth: 2,
-    borderColor: "rgba(167,139,250,0.5)",
+    borderColor: "rgba(124,77,255,0.35)",
   },
   cardInfoCol: { flex: 1, justifyContent: "center", gap: 6 },
-  name: { color: "white", fontSize: 19, fontWeight: "800" },
+  name: { color: "#2d1b4e", fontSize: 19, fontWeight: "800" },
   idRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
-  userId: { color: "rgba(167,139,250,0.85)", fontSize: 12, fontWeight: "600" },
+  userId: { color: "#7c4dff", fontSize: 12, fontWeight: "600" },
   genderPill: {
-    backgroundColor: "rgba(124,77,255,0.25)",
+    backgroundColor: "rgba(124,77,255,0.12)",
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  genderPillText: { color: "#c4b5fd", fontSize: 11, fontWeight: "700" },
+  genderPillText: { color: "#7c4dff", fontSize: 11, fontWeight: "700" },
+  onlineStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0, 230, 118, 0.12)",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "rgba(0, 230, 118, 0.3)",
+  },
+  onlineStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#00e676",
+  },
+  onlineStatusText: {
+    color: "#00c853",
+    fontSize: 11,
+    fontWeight: "700",
+  },
   badgeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   vipBadge: { width: BADGE_HEIGHT, height: BADGE_HEIGHT },
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.05)",
+    backgroundColor: "#ffffff",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(124,77,255,0.2)",
+    borderColor: "rgba(124,77,255,0.15)",
     paddingVertical: 14,
     marginBottom: 14,
+    shadowColor: "#7c4dff",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 1,
   },
   statItem: { flex: 1, alignItems: "center" },
-  statDivider: { width: 1, height: 28, backgroundColor: "rgba(255,255,255,0.1)" },
-  statValue: { color: "white", fontSize: 17, fontWeight: "800" },
-  statLabel: { color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 2 },
-  sectionTitle: { color: "white", fontSize: 15, fontWeight: "800", marginBottom: 8 },
-  bio: { color: "rgba(255,255,255,0.7)", fontSize: 14, lineHeight: 20 },
+  statDivider: { width: 1, height: 28, backgroundColor: "rgba(124,77,255,0.15)" },
+  statValue: { color: "#2d1b4e", fontSize: 17, fontWeight: "800" },
+  statLabel: { color: "rgba(45,27,78,0.5)", fontSize: 12, marginTop: 2 },
+  sectionTitle: { color: "#2d1b4e", fontSize: 15, fontWeight: "800", marginBottom: 8 },
+  bio: { color: "rgba(45,27,78,0.7)", fontSize: 14, lineHeight: 20 },
   bottomTabsBar: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
+    borderBottomColor: "rgba(124,77,255,0.12)",
     marginBottom: 8,
   },
   bottomTabItem: { marginRight: 22, paddingBottom: 10, position: "relative" },
-  bottomTabText: { color: "rgba(255,255,255,0.4)", fontSize: 14, fontWeight: "600" },
-  bottomTabActive: { color: "white", fontWeight: "800" },
+  bottomTabText: { color: "rgba(45,27,78,0.4)", fontSize: 14, fontWeight: "600" },
+  bottomTabActive: { color: "#2d1b4e", fontWeight: "800" },
   bottomTabUnderline: {
     position: "absolute",
     bottom: 0,
@@ -795,7 +887,7 @@ const styles = StyleSheet.create({
   },
   emptyState: { alignItems: "center", paddingVertical: 40 },
   emptyEmoji: { fontSize: 40, marginBottom: 10 },
-  emptyText: { color: "rgba(255,255,255,0.4)", fontSize: 14, fontWeight: "600" },
+  emptyText: { color: "rgba(45,27,78,0.4)", fontSize: 14, fontWeight: "600" },
   postsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -807,7 +899,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: 6,
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(124,77,255,0.06)",
   },
   postThumbImage: { width: "100%", height: "100%" },
   videoOverlay: {
@@ -819,14 +911,14 @@ const styles = StyleSheet.create({
   videoIcon: { color: "white", fontSize: 22 },
   retryBtn: {
     marginTop: 16,
-    backgroundColor: "rgba(124,77,255,0.25)",
+    backgroundColor: "rgba(124,77,255,0.12)",
     borderWidth: 1,
     borderColor: "#7c4dff",
     borderRadius: 20,
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
-  retryText: { color: "white", fontSize: 14, fontWeight: "700" },
+  retryText: { color: "#7c4dff", fontSize: 14, fontWeight: "700" },
   footer: {
     position: "absolute",
     bottom: 0,
@@ -836,62 +928,67 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingTop: 12,
-    backgroundColor: "rgba(13,6,24,0.97)",
+    backgroundColor: "rgba(255,255,255,0.97)",
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.07)",
+    borderTopColor: "rgba(124,77,255,0.1)",
   },
-  chatBtn: { flex: 1, borderRadius: 24, overflow: "hidden" },
-  chatBtnGrad: {
+  // Chat and Follow share this exact shape/gradient/text treatment so the
+  // two footer buttons read as one consistent pair rather than two
+  // differently-themed controls.
+  actionBtn: { flex: 1, borderRadius: 24, overflow: "hidden" },
+  actionBtnGrad: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     paddingVertical: 12,
     paddingHorizontal: 8,
-  },
-  chatBtnText: { color: "white", fontSize: 14, fontWeight: "700" },
-  followBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    backgroundColor: "#7c4dff",
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 24,
-  },
-  followBtnActive: {
-    backgroundColor: "rgba(124,77,255,0.35)",
     borderWidth: 1,
-    borderColor: "#7c4dff",
+    borderColor: "rgba(124,77,255,0.15)",
   },
-  followBtnText: { color: "white", fontSize: 14, fontWeight: "700" },
-  // Small raised/glossy badge behind each button icon — gives the flat line
-  // icon a 3D, embossed look instead of floating flat on the gradient.
-  iconBadge: {
+  actionBtnText: { color: "#7c3aed", fontSize: 14, fontWeight: "700" },
+  actionIconBadge: {
     width: 24,
     height: 24,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.35)",
-    borderBottomWidth: 2,
-    borderBottomColor: "rgba(0,0,0,0.3)",
-    shadowColor: "#000",
+    backgroundColor: "rgba(124,77,255,0.12)",
+  },
+  chatIcon: { width: 18, height: 18 },
+  liveRoomBanner: {
+    marginTop: 14,
+    borderRadius: 12,
+    overflow: "hidden",
+    shadowColor: "#ff2d55",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    shadowRadius: 2,
+    shadowRadius: 4,
     elevation: 3,
-    overflow: "hidden",
   },
-  iconBadgeGloss: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "55%",
+  liveRoomBannerGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  liveRoomDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#ffffff",
+  },
+  liveRoomBannerText: {
+    flex: 1,
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  liveRoomBannerArrow: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
   },
 });

@@ -142,6 +142,32 @@ export const findCountryByName = (name) =>
 export const findCountryByCode = (code) =>
   COUNTRY_OPTIONS.find((item) => item.code === code) ?? null;
 
+// Flag emojis are built from two Regional Indicator Symbols, each one
+// letter offset from the ISO 3166-1 alpha-2 code (🇮🇳 = "I" + "N" = "IN"),
+// so the ISO code can be derived from the flag already in this list instead
+// of hand-maintaining a second name→ISO map.
+const REGIONAL_INDICATOR_BASE = 0x1f1e6; // "A"
+
+export const isoCodeFromFlag = (flag) => {
+  if (!flag) return null;
+  const chars = Array.from(flag);
+  if (chars.length !== 2) return null;
+  const letters = chars.map((ch) => {
+    const cp = ch.codePointAt(0);
+    if (cp == null || cp < REGIONAL_INDICATOR_BASE || cp > REGIONAL_INDICATOR_BASE + 25) {
+      return null;
+    }
+    return String.fromCharCode(65 + (cp - REGIONAL_INDICATOR_BASE));
+  });
+  return letters.every(Boolean) ? letters.join("") : null;
+};
+
+export const findCountryByIsoCode = (isoCode) => {
+  if (!isoCode) return null;
+  const upper = String(isoCode).trim().toUpperCase();
+  return COUNTRY_OPTIONS.find((item) => isoCodeFromFlag(item.flag) === upper) ?? null;
+};
+
 export const formatCountryLabel = (country, countryCode) => {
   const match = country ? findCountryByName(country) : findCountryByCode(countryCode);
   if (match) return `${match.flag} ${match.name} (${match.code})`;

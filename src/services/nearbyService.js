@@ -8,6 +8,14 @@ const firstText = (...values) =>
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
 
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
 const listFrom = (value) => {
   if (Array.isArray(value)) return value;
   return value?.content ?? value?.users ?? value?.data ?? value?.items ?? [];
@@ -99,8 +107,9 @@ export const normalizeNearbyUser = (user, index = 0) => {
       ) ?? "No bio yet",
     tags: Array.isArray(tags) ? tags.slice(0, 6) : [],
     online: Boolean(user?.online ?? user?.isOnline ?? profile?.online ?? profile?.isOnline),
-    verified: Boolean(user?.verified ?? user?.isVerified ?? profile?.verified),
+    verifiedBadgeUrl: firstText(user?.verifiedBadgeUrl, profile?.verifiedBadgeUrl),
     vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
+    level: firstNumber(user?.level, profile?.level),
     raw: user,
   };
 };
@@ -157,6 +166,5 @@ export const loadNearbyWithLocation = async ({
 export const loadUserDetail = async (userId) => {
   const data = await getUserById(userId);
   const profile = normalizeUserDetail(data);
-  console.log(`[nearbyService] loadUserDetail(${userId}) avatarUrl ->`, profile?.avatarUrl ?? null);
   return profile;
 };

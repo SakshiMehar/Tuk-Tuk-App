@@ -121,7 +121,6 @@ export const createFamilyGroup = async ({ name, announcement, coverUri }) => {
   const currentUserId = await getCurrentUserIdSafe();
 
   const created = await createFamilyApi({ name, description: announcement });
-  console.log("[FamilyService] POST /api/v1/families response:", created);
 
   const familyGroupId = created?.id ?? created?.familyGroupId ?? created?._id;
 
@@ -131,7 +130,6 @@ export const createFamilyGroup = async ({ name, announcement, coverUri }) => {
 
   const fileName = coverUri.split("/").pop()?.split("?")[0] || "cover.jpg";
   const updated = await updateFamilyCoverApi(familyGroupId, { uri: coverUri, fileName });
-  console.log(`[FamilyService] PATCH /api/v1/families/${familyGroupId}/cover response:`, updated);
 
   return normalizeFamilyGroup(updated, 0, currentUserId);
 };

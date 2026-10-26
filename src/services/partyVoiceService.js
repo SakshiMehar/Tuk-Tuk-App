@@ -1,18 +1,19 @@
-import {
-  claimSeat,
-  leaveSeat,
-  toggleSeatMute,
-  getVoiceToken,
-} from "../api/partyApi";
 import { refreshTokenCache } from "../api/axios";
-import { getToken } from "../store/authStore";
+import {
+    claimSeat,
+    getVoiceToken,
+    joinRoom,
+    leaveSeat,
+    toggleSeatMute,
+} from "../api/partyApi";
 import { AGORA_APP_ID } from "../config/env";
-import * as agoraVoice from "./agoraVoiceService";
-import { unwrapVoiceTokenResponse } from "./voice/voiceTokenUtils";
-import { getVoiceUid } from "../utils/voiceUid";
+import { getToken } from "../store/authStore";
 import { buildSeatProfile, syncUserFromToken } from "../utils/sessionUser";
-import { wsService } from "./websocket";
+import { getVoiceUid } from "../utils/voiceUid";
+import * as agoraVoice from "./agoraVoiceService";
 import { runVoicePreflightChecks } from "./voice/voiceHealthChecks";
+import { unwrapVoiceTokenResponse } from "./voice/voiceTokenUtils";
+import { wsService } from "./websocket";
 
 let activeRoomId = null;
 let activeIsSpeaker = false;
@@ -94,12 +95,45 @@ export const joinAsListener = async (roomId) => {
   return { uid, tokenData };
 };
 
+const errorTokens = (err) => {
+  const body = err?.responseData ?? err?.response?.data ?? {};
+  return [
+    err?.code,
+    err?.message,
+    body?.code,
+    body?.error,
+    body?.errorCode,
+    body?.status,
+    body?.message,
+    body?.error?.code,
+    body?.error?.message,
+  ]
+    .filter((value) => value != null && value !== "")
+    .map((value) => String(value).toUpperCase());
+};
+
+const isRoomNotJoinedError = (err) =>
+  errorTokens(err).some((token) => token.includes("ROOM_NOT_JOINED"));
+
+// Backend truth says we're not seated (kicked, seat expired, already left
+// from another device, etc.) — local mic/seat state is stale and should be
+// reset rather than retried.
+export const isNotOnSeatError = (err) =>
+  errorTokens(err).some((token) => token.includes("NOT_ON_SEAT"));
+
 export const reserveSeat = async (roomId, seatNumber) => {
   await ensureAuthToken();
   await syncUserFromToken();
   const profile = await buildSeatProfile();
-  await claimSeat(roomId, seatNumber, profile);
-  return { seatNumber, profile };
+  let claimData;
+  try {
+    claimData = await claimSeat(roomId, seatNumber, profile);
+  } catch (err) {
+    if (!isRoomNotJoinedError(err)) throw err;
+    await joinRoom(roomId);
+    claimData = await claimSeat(roomId, seatNumber, profile);
+  }
+  return { seatNumber, profile, claimData };
 };
 
 export const activateMicOnSeat = async (roomId, seatNumber) => {
@@ -131,14 +165,15 @@ export const activateMicOnSeat = async (roomId, seatNumber) => {
     isSpeaker: true,
   });
   await toggleSeatMute(roomId, seatNumber, false);
-  wsService.sendSpeakingStatus(String(roomId), true);
+  wsService.sendSpeakingStatus(String(roomId), true, false);
 
   return { uid, seatNumber, tokenData };
 };
 
 export const takeMic = async (roomId, seatNumber) => {
-  await reserveSeat(roomId, seatNumber);
-  return activateMicOnSeat(roomId, seatNumber);
+  const reserved = await reserveSeat(roomId, seatNumber);
+  const voice = await activateMicOnSeat(roomId, seatNumber);
+  return { ...reserved, ...voice };
 };
 
 export const leaveMic = async (roomId, seatNumber) => {
@@ -167,7 +202,7 @@ export const toggleMicMute = async (roomId, seatNumber, muted) => {
   await ensureAuthToken();
   await agoraVoice.toggleLocalMute(muted);
   await toggleSeatMute(roomId, seatNumber, muted);
-  wsService.sendSpeakingStatus(String(roomId), !muted);
+  wsService.sendSpeakingStatus(String(roomId), !muted, muted);
 };
 
 export const getVoiceSessionStatus = () => agoraVoice.getVoiceDiagnostics();
@@ -179,6 +214,8 @@ export const reconnectAsListener = async (roomId) => {
   await agoraVoice.leaveVoiceChannel();
   return joinAsListener(roomId);
 };
+
+export const getActiveRoomId = () => activeRoomId;
 
 export const teardownVoice = async () => {
   activeRoomId = null;

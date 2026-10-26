@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import { getUser } from "../src/store/authStore";
 import { resolveProfileAvatarSource } from "../src/utils/profileAvatar";
 import { syncUserLevelForSession } from "../src/services/userLevelService";
 import { loadMyVipAssets } from "../src/services/vipService";
+import { loadMyPremiumAssets } from "../src/services/premiumService";
+import { fetchUserDecorations } from "../src/services/decorationsService";
+import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { VIP_XP_THRESHOLD, VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
+
+// Same badge-row aspect ratios used by UserProfileView/RoomUserProfilePopup —
+// level art is 142:149, the decoration/verified badge art is 438:179.
+const BADGE_HEIGHT = 18;
+const LEVEL_BADGE_ASPECT = 142 / 149;
+const DECORATION_BADGE_ASPECT = 438 / 179;
 
 /**
  * Dark user-info card for the wallet/recharge screen — avatar, username, and
@@ -21,6 +30,10 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
   const [level, setLevel] = useState(1);
   const [gamificationXp, setGamificationXp] = useState(null);
   const [vipProfileFrame, setVipProfileFrame] = useState(null);
+  const [vipLogo, setVipLogo] = useState(null);
+  const [premiumLogo, setPremiumLogo] = useState(null);
+  const [decorationBadgeUrl, setDecorationBadgeUrl] = useState(null);
+  const [decorationFrameUrl, setDecorationFrameUrl] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,7 +48,21 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
       setGamificationXp(levelResult?.xp ?? null);
 
       const vipAssets = await loadMyVipAssets(levelResult?.xp?.totalXp).catch(() => null);
-      if (!cancelled) setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
+      if (cancelled) return;
+      setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
+      setVipLogo(vipAssets?.unlocked ? vipAssets.logo : null);
+
+      const premiumAssets = await loadMyPremiumAssets().catch(() => null);
+      if (!cancelled) setPremiumLogo(premiumAssets?.logo ?? null);
+
+      // Decoration/verified badge — a single per-user GET for this one card
+      // (the logged-in user), not a per-row list, so it's safe here.
+      const myUserId = storedUser?.id ?? storedUser?.userId;
+      const decorations = await fetchUserDecorations(myUserId).catch(() => null);
+      if (!cancelled) {
+        setDecorationBadgeUrl(decorations?.badgeUrl ?? null);
+        setDecorationFrameUrl(decorations?.frameUrl ?? null);
+      }
     })();
     return () => {
       cancelled = true;
@@ -44,6 +71,12 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
 
   const avatarSource = resolveProfileAvatarSource(user);
   const username = user?.name || "User";
+  // Backend-assigned decorations (e.g. a room-owner frame) are a separate
+  // system from the VIP tier and always take priority when equipped — same
+  // ordering as the main Profile tab (app/(tabs)/profile.jsx), so this
+  // card doesn't fall back to showing just the VIP frame when the user
+  // actually has something else equipped.
+  const frameSource = decorationFrameUrl ?? vipProfileFrame;
 
   const hasExplicitXp = xpCurrent !== undefined && xpTarget !== undefined;
   const resolvedXpTarget = hasExplicitXp ? xpTarget : VIP_XP_THRESHOLD;
@@ -58,26 +91,48 @@ export default function WalletUserCard({ onPress, xpCurrent, xpTarget }) {
     <Wrapper style={styles.card} activeOpacity={0.85} onPress={onPress}>
       <ProfileAvatarWithFrame
         avatarSource={avatarSource}
-        frameSource={vipProfileFrame}
+        frameSource={frameSource}
         size={56}
         avatarStyle={styles.avatar}
         placeholderInitial={username[0]?.toUpperCase() ?? "?"}
-        {...(vipProfileFrame
-          ? {
-              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-            }
-          : {})}
+        {...(decorationFrameUrl
+          ? { frameResizeMode: "contain" }
+          : vipProfileFrame
+            ? {
+                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+              }
+            : {})}
       />
       <View style={styles.infoCol}>
         <Text style={styles.username} numberOfLines={1}>
           {username}
         </Text>
+        <View style={styles.badgeRow}>
+          <Image
+            source={resolveLocalLevelBadge(level)}
+            style={styles.levelBadge}
+            resizeMode="contain"
+          />
+          {vipLogo && (
+            <Image source={{ uri: vipLogo }} style={styles.vipBadge} resizeMode="contain" />
+          )}
+          {premiumLogo && (
+            <Image source={{ uri: premiumLogo }} style={styles.vipBadge} resizeMode="contain" />
+          )}
+          {decorationBadgeUrl && (
+            <Image
+              source={{ uri: decorationBadgeUrl }}
+              style={styles.decorationBadge}
+              resizeMode="contain"
+            />
+          )}
+        </View>
         <Text style={styles.xpText}>
           {resolvedXpCurrent.toLocaleString("en-IN")}/{resolvedXpTarget.toLocaleString("en-IN")}
         </Text>
@@ -117,6 +172,23 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "800",
+  },
+  badgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  levelBadge: {
+    height: BADGE_HEIGHT,
+    width: BADGE_HEIGHT * LEVEL_BADGE_ASPECT,
+  },
+  vipBadge: {
+    height: BADGE_HEIGHT,
+    width: BADGE_HEIGHT,
+  },
+  decorationBadge: {
+    height: BADGE_HEIGHT,
+    width: BADGE_HEIGHT * DECORATION_BADGE_ASPECT,
   },
   xpText: {
     color: "rgba(255,255,255,0.5)",

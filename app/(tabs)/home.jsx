@@ -2,8 +2,8 @@ import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { ChevronRight } from "lucide-react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { ChevronRight, ThumbsUp } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -28,15 +28,16 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import AppBackground from "../../Components/AppBackground";
 import ComingSoonModal from "../../Components/ComingSoonModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import PostImageViewer from "../../Components/PostImageViewer";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
+import LiveBadge from "../../Components/LiveBadge";
 import ReportReasonModal from "../../Components/ReportReasonModal";
 import Toast from "../../Components/Toast";
 import {
@@ -52,7 +53,11 @@ import {
   unlikePost,
 } from "../../src/api/postApi";
 import { patchMyProfile } from "../../src/api/profileApi";
-import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
+} from "../../src/constants/vip";
 import {
   getAvatarSource,
   isBundledAvatarId,
@@ -63,8 +68,14 @@ import {
 } from "../../src/data/countryOptions";
 import { useModalKeyboardInset } from "../../src/hooks/useKeyboardInset";
 import { useWalletBalance } from "../../src/hooks/useWalletBalance";
+import { fetchUserDecorations } from "../../src/services/decorationsService";
 import * as homeService from "../../src/services/homeService";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
+import {
+  fetchNotificationsData,
+  markAllNotificationsAsRead,
+  markNotificationsAsRead,
+} from "../../src/services/notificationService";
 import {
   blockUser,
   followUser,
@@ -74,6 +85,7 @@ import {
   unfollowUser,
 } from "../../src/services/relationshipService";
 import { syncUserCountryToServer } from "../../src/services/userCountryService";
+import { updateUserProfile } from "../../src/services/userProfileService";
 import { loadMyVipAssets } from "../../src/services/vipService";
 import { getUser, updateUser } from "../../src/store/authStore";
 import {
@@ -82,15 +94,26 @@ import {
 } from "../../src/store/walletStore";
 import { openUserChat } from "../../src/utils/chatNavigation";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
+import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
 import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
+import { navigateFromNotification } from "../../src/utils/notificationNavigation";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
 import { openUserProfile } from "../../src/utils/profileNavigation";
 import { ms, s, vs } from "../../src/utils/responsive";
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import { resolveImageSource } from "../../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
+import { wsService } from "../../src/services/websocket";
+import { isUserLive, isUserOnline, useUserOnlineOrLiveStatus } from "../../src/utils/liveStatus";
 
-const H_PAD = 14;
+// Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
+// appears (UserProfileView, ChatTab) — derives the logo URL for a card that
+// already carries a vipProfileFrameUrl, with no extra network call.
+const VIP_LOGO_BY_TIER = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null]),
+);
+
+const H_PAD = 20;
 const CARD_GAP = 10;
 // Module-level fallbacks using Dimensions — used in StyleSheet.create and
 // stable module-level arrays.
@@ -124,12 +147,15 @@ const dedupePostsById = (posts) => {
 const WAVE_HEIGHTS = [8, 14, 10, 18, 12];
 const MATCH_WAVE_HEIGHTS = [5, 10, 7, 13, 9, 6, 11];
 
+const HOME_S3_BASE =
+  "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/images";
+
 const actionCards = [
   {
     title: "Voice Party",
     subtitle: "Join a live room",
     colors: ["#362407ff", "#f76b1c"],
-    img: require("../../assets/images/TM1.png"),
+    img: { uri: `${HOME_S3_BASE}/TM1.png` },
     partyRandom: true,
     showWave: true,
     imgSize: CARD_SIZE * 0.8,
@@ -139,7 +165,7 @@ const actionCards = [
     title: "Find Friends",
     subtitle: "Meet new people",
     colors: ["#180c3aff", "#a647eaff"],
-    img: require("../../assets/images/ofcchat.gif"),
+    img: { uri: `${HOME_S3_BASE}/ofcchat.gif` },
     route: "/find-friends",
     imgSize: CARD_SIZE * 0.88,
     gifDelay: 400,
@@ -148,7 +174,7 @@ const actionCards = [
     title: "Nearby",
     subtitle: "People around you",
     colors: ["#143238ff", "#0077b6"],
-    img: require("../../assets/images/TM3.gif"),
+    img: { uri: `${HOME_S3_BASE}/TM3.gif` },
     route: "/nearby",
     imgSize: CARD_SIZE * 0.9,
     gifDelay: 800,
@@ -157,7 +183,7 @@ const actionCards = [
     title: "Blind Pick",
     subtitle: "Mystery match",
     colors: ["#dc62bcff", "#351743ff"],
-    img: require("../../assets/images/TM2B.gif"),
+    img: { uri: `${HOME_S3_BASE}/TM2B.gif` },
     route: "/(tabs)/blind-pick",
     imgSize: CARD_SIZE * 0.8,
     gifDelay: 1200,
@@ -167,49 +193,49 @@ const actionCards = [
 const iconItems = [
   {
     label: "Voice Call",
-    img: require("../../assets/images/officialchat.png"),
+    img: { uri: `${HOME_S3_BASE}/officialchat.png` },
     colors: ["#cf91b6ff", "#180a31ff"],
-    imgSize: 70,
-    comingSoon: true,
-  },
-  {
-    label: "Personality Test",
-    img: require("../../assets/images/blindpick.png"),
-    colors: ["#080334ff", "#ac4dffff"],
     imgSize: 60,
     comingSoon: true,
   },
   {
+    label: "Personality Test",
+    img: { uri: `${HOME_S3_BASE}/blindpick.png` },
+    colors: ["#080334ff", "#ac4dffff"],
+    imgSize: 60,
+    route: "/personality-test",
+  },
+  {
     label: "Truth & Dare",
-    img: require("../../assets/images/truthdare.png"),
+    img: { uri: `${HOME_S3_BASE}/truthdare.png` },
     colors: ["#15072dff", "#486ba8ff"],
     imgSize: 150,
     comingSoon: true,
   },
   {
     label: "Invitation\nRewards",
-    img: require("../../assets/images/invitationReward.png"),
+    img: { uri: `${HOME_S3_BASE}/invitationReward.png` },
     colors: ["#76093fff", "#ba741eff"],
     imgSize: 80,
     comingSoon: true,
   },
   {
     label: "Ludo",
-    img: require("../../assets/images/ludo.jpg"),
+    img: { uri: `${HOME_S3_BASE}/ludo.jpg` },
     colors: ["#041e04ff", "#175726ff"],
-    imgSize: 70,
+    imgSize: 55,
     comingSoon: true,
   },
   {
     label: "Snakes & ladders",
-    img: require("../../assets/images/SnakesAndLadders.jpg"),
+    img: { uri: `${HOME_S3_BASE}/SnakesAndLadders.jpg` },
     colors: ["#0c250cff", "#d2ec23cf"],
     imgSize: 50,
     comingSoon: true,
   },
   {
     label: "Draw & Guess",
-    img: require("../../assets/images/draw n guess.jpg"),
+    img: { uri: `${HOME_S3_BASE}/draw+n+guess.jpg` },
     colors: ["#5f0909ff", "#9e4c3eff"],
     imgSize: 50,
     comingSoon: true,
@@ -325,11 +351,11 @@ const PostMoreMenu = memo(
         const text = `Check this out on Tuk Tuk! "${(post?.text ?? "").slice(0, 100)}..."`;
 
         if (post?.userId) {
-          shareUser(post.userId).catch(() => {});
+          shareUser(post.userId).catch(() => { });
         }
 
         if (platform.id === "more") {
-          await Share.share({ message: text }).catch(() => {});
+          await Share.share({ message: text }).catch(() => { });
           onClose();
           return;
         }
@@ -345,7 +371,7 @@ const PostMoreMenu = memo(
         if (canOpen) {
           Linking.openURL(url);
         } else {
-          await Share.share({ message: text }).catch(() => {});
+          await Share.share({ message: text }).catch(() => { });
         }
         onClose();
       },
@@ -438,24 +464,25 @@ const PostMoreMenu = memo(
                       style={moreMenuStyles.friendRing}
                     >
                       <ProfileAvatarWithFrame
+                        user={item}
                         avatarSource={toImageSource(item.avatar)}
                         frameSource={item.vipProfileFrameUrl}
                         size={52}
                         avatarStyle={moreMenuStyles.friendAvatar}
                         {...(item.vipProfileFrameUrl
                           ? {
-                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                              frameResizeMode:
-                                VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                              frameOffsetX:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                              frameOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                              avatarOffsetY:
-                                VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                            }
+                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                            frameResizeMode:
+                              VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                            frameOffsetX:
+                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                            frameOffsetY:
+                              VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                            avatarOffsetY:
+                              VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                          }
                           : {})}
                       />
                     </LinearGradient>
@@ -910,13 +937,11 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
               </TouchableOpacity>
             </View>
 
-            <KeyboardAwareScrollView
+            <ScrollView
               ref={scrollRef}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={{ paddingBottom: 48 }}
-              enableOnAndroid={true}
-              extraScrollHeight={70}
             >
               {/* ── STEP 1: media picker (hidden after confirmed) ── */}
               <View style={postCreateStyles.mediaRow}>
@@ -1184,7 +1209,7 @@ const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
                   </Text>
                 </View>
               )}
-            </KeyboardAwareScrollView>
+            </ScrollView>
             {showComposer && (
               <TouchableOpacity
                 onPress={handlePost}
@@ -1536,7 +1561,7 @@ PostFAB.displayName = "PostFAB";
 const fabStyles = StyleSheet.create({
   fab: {
     position: "absolute",
-    bottom: 40,
+    bottom: 20,
     right: 18,
     width: 56,
     height: 56,
@@ -1754,14 +1779,16 @@ const CommentSheet = memo(({ visible, postId, onClose }) => {
             </TouchableOpacity>
           </View>
 
-          {/* Like heart */}
+          {/* Like thumbs-up */}
           <TouchableOpacity
             style={cs.heartBtn}
             onPress={() => toggleCommentLike(item.id)}
           >
-            <Text style={[cs.heartIcon, isLikedC && cs.heartIconLiked]}>
-              {isLikedC ? "❤️" : "🤍"}
-            </Text>
+            <ThumbsUp
+              size={16}
+              color={isLikedC ? "#ff4ea3" : "rgba(0,0,0,0.55)"}
+              fill={isLikedC ? "#ff4ea3" : "transparent"}
+            />
           </TouchableOpacity>
         </View>
       );
@@ -2088,6 +2115,30 @@ const toImageSource = (uri) => {
   return { uri };
 };
 
+const resolveNotifIcon = (icon, type) => {
+  const str = String(type || "").toLowerCase();
+  if (
+    str.includes("message") ||
+    str.includes("chat") ||
+    str.includes("direct_message")
+  )
+    return "💬";
+  if (str.includes("gift")) return "🎁";
+  if (str.includes("like") || str.includes("heart")) return "👍";
+  if (str.includes("follow") || str.includes("friend")) return "👤";
+  if (str.includes("party") || str.includes("room") || str.includes("voice"))
+    return "🎉";
+  if (
+    icon &&
+    typeof icon === "string" &&
+    icon.trim().length > 0 &&
+    icon !== "🔔" &&
+    icon.length <= 4
+  )
+    return icon;
+  return "🔔";
+};
+
 const PostCard = memo(
   ({
     post,
@@ -2125,8 +2176,8 @@ const PostCard = memo(
     const postFrameSource = isOwnPost
       ? (currentUserVipFrameSource ?? currentUserFrameSource)
       : resolveEntityNewUserFrameSource({
-          hasNewUserFrame: post.authorHasNewUserFrame,
-        });
+        hasNewUserFrame: post.authorHasNewUserFrame,
+      });
     // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
     const imageUri = post.imageUrl ?? post._localMediaUri ?? null;
     const galleryUrls = post.imageUrls?.length
@@ -2168,7 +2219,7 @@ const PostCard = memo(
         (w, h) => {
           if (!cancelled && w && h) setImgAspectRatio(w / h);
         },
-        () => {},
+        () => { },
       );
       return () => {
         cancelled = true;
@@ -2181,6 +2232,7 @@ const PostCard = memo(
             <TouchableOpacity activeOpacity={0.8} onPress={handleAvatarPress}>
               {postAvatarSource ? (
                 <ProfileAvatarWithFrame
+                  user={post}
                   avatarSource={postAvatarSource}
                   frameSource={postFrameSource}
                   size={42}
@@ -2188,15 +2240,15 @@ const PostCard = memo(
                   imageComponent={Image}
                   {...(isOwnVipFrame
                     ? {
-                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                        frameResizeMode:
-                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                      }
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode:
+                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
                     : {})}
                 />
               ) : (
@@ -2287,9 +2339,9 @@ const PostCard = memo(
                   styles.postImage,
                   imgAspectRatio
                     ? {
-                        aspectRatio: clampAspectRatio(imgAspectRatio),
-                        height: undefined,
-                      }
+                      aspectRatio: clampAspectRatio(imgAspectRatio),
+                      height: undefined,
+                    }
                     : { height: 220 },
                 ]}
                 contentFit="cover"
@@ -2310,9 +2362,9 @@ const PostCard = memo(
                 styles.postImage,
                 imgAspectRatio
                   ? {
-                      aspectRatio: clampAspectRatio(imgAspectRatio),
-                      height: undefined,
-                    }
+                    aspectRatio: clampAspectRatio(imgAspectRatio),
+                    height: undefined,
+                  }
                   : { height: 220 },
               ]}
               onLayout={(e) => setGalleryWidth(e.nativeEvent.layout.width)}
@@ -2397,7 +2449,7 @@ const PostCard = memo(
           <View style={styles.postFooter}>
             <View style={styles.postFooterLeft}>
               {(post.likeCount ?? 0) > 0 && (
-                <Text style={styles.postLikeCount}>❤️ {post.likeCount}</Text>
+                <Text style={styles.postLikeCount}>👍 {post.likeCount}</Text>
               )}
             </View>
             <View style={styles.postFooterRight}>
@@ -2409,9 +2461,11 @@ const PostCard = memo(
                 onPress={() => onLikeToggle?.(post.id)}
                 activeOpacity={0.75}
               >
-                <Text style={styles.postActionEmoji}>
-                  {isLiked ? "❤️" : "🤍"}
-                </Text>
+                <ThumbsUp
+                  size={14}
+                  color={isLiked ? "#ff4ea3" : "rgba(0,0,0,0.55)"}
+                  fill={isLiked ? "#ff4ea3" : "transparent"}
+                />
                 <Text
                   style={[
                     styles.postActionLabel,
@@ -2440,6 +2494,15 @@ PostCard.displayName = "PostCard";
 
 const RecommendedUserItem = memo(({ user }) => {
   const router = useRouter();
+  const recommendVipTier = resolveVipTierFromAssetUrl(user.vipProfileFrameUrl);
+  const recommendVipLogo =
+    recommendVipTier != null ? VIP_LOGO_BY_TIER[recommendVipTier] : null;
+  const isOnline = useUserOnlineOrLiveStatus(
+    user,
+    isUserLive(user),
+    Boolean(user.isOnline ?? user.online)
+  );
+
   return (
     <TouchableOpacity
       style={styles.recommendItem}
@@ -2454,37 +2517,47 @@ const RecommendedUserItem = memo(({ user }) => {
       }
     >
       <View style={styles.recommendAvatarWrap}>
-        {user.avatar ? (
-          <ProfileAvatarWithFrame
-            avatarSource={toImageSource(user.avatar)}
-            frameSource={user.vipProfileFrameUrl}
-            size={s(72)}
-            avatarStyle={{ borderRadius: s(36) }}
-            {...(user.vipProfileFrameUrl
-              ? {
-                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                }
-              : {})}
+        <ProfileAvatarWithFrame
+          user={user}
+          avatarSource={user.avatar ? toImageSource(user.avatar) : null}
+          frameSource={user.vipProfileFrameUrl}
+          placeholderInitial={user.name?.[0]?.toUpperCase() ?? "?"}
+          size={s(60)}
+          isOnline={isOnline}
+          isLive={isUserLive(user)}
+          avatarStyle={{ borderRadius: s(36) }}
+          {...(user.vipProfileFrameUrl
+            ? {
+              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+            }
+            : {})}
+        />
+      </View>
+      <View style={styles.recommendNameRow}>
+        <Text style={styles.recommendName} numberOfLines={1}>
+          {user.name}
+        </Text>
+        {user.level != null && (
+          <Image
+            source={resolveLocalLevelBadge(user.level)}
+            style={styles.recommendLevelBadge}
+            contentFit="contain"
           />
-        ) : (
-          <View
-            style={[styles.recommendAvatar, styles.recommendAvatarPlaceholder]}
-          >
-            <Text style={styles.recommendInitial}>
-              {user.name?.[0]?.toUpperCase() ?? "?"}
-            </Text>
-          </View>
+        )}
+        {recommendVipLogo && (
+          <Image
+            source={{ uri: recommendVipLogo }}
+            style={styles.recommendVipBadge}
+            contentFit="contain"
+          />
         )}
       </View>
-      <Text style={styles.recommendName} numberOfLines={1}>
-        {user.name}
-      </Text>
     </TouchableOpacity>
   );
 });
@@ -2574,31 +2647,47 @@ const HomeHeader = memo(
     onTabPress,
     onSearchOpen,
     onNotifOpen,
-    onGiftsOpen,
     onRechargeOpen,
     onNearbyPress,
     onComingSoon,
     router,
-  }) => (
-    <>
-      {/* ── HEADER CARD ── */}
-      <View style={styles.headerCard}>
-        <View style={styles.headerTopRow}>
-          <View style={styles.avatarWrapper}>
-            <ProfileAvatarWithFrame
-              avatarSource={
-                sessionAvatarSource ??
-                (userProfile?.avatarUrl ? { uri: userProfile.avatarUrl } : null)
-              }
-              frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
-              size={s(62)}
-              avatarStyle={styles.headerAvatar}
-              placeholderInitial={
-                (userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"
-              }
-              imageComponent={Image}
-              {...(vipProfileFrameSource
-                ? {
+  }) => {
+    const insets = useSafeAreaInsets();
+    const featuredUser = recommendedUsers?.[0];
+    const isFeaturedUserOnline = Boolean(
+      featuredUser && (featuredUser.isOnline || featuredUser.online || isUserOnline(featuredUser))
+    );
+    return (
+      <>
+        {/* ── HEADER CARD ── */}
+        <LinearGradient
+          colors={[
+            "rgba(255,255,255,0)",
+            "rgba(255,255,255,0)",
+            "rgba(255,255,255,0)",
+          ]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.headerCard, { marginTop: Math.max(insets.top, 10) }]}
+        >
+          <View style={styles.headerTopRow}>
+            <View style={styles.avatarWrapper}>
+              <ProfileAvatarWithFrame
+                avatarSource={
+                  sessionAvatarSource ??
+                  (userProfile?.avatarUrl
+                    ? { uri: userProfile.avatarUrl }
+                    : null)
+                }
+                frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
+                size={s(45)}
+                avatarStyle={styles.headerAvatar}
+                placeholderInitial={
+                  (userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"
+                }
+                imageComponent={Image}
+                {...(vipProfileFrameSource
+                  ? {
                     frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
                     frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                     frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
@@ -2607,282 +2696,298 @@ const HomeHeader = memo(
                     avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
                     avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                   }
-                : {})}
-            />
-            <View style={styles.onlineDot} />
-          </View>
-          <View style={styles.headerTitleCol}>
-            <View style={styles.appNameWrapper}>
-              {/* Thin #7f3f89 outline — 8 directions at 1px */}
-              {[
-                [-1, 0],
-                [1, 0],
-                [0, -1],
-                [0, 1],
-                [-1, -1],
-                [1, -1],
-                [-1, 1],
-                [1, 1],
-              ].map(([dx, dy], i) => (
+                  : {})}
+              />
+            </View>
+            <View style={styles.headerTitleCol}>
+              <View style={styles.appNameWrapper}>
+                {/* Thin #7f3f89 outline — 8 directions at 1px */}
+                {[
+                  [-1, 0],
+                  [1, 0],
+                  [0, -1],
+                  [0, 1],
+                  [-1, -1],
+                  [1, -1],
+                  [-1, 1],
+                  [1, 1],
+                ].map(([dx, dy], i) => (
+                  <Text
+                    key={i}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                    allowFontScaling={false}
+                    style={[
+                      styles.appName,
+                      styles.appNameOutline,
+                      { position: "absolute", left: dx, top: dy },
+                    ]}
+                  >
+                    Tuk Tuk
+                  </Text>
+                ))}
+                {/* White text on top */}
                 <Text
-                  key={i}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   minimumFontScale={0.85}
                   allowFontScaling={false}
-                  style={[
-                    styles.appName,
-                    styles.appNameOutline,
-                    { position: "absolute", left: dx, top: dy },
-                  ]}
+                  style={styles.appName}
                 >
                   Tuk Tuk
                 </Text>
-              ))}
-              {/* White text on top */}
-              <Text
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.85}
-                allowFontScaling={false}
-                style={styles.appName}
-              >
-                Tuk Tuk
-              </Text>
+              </View>
             </View>
-          </View>
-          <View style={styles.headerIcons}>
-            <View style={styles.diamondPill}>
-              <Text style={styles.diamondEmoji}>💎</Text>
-              <Text style={styles.diamondCount}>
-                {(walletDiamonds ?? userProfile?.diamonds ?? 0).toLocaleString(
-                  "en-IN",
-                )}
-              </Text>
+            <View style={styles.headerIcons}>
+              <View style={styles.diamondPill}>
+                <Text style={styles.diamondEmoji}>💎</Text>
+                <Text
+                  style={[styles.diamondCount, { maxWidth: 85 }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {(
+                    walletDiamonds ??
+                    userProfile?.diamonds ??
+                    0
+                  ).toLocaleString("en-IN")}
+                </Text>
+                <TouchableOpacity
+                  style={styles.diamondPlusBtn}
+                  activeOpacity={0.85}
+                  onPress={onRechargeOpen}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.diamondPlusText}>+</Text>
+                </TouchableOpacity>
+              </View>
               <TouchableOpacity
-                style={styles.diamondPlusBtn}
-                activeOpacity={0.85}
-                onPress={onRechargeOpen}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.headerIconBtn}
+                activeOpacity={0.8}
+                onPress={onNotifOpen}
               >
-                <Text style={styles.diamondPlusText}>+</Text>
+                <RNImage
+                  source={{
+                    uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/notifications.png",
+                  }}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
+                <View
+                  style={[
+                    styles.headerIconBadge,
+                    { backgroundColor: "#7c4dff" },
+                  ]}
+                >
+                  <Text style={styles.headerIconBadgeText}>
+                    {unreadNotifications.length}
+                  </Text>
+                </View>
               </TouchableOpacity>
             </View>
+          </View>
+
+          <View style={styles.activeRow}>
             <TouchableOpacity
-              style={styles.headerIconBtn}
-              activeOpacity={0.8}
-              onPress={onGiftsOpen}
+              style={styles.matchPill}
+              activeOpacity={0.85}
+              onPress={() => router.push("/chat")}
             >
-              <Text style={styles.headerIconEmoji}>🎁</Text>
-              <View
-                style={[styles.headerIconBadge, { backgroundColor: "#ff3f72" }]}
-              >
-                <Text style={styles.headerIconBadgeText}>!</Text>
+              <View style={styles.matchAvatarWrap}>
+                <Image
+                  source={toImageSource(
+                    stats?.featuredUserAvatar ??
+                    "https://randomuser.me/api/portraits/men/45.jpg",
+                  )}
+                  style={styles.matchAvatar}
+                  cachePolicy="memory-disk"
+                  transition={200}
+                />
+                {isFeaturedUserOnline && (
+                  <View style={styles.matchAvatarLiveDot}>
+                    <LiveBadge size={9} />
+                  </View>
+                )}
+              </View>
+              <View style={styles.matchWaves}>
+                {MATCH_WAVE_HEIGHTS.map((h, i) => (
+                  <View key={i} style={[styles.matchWaveBar, { height: h }]} />
+                ))}
+              </View>
+              <View style={styles.activeTextCol}>
+                <Text style={styles.activeNumber}>
+                  {stats?.activeUsers?.toLocaleString() ?? "..."}
+                </Text>
+                <Text style={styles.activeLabel}>Active now</Text>
+              </View>
+              <View style={styles.matchArrow}>
+                <ChevronRight size={14} color="white" />
               </View>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.headerIconBtn}
+              style={styles.searchBtn}
               activeOpacity={0.8}
-              onPress={onNotifOpen}
+              onPress={onSearchOpen}
             >
-              <Text style={styles.headerIconEmoji}>🔔</Text>
-              <View
-                style={[styles.headerIconBadge, { backgroundColor: "#7c4dff" }]}
-              >
-                <Text style={styles.headerIconBadgeText}>
-                  {unreadNotifications.length}
-                </Text>
-              </View>
+              <Text style={styles.searchIcon}>🔍</Text>
             </TouchableOpacity>
           </View>
+        </LinearGradient>
+
+        {/* ── 2×2 ACTION CARDS ── */}
+        <View style={styles.actionGrid}>
+          {actionCards.map((card) => (
+            <TouchableOpacity
+              key={card.title}
+              style={styles.actionCard}
+              activeOpacity={0.88}
+              onPress={() => {
+                if (card.partyRandom) {
+                  router.push({
+                    pathname: "/voice-party",
+                    params: { party: "true" },
+                  });
+                } else if (card.title === "Nearby" && onNearbyPress) {
+                  onNearbyPress();
+                } else if (card.route) {
+                  router.push(card.route);
+                }
+              }}
+            >
+              <LinearGradient
+                colors={card.colors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.actionCardGradient}
+              >
+                <Text style={styles.cardTitle}>{card.title}</Text>
+                {card.subtitle && (
+                  <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
+                )}
+                {card.showWave && (
+                  <View style={styles.waveRow}>
+                    {WAVE_HEIGHTS.map((h, wi) => (
+                      <View key={wi} style={[styles.waveBar, { height: h }]} />
+                    ))}
+                  </View>
+                )}
+                <StaggeredImage
+                  source={
+                    typeof card.img === "string" ? { uri: card.img } : card.img
+                  }
+                  style={[
+                    styles.cardIllustration,
+                    card.imgSize && {
+                      width: card.imgSize,
+                      height: card.imgSize,
+                    },
+                  ]}
+                  contentFit="contain"
+                  delay={card.gifDelay}
+                />
+              </LinearGradient>
+            </TouchableOpacity>
+          ))}
         </View>
 
-        <View style={styles.headerDivider} />
-
-        <View style={styles.activeRow}>
-          <TouchableOpacity
-            style={styles.matchPill}
-            activeOpacity={0.85}
-            onPress={() => router.push("/chat")}
-          >
-            <Image
-              source={toImageSource(
-                stats?.featuredUserAvatar ??
-                  "https://randomuser.me/api/portraits/men/45.jpg",
-              )}
-              style={styles.matchAvatar}
-              cachePolicy="memory-disk"
-              transition={200}
-            />
-            <View style={styles.matchWaves}>
-              {MATCH_WAVE_HEIGHTS.map((h, i) => (
-                <View key={i} style={[styles.matchWaveBar, { height: h }]} />
-              ))}
-            </View>
-            <View style={styles.activeTextCol}>
-              <Text style={styles.activeNumber}>
-                {stats?.activeUsers?.toLocaleString() ?? "..."}
-              </Text>
-              <Text style={styles.activeLabel}>Active now</Text>
-            </View>
-            <View style={styles.matchArrow}>
-              <ChevronRight size={14} color="white" />
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.searchBtn}
-            activeOpacity={0.8}
-            onPress={onSearchOpen}
-          >
-            <Text style={styles.searchIcon}>🔍</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* ── 2×2 ACTION CARDS ── */}
-      <View style={styles.actionGrid}>
-        {actionCards.map((card) => (
-          <TouchableOpacity
-            key={card.title}
-            style={styles.actionCard}
-            activeOpacity={0.88}
-            onPress={() => {
-              if (card.partyRandom) {
-                router.push({
-                  pathname: "/voice-party",
-                  params: { party: "true" },
-                });
-              } else if (card.title === "Nearby" && onNearbyPress) {
-                onNearbyPress();
-              } else if (card.route) {
-                router.push(card.route);
-              }
-            }}
-          >
-            <LinearGradient
-              colors={card.colors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.actionCardGradient}
-            >
-              <Text style={styles.cardTitle}>{card.title}</Text>
-              {card.subtitle && (
-                <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
-              )}
-              {card.showWave && (
-                <View style={styles.waveRow}>
-                  {WAVE_HEIGHTS.map((h, wi) => (
-                    <View key={wi} style={[styles.waveBar, { height: h }]} />
-                  ))}
-                </View>
-              )}
-              <StaggeredImage
-                source={
-                  typeof card.img === "string" ? { uri: card.img } : card.img
-                }
-                style={[
-                  styles.cardIllustration,
-                  card.imgSize && { width: card.imgSize, height: card.imgSize },
-                ]}
-                contentFit="contain"
-                delay={card.gifDelay}
-              />
-            </LinearGradient>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* ── ICON ROW ── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.iconScroll}
-        style={styles.iconContainer}
-      >
-        {iconItems.map((item) => (
-          <TouchableOpacity
-            key={item.label}
-            style={styles.iconItem}
-            activeOpacity={0.8}
-            onPress={
-              item.comingSoon
-                ? () => onComingSoon?.(item.label.replace(/\n/g, " "))
-                : undefined
-            }
-          >
-            <LinearGradient
-              colors={item.colors}
-              style={styles.iconBox}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Image
-                source={
-                  typeof item.img === "string" ? { uri: item.img } : item.img
-                }
-                style={[
-                  styles.iconImg,
-                  item.imgSize && { width: item.imgSize, height: item.imgSize },
-                ]}
-                contentFit="contain"
-              />
-            </LinearGradient>
-            <Text style={styles.iconLabel}>{item.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* ── TABS ── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tabsScroll}
-        style={styles.tabsBar}
-      >
-        {TABS.map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            onPress={() => onTabPress(tab)}
-            style={styles.tabItem}
-            activeOpacity={1}
-          >
-            <Animated.Text
-              style={[
-                styles.tabText,
-                selectedTab === tab && styles.tabActive,
-                { transform: [{ scale: tabScales[tab] }] },
-              ]}
-            >
-              {tab}
-            </Animated.Text>
-            <Animated.View
-              style={[
-                styles.tabUnderline,
-                {
-                  transform: [{ scaleX: tabUnderlineScales[tab] }],
-                  opacity: tabUnderlineScales[tab],
-                },
-              ]}
-            />
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* ── RECOMMENDED USERS ── */}
-      <View style={styles.recommendSection}>
-        <Text style={styles.recommendTitle}>Recommend user in the room</Text>
+        {/* ── ICON ROW ── */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.recommendScroll}
+          contentContainerStyle={styles.iconScroll}
+          style={styles.iconContainer}
         >
-          {recommendedUsers.map((user) => (
-            <RecommendedUserItem key={user.id} user={user} />
+          {iconItems.map((item) => (
+            <TouchableOpacity
+              key={item.label}
+              style={styles.iconItem}
+              activeOpacity={0.8}
+              onPress={
+                item.route
+                  ? () => router.push(item.route)
+                  : item.comingSoon
+                    ? () => onComingSoon?.(item.label.replace(/\n/g, " "))
+                    : undefined
+              }
+            >
+              <LinearGradient
+                colors={item.colors}
+                style={styles.iconBox}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Image
+                  source={
+                    typeof item.img === "string" ? { uri: item.img } : item.img
+                  }
+                  style={[
+                    styles.iconImg,
+                    item.imgSize && {
+                      width: item.imgSize,
+                      height: item.imgSize,
+                    },
+                  ]}
+                  contentFit="contain"
+                />
+              </LinearGradient>
+              <Text style={styles.iconLabel}>{item.label}</Text>
+            </TouchableOpacity>
           ))}
         </ScrollView>
-      </View>
-    </>
-  ),
+
+        {/* ── TABS ── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsScroll}
+          style={styles.tabsBar}
+        >
+          {TABS.map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              onPress={() => onTabPress(tab)}
+              style={styles.tabItem}
+              activeOpacity={1}
+            >
+              <Animated.Text
+                style={[
+                  styles.tabText,
+                  selectedTab === tab && styles.tabActive,
+                  { transform: [{ scale: tabScales[tab] }] },
+                ]}
+              >
+                {tab}
+              </Animated.Text>
+              <Animated.View
+                style={[
+                  styles.tabUnderline,
+                  {
+                    transform: [{ scaleX: tabUnderlineScales[tab] }],
+                    opacity: tabUnderlineScales[tab],
+                  },
+                ]}
+              />
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* ── RECOMMENDED USERS ── */}
+        <View style={styles.recommendSection}>
+          <Text style={styles.recommendTitle}>Recommend user in the room</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.recommendScroll}
+          >
+            {recommendedUsers.map((user) => (
+              <RecommendedUserItem key={user.id} user={user} />
+            ))}
+          </ScrollView>
+        </View>
+      </>
+    );
+  },
 );
 HomeHeader.displayName = "HomeHeader";
 
@@ -2891,6 +2996,7 @@ HomeHeader.displayName = "HomeHeader";
 // ─────────────────────────────────────────────────────────────
 export default function Home() {
   const router = useRouter();
+  const { createPost: createPostParam } = useLocalSearchParams();
   const feedListRef = useRef(null);
   useScrollToTop(feedListRef);
   const [selectedTab, setSelectedTab] = useState("For You");
@@ -2935,6 +3041,9 @@ export default function Home() {
   const [searchProfile, setSearchProfile] = useState(null);
   const [searchProfileLoading, setSearchProfileLoading] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   const [sessionAvatarSource, setSessionAvatarSource] = useState(null);
@@ -2948,6 +3057,15 @@ export default function Home() {
   const [selectedCountry, setSelectedCountry] = useState("");
   const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState("");
+
+  useEffect(() => {
+    const shouldOpen = Array.isArray(createPostParam)
+      ? createPostParam.includes("1")
+      : createPostParam === "1";
+    if (!shouldOpen) return;
+    setPostSheetVisible(true);
+    router.setParams({ createPost: "" });
+  }, [createPostParam, router]);
 
   const syncSessionAvatar = useCallback(async () => {
     try {
@@ -2984,7 +3102,7 @@ export default function Home() {
       .then((user) => {
         if (!user?.gender) setGenderPickerVisible(true);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // Saves gender + country from the "Who are you?" picker straight to the
@@ -2999,18 +3117,19 @@ export default function Home() {
           : null;
         const countryFields = match
           ? {
-              country: match.name,
-              countryCode: match.code,
-              countryName: match.name,
-            }
+            country: match.name,
+            countryCode: match.code,
+            countryName: match.name,
+          }
           : {};
         await updateUser({ gender, ...countryFields });
-        await patchMyProfile({ gender, ...countryFields }).catch(() => {});
+        await updateUserProfile({ gender, ...countryFields }).catch(() => { });
         if (match) {
+          await patchMyProfile(countryFields).catch(() => { });
           await syncUserCountryToServer({
             country: match.name,
             countryCode: match.code,
-          }).catch(() => {});
+          }).catch(() => { });
         }
       } finally {
         setGenderSaving(false);
@@ -3034,7 +3153,7 @@ export default function Home() {
         .then((activeUsers) => {
           setStats((prev) => ({ ...(prev ?? {}), activeUsers }));
         })
-        .catch(() => {});
+        .catch(() => { });
     }, []),
   );
 
@@ -3082,7 +3201,7 @@ export default function Home() {
   useEffect(() => {
     getAppUserId()
       .then((id) => setCurrentUserId(String(id)))
-      .catch(() => {});
+      .catch(() => { });
 
     syncSessionAvatar();
 
@@ -3137,7 +3256,7 @@ export default function Home() {
             setUnreadNotifications([]);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
 
       // Load following + followers in parallel after home data
       Promise.all([loadFollowing(), loadFollowers()]).then(([followingArr]) => {
@@ -3148,6 +3267,50 @@ export default function Home() {
       });
     });
     return () => task.cancel();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      wsService.connect().catch(() => { });
+    }, [])
+  );
+
+  // Real-time presence updates for recommended users & active users count
+  useEffect(() => {
+    const unsub = wsService.onPresence((event) => {
+      if (!event || event.userId == null) return;
+      const targetId = String(event.userId);
+      const isOnline = Boolean(event.isOnline ?? event.online);
+
+      console.log(`[Home Presence] Event received:`, {
+        event,
+        userId: targetId,
+        isOnline,
+        activeUsers: event.activeUsers ?? stats?.activeUsers,
+      });
+
+      setRecommendedUsers((prev) =>
+        prev.map((user) => {
+          const uid = String(user?.id ?? user?.userId ?? "");
+          if (uid === targetId) {
+            return {
+              ...user,
+              isOnline,
+              online: isOnline,
+              status: isOnline ? "ONLINE" : "OFFLINE",
+            };
+          }
+          return user;
+        })
+      );
+
+      if (event.activeUsers != null) {
+        setStats((prev) =>
+          prev ? { ...prev, activeUsers: event.activeUsers } : prev
+        );
+      }
+    });
+    return unsub;
   }, []);
 
   // ── Stable callbacks ──────────────────────────────────────
@@ -3217,9 +3380,20 @@ export default function Home() {
   );
 
   const handleMarkAllRead = useCallback(async () => {
+    // Optimistic clear; restore previous state if the request fails.
+    const prevUnread = unreadNotifications;
+    const prevCount = unreadCount;
     setUnreadNotifications([]);
-    await homeService.markAllNotificationsRead().catch(() => {});
-  }, []);
+    setUnreadCount(0);
+    try {
+      // POST /api/notifications/mark-read  { "notificationIds": "all" }
+      await markAllNotificationsAsRead();
+    } catch (error) {
+      console.error("[notifications] markAllRead failed:", error);
+      setUnreadNotifications(prevUnread);
+      setUnreadCount(prevCount);
+    }
+  }, [unreadNotifications, unreadCount]);
 
   const handleSearchQuery = useCallback(
     (text) => {
@@ -3323,6 +3497,17 @@ export default function Home() {
       isOnline: Boolean(result.subtitle && result.subtitle.includes("Online")),
     });
     setSearchProfileLoading(true);
+    // A single opened profile (not a list), so one fetchUserDecorations call
+    // here is fine — same reasoning UserProfileView uses for its badge row.
+    fetchUserDecorations(result.userId)
+      .then(({ badgeUrl }) => {
+        setSearchProfile((prev) =>
+          prev?.userId === result.userId
+            ? { ...prev, decorationBadgeUrl: badgeUrl }
+            : prev,
+        );
+      })
+      .catch(() => { });
     try {
       const detail = await homeService.getUserDetailById(result.userId);
       setSearchProfile((prev) => ({
@@ -3514,7 +3699,7 @@ export default function Home() {
       try {
         newPost = await createPost({ caption, photos, video, mediaType });
       } catch (e) {
-        await refreshFeed().catch(() => {});
+        await refreshFeed().catch(() => { });
         throw e;
       }
 
@@ -3576,7 +3761,7 @@ export default function Home() {
       setFeedPosts((prev) => [normalized, ...prev]);
 
       // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
-      await refreshFeed().catch(() => {});
+      await refreshFeed().catch(() => { });
     },
     [currentUserId],
   );
@@ -3628,7 +3813,61 @@ export default function Home() {
   }, []);
 
   const openSearch = useCallback(() => setSearchVisible(true), []);
-  const openNotif = useCallback(() => setNotifVisible(true), []);
+  const openNotif = useCallback(async () => {
+    setNotifVisible(true);
+    setNotificationsLoading(true);
+    setNotificationsError(false);
+    try {
+      const { content, unreadCount: count } = await fetchNotificationsData({
+        page: 0,
+        size: 30,
+      });
+      if (Array.isArray(content)) {
+        setNotifications(content);
+        const unreadIds = content
+          .filter(
+            (n) => n.unread === true || n.read === false || n.isRead === false,
+          )
+          .map((n) => n.id);
+        setUnreadNotifications(unreadIds);
+      }
+      if (typeof count === "number") {
+        setUnreadCount(count);
+      }
+    } catch (err) {
+      console.warn(
+        "[home] Failed to load notifications on open:",
+        err?.message,
+      );
+      setNotificationsError(true);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, []);
+
+  const handleNotificationPress = useCallback(
+    async (notif) => {
+      if (!notif) return;
+
+      if (unreadNotifications.includes(notif.id)) {
+        setUnreadNotifications((prev) => prev.filter((id) => id !== notif.id));
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+        markNotificationsAsRead([notif.id]).catch(() => { });
+      }
+
+      setNotifVisible(false);
+
+      setTimeout(async () => {
+        try {
+          const success = await navigateFromNotification(router, notif);
+        } catch (navErr) {
+          console.error("[home] Navigation error on notification tap:", navErr);
+        }
+      }, 150);
+    },
+    [unreadNotifications, router],
+  );
+
   const openGifts = useCallback(() => setGiftsVisible(true), []);
   const closeSearch = useCallback(() => {
     setSearchVisible(false);
@@ -3737,7 +3976,6 @@ export default function Home() {
         onTabPress={handleTabPress}
         onSearchOpen={openSearch}
         onNotifOpen={openNotif}
-        onGiftsOpen={openGifts}
         onRechargeOpen={() => setDiamondRechargeVisible(true)}
         onNearbyPress={handleNearbyPress}
         onComingSoon={setComingSoonFeature}
@@ -3757,7 +3995,6 @@ export default function Home() {
       handleTabPress,
       openSearch,
       openNotif,
-      openGifts,
       handleNearbyPress,
       router,
     ],
@@ -3771,15 +4008,7 @@ export default function Home() {
         backgroundColor="transparent"
       />
 
-      <LinearGradient
-        colors={["white", "white", "white", "white", "white"]}
-        locations={[0, 0.25, 0.5, 0.75, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.orbPink} />
-      <View style={styles.orbPurple} />
+      <AppBackground />
 
       {/* Outer FlatList gives true virtualization to the feed —
           only posts near the viewport are kept in memory */}
@@ -3864,78 +4093,113 @@ export default function Home() {
               {searchResults.length > 0 ? (
                 <View style={styles.searchResultsSection}>
                   <Text style={styles.searchSuggestLabel}>Search Results</Text>
-                  {searchResults.map((result) => (
-                    <TouchableOpacity
-                      key={result.id}
-                      style={styles.searchResultItem}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        if (result.type === "user") {
-                          handleOpenSearchUser(result);
-                        } else if (result.partyRandom) {
-                          router.push({
-                            pathname: "/voice-party",
-                            params: { party: "true" },
-                          });
-                          closeSearch();
-                          setSearchResults([]);
-                        } else if (result.route) {
-                          router.push(result.route);
-                          closeSearch();
-                          setSearchResults([]);
-                        }
-                      }}
-                    >
-                      {result.type === "user" && result.avatar ? (
-                        <ProfileAvatarWithFrame
-                          avatarSource={toImageSource(result.avatar)}
-                          frameSource={result.vipProfileFrameUrl}
-                          size={44}
-                          avatarStyle={styles.resultIconBox}
-                          {...(result.vipProfileFrameUrl
-                            ? {
-                                frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  {searchResults.map((result) => {
+                    const resultVipTier =
+                      result.type === "user"
+                        ? resolveVipTierFromAssetUrl(result.vipProfileFrameUrl)
+                        : null;
+                    const resultVipLogo =
+                      resultVipTier != null
+                        ? VIP_LOGO_BY_TIER[resultVipTier]
+                        : null;
+                    return (
+                      <TouchableOpacity
+                        key={result.id}
+                        style={styles.searchResultItem}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          if (result.type === "user") {
+                            handleOpenSearchUser(result);
+                          } else if (result.partyRandom) {
+                            router.push({
+                              pathname: "/voice-party",
+                              params: { party: "true" },
+                            });
+                            closeSearch();
+                            setSearchResults([]);
+                          } else if (result.route) {
+                            router.push(result.route);
+                            closeSearch();
+                            setSearchResults([]);
+                          }
+                        }}
+                      >
+                        {result.type === "user" && result.avatar ? (
+                          <ProfileAvatarWithFrame
+                            user={result}
+                            avatarSource={toImageSource(result.avatar)}
+                            frameSource={result.vipProfileFrameUrl}
+                            size={44}
+                            avatarStyle={styles.resultIconBox}
+                            {...(result.vipProfileFrameUrl
+                              ? {
+                                frameScale:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameScale,
                                 frameResizeMode:
                                   VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
                                 frameOffsetX:
                                   VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
                                 frameOffsetY:
                                   VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                                frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                frameBleed:
+                                  VIP_PROFILE_FRAME_LAYOUT.frameBleed,
                                 avatarBoost:
                                   VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
                                 avatarOffsetY:
                                   VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
                               }
-                            : {})}
-                        />
-                      ) : (
-                        <LinearGradient
-                          colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
-                          style={styles.resultIconBox}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                        >
-                          <Text style={styles.resultIcon}>
-                            {result.type === "action"
-                              ? "🎮"
-                              : result.type === "user"
-                                ? "👤"
-                                : "✨"}
-                          </Text>
-                        </LinearGradient>
-                      )}
-                      <View style={styles.resultTextCol}>
-                        <Text style={styles.resultTitle}>{result.title}</Text>
-                        {result.subtitle && (
-                          <Text style={styles.resultSubtitle}>
-                            {result.subtitle}
-                          </Text>
+                              : {})}
+                          />
+                        ) : (
+                          <LinearGradient
+                            colors={result.colors || ["#3d1a6e", "#5b2d8e"]}
+                            style={styles.resultIconBox}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                          >
+                            <Text style={styles.resultIcon}>
+                              {result.type === "action"
+                                ? "🎮"
+                                : result.type === "user"
+                                  ? "👤"
+                                  : "✨"}
+                            </Text>
+                          </LinearGradient>
                         )}
-                      </View>
-                      <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
-                    </TouchableOpacity>
-                  ))}
+                        <View style={styles.resultTextCol}>
+                          <View style={styles.resultTitleRow}>
+                            <Text style={styles.resultTitle}>
+                              {result.title}
+                            </Text>
+                            {result.type === "user" && result.level != null && (
+                              <Image
+                                source={resolveLocalLevelBadge(result.level)}
+                                style={styles.resultLevelBadge}
+                                contentFit="contain"
+                              />
+                            )}
+                            {resultVipLogo && (
+                              <Image
+                                source={{ uri: resultVipLogo }}
+                                style={styles.resultVipBadge}
+                                contentFit="contain"
+                              />
+                            )}
+                            {/* Decoration badge intentionally skipped here: search
+                              results can be a long, unbounded list, so firing
+                              fetchUserDecorations per row would risk an N+1
+                              request storm. */}
+                          </View>
+                          {result.subtitle && (
+                            <Text style={styles.resultSubtitle}>
+                              {result.subtitle}
+                            </Text>
+                          )}
+                        </View>
+                        <ChevronRight size={16} color="rgba(255,255,255,0.5)" />
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               ) : searchQuery.length === 0 ? (
                 <>
@@ -4117,50 +4381,89 @@ export default function Home() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 30 }}
               >
-                {notifications.map((notif) => (
-                  <TouchableOpacity
-                    key={notif.id}
-                    style={[
-                      styles.notifItem,
-                      unreadNotifications.includes(notif.id) &&
-                        styles.notifItemUnread,
-                    ]}
-                    activeOpacity={0.8}
-                  >
-                    {unreadNotifications.includes(notif.id) && (
-                      <View style={styles.unreadDot} />
-                    )}
-                    {notif.avatar ? (
-                      <View style={styles.notifAvatarWrapper}>
-                        <Image
-                          source={toImageSource(notif.avatar)}
-                          style={styles.notifAvatar}
-                          cachePolicy="memory-disk"
-                          transition={150}
-                        />
-                        <View style={styles.notifIconBubble}>
-                          <Text style={styles.notifIconBubbleTxt}>
-                            {notif.icon}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : (
-                      <LinearGradient
-                        colors={["#3d1a6e", "#7c4dff"]}
-                        style={styles.notifSystemIcon}
+                {notificationsLoading ? (
+                  <View style={styles.notifStateBox}>
+                    <ActivityIndicator size="small" color="#7c4dff" />
+                    <Text style={styles.notifStateText}>
+                      Loading notifications...
+                    </Text>
+                  </View>
+                ) : notifications.length === 0 ? (
+                  <View style={styles.notifStateBox}>
+                    <Text style={styles.notifStateEmoji}>🔔</Text>
+                    <Text style={styles.notifStateText}>
+                      No notifications yet
+                    </Text>
+                  </View>
+                ) : (
+                  notifications.map((notif) => {
+                    const avatarUri =
+                      notif.avatar || notif.senderAvatar || notif.userAvatar;
+                    const rightImageUri =
+                      notif.imageUrl || notif.image || notif.mediaUrl;
+                    const displayAvatar =
+                      avatarUri || (rightImageUri ? null : notif.imageUrl);
+                    const displaySub =
+                      notif.message ?? notif.subtitle ?? notif.body ?? "";
+                    const displayTime = notif.time ?? notif.createdAt ?? "";
+
+                    return (
+                      <TouchableOpacity
+                        key={notif.id ?? notif._id ?? Math.random()}
+                        style={[
+                          styles.notifItem,
+                          unreadNotifications.includes(notif.id) &&
+                          styles.notifItemUnread,
+                        ]}
+                        activeOpacity={0.8}
+                        onPress={() => handleNotificationPress(notif)}
                       >
-                        <Text style={{ fontSize: 20 }}>{notif.icon}</Text>
-                      </LinearGradient>
-                    )}
-                    <View style={styles.notifTextCol}>
-                      <Text style={styles.notifItemTitle}>{notif.title}</Text>
-                      <Text style={styles.notifItemSub} numberOfLines={1}>
-                        {notif.subtitle}
-                      </Text>
-                      <Text style={styles.notifTime}>{notif.time}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                        {unreadNotifications.includes(notif.id) && (
+                          <View style={styles.unreadDot} />
+                        )}
+
+                        {/* Left: Default system icon related to notification */}
+                        <View style={styles.notifAvatarWrapper}>
+                          <LinearGradient
+                            colors={["#3d1a6e", "#7c4dff"]}
+                            style={styles.notifSystemIcon}
+                          >
+                            <Text style={{ fontSize: 24 }}>
+                              {resolveNotifIcon(notif.icon, notif.type)}
+                            </Text>
+                          </LinearGradient>
+                        </View>
+
+                        {/* Middle: Title, text message & timestamp */}
+                        <View style={styles.notifTextCol}>
+                          <Text style={styles.notifItemTitle} numberOfLines={1}>
+                            {notif.title ?? notif.senderName ?? "Tuk-Tuk"}
+                          </Text>
+                          {displaySub ? (
+                            <Text style={styles.notifItemSub} numberOfLines={2}>
+                              {displaySub}
+                            </Text>
+                          ) : null}
+                          {displayTime ? (
+                            <Text style={styles.notifTime}>{displayTime}</Text>
+                          ) : null}
+                        </View>
+
+                        {/* Right: Small image preview thumbnail (like Instagram notifications) */}
+                        {rightImageUri ? (
+                          <View style={styles.notifRightImageWrap}>
+                            <Image
+                              source={toImageSource(rightImageUri)}
+                              style={styles.notifRightImage}
+                              cachePolicy="memory-disk"
+                              transition={150}
+                            />
+                          </View>
+                        ) : null}
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
               </ScrollView>
             </SafeAreaView>
           )}
@@ -4181,8 +4484,8 @@ export default function Home() {
         isFollowing={
           imageViewerData
             ? followingIds.some((id) =>
-                isSameUser(id, imageViewerData.post.userId),
-              )
+              isSameUser(id, imageViewerData.post.userId),
+            )
             : false
         }
         isLiked={
@@ -4253,7 +4556,7 @@ export default function Home() {
         visible={genderPickerVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => {}}
+        onRequestClose={() => { }}
       >
         <View style={styles.genderOverlay}>
           <LinearGradient
@@ -4317,7 +4620,7 @@ export default function Home() {
                       style={[
                         styles.countryRow,
                         selectedCountry === country.name &&
-                          styles.countryRowSelected,
+                        styles.countryRowSelected,
                       ]}
                       onPress={() => {
                         setSelectedCountry(country.name);
@@ -4329,7 +4632,7 @@ export default function Home() {
                         style={[
                           styles.countryRowText,
                           selectedCountry === country.name &&
-                            styles.countryRowTextSelected,
+                          styles.countryRowTextSelected,
                         ]}
                       >
                         {country.flag} {country.name}
@@ -4447,21 +4750,22 @@ export default function Home() {
             >
               {searchProfile?.avatar ? (
                 <ProfileAvatarWithFrame
+                  user={searchProfile}
                   avatarSource={toImageSource(searchProfile.avatar)}
                   frameSource={searchProfile.vipProfileFrameUrl}
                   size={110}
                   avatarStyle={styles.searchProfileAvatar}
                   {...(searchProfile.vipProfileFrameUrl
                     ? {
-                        frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                        frameResizeMode:
-                          VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                        frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                        frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                        frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                        avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                        avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                      }
+                      frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                      frameResizeMode:
+                        VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                      frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                      frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                      frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                      avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                      avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                    }
                     : {})}
                 />
               ) : (
@@ -4486,6 +4790,13 @@ export default function Home() {
                 </Text>
                 {searchProfile?.vip && (
                   <Text style={styles.searchProfileVip}>👑 VIP</Text>
+                )}
+                {searchProfile?.decorationBadgeUrl && (
+                  <Image
+                    source={{ uri: searchProfile.decorationBadgeUrl }}
+                    style={styles.searchProfileDecorationBadge}
+                    contentFit="contain"
+                  />
                 )}
               </View>
 
@@ -4540,7 +4851,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: "transparent",
   },
 
   // ── Searched user profile modal ──
@@ -4606,6 +4917,10 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   searchProfileVip: { color: "#ffd700", fontSize: 13, fontWeight: "800" },
+  searchProfileDecorationBadge: {
+    height: 16,
+    width: 16 * (438 / 179),
+  },
   searchProfileMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   searchProfileBadge: {
     backgroundColor: "rgba(124,77,255,0.3)",
@@ -4870,16 +5185,12 @@ const styles = StyleSheet.create({
     marginTop: vs(20),
     marginHorizontal: H_PAD,
     marginBottom: vs(14),
-    backgroundColor: "rgba(255, 255, 255, 0.27)", // Light theme glass effect
     borderRadius: s(22),
+    backgroundColor: "transparent",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 1)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
-    elevation: 3,
-
+    borderColor: "rgba(203, 199, 199, 0.96)",
+    elevation: 0,
+    shadowColor: "transparent",
     paddingHorizontal: s(14),
     paddingVertical: vs(10),
     gap: vs(10),
@@ -4887,7 +5198,7 @@ const styles = StyleSheet.create({
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(6),
+    gap: s(5),
   },
   avatarWrapper: {
     position: "relative",
@@ -4902,17 +5213,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
-  onlineDot: {
-    position: "absolute",
-    bottom: 1,
-    right: 1,
-    width: s(12),
-    height: s(12),
-    borderRadius: s(6),
-    backgroundColor: "#00e676",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
   headerTitleCol: {
     flex: 1,
     minWidth: 0,
@@ -4924,10 +5224,10 @@ const styles = StyleSheet.create({
     lineHeight: ms(14),
   },
   appName: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#2C1A4D",
-    lineHeight: 20,
+    fontSize: 20,
+    fontWeight: "bold",
+    fontFamily: "serif",
+    color: "black",
     letterSpacing: -0.5,
   },
   appNameWrapper: {
@@ -4953,7 +5253,7 @@ const styles = StyleSheet.create({
     borderColor: "#E9D5FF",
     gap: s(2),
   },
-  diamondEmoji: { fontSize: ms(10) },
+  diamondIcon: { width: s(22), height: s(22) },
   diamondCount: {
     color: "#6D28D9",
     fontSize: ms(11),
@@ -5028,12 +5328,23 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  matchAvatarWrap: {
+    width: s(34),
+    height: s(34),
+    position: "relative",
+  },
   matchAvatar: {
     width: s(34),
     height: s(34),
     borderRadius: s(17),
     borderWidth: 2,
     borderColor: "#FFFFFF",
+  },
+  matchAvatarLiveDot: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    zIndex: 5,
   },
   matchWaves: {
     flexDirection: "row",
@@ -5049,7 +5360,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   activeNumber: {
-    color: "#4eff91",
+    color: "white",
     fontSize: ms(15),
     fontWeight: "800",
     lineHeight: ms(19),
@@ -5117,12 +5428,12 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: CARD_GAP,
     paddingHorizontal: H_PAD,
-    marginBottom: 14,
+    marginBottom: 25,
     justifyContent: "center",
   },
   actionCard: {
     width: CARD_SIZE,
-    height: CARD_SIZE * 1.15,
+    height: CARD_SIZE * 1.12,
     borderRadius: 20,
     overflow: "hidden",
   },
@@ -5164,23 +5475,23 @@ const styles = StyleSheet.create({
   },
 
   // Icon row
-  iconContainer: { marginBottom: 14 },
+  iconContainer: { marginBottom: 20 },
   iconScroll: {
-    paddingHorizontal: 33,
+    paddingHorizontal: 15,
     gap: 14,
   },
   iconItem: {
     alignItems: "center",
-    width: s(76),
+    width: s(72),
   },
   iconBox: {
-    width: s(68),
-    height: s(68),
+    width: s(64),
+    height: s(64),
     borderRadius: s(18),
     alignItems: "center",
     justifyContent: "center",
   },
-  iconImg: { width: s(44), height: s(44) },
+  iconImg: { width: s(40), height: s(40) },
   iconLabel: {
     color: "rgba(0, 0,  0, 0.9)",
     fontSize: ms(11),
@@ -5193,16 +5504,14 @@ const styles = StyleSheet.create({
   tabsBar: {
     borderBottomWidth: 1,
     borderBottomColor: "rgba(0,0,0,0.1)",
-    marginBottom: 12,
+    marginHorizontal: 20,
   },
   tabsScroll: {
-    paddingHorizontal: H_PAD,
-    gap: 22,
-    paddingBottom: 8,
+    gap: 20,
   },
   tabItem: {
     alignItems: "center",
-    paddingBottom: 2,
+    // paddingBottom: 2,
   },
   tabText: {
     color: "rgba(0,0,0,0.45)",
@@ -5216,10 +5525,10 @@ const styles = StyleSheet.create({
   },
   tabUnderline: {
     width: "100%",
-    height: 3,
+    height: 2.5,
     backgroundColor: "#7c4dff",
     borderRadius: 3,
-    marginTop: 6,
+    marginTop: 8,
   },
 
   // Active now panel (unused legacy — kept for reference)
@@ -5246,7 +5555,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: H_PAD,
   },
   postCard: {
-    backgroundColor: "rgba(194, 194, 194, 0.09)",
+    backgroundColor: "rgba(194, 26, 26, 0.09)",
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
@@ -5421,29 +5730,33 @@ const styles = StyleSheet.create({
 
   // Recommend users
   recommendSection: {
-    paddingHorizontal: H_PAD,
+    // paddingHorizontal: H_PAD,
     marginBottom: 16,
-    marginTop: 4,
+    marginTop: 10,
   },
   recommendTitle: {
     color: "black",
     fontSize: ms(16),
     fontWeight: "700",
-    marginBottom: vs(14),
+    marginBottom: vs(12),
+    paddingHorizontal: 20,
   },
   recommendScroll: {
-    gap: 16,
-    paddingRight: 8,
+    gap: 15,
+    paddingHorizontal: 10,
   },
   recommendItem: {
     alignItems: "center",
     width: s(76),
   },
   recommendAvatarWrap: {
-    width: s(72),
-    height: s(72),
-    borderRadius: s(36),
+    width: s(60),
+    height: s(60),
+    borderRadius: s(34),
     marginBottom: vs(8),
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
   },
   recommendAvatar: {
     width: "100%",
@@ -5465,6 +5778,22 @@ const styles = StyleSheet.create({
     fontSize: ms(12),
     textAlign: "center",
     fontWeight: "500",
+    flexShrink: 1,
+  },
+  recommendNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    maxWidth: s(76),
+  },
+  recommendLevelBadge: {
+    height: 10,
+    width: 10 * (142 / 149),
+  },
+  recommendVipBadge: {
+    height: 10,
+    width: 10,
   },
 
   // Banner Slider
@@ -5719,16 +6048,17 @@ const styles = StyleSheet.create({
   unreadDot: {
     position: "absolute",
     left: 8,
-    top: "50%",
+    top: "62%",
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#7c4dff",
+    backgroundColor: "#ffff",
   },
   notifAvatarWrapper: {
     width: 50,
     height: 50,
     position: "relative",
+    marginLeft: 2,
   },
   notifAvatar: {
     width: 50,
@@ -5744,13 +6074,13 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: "#1a0a2e",
+    backgroundColor: "#F08000",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "rgba(124,77,255,0.4)",
   },
-  notifIconBubbleTxt: { fontSize: 12 },
+  notifIconBubbleTxt: { fontSize: 12, textAlign: "center" },
   notifSystemIcon: {
     width: 50,
     height: 50,
@@ -5759,6 +6089,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   notifTextCol: { flex: 1 },
+  notifRightImageWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "rgba(124,77,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.2)",
+    marginLeft: 6,
+  },
+  notifRightImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 8,
+  },
   notifItemTitle: {
     color: "white",
     fontSize: 14,
@@ -5766,14 +6111,30 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   notifItemSub: {
-    color: "rgba(255,255,255,0.55)",
+    color: "rgba(255,255,255,0.65)",
     fontSize: 12,
+    lineHeight: 16,
     marginBottom: 4,
   },
   notifTime: {
     color: "#7c4dff",
     fontSize: 11,
     fontWeight: "600",
+  },
+  notifStateBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 56,
+    gap: 10,
+  },
+  notifStateEmoji: {
+    fontSize: 36,
+  },
+  notifStateText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
   },
 
   // ── SEARCH RESULTS ──
@@ -5802,11 +6163,24 @@ const styles = StyleSheet.create({
   resultTextCol: {
     flex: 1,
   },
+  resultTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
   resultTitle: {
     color: "white",
     fontSize: 14,
     fontWeight: "700",
     marginBottom: 2,
+  },
+  resultLevelBadge: {
+    height: 13,
+    width: 13 * (142 / 149),
+  },
+  resultVipBadge: {
+    height: 13,
+    width: 13,
   },
   resultSubtitle: {
     color: "rgba(255,255,255,0.5)",

@@ -1,9 +1,11 @@
 import { wsService } from "../services/websocket";
 
 export const buildChatBoxParams = (user) => {
+  const userId = String(user?.userId ?? user?.id ?? "");
+  const name = user?.name ?? user?.username ?? user?.senderName ?? "User";
   const params = {
-    userId: String(user?.userId ?? user?.id ?? ""),
-    name: user?.name ?? "User",
+    userId,
+    name,
   };
   const avatar =
     user?.avatar ??
@@ -15,6 +17,23 @@ export const buildChatBoxParams = (user) => {
   if (user?.lastMsg) params.lastMsg = String(user.lastMsg);
   const level = user?.level ?? user?.userLevel ?? user?.lvl;
   if (level != null) params.level = String(level);
+
+  const isOfficial = Boolean(
+    user?.officialSender === true ||
+    user?.officialSender === "true" ||
+    user?.isOfficial === true ||
+    user?.isOfficial === "true" ||
+    user?.official === true ||
+    user?.official === "true" ||
+    user?.lastMessage?.officialSender ||
+    name === "Tuk Tuk Team" ||
+    userId === "100005"
+  );
+  if (isOfficial) {
+    params.officialSender = "true";
+  } else if (user?.officialSender != null) {
+    params.officialSender = String(user.officialSender);
+  }
   return params;
 };
 

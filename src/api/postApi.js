@@ -207,9 +207,12 @@ export const markNotInterested = async (targetUserId) => {
 };
 
 // ── Report a user ─────────────────────────────────────────────
-// POST /api/home/report
+// POST /api/home/users/{targetUserId}/report
 export const reportUser = async (targetUserId, reason) => {
-  const response = await API.post(`/api/home/report`, { targetUserId, reason });
+  const cleanId = encodeURIComponent(String(targetUserId || "").trim());
+  const response = await API.post(`/api/home/users/${cleanId}/report`, {
+    reason: String(reason || "").trim(),
+  });
   return response.data;
 };
 
@@ -249,10 +252,6 @@ export const getMyProfilePosts = async (page = 1, limit = 20) => {
   const url = `/api/posts/me/profile?page=${page}&limit=${limit}`;
 
   const response = await API.get(url, await authRequestConfig());
-  // Temporary — confirming which field this endpoint actually uses for the
-  // post image (normalizePost's imageUrl aliases come up empty here even
-  // though the same aliases work fine against /api/home/feed).
-  console.log("[postApi] GET /api/posts/me/profile -> RAW", JSON.stringify(response.data));
   return response.data;
 };
 

@@ -19,10 +19,13 @@ export const parseOfflineRechargeAgent = (data) => {
   return {
     id: firstValue(raw.id, raw.agentId, raw.userId),
     name: firstText(raw.name, raw.agentName, raw.displayName, raw.fullName) ?? "Recharge Agent",
-    phone: firstText(raw.phone, raw.mobile, raw.phoneNumber, raw.contactNumber, raw.whatsapp),
-    whatsapp: firstText(raw.whatsapp, raw.whatsApp, raw.whatsAppNumber, raw.phone, raw.mobile),
+    phone: firstText(raw.phone, raw.mobile, raw.mobileNo, raw.phoneNumber, raw.contactNumber, raw.whatsapp),
+    whatsapp: firstText(raw.whatsapp, raw.whatsApp, raw.whatsAppNumber, raw.phone, raw.mobile, raw.mobileNo),
     upiId: firstText(raw.upiId, raw.upi, raw.upiID, raw.paymentUpi),
     email: firstText(raw.email, raw.contactEmail),
+    countryName: firstText(raw.countryName, raw.country),
+    countryCode: firstText(raw.countryCode),
+    flagEmoji: firstText(raw.flagEmoji, raw.flag),
     note: firstText(
       raw.note,
       raw.instructions,

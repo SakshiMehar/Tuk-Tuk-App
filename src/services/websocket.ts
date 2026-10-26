@@ -17,12 +17,34 @@
  *   wsService.leaveRoom(roomId);
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
+import { DeviceEventEmitter } from 'react-native';
 import SockJS from 'sockjs-client';
-import { getToken, getUser } from '../store/authStore';
+import { getValidAuthToken, refreshAuthToken } from '../api/axios';
 import { API_BASE_URL } from '../config/env';
+import { getUser } from '../store/authStore';
+import { setUserLiveStatus, setUserOnlineStatus } from '../utils/liveStatus';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+export interface AccountStatusPayload {
+  type: 'USER_BANNED' | 'USER_UNBANNED' | 'ACCOUNT_SUSPENDED' | string;
+  userId?: number | string;
+  reason?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+export interface DeviceBlockedPayload {
+  type: 'DEVICE_BLOCKED' | string;
+  deviceId?: string;
+  message?: string;
+  reason?: string;
+  button?: string;
+  buttonText?: string;
+  [key: string]: unknown;
+}
 
 export type MessageStatus = 'MESSAGE_SENT' | 'MESSAGE_DELIVERED' | 'MESSAGE_READ';
 
@@ -31,8 +53,24 @@ export interface ChatMessage {
   senderId: string;
   receiverId: string;
   content: string;
+  image?: string;
+  audio?: string;
+  audioDuration?: number;
   timestamp: string;
   status: MessageStatus;
+
+  // Call signaling
+  callSignalType?: 'OFFER' | 'ANSWER' | 'REJECT' | 'END';
+  callType?: 'audio' | 'video';
+  callChannelId?: string;
+}
+
+export interface CallSignalPayload {
+  type: 'CALL_INCOMING' | 'CALL_ACCEPTED' | 'CALL_REJECTED' | 'CALL_ENDED';
+  callId: number;
+  senderId: number | string;
+  receiverId: number | string;
+  [key: string]: any;
 }
 
 export interface TypingPayload {
@@ -42,9 +80,11 @@ export interface TypingPayload {
 }
 
 export interface PresencePayload {
-  userId: string;
-  online: boolean;
+  userId: string | number;
+  isOnline?: boolean;
+  online?: boolean;
   lastSeen?: string;
+  [key: string]: unknown;
 }
 
 export interface ReadReceiptPayload {
@@ -97,6 +137,77 @@ export interface FamilyChatSummaryPayload {
   [key: string]: unknown;
 }
 
+export interface RoomNotificationPayload {
+  eventType?:
+  | 'USER_JOINED'
+  | 'USER_LEFT'
+  | 'CHAT_MESSAGE'
+  | 'GIFT_SENT'
+  | 'MIC_MUTED'
+  | 'MIC_UNMUTED'
+  | 'SEAT_TAKEN'
+  | 'SEAT_RELEASED'
+  | string;
+  type?: string;
+  roomId?: string;
+  userId?: number | string;
+  userName?: string;
+  senderName?: string;
+  profileImage?: string;
+  avatar?: string;
+  avatarUrl?: string;
+  profilePicUrl?: string;
+  message?: string;
+  text?: string;
+  content?: string;
+  seatNumber?: number | string;
+  seatId?: number | string;
+  isMuted?: boolean;
+  giftName?: string;
+  giftCode?: string;
+  quantity?: number;
+  qty?: number;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
+export interface RoomPkPayload {
+  id?: number | string;
+  battleId?: number | string;
+  roomId?: string;
+  status?: 'PENDING' | 'LIVE' | 'FINISHED' | 'CANCELLED' | 'REJECTED' | string;
+  hostAId?: number | string;
+  hostBId?: number | string;
+  opponentHostId?: number | string;
+  teamAMemberIds?: (number | string)[];
+  teamBMemberIds?: (number | string)[];
+  teamAScore?: number;
+  teamBScore?: number;
+  durationSeconds?: number;
+  startedAt?: string;
+  endsAt?: string;
+  winner?: 'A' | 'B' | 'DRAW' | string;
+  [key: string]: unknown;
+}
+
+export interface RoomEmojiPayload {
+  eventType?: 'EMOJI_SENT' | string;
+  roomId?: string;
+  userId?: number | string;
+  userName?: string;
+  profileImage?: string;
+  emoji?: string;
+  /** sticker image URL or GIF url — present when type is sticker/gif */
+  mediaUrl?: string;
+  mediaType?: 'emoji' | 'sticker' | 'gif';
+  targetUserId?: number | string;
+  targetUserName?: string;
+  receiverId?: number | string;
+  recipientId?: number | string;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
 export type RoomTopic =
   | 'chat'
   | 'chat-summary'
@@ -104,7 +215,12 @@ export type RoomTopic =
   | 'ui-state'
   | 'gift-animation'
   | 'closed'
-  | 'moderation';
+  | 'moderation'
+  | 'notifications'
+  | 'treasure'
+  | 'pk'
+  | 'kicked'
+  | 'emoji';
 
 export type FamilyTopic = 'chat' | 'chat-summary';
 
@@ -118,6 +234,11 @@ const ROOM_TOPICS: RoomTopic[] = [
   'gift-animation',
   'closed',
   'moderation',
+  'notifications',
+  'treasure',
+  'pk',
+  'kicked',
+  'emoji',
 ];
 
 const FAMILY_TOPICS: FamilyTopic[] = ['chat', 'chat-summary'];
@@ -130,10 +251,14 @@ class WebSocketService {
   private subscriptions = new Map<string, StompSubscription>();
   private joinedRooms = new Set<string>();
 
-  private messageHandlers  = new Set<Handler<ChatMessage>>();
-  private typingHandlers   = new Set<Handler<TypingPayload>>();
+  private messageHandlers = new Set<Handler<ChatMessage>>();
+  private accountStatusHandlers = new Set<Handler<AccountStatusPayload>>();
+  private deviceBlockedHandlers = new Set<Handler<DeviceBlockedPayload>>();
+  private userKickedHandlers = new Set<Handler<unknown>>();
+  private typingHandlers = new Set<Handler<TypingPayload>>();
   private presenceHandlers = new Set<Handler<PresencePayload>>();
-  private receiptHandlers  = new Set<Handler<ReadReceiptPayload>>();
+  private receiptHandlers = new Set<Handler<ReadReceiptPayload>>();
+  private callSignalHandlers = new Set<Handler<CallSignalPayload>>();
   private liveRoomsHandlers = new Set<Handler<unknown>>();
   private reconnectHandlers = new Set<() => void>();
   private hasConnectedOnce = false;
@@ -156,8 +281,8 @@ class WebSocketService {
       return;
     }
 
-    const token = await getToken();
-    if (!token) throw new Error('[WS] No auth token — login first.');
+    const token = await getValidAuthToken();
+    if (!token) throw new Error('[WS] No valid auth token — login first.');
 
     if (this.client?.active) {
       await this._waitUntilConnected();
@@ -166,20 +291,67 @@ class WebSocketService {
 
     this.connectPromise = new Promise<void>((resolve, reject) => {
       this.client = new Client({
-        webSocketFactory: () => new SockJS(`${API_BASE_URL}/ws-tuktuk`) as unknown as WebSocket,
+        webSocketFactory: () => {
+          const wsUrl = `${API_BASE_URL}/ws-tuktuk${API_BASE_URL.includes('ngrok') ? '?ngrok-skip-browser-warning=true' : ''}`;
+          return new SockJS(wsUrl) as unknown as WebSocket;
+        },
         connectHeaders: {
           Authorization: `Bearer ${token}`,
+        },
+        beforeConnect: async () => {
+          try {
+            const freshToken = await getValidAuthToken();
+            if (freshToken && this.client) {
+              this.client.connectHeaders = {
+                Authorization: `Bearer ${freshToken}`,
+              };
+            }
+          } catch (err) {
+            console.warn('[WS] beforeConnect token refresh error:', err);
+          }
         },
         reconnectDelay: 5000,
         heartbeatIncoming: 10000,
         heartbeatOutgoing: 10000,
+        debug: (str) => {
+          if (__DEV__) console.log('[STOMP]', str);
+        },
         onConnect: () => {
+          console.log('[WS] STOMP connected successfully.');
           this._onConnect();
           resolve();
         },
-        onDisconnect: this._onDisconnect.bind(this),
-        onStompError: (frame) => {
+        onDisconnect: () => {
+          console.log('[WS] STOMP disconnected.');
+          this._onDisconnect();
+        },
+        onStompError: async (frame) => {
+          console.error('[WS] ❌ STOMP error frame:', frame.headers, frame.body);
+          const errorMsg = String(frame.headers?.message || '');
+          if (
+            errorMsg.includes('Invalid or expired') ||
+            errorMsg.includes('expired') ||
+            errorMsg.includes('token')
+          ) {
+            console.warn('[WS] Token rejected by server, attempting immediate refresh...');
+            try {
+              const freshToken = await refreshAuthToken();
+              if (freshToken && this.client) {
+                this.client.connectHeaders = {
+                  Authorization: `Bearer ${freshToken}`,
+                };
+              }
+            } catch (refreshErr) {
+              console.error('[WS] Token refresh failed after STOMP auth error. Deactivating client to prevent loop.');
+              this.client?.deactivate();
+            }
+          }
           reject(new Error(frame.headers?.message || '[WS] STOMP connect failed.'));
+        },
+        onWebSocketError: (event) => {
+          console.error('[WS] ❌ WebSocket socket error event:', event);
+        },
+        onWebSocketClose: (event) => {
         },
       });
 
@@ -235,6 +407,12 @@ class WebSocketService {
     this.hasConnectedOnce = true;
 
     this._subscribeUserChats();
+    this._subscribeUserCalls();
+    this._subscribeAccountStatus();
+    this._subscribeUserKicked();
+    this._subscribeDeviceBlocked();
+    this._subscribePresence();
+    this.sendPresence(true);
     this._sub('rooms-live', '/topic/rooms/live', this.liveRoomsHandlers);
 
     this.joinedRooms.forEach((roomId) => this._subscribeRoomTopics(roomId));
@@ -244,7 +422,13 @@ class WebSocketService {
     // so anything broadcast while disconnected (e.g. a seat update) is lost
     // unless callers explicitly re-sync their state here.
     if (isReconnect) {
-      this.reconnectHandlers.forEach((h) => h());
+      this.reconnectHandlers.forEach((h) => {
+        try {
+          h();
+        } catch (err) {
+          console.error('[WS] Error in reconnect handler:', err);
+        }
+      });
     }
   }
 
@@ -262,14 +446,232 @@ class WebSocketService {
       if (this.subscriptions.has(key)) return;
 
       const destination = `/topic/users/${userId}/chats`;
-      
+
       const sub = this.client.subscribe(destination, (frame: IMessage) => {
-        const payload: ChatMessage = JSON.parse(frame.body);
-        
-        this.messageHandlers.forEach((h) => h(payload));
+        try {
+          const payload: ChatMessage = JSON.parse(frame.body);
+          console.log("[WS] Received user chat payload raw:", frame.body);
+          this.messageHandlers.forEach((h) => {
+            try {
+              h(payload);
+            } catch (handlerErr) {
+              console.error("[WS] Handler error in user chats:", handlerErr);
+            }
+          });
+        } catch (err) {
+          console.error("[WS] Error parsing user chat payload:", err);
+        }
       });
       this.subscriptions.set(key, sub);
     });
+  }
+
+  private _subscribeUserCalls(): void {
+    const key = 'user-calls';
+    if (this.subscriptions.has(key) || !this.client || !this.connected) return;
+
+    const destination = `/user/queue/call`;
+
+    const sub = this.client.subscribe(destination, (frame: IMessage) => {
+      try {
+        const payload: CallSignalPayload = JSON.parse(frame.body);
+        console.log("[WS] Received call signal payload:", payload);
+        this.callSignalHandlers.forEach((h) => h(payload));
+      } catch (err) {
+        console.error("[WS] Error parsing call signal:", err);
+      }
+    });
+    this.subscriptions.set(key, sub);
+  }
+
+  private _subscribeAccountStatus(): void {
+    getUser().then((user) => {
+      const userId = user?.id ?? user?.userId ?? user?._id;
+      if (!userId || !this.client || !this.connected) return;
+
+      const key = 'user-account-status';
+      if (this.subscriptions.has(key)) return;
+
+      const destination = `/topic/users/${userId}/account-status`;
+
+      const sub = this.client.subscribe(destination, async (message: IMessage) => {
+        try {
+          const event: AccountStatusPayload = JSON.parse(message.body);
+          console.log("[WS] Account status event:", event);
+
+          if (event.type === 'USER_BANNED') {
+            console.log("[WS] User has been banned:", event.reason || event.message);
+
+            // 1. Clear access + refresh tokens and local auth session
+            await AsyncStorage.multiRemove([
+              '@auth_token',
+              '@refresh_token',
+              '@auth_user',
+              '@terms_accepted',
+              'accessToken',
+              'refreshToken',
+            ]).catch(() => { });
+
+            // 2. Perform clean local logout (ws disconnect, push unregister, token cache clear)
+            try {
+              const { endLocalSession } = await import('./authSessionService');
+              await endLocalSession().catch(() => { });
+            } catch { }
+
+            // 3. Emit global event to trigger UI popup modal instantly
+            DeviceEventEmitter.emit('userBanned', {
+              type: 'USER_BANNED',
+              message:
+                event.message ||
+                'Your account has been banned due to a violation of our community guidelines.',
+              reason: event.reason,
+              userId: event.userId,
+              button: 'Close',
+            });
+          }
+
+          this.accountStatusHandlers.forEach((h) => h(event));
+        } catch (error) {
+          console.error("[WS] Failed to process account status event:", error);
+        }
+      });
+      this.subscriptions.set(key, sub);
+    });
+  }
+
+  private _subscribeUserKicked(): void {
+    getUser().then((user) => {
+      const userId = user?.id ?? user?.userId ?? user?._id;
+      if (!userId || !this.client || !this.connected) return;
+
+      const key = 'user-kicked';
+      if (this.subscriptions.has(key)) return;
+
+      const destination = `/topic/users/${userId}/kicked`;
+
+      const sub = this.client.subscribe(destination, async (message: IMessage) => {
+        try {
+          const event = JSON.parse(message.body);
+          console.log("[WS] User kicked event received:", event);
+          DeviceEventEmitter.emit('userKickedFromRoom', event);
+          this.userKickedHandlers.forEach((h) => h(event));
+        } catch (error) {
+          console.error("[WS] Failed to process user kicked event:", error);
+        }
+      });
+      this.subscriptions.set(key, sub);
+    });
+  }
+
+  private _subscribeDeviceBlocked(): void {
+    if (!this.client || !this.connected) return;
+
+    const key = 'user-device-blocked';
+    if (this.subscriptions.has(key)) return;
+
+    const destination = '/user/queue/device-blocked';
+
+    try {
+      const sub = this.client.subscribe(destination, async (message: IMessage) => {
+        try {
+          console.log('[WS] Received message on /user/queue/device-blocked:', message.body);
+          const event: DeviceBlockedPayload = JSON.parse(message.body);
+          await this._handleDeviceBlockedEvent(event);
+        } catch (error) {
+          console.error('[WS] Failed to parse device-blocked event:', error);
+        }
+      });
+      this.subscriptions.set(key, sub);
+    } catch (err) {
+      console.error('[WS] Failed to subscribe to /user/queue/device-blocked:', err);
+    }
+  }
+
+  private async _handleDeviceBlockedEvent(event: DeviceBlockedPayload): Promise<void> {
+    try {
+      console.log('[WS] Processing DEVICE_BLOCKED event:', event);
+      const { getDeviceId } = await import('../utils/deviceHeaders');
+      const localDeviceId = await getDeviceId();
+
+      const incomingDeviceId = event?.deviceId ? String(event.deviceId).trim() : null;
+      const currentDeviceId = localDeviceId ? String(localDeviceId).trim() : null;
+
+      console.log('[WS] Comparing device IDs:', {
+        incomingDeviceId,
+        currentDeviceId,
+      });
+
+      // Maintain current device ID locally. Compare incoming deviceId with current device ID.
+      if (incomingDeviceId && currentDeviceId) {
+        if (incomingDeviceId.toLowerCase() !== currentDeviceId.toLowerCase()) {
+          console.log(
+            `[WS] DEVICE_BLOCKED event is for device "${incomingDeviceId}", but this device is "${currentDeviceId}". Ignoring.`
+          );
+          return;
+        }
+      }
+
+      console.warn('[WS] Current device blocked! Triggering blocking dialog modal:', event);
+
+      // Display non-cancelable blocking dialog showing administrator's reason without navigating away
+      DeviceEventEmitter.emit('deviceBlockedModal', {
+        type: event.type || 'DEVICE_BLOCKED',
+        deviceId: event.deviceId || currentDeviceId,
+        message: event.message || 'Your device has been blocked by the administrator.',
+        reason: event.reason || 'Device blocked due to suspicious activity',
+        button: event.button || event.buttonText || 'Close',
+      });
+
+      this.deviceBlockedHandlers.forEach((h) => h(event));
+    } catch (err) {
+      console.error('[WS] Error handling device-blocked event:', err);
+    }
+  }
+
+  private _subscribePresence(): void {
+    const key = 'user-presence';
+    if (this.subscriptions.has(key) || !this.client || !this.connected) return;
+
+    try {
+      const sub = this.client.subscribe('/topic/presence', (message: IMessage) => {
+        try {
+          const payload: PresencePayload = JSON.parse(message.body);
+          console.log("[WS] Received user presence event from /topic/presence:", payload);
+          const userId = payload?.userId != null ? String(payload.userId) : null;
+          const isOnline = Boolean(payload?.isOnline ?? payload?.online);
+
+          if (userId) {
+            setUserOnlineStatus(userId, isOnline);
+            if (!isOnline) {
+              setUserLiveStatus(userId, false);
+            }
+            DeviceEventEmitter.emit('userPresenceChanged', { userId, isOnline });
+          }
+          this.presenceHandlers.forEach((h) =>
+            h({ ...payload, userId: userId ?? '', online: isOnline, isOnline })
+          );
+        } catch (error) {
+          console.error("[WS] Failed to parse presence event:", error);
+        }
+      });
+      this.subscriptions.set(key, sub);
+    } catch (err) {
+      console.warn('[WS] Failed to subscribe to /topic/presence:', err);
+    }
+  }
+
+  sendPresence(online: boolean): void {
+    if (!this.connected || !this.client) return;
+    try {
+      const destination = online ? '/app/presence/online' : '/app/presence/offline';
+      this.client.publish({
+        destination,
+        body: '{}',
+      });
+      console.log(`[WS] Published presence to ${destination} with body: {}`);
+    } catch (err) {
+      console.warn('[WS] Failed to publish presence:', err);
+    }
   }
 
   private _onDisconnect(): void {
@@ -287,8 +689,18 @@ class WebSocketService {
     handlers: Set<Handler<T>>,
   ): void {
     const sub = this.client!.subscribe(destination, (frame: IMessage) => {
-      const payload: T = JSON.parse(frame.body);
-      handlers.forEach((h) => h(payload));
+      try {
+        const payload: T = JSON.parse(frame.body);
+        handlers.forEach((h) => {
+          try {
+            h(payload);
+          } catch (handlerErr) {
+            console.error(`[WS] Handler error on ${destination}:`, handlerErr);
+          }
+        });
+      } catch (err) {
+        console.error(`[WS] Error parsing payload from ${destination}:`, err);
+      }
     });
     this.subscriptions.set(key, sub);
   }
@@ -308,8 +720,12 @@ class WebSocketService {
       const handlers = this._getRoomHandlerSet(roomId, topic);
 
       const sub = this.client!.subscribe(destination, (frame: IMessage) => {
-        const payload = JSON.parse(frame.body);
-        handlers.forEach((h) => h(payload));
+        try {
+          const payload = JSON.parse(frame.body);
+          handlers.forEach((h) => h(payload));
+        } catch (err) {
+          console.error(`[WS] Error parsing payload from ${destination}:`, err);
+        }
       });
       this.subscriptions.set(key, sub);
     });
@@ -318,6 +734,7 @@ class WebSocketService {
   private _unsubscribeRoom(roomId: string): void {
     ROOM_TOPICS.forEach((topic) => {
       const key = this._roomSubKey(roomId, topic);
+      const destination = `/topic/room/${roomId}/${topic}`;
       this.subscriptions.get(key)?.unsubscribe();
       this.subscriptions.delete(key);
     });
@@ -357,8 +774,18 @@ class WebSocketService {
       const handlers = this._getFamilyHandlerSet(familyGroupId, topic);
 
       const sub = this.client!.subscribe(destination, (frame: IMessage) => {
-        const payload = JSON.parse(frame.body);
-        handlers.forEach((h) => h(payload));
+        try {
+          const payload = JSON.parse(frame.body);
+          handlers.forEach((h) => {
+            try {
+              h(payload);
+            } catch (handlerErr) {
+              console.error(`[WS] Handler error on family topic ${destination}:`, handlerErr);
+            }
+          });
+        } catch (err) {
+          console.error(`[WS] Error parsing family payload from ${destination}:`, err);
+        }
       });
       this.subscriptions.set(key, sub);
     });
@@ -427,25 +854,39 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
-  sendSpeakingStatus(roomId: string, isSpeaking: boolean): void {
-    this._assertConnected();
+  sendSpeakingStatus(roomId: string, isSpeaking: boolean, isMuted?: boolean): void {
+    if (!this.connected || !this.client) return;
     const destination = `/app/room/${roomId}/speaking`;
-    const body = JSON.stringify({ isSpeaking });
-    this.client!.publish({ destination, body });
+    const body = JSON.stringify(isMuted !== undefined ? { isSpeaking, isMuted } : { isSpeaking });
+    this.client.publish({ destination, body });
   }
 
-  sendSeatHeartbeat(roomId: string): void {
-    this._assertConnected();
-    const destination = `/app/room/${roomId}/seat/heartbeat`;
-    this.client!.publish({ destination, body: JSON.stringify({}) });
+  sendSeatHeartbeat(roomId: string, seatNumber?: number | string): void {
+    if (!this.connected || !this.client) return;
+    const destination =
+      seatNumber != null
+        ? `/app/room/${roomId}/seat/${seatNumber}/heartbeat`
+        : `/app/room/${roomId}/seat/heartbeat`;
+    if (__DEV__) {
+      console.log('[HEARTBEAT] Publishing seat heartbeat', {
+        roomId,
+        seatNumber,
+        destination,
+        connected: this.connected,
+      });
+    }
+    this.client.publish({
+      destination,
+      body: JSON.stringify(seatNumber != null ? { seatNumber: Number(seatNumber) } : {}),
+    });
   }
 
   // Keeps the room presence session alive for ANY user in the room (seated
   // or listening); backend auto-expires the session after 90 s without one.
   sendRoomHeartbeat(roomId: string): void {
-    this._assertConnected();
+    if (!this.connected || !this.client) return;
     const destination = `/app/room/${roomId}/heartbeat`;
-    this.client!.publish({ destination, body: JSON.stringify({}) });
+    this.client.publish({ destination, body: JSON.stringify({}) });
   }
 
   onRoomChat(roomId: string, handler: Handler<RoomChatPayload>): () => void {
@@ -474,6 +915,81 @@ class WebSocketService {
 
   onRoomModeration(roomId: string, handler: Handler<unknown>): () => void {
     return this._onRoomTopic(roomId, 'moderation', handler);
+  }
+
+  onRoomKicked(roomId: string, handler: Handler<unknown>): () => void {
+    return this._onRoomTopic(roomId, 'kicked', handler);
+  }
+
+  onUserKicked(handler: Handler<unknown>): () => void {
+    this.userKickedHandlers.add(handler);
+    return () => this.userKickedHandlers.delete(handler);
+  }
+
+  onRoomNotifications(roomId: string, handler: Handler<RoomNotificationPayload>): () => void {
+    return this._onRoomTopic(roomId, 'notifications', handler as Handler<unknown>);
+  }
+
+  onRoomTreasure(roomId: string, handler: (payload: any) => void): () => void {
+    return this._onRoomTopic(roomId, 'treasure', handler);
+  }
+
+  // Live PK-battle card for the room — pushed on create/accept/reject/score
+  // change/finish. Payload is the same shape GET .../pk-battles/{id} returns.
+  onRoomPk(roomId: string, handler: Handler<any>): () => void {
+    return this._onRoomTopic(roomId, 'pk', handler as Handler<unknown>);
+  }
+
+  // ── Room Emoji ────────────────────────────────────────────────────────────
+
+  /**
+   * Publish an emoji/sticker/GIF reaction to all participants of the room.
+   * Only send `emoji` for plain emoji; for sticker/GIF also set mediaUrl + mediaType.
+   */
+  sendRoomEmoji(
+    roomId: string,
+    payload: {
+      emoji?: string;
+      rawEmoji?: string;
+      mediaUrl?: string;
+      mediaType?: 'emoji' | 'sticker' | 'gif';
+      targetUserId?: string | number;
+      targetUserName?: string;
+      receiverId?: string | number;
+      recipientId?: string | number;
+      toUserId?: string | number;
+      targetId?: string | number;
+      [key: string]: unknown;
+    },
+  ): void {
+    if (!this.connected || !this.client) return;
+    const destination = `/app/room/${roomId}/emoji`;
+    const targetIdStr =
+      payload.targetUserId ??
+      payload.receiverId ??
+      payload.recipientId ??
+      payload.toUserId ??
+      payload.targetId;
+    const baseEmoji = payload.rawEmoji ?? payload.emoji ?? payload.mediaUrl ?? '';
+    // Encode targetId into the emoji string (e.g. "😍__TARGET__10002") as well as separate fields,
+    // ensuring the target recipient is always preserved even if the backend only echoes the emoji field.
+    const encodedEmoji =
+      targetIdStr != null ? `${baseEmoji}__TARGET__${targetIdStr}` : baseEmoji;
+
+    const body = JSON.stringify({
+      ...payload,
+      emoji: encodedEmoji,
+      rawEmoji: baseEmoji,
+      targetUserId: targetIdStr,
+      receiverId: targetIdStr,
+      recipientId: targetIdStr,
+    });
+    this.client.publish({ destination, body });
+  }
+
+  /** Subscribe to `EMOJI_SENT` broadcasts for a room. */
+  onRoomEmoji(roomId: string, handler: Handler<RoomEmojiPayload>): () => void {
+    return this._onRoomTopic(roomId, 'emoji', handler as Handler<unknown>);
   }
 
   onLiveRooms(handler: Handler<unknown>): () => void {
@@ -520,22 +1036,87 @@ class WebSocketService {
     topic: RoomTopic,
     handler: Handler<unknown>,
   ): () => void {
-    const handlers = this._getRoomHandlerSet(roomId, topic);
+    const id = String(roomId);
+    this.joinedRooms.add(id);
+    const handlers = this._getRoomHandlerSet(id, topic);
     handlers.add(handler);
-    if (this.connected && this.joinedRooms.has(roomId)) {
-      this._subscribeRoomTopics(roomId);
+    if (this.connected) {
+      this._subscribeRoomTopics(id);
     }
     return () => handlers.delete(handler);
   }
 
   // ── 1:1 chat publish ─────────────────────────────────────────────────────
 
-  sendMessage(recipientId: string, content: string): void {
-    this._assertConnected();
+  sendMessage(
+    recipientId: string,
+    content: string,
+    mediaPayload?: any
+  ): void {
+    if (!this.connected || !this.client) {
+      console.warn('[WS] Cannot send message: not connected');
+      return;
+    }
     const destination = `/app/users/${recipientId}/chat`;
-    const body = JSON.stringify({ message: content });
-    this.client!.publish({ destination, body });
-    
+
+    // Explicitly construct payload with all keys present to prevent backend validation errors
+    let formattedMedia = [];
+    let extractedAudioUrl = mediaPayload?.audioUrl ?? null;
+    let extractedAudioDuration = mediaPayload?.audioDuration ?? null;
+
+    if (mediaPayload?.media && Array.isArray(mediaPayload.media)) {
+      mediaPayload.media.forEach((m: any, idx: number) => {
+        if (m.type === 'AUDIO') {
+          extractedAudioUrl = m.url;
+        } else {
+          formattedMedia.push({
+            url: m.url,
+            type: m.type,
+            sortOrder: m.sortOrder ?? (formattedMedia.length + 1)
+          });
+        }
+      });
+    } else if (mediaPayload?.url && mediaPayload?.type) {
+      if (mediaPayload.type === 'AUDIO') {
+        extractedAudioUrl = mediaPayload.url;
+      } else {
+        formattedMedia.push({
+          url: mediaPayload.url,
+          type: mediaPayload.type,
+          sortOrder: 1
+        });
+      }
+    }
+
+    const payload: any = {
+      message: content || (formattedMedia.length > 0 ? "📷 Image" : (extractedAudioUrl ? "🎵 Audio" : " ")),
+      media: formattedMedia
+    };
+    if (extractedAudioUrl) {
+      payload.audioUrl = extractedAudioUrl;
+    }
+    if (extractedAudioDuration != null) {
+      payload.audioDuration = extractedAudioDuration;
+    }
+
+    console.log(`[WS] Sending chat to ${recipientId}:`, payload);
+    const body = JSON.stringify(payload);
+    this.client.publish({ destination, body });
+  }
+
+  sendCallSignal(recipientId: string, signalType: 'OFFER' | 'ANSWER' | 'REJECT' | 'END', callType: 'audio' | 'video', channelId?: string): void {
+    if (!this.connected || !this.client) {
+      console.warn('[WS] Cannot send call signal: not connected');
+      return;
+    }
+    const destination = `/app/users/${recipientId}/chat`;
+    // Format: __CALL_SIGNAL__|{signalType}|{callType}|{channelId}
+    const signalString = `__CALL_SIGNAL__|${signalType}|${callType}|${channelId || ''}`;
+    const payload: any = {
+      message: signalString
+    };
+    const body = JSON.stringify(payload);
+    this.client.publish({ destination, body });
   }
 
   notifyTyping(receiverId: string): void {
@@ -553,16 +1134,16 @@ class WebSocketService {
   }
 
   markAsRead(messageId: string): void {
-    if (!this.connected) return;
-    this.client!.publish({
+    if (!this.connected || !this.client) return;
+    this.client.publish({
       destination: '/app/chat.read',
       body: JSON.stringify({ messageId, status: 'MESSAGE_READ' }),
     });
   }
 
   private _sendTypingFrame(receiverId: string, isTyping: boolean): void {
-    if (!this.connected) return;
-    this.client!.publish({
+    if (!this.connected || !this.client) return;
+    this.client.publish({
       destination: '/app/chat.typing',
       body: JSON.stringify({ receiverId, isTyping }),
     });
@@ -588,6 +1169,21 @@ class WebSocketService {
   onReadReceipt(handler: Handler<ReadReceiptPayload>): () => void {
     this.receiptHandlers.add(handler);
     return () => this.receiptHandlers.delete(handler);
+  }
+
+  onCallSignal(handler: Handler<CallSignalPayload>): () => void {
+    this.callSignalHandlers.add(handler);
+    return () => this.callSignalHandlers.delete(handler);
+  }
+
+  onAccountStatus(handler: Handler<AccountStatusPayload>): () => void {
+    this.accountStatusHandlers.add(handler);
+    return () => this.accountStatusHandlers.delete(handler);
+  }
+
+  onDeviceBlocked(handler: Handler<DeviceBlockedPayload>): () => void {
+    this.deviceBlockedHandlers.add(handler);
+    return () => this.deviceBlockedHandlers.delete(handler);
   }
 }
 

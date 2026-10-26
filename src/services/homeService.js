@@ -20,6 +20,8 @@ import { resolveAppUserId } from "../utils/sessionUser";
 import { API_BASE_URL } from "../config/env";
 import { entityHasNewUserFrame } from "../utils/newUserFrame";
 import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
+import { fetchNotificationsData } from "./notificationService";
+import { isUserOnline } from "../utils/liveStatus";
 
 // Backend returns relative paths like "/uploads/feed/abc.jpg".
 // React Native Image requires a full https:// URL.
@@ -40,6 +42,14 @@ const hasContent = (post) =>
 
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
+
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
 
 const listFrom = (value, key) => {
   const target = key && value?.[key] !== undefined ? value[key] : value;
@@ -75,10 +85,25 @@ const profileFrom = (user) => user?.profile ?? user?.userProfile ?? user?.user ?
 
 const normalizeRecommendedUser = (user) => {
   const profile = profileFrom(user);
+  const id = firstValue(user?.id, user?.userId, user?._id, profile?.id, profile?.userId);
+  const userId = firstValue(user?.userId, user?.id, user?._id, profile?.userId, profile?.id);
+  const rawStatus = String(
+    user?.status ?? user?.userStatus ?? profile?.status ?? profile?.userStatus ?? ""
+  ).toUpperCase();
+  const onlineCheck = Boolean(
+    isUserOnline({ id, userId }) ||
+    rawStatus === "ONLINE" ||
+    rawStatus === "ONLINE_IN_ROOM" ||
+    user?.isOnline === true ||
+    user?.online === true ||
+    profile?.isOnline === true ||
+    profile?.online === true
+  );
+
   return {
     ...user,
-    id: firstValue(user?.id, user?.userId, user?._id, profile?.id, profile?.userId),
-    userId: firstValue(user?.userId, user?.id, user?._id, profile?.userId, profile?.id),
+    id,
+    userId,
     name:
       firstText(
         user?.name,
@@ -106,8 +131,16 @@ const normalizeRecommendedUser = (user) => {
         profile?.profileImage,
         profile?.photoUrl
       )) ?? null,
-    isOnline: Boolean(user?.isOnline ?? user?.online ?? profile?.isOnline),
+    isOnline: onlineCheck,
+    online: onlineCheck,
     vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
+    // Explicit fallback chain (not just the `...user` spread above) so this
+    // survives whichever of the raw top-level/nested `profile` shapes the
+    // backend actually returns — the spread alone silently drops it whenever
+    // the real value lives under `profile` instead of top-level. Sent as a
+    // badge asset URL (present = verified), not a boolean flag.
+    verifiedBadgeUrl: firstText(user?.verifiedBadgeUrl, profile?.verifiedBadgeUrl),
+    level: firstNumber(user?.level, profile?.level),
   };
 };
 
@@ -280,13 +313,14 @@ const hasMoreFrom = (data) => {
 // Uses Promise.allSettled so a failing secondary call (gifts, wallet, etc.)
 // never prevents the feed and profile from loading.
 export const getHomeData = async () => {
-  const [initResult, feedResult, giftsResult, walletResult, activeCountResult] =
+  const [initResult, feedResult, giftsResult, walletResult, activeCountResult, notifResult] =
     await Promise.allSettled([
       getHomeInit(),
       getFeedPosts("for_you", 1, 10),
       getDailyGifts(),
       getWallet(),
       getActiveUsersCount(),
+      fetchNotificationsData({ page: 0, size: 20 }),
     ]);
 
   const initData        = initResult.status        === "fulfilled" ? initResult.value        : null;
@@ -294,6 +328,7 @@ export const getHomeData = async () => {
   const giftsData       = giftsResult.status       === "fulfilled" ? giftsResult.value       : null;
   const walletData      = walletResult.status      === "fulfilled" ? walletResult.value      : null;
   const activeCountData = activeCountResult.status === "fulfilled" ? activeCountResult.value : null;
+  const notifData       = notifResult.status       === "fulfilled" ? notifResult.value       : null;
 
   const gifts = Array.isArray(giftsData) ? giftsData : (giftsData?.gifts ?? []);
   const token = await getToken();
@@ -305,6 +340,12 @@ export const getHomeData = async () => {
     activeCountData?.count ??
     initData?.stats?.activeUsers ??
     0;
+
+  const notifications = notifData?.content ?? [];
+  const unreadCount =
+    typeof notifData?.unreadCount === "number"
+      ? notifData.unreadCount
+      : notifications.filter((n) => n.unread === true || n.read === false || n.isRead === false).length;
 
   return {
     userProfile,
@@ -318,8 +359,8 @@ export const getHomeData = async () => {
     trendingTags:      initData?.trendingTags        ?? [],
     feedPosts,
     feedHasMore:       feedData?.hasMore             ?? false,
-    notifications:     [],
-    unreadCount:       0,
+    notifications,
+    unreadCount,
     gifts,
     wallet:            walletData                    ?? null,
   };
@@ -419,7 +460,9 @@ const extractRecommendedUsers = (initData) => {
 export const getRecommendedUsers = async () => {
   const initData = await getHomeInit();
   const raw = extractRecommendedUsers(initData);
-  return raw.map(normalizeRecommendedUser);
+  const users = raw.map(normalizeRecommendedUser);
+  console.log(`[homeService] getRecommendedUsers list (${users.length} users):`, users);
+  return users;
 };
 
 export const refreshActiveUsersCount = async () => {

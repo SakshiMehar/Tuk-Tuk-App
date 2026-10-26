@@ -13,6 +13,10 @@ import {
   View,
 } from "react-native";
 import { verifyPhoneOtpAndLogin } from "../src/services/firebasePhoneService";
+import {
+  consumePendingDeepLink,
+  extractRoomIdFromUrl,
+} from "../src/utils/deepLinkUtils";
 import { ms, s, vs } from "../src/utils/responsive";
 
 export default function VerifyOtp() {
@@ -47,7 +51,16 @@ export default function VerifyOtp() {
     setLoading(true);
     try {
       await verifyPhoneOtpAndLogin(code);
-      router.replace("/(tabs)/home");
+      const pendingUrl = await consumePendingDeepLink();
+      const roomId = extractRoomIdFromUrl(pendingUrl);
+      if (roomId) {
+        router.replace({
+          pathname: "/voice-party",
+          params: { roomId: String(roomId) },
+        });
+      } else {
+        router.replace("/(tabs)/home");
+      }
     } catch (err) {
       Alert.alert(
         "Verification Failed",

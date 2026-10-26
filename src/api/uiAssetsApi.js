@@ -9,6 +9,16 @@ export const getUserUiAssets = async (userId) => {
   return response.data;
 };
 
+/** GET /api/app/users/me/ui-assets — includes the active premium frame in
+ *  profileFrameImageUrl. */
+export const getMyUiAssets = async () => {
+  const response = await API.get(
+    "/api/app/users/me/ui-assets",
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
 /** GET /api/app/ui-assets/new-user-frame */
 export const getNewUserFrame = async () => {
   const response = await API.get(

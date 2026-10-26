@@ -1,24 +1,28 @@
 import {
-  getRoomRecommendations,
-  getRecentlyRooms,
-  getFollowingRooms,
-  getManagedRooms,
-  joinRandomParty as joinRandomPartyApi,
-  joinRoom as joinRoomApi,
-  exitRoom as exitRoomApi,
-  getRoomState,
-  getRoomChatMessages,
-  createRoom as createRoomApi,
-  createRoomForUser as createRoomForUserApi,
-  updateRoom as updateRoomApi,
-  getPartyRanking as getPartyRankingApi,
-  getFamilies as getFamiliesApi,
+    createRoom as createRoomApi,
+    createRoomForUser as createRoomForUserApi,
+    exitRoom as exitRoomApi,
+    getFamilies as getFamiliesApi,
+    getFollowingRooms,
+    getManagedRooms,
+    getPartyRanking as getPartyRankingApi,
+    getRecentlyRooms,
+    getRoomAnnouncement as getRoomAnnouncementApi,
+    getRoomById,
+    getRoomChatMessages,
+    getRoomRecommendations,
+    getRoomState,
+    joinRandomParty as joinRandomPartyApi,
+    joinRoom as joinRoomApi,
+    searchRooms as searchRoomsApi,
+    updateRoom as updateRoomApi,
+    updateRoomAnnouncement as updateRoomAnnouncementApi,
 } from "../api/partyApi";
-import { wsService } from "./websocket";
-import { reserveSeat } from "./partyVoiceService";
+import { resolveBundledAvatarId } from "../data/avatarOptions";
 import { syncUserFromToken } from "../utils/sessionUser";
 import { resolveRemoteProfilePicUrl } from "./meProfileService";
-import { resolveBundledAvatarId } from "../data/avatarOptions";
+import { wsService } from "./websocket";
+import { setLocalUserLive, setUserLiveStatus } from "../utils/liveStatus";
 
 const firstText = (...values) =>
   values.find(
@@ -27,6 +31,14 @@ const firstText = (...values) =>
 
 const firstValue = (...values) =>
   values.find((value) => value !== undefined && value !== null) ?? null;
+
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
 
 const normalizeAvatarField = (value) => {
   if (!value) return null;
@@ -47,9 +59,10 @@ const listFrom = (value, key) => {
   );
 };
 
-const normalizeCategory = (room) => {
-  const raw = firstText(room?.category, room?.roomType) ?? "recommend";
-  return raw.toLowerCase().replace(/\s+/g, "_");
+const normalizeCategory = (...rooms) => {
+  const raw =
+    firstText(...rooms.flatMap((room) => [room?.category, room?.roomType])) ?? "recommend";
+  return raw.trim().toLowerCase().replace(/\s+/g, "_");
 };
 
 const parseRoomsResponse = (data) => {
@@ -63,74 +76,168 @@ const parseRoomsResponse = (data) => {
     data?.recently ??
     data?.following ??
     data?.managed ??
+    data?.follows ??
     []
   );
 };
 
-export const normalizeRoom = (room) => ({
-  ...room,
-  id: firstValue(room?.roomId, room?.id, room?._id),
-  name: firstText(room?.name, room?.title, room?.roomName) ?? "Voice Room",
-  title: firstText(room?.title, room?.name, room?.roomName) ?? "Voice Room",
-  roomTypeLabel:
-    firstText(room?.roomTypeLabel, room?.roomType, room?.type) ?? "Voice Party",
-  body: firstText(room?.body, room?.description, room?.subtitle) ?? "",
-  thumbnail: firstText(
-    room?.profileImageUrl,
-    room?.thumbnail,
-    room?.coverImage,
-    room?.imageUrl,
-    room?.avatarUrl,
-  ),
-  participantCount:
-    room?.userCount ?? room?.onlineCount ?? room?.participantCount ?? 0,
-  hasChat: room?.hasChat !== false,
-  verified: room?.status === "LIVE" || Boolean(room?.verified),
-  category: normalizeCategory(room),
-  hostId: firstValue(room?.creatorId, room?.hostId, room?.ownerId),
-  badges: Array.isArray(room?.badges) ? room.badges : [],
-  statusIcons: Array.isArray(room?.statusIcons) ? room.statusIcons : [],
-});
+export const normalizeRoom = (rawRoom) => {
+  const room = rawRoom?.room ?? rawRoom?.data ?? rawRoom ?? {};
+  return {
+    ...rawRoom,
+    ...room,
+    id: firstValue(room?.roomId, room?.id, rawRoom?.roomId, rawRoom?.id, rawRoom?._id),
+    name:
+      firstText(room?.name, room?.title, room?.roomName, rawRoom?.name, rawRoom?.roomName) ??
+      "Voice Room",
+    title:
+      firstText(room?.title, room?.name, room?.roomName, rawRoom?.title, rawRoom?.name) ??
+      "Voice Room",
+    roomTypeLabel:
+      firstText(
+        room?.roomTypeLabel,
+        room?.roomType,
+        room?.type,
+        rawRoom?.roomTypeLabel,
+        rawRoom?.roomType,
+      ) ?? null,
+    body: firstText(room?.body, room?.description, room?.subtitle, rawRoom?.body) ?? "",
+    thumbnail: firstText(
+      room?.profileImageUrl,
+      room?.thumbnail,
+      room?.coverImage,
+      room?.imageUrl,
+      room?.avatarUrl,
+      rawRoom?.profileImageUrl,
+      rawRoom?.thumbnail,
+      rawRoom?.avatarUrl,
+    ),
+    participantCount:
+      room?.userCount ?? room?.onlineCount ?? room?.participantCount ?? rawRoom?.userCount ?? 0,
+    hasChat: room?.hasChat !== false,
+    verified: Boolean(room?.verified ?? rawRoom?.verified),
+    category: normalizeCategory(room, rawRoom),
+    hostId: firstValue(room?.creatorId, room?.hostId, room?.ownerId, rawRoom?.creatorId, rawRoom?.hostId),
+    badges: Array.isArray(room?.badges) ? room.badges : Array.isArray(rawRoom?.badges) ? rawRoom.badges : [],
+    statusIcons: Array.isArray(room?.statusIcons)
+      ? room.statusIcons
+      : Array.isArray(rawRoom?.statusIcons)
+        ? rawRoom.statusIcons
+        : [],
+  };
+};
 
 const normalizeSeatUser = (seatValue) => {
-  if (!seatValue || seatValue === "EMPTY") return null;
+  if (!seatValue) return null;
   if (typeof seatValue === "string") {
-    if (seatValue === "LOCKED") return null;
+    const upper = seatValue.trim().toUpperCase();
+    if (
+      !upper ||
+      upper === "EMPTY" ||
+      upper === "LOCKED" ||
+      upper === "AVAILABLE" ||
+      upper === "FREE" ||
+      upper === "OPEN" ||
+      upper === "UNCLAIMED" ||
+      upper === "VACANT" ||
+      upper === "NONE" ||
+      upper === "NULL" ||
+      upper === "UNDEFINED"
+    ) {
+      return null;
+    }
     return { name: seatValue, avatar: null, active: false, muted: true };
   }
-  const user = seatValue?.user ?? seatValue?.profile ?? seatValue;
+
+  // Check seat-level boolean flags indicating empty seat
+  if (
+    seatValue?.occupied === false ||
+    seatValue?.isOccupied === false ||
+    seatValue?.isTaken === false ||
+    seatValue?.claimed === false ||
+    seatValue?.isClaimed === false
+  ) {
+    return null;
+  }
+
+  // Check status strings
+  const status = typeof seatValue?.status === "string" ? seatValue.status.trim().toUpperCase() : "";
+  if (
+    status === "EMPTY" ||
+    status === "LOCKED" ||
+    status === "AVAILABLE" ||
+    status === "FREE" ||
+    status === "OPEN" ||
+    status === "UNCLAIMED" ||
+    status === "VACANT" ||
+    status === "NONE" ||
+    status === "NULL"
+  ) {
+    return null;
+  }
+
+  const user = seatValue?.user ?? seatValue?.profile;
+  const target = user && typeof user === "object" ? user : seatValue;
+  const userId = firstValue(target?.id, target?.userId, target?.uid, seatValue?.userId, seatValue?.uid);
+  const name = firstText(target?.name, target?.username, target?.displayName, seatValue?.name);
   const rawAvatar = firstText(
-    user?.avatar,
-    user?.avatarUrl,
-    user?.profilePicUrl,
-    user?.profileImageUrl,
-    user?.profileImage,
-    user?.photoUrl,
+    target?.avatar,
+    target?.avatarUrl,
+    target?.profilePicUrl,
+    target?.profileImageUrl,
+    target?.profileImage,
+    target?.photoUrl,
     seatValue?.avatarUrl,
     seatValue?.profileImageUrl,
     seatValue?.avatar,
   );
+
+  // If there is no user identifier (no user id, no name, no avatar), the seat is empty
+  if (userId == null && !name && !rawAvatar) {
+    return null;
+  }
+  // If userId is null, rawAvatar is null and name is empty / "Guest" on a dummy seat object, it's empty
+  if (userId == null && !rawAvatar && (!name || name === "Guest" || name === "…")) {
+    return null;
+  }
+
   return {
-    name:
-      firstText(
-        user?.name,
-        user?.username,
-        user?.displayName,
-        seatValue?.name,
-      ) ?? "Guest",
+    name: name ?? "User",
     username: firstText(
-      user?.username,
-      user?.handle,
-      user?.nickname,
-      user?.name,
+      target?.username,
+      target?.handle,
+      target?.nickname,
+      target?.name,
     ),
     avatar: normalizeAvatarField(rawAvatar),
     active: Boolean(
-      user?.isSpeaking ?? user?.active ?? user?.onMic ?? seatValue?.onMic,
+      target?.isSpeaking ?? target?.active ?? target?.onMic ?? seatValue?.onMic,
     ),
-    muted: Boolean(user?.muted ?? user?.isMuted ?? seatValue?.muted),
-    id: firstValue(user?.id, user?.userId, user?.uid, seatValue?.userId),
+    muted: Boolean(target?.muted ?? target?.isMuted ?? seatValue?.muted),
+    id: userId,
+    level: firstNumber(target?.level, seatValue?.level),
+    verifiedBadgeUrl: firstText(target?.verifiedBadgeUrl, seatValue?.verifiedBadgeUrl),
   };
+};
+
+/** Pull room `state` (with `seats`) out of a claim/join API payload. */
+export const roomStateFromPayload = (data) => {
+  if (!data || typeof data !== "object") return null;
+  if (data.state && typeof data.state === "object") return data.state;
+  if (data.result?.state && typeof data.result.state === "object") {
+    return data.result.state;
+  }
+  if (data.data?.state && typeof data.data.state === "object") {
+    return data.data.state;
+  }
+  if (data.seats && typeof data.seats === "object") return data;
+  if (data.result?.seats && typeof data.result.seats === "object") {
+    return data.result;
+  }
+  if (data.data?.seats && typeof data.data.seats === "object") {
+    return data.data;
+  }
+  return null;
 };
 
 export const parseSeats = (seatsSource, stateData) => {
@@ -143,11 +250,22 @@ export const parseSeats = (seatsSource, stateData) => {
       locked: false,
     }));
   }
-  return entries.map(([seatNum, value]) => {
+  const mapById = new Map();
+  entries.forEach(([seatNum, value]) => {
     const id = Number(seatNum);
-    const locked = value === "LOCKED" || value?.locked === true;
+    if (!Number.isFinite(id) || id <= 0) return;
+    const locked =
+      value === "LOCKED" ||
+      value?.locked === true ||
+      (typeof value?.status === "string" && value.status.trim().toUpperCase() === "LOCKED");
     const user = locked ? null : normalizeSeatUser(value);
-    return { id, user, locked };
+    mapById.set(id, { id, user, locked });
+  });
+
+  const totalSeats = Math.max(15, ...Array.from(mapById.keys()));
+  return Array.from({ length: totalSeats }, (_, i) => {
+    const seatId = i + 1;
+    return mapById.get(seatId) ?? { id: seatId, user: null, locked: false };
   });
 };
 
@@ -175,6 +293,8 @@ export const parseOnlineUsers = (stateData, joinData) => {
       avatar: normalizeAvatarField(rawAvatar),
       muted: Boolean(user?.muted ?? user?.isMuted),
       isSpeaking: Boolean(user?.isSpeaking),
+      level: firstNumber(user?.level),
+      verifiedBadgeUrl: firstText(user?.verifiedBadgeUrl),
     };
   });
 };
@@ -220,12 +340,6 @@ export const normalizeChatMessage = (msg, index = 0) => {
     msg?.data?.avatar,
     msg?.data?.senderAvatar,
   );
-
-  // Temporary diagnostic — confirms whether the backend sends any sender-avatar
-  // field on chat socket payloads at all (unlike seat/participant payloads, which
-  // do). Remove once confirmed.
-  // console.log("[partyService] chat msg RAW ->", JSON.stringify(msg));
-  // console.log("[partyService] chat msg avatar resolved ->", rawAvatar);
 
   // Backend embeds this directly on the message/sender only when that
   // sender's own XP clears the VIP threshold — absent/null otherwise.
@@ -279,6 +393,7 @@ export const normalizeChatMessage = (msg, index = 0) => {
     diamonds: msg?.diamonds ?? 0,
     isGift: Boolean(msg?.isGift),
     pending: Boolean(msg?.pending),
+    verifiedBadgeUrl: firstText(msg?.verifiedBadgeUrl, msg?.sender?.verifiedBadgeUrl),
   };
 };
 
@@ -344,6 +459,67 @@ export const loadFollowingRooms = () =>
 
 export const loadManagedRooms = () =>
   loadRoomsFromApi(getManagedRooms, "managed rooms");
+
+export const searchRoomById = async (roomId) => {
+  const query = String(roomId || "").trim();
+  if (!query) {
+    return { success: false, message: "Please enter a Room ID", room: null };
+  }
+
+  try {
+    const data = await getRoomById(query);
+    if (!data) {
+      return { success: false, status: "ROOM_NOT_FOUND", message: "Room is not live or does not exist", room: null };
+    }
+
+    if (
+      data?.status === "ROOM_NOT_LIVE" ||
+      data?.status === "NOT_LIVE" ||
+      data?.message?.toLowerCase()?.includes("not live") ||
+      data?.message?.toLowerCase()?.includes("does not exist")
+    ) {
+      return {
+        success: false,
+        status: data?.status || "ROOM_NOT_LIVE",
+        message: data?.message || "Room is not live or does not exist",
+        room: null,
+      };
+    }
+
+    const raw = data?.data ?? data?.room ?? data;
+    if (raw && (raw.id || raw.roomId || raw.name || raw.title)) {
+      return {
+        success: true,
+        status: "LIVE",
+        message: null,
+        room: normalizeRoom(raw),
+      };
+    }
+
+    return {
+      success: false,
+      status: data?.status || "ROOM_NOT_FOUND",
+      message: data?.message || "Room is not live or does not exist",
+      room: null,
+    };
+  } catch (err) {
+    const resData = err?.response?.data;
+    if (resData?.status === "ROOM_NOT_LIVE" || resData?.message) {
+      return {
+        success: false,
+        status: resData?.status || "ROOM_NOT_LIVE",
+        message: resData?.message || "Room is not live or does not exist",
+        room: null,
+      };
+    }
+    return {
+      success: false,
+      status: "ERROR",
+      message: err?.message || "Could not search room. Please try again.",
+      room: null,
+    };
+  }
+};
 
 export const enterRandomPartySession = async (payload = {}) => {
   await syncUserFromToken().catch(() => {});
@@ -425,14 +601,21 @@ export const createPartyRoom = async (payload = {}) => {
   const roomName = rest.name ?? "My Room";
 
   // Confirmed POST /api/v1/tuktuk/rooms/create contract — just these fields.
-  // The backend infers the creator from the auth token; no roomId/creatorId/
-  // hostId/userId/invite-list fields belong in this body.
+  const roomAnnouncement = rest.body ?? rest.announcement;
+
   const createBody = {
     name: roomName,
     ...(rest.profileImageUrl ? { profileImageUrl: rest.profileImageUrl } : {}),
-    ...(rest.body ? { body: rest.body } : {}),
+    ...(roomAnnouncement ? { body: roomAnnouncement } : {}),
     ...(rest.category ? { category: rest.category } : {}),
     ...(rest.roomType ? { roomType: rest.roomType } : {}),
+    // A locally-picked room photo (rest.imageUri, a file:// uri) is sent as
+    // multipart/form-data directly on the create call — createRoom /
+    // createRoomForUser in partyApi.js switch to FormData whenever this is
+    // present, matching the backend's create-time image upload contract.
+    ...(rest.imageUri
+      ? { imageUri: rest.imageUri, mimeType: rest.mimeType, fileName: rest.fileName }
+      : {}),
   };
 
   if (personalRoom) {
@@ -543,6 +726,40 @@ export const updateRoomCoverPhoto = async (
   );
 };
 
+/** Update room name, cover photo, and other fields via PATCH /api/v1/tuktuk/rooms/{roomId} */
+export const updateRoomDetails = async (
+  roomId,
+  { name, imageUri, mimeType, fileName, ...fields } = {},
+) => {
+  const updated = await updateRoomApi(roomId, {
+    ...(name ? { name } : {}),
+    ...(imageUri ? { imageUri, mimeType, fileName } : {}),
+    ...fields,
+  });
+  return updated;
+};
+
+/** Fetch the room's pinned announcement (shown on the voice room screen). */
+export const fetchRoomAnnouncement = async (roomId) => {
+  const data = await getRoomAnnouncementApi(roomId);
+  return (
+    firstText(
+      data?.announcement,
+      data?.body,
+      data?.data?.announcement,
+      data?.data?.body,
+    ) ?? ""
+  );
+};
+
+/** Persist the room's pinned announcement via PUT .../announcement. */
+export const saveRoomAnnouncement = async (roomId, announcement) => {
+  const data = await updateRoomAnnouncementApi(roomId, announcement);
+  return (
+    firstText(data?.announcement, data?.body, announcement) ?? announcement
+  );
+};
+
 /** @deprecated Prefer createPartyRoom + enterRoomSession separately */
 export const createAndJoinRoom = async (payload = {}) => {
   const { roomId } = await createPartyRoom(payload);
@@ -565,22 +782,9 @@ export const enterRoomSession = async (roomId) => {
     getRoomChatMessages(roomId).catch(() => []),
   ]);
 
-  let reservedSeatNumber = null;
-  let seats = parseSeats(joinData?.seats, stateData);
-  const emptySeat = seats.find((seat) => !seat.user && !seat.locked);
-  if (emptySeat) {
-    try {
-      track(`POST /api/v1/tuktuk/rooms/${roomId}/seat/${emptySeat.id}/claim`);
-      await reserveSeat(roomId, emptySeat.id);
-      reservedSeatNumber = emptySeat.id;
-      track(`GET /api/v1/tuktuk/rooms/${roomId}/state (after seat claim)`);
-      stateData =
-        (await getRoomState(roomId).catch(() => stateData)) ?? stateData;
-      seats = parseSeats(joinData?.seats, stateData);
-    } catch {
-      // Seat claim failed — keep existing seat state.
-    }
-  }
+  // Join as spectator only — never claim a seat here. Seat claim happens
+  // when the user taps an empty seat or the Claim seat button.
+  const seats = parseSeats(joinData?.seats, stateData);
 
   await wsService.connect();
   wsService.joinRoom(String(roomId));
@@ -588,6 +792,14 @@ export const enterRoomSession = async (roomId) => {
   const room = joinData?.room ?? {};
   const onlineUsers = parseOnlineUsers(stateData, joinData);
   const messages = normalizeChatMessages(chatData);
+
+  // Register local user and room participants as live
+  setLocalUserLive(roomId, true);
+  if (Array.isArray(onlineUsers)) {
+    onlineUsers.forEach((u) => {
+      if (u?.id) setUserLiveStatus(u.id, true, roomId);
+    });
+  }
 
   return {
     roomId,
@@ -604,7 +816,7 @@ export const enterRoomSession = async (roomId) => {
     onlineUsers,
     onlineCount: joinData?.onlineCount ?? onlineUsers.length,
     messages,
-    reservedSeatNumber,
+    reservedSeatNumber: null,
     joinData,
     stateData,
   };
@@ -701,8 +913,15 @@ export const loadFamilies = async () => {
   return families;
 };
 
+export const searchPartyRooms = async (query) => {
+  const data = await searchRoomsApi(query);
+  const rooms = parseRoomsResponse(data);
+  return rooms.map(normalizeRoom);
+};
+
 export const exitRoomSession = async (roomId) => {
   if (!roomId) return null;
+  setLocalUserLive(null, false);
   wsService.leaveRoom(String(roomId));
   const result = await exitRoomApi(roomId);
 

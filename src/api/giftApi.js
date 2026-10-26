@@ -7,11 +7,9 @@ import API, {
 const LOG_TAG = "[GiftAPI]";
 
 const logRequest = (method, path, payload) => {
-  console.log(`${LOG_TAG} → ${method} ${path}`, payload ?? "");
 };
 
 const logResponse = (method, path, data) => {
-  console.log(`${LOG_TAG} ← ${method} ${path}`, data);
 };
 
 const logError = (method, path, error) => {
@@ -36,6 +34,23 @@ const buildAuthedConfig = async (label) => {
       "Content-Type": "application/json",
     },
   };
+};
+
+/** GET /api/app/gifts/catalog — optional ?category=gift|pk|special|vip|... */
+export const getGiftCatalog = async (category) => {
+  const path = category
+    ? `/api/app/gifts/catalog?category=${encodeURIComponent(category)}`
+    : "/api/app/gifts/catalog";
+  logRequest("GET", path);
+  try {
+    const { headers } = await buildAuthedConfig("gifts/catalog");
+    const response = await API.get(path, { headers });
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    throw error;
+  }
 };
 
 /** GET /api/app/gifts/party/catalog — all party gift tabs in one response */
@@ -69,19 +84,28 @@ export const getGiftInventory = async () => {
 };
 
 /** POST /api/app/gifts/buy — deduct diamonds, add to inventory */
-export const buyGift = async ({ giftCode, quantity = 1 }) => {
+export const buyGift = async ({ giftCode, giftId, quantity = 1 }) => {
   const path = "/api/app/gifts/buy";
-  const body = {
-    giftCode: String(giftCode),
-    quantity: Math.max(1, Number(quantity) || 1),
-  };
-  if (!body.giftCode) {
+  const qty = Math.max(1, Number(quantity) || 1);
+  const numericGiftId = Number(giftId);
+  const body = { quantity: qty };
+
+  // Send both when available — the confirmed-working request shape includes
+  // giftId AND giftCode together; giftId alone was returning "Gift not found".
+  if (Number.isFinite(numericGiftId) && numericGiftId > 0) {
+    body.giftId = numericGiftId;
+  }
+  if (giftCode) {
+    body.giftCode = String(giftCode);
+  }
+
+  if (!body.giftCode && !body.giftId) {
     throw new Error("Gift is missing.");
   }
   logRequest("POST", path, body);
   try {
-    const { token, headers } = await buildAuthedConfig("gifts/buy");
-    const response = await API.post(path, { ...body, token }, { headers });
+    const { headers } = await buildAuthedConfig("gifts/buy");
+    const response = await API.post(path, body, { headers });
     logResponse("POST", path, response.data);
     return response.data;
   } catch (error) {
@@ -102,30 +126,83 @@ export const buyGift = async ({ giftCode, quantity = 1 }) => {
   }
 };
 
-/** POST /api/app/gifts/room/send — send gift in a party room (from backpack inventory) */
-export const sendGiftInRoom = async ({
+const buildGiveGiftBody = ({
   roomId,
   receiverId,
   giftCode,
+  giftId,
   quantity = 1,
 }) => {
-  const path = "/api/app/gifts/room/send";
   const body = {
-    roomId: String(roomId),
     receiverId: Number(receiverId),
-    giftCode: String(giftCode),
     quantity: Math.max(1, Number(quantity) || 1),
   };
+  if (roomId) body.roomId = String(roomId);
+  const numericGiftId = Number(giftId);
+  if (Number.isFinite(numericGiftId) && numericGiftId > 0) {
+    body.giftId = numericGiftId;
+  } else if (giftCode) {
+    body.giftCode = String(giftCode);
+  }
 
-  if (!body.roomId) throw new Error("Room is not ready.");
-  if (!body.giftCode) throw new Error("Gift is missing.");
+  if (!body.giftCode && !body.giftId) throw new Error("Gift is missing.");
   if (!Number.isFinite(body.receiverId) || body.receiverId <= 0) {
     throw new Error("Choose who receives this gift.");
   }
+  return body;
+};
+
+/** POST /api/app/gifts/give — send owned gift to another user */
+export const giveGift = async (params) => {
+  const path = "/api/app/gifts/give";
+  const body = buildGiveGiftBody(params);
+  logRequest("POST", path, body);
+  try {
+    const { headers } = await buildAuthedConfig("gifts/give");
+    const response = await API.post(path, body, { headers });
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/app/gifts/room/send — alias of /give for party rooms */
+export const sendGiftInRoom = async (params) => {
+  const path = "/api/app/gifts/room/send";
+  const body = buildGiveGiftBody(params);
+  if (!body.roomId) throw new Error("Room is not ready.");
 
   logRequest("POST", path, body);
   try {
     const { headers } = await buildAuthedConfig("gifts/room/send");
+    const response = await API.post(path, body, { headers });
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/app/gifts/send — legacy gift send (giftId only) */
+export const sendGiftLegacy = async ({ receiverId, giftId, roomId }) => {
+  const path = "/api/app/gifts/send";
+  const body = {
+    receiverId: Number(receiverId),
+    giftId: Number(giftId),
+  };
+  if (roomId) body.roomId = String(roomId);
+  if (!Number.isFinite(body.receiverId) || body.receiverId <= 0) {
+    throw new Error("Choose who receives this gift.");
+  }
+  if (!Number.isFinite(body.giftId) || body.giftId <= 0) {
+    throw new Error("Gift is missing.");
+  }
+  logRequest("POST", path, body);
+  try {
+    const { headers } = await buildAuthedConfig("gifts/send");
     const response = await API.post(path, body, { headers });
     logResponse("POST", path, response.data);
     return response.data;
@@ -164,3 +241,56 @@ export const getGiftsSent = async () => {
     throw error;
   }
 };
+
+/** GET /api/app/rewards/listen/status — daily listening progress and reward tier status */
+export const getListenRewardStatus = async () => {
+  const path = "/api/app/rewards/listen/status";
+  logRequest("GET", path);
+  try {
+    const { headers } = await buildAuthedConfig("rewards/listen/status");
+    const response = await API.get(path, { headers });
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/app/rewards/listen/claim — claim unlocked daily listen reward tier */
+export const claimListenReward = async ({ tier, roomId }) => {
+  const path = "/api/app/rewards/listen/claim";
+  const body = {
+    tier: Number(tier),
+    ...(roomId ? { roomId: String(roomId) } : {}),
+  };
+  logRequest("POST", path, body);
+  try {
+    const { headers } = await buildAuthedConfig("rewards/listen/claim");
+    const response = await API.post(path, body, { headers });
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/app/rewards/listen/progress — record incremental listening progress */
+export const recordListenRewardProgress = async ({ roomId, deltaSeconds }) => {
+  const path = "/api/app/rewards/listen/progress";
+  const body = {
+    roomId: String(roomId),
+    deltaSeconds: Number(deltaSeconds),
+  };
+  try {
+    const { headers } = await buildAuthedConfig("rewards/listen/progress");
+    const response = await API.post(path, body, { headers });
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+

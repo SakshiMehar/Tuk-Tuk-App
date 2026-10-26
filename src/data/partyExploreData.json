@@ -1,25 +1,49 @@
 {
   "topTabs": ["Related", "Explore"],
   "relatedSubTabs": ["Recently", "Following", "Managed"],
-  "filterChips": ["Recommend", "New", "Blind date"],
+  "filterChips": ["Recommend", "New", "Blind date", "Official"],
   "featureCards": [
     {
       "id": "ranking",
       "label": "Ranking",
-      "emoji": "👑",
-      "colors": ["#ff8c00", "#ffb347"]
+      "icon": "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/trophy.png",
+      "glyphTop": 0.096,
+      "glyphBottom": 0.903,
+      "iconScale": 1.18,
+      "tintStart": "#fdebd0",
+      "tintEnd": "rgba(220,140,60,0.22)",
+      "labelColor": "#7a3f00",
+      "shadowColor": "#e8a454",
+      "stepColor": "#f3cb8e",
+      "stepHighlight": "#fdf0d8"
     },
     {
       "id": "game",
       "label": "Game",
-      "emoji": "🎮",
-      "colors": ["#3a1fa0", "#7c4dff"]
+      "icon": "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/launch.png",
+      "glyphTop": 0.108,
+      "glyphBottom": 0.938,
+      "iconScale": 1.3,
+      "tintStart": "#e8e0f8",
+      "tintEnd": "rgba(140,100,220,0.20)",
+      "labelColor": "#4a1d96",
+      "shadowColor": "#7c4dff",
+      "stepColor": "#cbb9f0",
+      "stepHighlight": "#efe8fc"
     },
     {
       "id": "family",
       "label": "Family",
-      "emoji": "🏰",
-      "colors": ["#1a2a6c", "#4a6cf7"]
+      "icon": "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/people.png",
+      "glyphTop": 0.182,
+      "glyphBottom": 0.677,
+      "iconScale": 1.2,
+      "tintStart": "#dce8f8",
+      "tintEnd": "rgba(80,120,200,0.18)",
+      "labelColor": "#1e40af",
+      "shadowColor": "#4a6cf7",
+      "stepColor": "#b7d0f2",
+      "stepHighlight": "#e6eefb"
     }
   ],
   "banner": {
@@ -114,6 +138,15 @@
       "hasChat": true,
       "verified": true,
       "category": "Blind date"
+    },
+    {
+      "id": "room-6",
+      "title": "🛡️ Tuk Tuk Official Verification",
+      "thumbnail": "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/verified-batch.png",
+      "participantCount": 18,
+      "hasChat": true,
+      "verified": true,
+      "category": "Official"
     }
   ]
 }

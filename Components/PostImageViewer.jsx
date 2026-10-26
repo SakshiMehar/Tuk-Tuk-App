@@ -11,7 +11,7 @@ import {
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, MoreHorizontal } from "lucide-react-native";
+import { ArrowLeft, MoreHorizontal, ThumbsUp } from "lucide-react-native";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../src/constants/vip";
 
@@ -187,7 +187,11 @@ export default function PostImageViewer({
             activeOpacity={0.75}
             onPress={() => onLikeToggle?.(post.id)}
           >
-            <Text style={styles.actionEmoji}>{isLiked ? "❤️" : "🤍"}</Text>
+            <ThumbsUp
+              size={16}
+              color={isLiked ? "#ff4ea3" : "white"}
+              fill={isLiked ? "#ff4ea3" : "transparent"}
+            />
             <Text style={styles.actionCount}>{post.likeCount ?? 0}</Text>
           </TouchableOpacity>
           <TouchableOpacity

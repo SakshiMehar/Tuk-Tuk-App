@@ -1,42 +1,59 @@
-import { useState, useRef, useEffect } from "react";
-import {
-  View,
-  Text,
-  Image,
-  Modal,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Dimensions,
-  TextInput,
-  StatusBar,
-  Alert,
-} from "react-native";
-import { useRouter } from "expo-router";
-import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
+import { Audio } from "expo-av";
+import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import {
   ArrowLeft,
-  UserPlus,
-  MoreHorizontal,
-  X,
-  Send,
-  Mic,
-  ImageIcon,
-  HelpCircle,
+  ChevronRight,
   Gift,
+  HelpCircle,
+  ImageIcon,
+  Mic,
+  MicOff,
+  MoreHorizontal,
+  Pause,
   Phone,
-  Shield,
+  PhoneCall,
+  PhoneOff,
+  Play,
+  Send,
+  Sparkles,
+  UserPlus,
+  Volume2,
+  VolumeX,
+  X
 } from "lucide-react-native";
-import { loadChatHistory, markChatAsRead, formatChatTime } from "../src/services/chatService";
-import { wsService } from "../src/services/websocket";
-import { getAppUserId } from "../src/utils/sessionUser";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  Dimensions,
+  Image,
+  Modal,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { uploadChatMedia } from "../src/api/chatApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
-import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
-import { isBundledAvatarId, getAvatarSource } from "../src/data/avatarOptions";
+import Colors from "../src/constants/colors";
+import { useCallContext } from "../src/context/CallContext";
+import { getAvatarSource, isBundledAvatarId } from "../src/data/avatarOptions";
+import { useKeyboardInset } from "../src/hooks/useKeyboardInset";
+import { toggleLocalAudio, toggleSpeakerphone } from "../src/services/agoraCallService";
+import { formatChatTime, loadChatHistory, markChatAsRead } from "../src/services/chatService";
+import { getActiveRoomId } from "../src/services/partyVoiceService";
+import { wsService } from "../src/services/websocket";
+import { parseRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import { openUserProfile } from "../src/utils/profileNavigation";
-
-const NEW_START_BADGE = require("../assets/Batches/newstart-batch.png");
+import { getAppUserId } from "../src/utils/sessionUser";
+import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
+const NEW_START_BADGE = { uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/assets/Batches/newstart-batch.png" };
 
 const { width: W } = Dimensions.get("window");
 const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", "😡", "👍", "🙏", "🎉", "❤️"];
@@ -45,7 +62,173 @@ const LIMITED_EMOJIS = ["😀", "😂", "😍", "🥰", "😎", "🤗", "😭", 
 // image URL — resolve those to the local asset, otherwise treat as a URI.
 const resolveAvatarSource = (avatar) => {
   if (isBundledAvatarId(avatar)) return getAvatarSource(avatar);
-  return { uri: avatar };
+  return /ngrok-free\.dev|ngrok\.io/i.test(avatar)
+    ? { uri: avatar, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri: avatar };
+};
+
+const resolveImageUriSource = (uri) => {
+  if (!uri) return null;
+  return /ngrok-free\.dev|ngrok\.io/i.test(uri)
+    ? { uri, headers: { "ngrok-skip-browser-warning": "true" } }
+    : { uri };
+};
+
+const formatOfficialDateTime = (dateValue) => {
+  if (!dateValue) return "";
+  const d = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (isNaN(d.getTime())) return "";
+
+  const month = d.getMonth() + 1;
+  const day = d.getDate();
+  const year = d.getFullYear();
+
+  let hours = d.getHours();
+  const minutes = d.getMinutes().toString().padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+
+  return `${month}/${day}/${year} ${hours}:${minutes} ${ampm}`;
+};
+
+const parseOfficialMessage = (msg) => {
+  const directTitle = msg?.title ?? msg?.subject ?? msg?.heading;
+  const rawBody = msg?.body ?? msg?.text ?? msg?.message ?? "";
+  if (directTitle) {
+    const cleanTitle = String(directTitle).trim();
+    const cleanBody = rawBody && rawBody !== cleanTitle ? String(rawBody).trim() : "";
+    return { title: cleanTitle, body: cleanBody };
+  }
+
+  const raw = String(rawBody).trim();
+  const idx = raw.indexOf("\n");
+  if (idx !== -1) {
+    const title = raw.slice(0, idx).trim();
+    const body = raw.slice(idx).trim();
+    return { title, body };
+  }
+
+  if (raw.length <= 40) {
+    return { title: raw, body: "" };
+  }
+  return { title: "", body: raw };
+};
+
+const AudioPlayer = ({ uri, durationMs, fromMe }) => {
+  const [sound, setSound] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [actualDuration, setActualDuration] = useState(durationMs || 0);
+
+  useEffect(() => {
+    setActualDuration(durationMs || 0);
+  }, [durationMs]);
+
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, [sound]);
+
+  const loadSound = async () => {
+    try {
+      const { sound: newSound, status } = await Audio.Sound.createAsync(
+        { uri },
+        { progressUpdateIntervalMillis: 100 },
+        onPlaybackStatusUpdate
+      );
+      if (status.isLoaded && status.durationMillis) {
+        setActualDuration(status.durationMillis);
+      }
+      setSound(newSound);
+      return newSound;
+    } catch (error) {
+      Alert.alert("Error", "Could not load audio.");
+      return null;
+    }
+  };
+
+  const onPlaybackStatusUpdate = (status) => {
+    if (status.isLoaded) {
+      setPosition(status.positionMillis);
+      setIsPlaying(status.isPlaying);
+      if (status.durationMillis && actualDuration === 0) {
+        setActualDuration(status.durationMillis);
+      }
+      if (status.didJustFinish) {
+        setIsPlaying(false);
+        setPosition(0);
+        sound?.setPositionAsync(0);
+      }
+    }
+  };
+
+  const togglePlayPause = async () => {
+    try {
+      let currentSound = sound;
+      if (!currentSound) {
+        currentSound = await loadSound();
+        if (!currentSound) return;
+      }
+
+      if (isPlaying) {
+        await currentSound.pauseAsync();
+      } else {
+        const status = await currentSound.getStatusAsync();
+        if (status.isLoaded && (status.positionMillis >= status.durationMillis - 100 || status.didJustFinish)) {
+          await currentSound.setPositionAsync(0);
+        }
+        await currentSound.playAsync();
+      }
+    } catch (error) {
+      console.log("Audio playback error:", error);
+    }
+  };
+
+  const formatDuration = (millis) => {
+    const totalSeconds = Math.floor((millis || 0) / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+  };
+
+  const progressPercent = actualDuration > 0 ? (position / actualDuration) * 100 : 0;
+  const waveBars = [30, 60, 40, 80, 50, 100, 70, 40, 80, 50, 30, 90, 60, 40, 70, 40, 80, 50, 30, 60];
+
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", width: W * 0.6, gap: 12 }}>
+      <TouchableOpacity onPress={togglePlayPause} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: fromMe ? Colors.whiteAlpha20 : Colors.primaryAlpha15, alignItems: "center", justifyContent: "center" }}>
+        {isPlaying ? (
+          <Pause size={20} color={fromMe ? "white" : Colors.secondary} />
+        ) : (
+          <Play size={20} color={fromMe ? "white" : Colors.secondary} style={{ marginLeft: 3 }} />
+        )}
+      </TouchableOpacity>
+      <View style={{ flex: 1, gap: 6 }}>
+        {/* Fake Waveform */}
+        <View style={{ height: 24, flexDirection: "row", alignItems: "center", gap: 3 }}>
+          {waveBars.map((h, i) => (
+            <View key={`bg-${i}`} style={{ width: 3, height: `${h}%`, backgroundColor: fromMe ? Colors.whiteAlpha30 : Colors.borderPrimaryAlpha, borderRadius: 2 }} />
+          ))}
+          {/* Active Played Waveform Overlay */}
+          <View style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${progressPercent}%`, overflow: "hidden", flexDirection: "row", alignItems: "center", gap: 3 }}>
+            {waveBars.map((h, i) => (
+              <View key={`fg-${i}`} style={{ width: 3, height: `${h}%`, backgroundColor: fromMe ? "white" : Colors.primary, borderRadius: 2 }} />
+            ))}
+          </View>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={{ color: fromMe ? Colors.whiteAlpha80 : Colors.grayPlaceholder, fontSize: 11, fontWeight: "500" }}>
+            {formatDuration(position)} / {formatDuration(actualDuration)}
+          </Text>
+          <Mic size={12} color={fromMe ? Colors.whiteAlpha80 : Colors.grayPlaceholder} />
+        </View>
+      </View>
+    </View>
+  );
 };
 
 export default function ChatBox({ user = {}, onBack }) {
@@ -54,6 +237,7 @@ export default function ChatBox({ user = {}, onBack }) {
     name = "User",
     avatar = null,
     lastMsg = "",
+    officialSender = false,
     level = null,
   } = user;
   const router = useRouter();
@@ -65,41 +249,233 @@ export default function ChatBox({ user = {}, onBack }) {
   const [showBanner, setShowBanner] = useState(true);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
+
+  const isOfficialChat = Boolean(
+    officialSender ||
+    user?.officialSender ||
+    user?.isOfficial ||
+    user?.official ||
+    name === "Tuk Tuk Team" ||
+    user?.name === "Tuk Tuk Team" ||
+    String(userId) === "100005" ||
+    messages.some((m) => m?.officialSender)
+  );
+
+  const handleBackPress = useCallback(() => {
+    if (isOfficialChat) {
+      router.replace("/(tabs)/chat");
+      return;
+    }
+    if (onBack) {
+      onBack();
+      return;
+    }
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/chat");
+    }
+  }, [isOfficialChat, onBack, router]);
+
+  useEffect(() => {
+    const onHardwareBack = () => {
+      handleBackPress();
+      return true;
+    };
+    const sub = BackHandler.addEventListener("hardwareBackPress", onHardwareBack);
+    return () => sub.remove();
+  }, [handleBackPress]);
+
+  const handleOfficialAction = (msg) => {
+    Alert.alert(msg?.senderName || name || "Official Notice", msg?.text || "Check details");
+  };
+
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
   const [showEmojiBox, setShowEmojiBox] = useState(false);
   const [otherUserHasNewFrame, setOtherUserHasNewFrame] = useState(false);
   const [otherUserVipFrame, setOtherUserVipFrame] = useState(null);
-  const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom } = useKeyboardInset();
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const { composerBottom, keyboardHeight, isKeyboardVisible, safeBottom, idleBottom } = useKeyboardInset();
   const scrollRef = useRef(null);
   const [composerHeight, setComposerHeight] = useState(136);
 
-  const mapApiMessage = (m, currentUserId) => ({
-    id: String(m.messageId ?? m.id ?? Date.now()),
-    text: m.content ?? m.message ?? m.text ?? "",
-    fromMe: String(m.senderId) === String(currentUserId),
-    time: m.timestamp ? new Date(m.timestamp) : new Date(),
-  });
+  const handleJoinRoomInvite = (inviteInfo) => {
+    if (!inviteInfo?.roomId || isJoiningRoom) return;
+    const targetRoomId = String(inviteInfo.roomId);
+    const activeRoomId = getActiveRoomId?.();
+
+    if (activeRoomId && String(activeRoomId) === targetRoomId) {
+      Alert.alert(
+        "Already in Room",
+        `You are already in "${inviteInfo.roomTitle || "this room"}".`,
+        [
+          {
+            text: "Open Room",
+            onPress: () => {
+              router.push({
+                pathname: "/voice-party",
+                params: { roomId: targetRoomId },
+              });
+            },
+          },
+          { text: "OK", style: "cancel" },
+        ],
+      );
+      return;
+    }
+
+    if (activeRoomId && String(activeRoomId) !== targetRoomId) {
+      Alert.alert(
+        "Switch Room?",
+        "You are currently in another voice room. Do you want to leave it and join this party room?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Join Room",
+            onPress: () => {
+              setIsJoiningRoom(true);
+              router.push({
+                pathname: "/voice-party",
+                params: { roomId: targetRoomId },
+              });
+              setTimeout(() => setIsJoiningRoom(false), 1500);
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    setIsJoiningRoom(true);
+    router.push({
+      pathname: "/voice-party",
+      params: { roomId: targetRoomId },
+    });
+    setTimeout(() => setIsJoiningRoom(false), 1500);
+  };
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const recordingRef = useRef(null);
+  const recordingIntervalRef = useRef(null);
+
+  const { callState, initiateCall, acceptCall, rejectCall, endCall } = useCallContext();
+  const [callDuration, setCallDuration] = useState(0);
+
+  useEffect(() => {
+    let interval = null;
+    if (callState?.status === "CONNECTED") {
+      interval = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setCallDuration(0);
+      if (interval) clearInterval(interval);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [callState?.status]);
+
+  const formatCallDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins < 10 ? "0" : ""}${mins}:${secs < 10 ? "0" : ""}${secs}`;
+  };
+
+  const handleInitiateCall = (type) => {
+    if (initiateCall) {
+      initiateCall(type, userId);
+    }
+  };
+
+
+  const mapApiMessage = (m, currentUserId) => {
+    const mediaList = Array.isArray(m?.media) ? m.media : [];
+    const imageMedia = mediaList.find((media) => (media?.type === 'IMAGE' || media?.mediaType === 'IMAGE')) ?? mediaList[0];
+    const audioMedia = mediaList.find((media) => (media?.type === 'AUDIO' || media?.mediaType === 'AUDIO'));
+    const isOfficial = Boolean(m?.officialSender || m?.isOfficial);
+
+    return {
+      id: String(m.messageId ?? m.id ?? Date.now()),
+      text: m.content ?? m.message ?? m.text ?? "",
+      image: m.imageUrl ?? m.image ?? imageMedia?.mediaUrl ?? imageMedia?.url ?? null,
+      audio: m.audioUrl ?? m.audio ?? audioMedia?.mediaUrl ?? audioMedia?.url ?? null,
+      audioDuration: m.audioDuration ?? 0,
+      fromMe: isOfficial ? false : String(m.senderId) === String(currentUserId),
+      officialSender: isOfficial,
+      senderName: m.senderName ?? null,
+      time: m.timestamp || m.createdAt ? new Date(m.timestamp || m.createdAt) : new Date(),
+    };
+  };
+
+  // Loads the message history for this conversation from the server.
+  // Extracted so both the initial mount and the "Retry" tap (shown when a
+  // load fails) go through the same path — previously a failed fetch was
+  // swallowed silently, leaving the chat looking empty/"vanished" with no
+  // way to reload short of leaving and re-entering the screen.
+  const fetchHistory = useCallback(async (currentUserId) => {
+    if (!userId) return;
+    setHistoryError(false);
+    setHistoryLoading(true);
+    try {
+      const { messages: apiMessages } = await loadChatHistory(userId);
+      setMessages(
+        apiMessages
+          .map((m) => mapApiMessage(m, currentUserId))
+          .filter((m) => !m.text.startsWith("__CALL_SIGNAL__|"))
+      );
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
+      markChatAsRead(userId).catch(() => { });
+    } catch {
+      setHistoryError(true);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [userId]);
+
+  // Connects WS (best-effort) and resolves the local user id before
+  // handing off to fetchHistory. Both the initial mount and the "Retry"
+  // button run this same sequence — getAppUserId() can throw (e.g. session
+  // not hydrated yet), and previously that throw was unguarded, so it
+  // silently aborted the load and left the chat stuck on its loading state
+  // forever with no way to recover except leaving and re-entering.
+  const loadChatSession = useCallback(async () => {
+    setHistoryError(false);
+    setHistoryLoading(true);
+
+    try {
+      await wsService.connect();
+    } catch {
+      // Non-fatal — history loads over REST regardless of WS state.
+    }
+
+    let currentUserId;
+    try {
+      currentUserId = await getAppUserId();
+    } catch {
+      setHistoryError(true);
+      setHistoryLoading(false);
+      return;
+    }
+    setMyUserId(currentUserId);
+
+    await fetchHistory(currentUserId);
+  }, [fetchHistory]);
+
+  const handleRetryHistory = () => {
+    loadChatSession();
+  };
 
   useEffect(() => {
     if (!userId) return undefined;
     let cancelled = false;
 
     const initChat = async () => {
-      try {
-        await wsService.connect();
-        const currentUserId = await getAppUserId();
-        if (cancelled) return;
-        setMyUserId(currentUserId);
-
-        const { messages: apiMessages } = await loadChatHistory(userId);
-        if (cancelled) return;
-        setMessages(apiMessages.map((m) => mapApiMessage(m, currentUserId)));
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
-
-        await markChatAsRead(userId);
-      } catch {
-        // APIs logged in chatApi
-      }
+      await loadChatSession();
+      if (cancelled) return;
 
       // Fetch new-user frame status for the badge
       try {
@@ -118,11 +494,12 @@ export default function ChatBox({ user = {}, onBack }) {
       } catch {
         // non-critical
       }
+
     };
 
     initChat();
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, loadChatSession]);
 
   useEffect(() => {
     if (!userId || !myUserId) return undefined;
@@ -138,35 +515,61 @@ export default function ChatBox({ user = {}, onBack }) {
       if (!isThisChat) return;
 
       const text = payload?.content ?? payload?.message ?? "";
-      if (!text) return;
+      const payloadMedia = Array.isArray(payload?.media) ? payload.media : [];
+      const image = payload?.image ?? payloadMedia.find(m => (m?.type === 'IMAGE' || m?.mediaType === 'IMAGE'))?.url ?? payloadMedia.find(m => (m?.type === 'IMAGE' || m?.mediaType === 'IMAGE'))?.mediaUrl ?? null;
+      const audio = payload?.audio ?? payload?.audioUrl ?? payloadMedia.find(m => (m?.type === 'AUDIO' || m?.mediaType === 'AUDIO'))?.url ?? payloadMedia.find(m => (m?.type === 'AUDIO' || m?.mediaType === 'AUDIO'))?.mediaUrl ?? null;
+      const audioDuration = payload?.audioDuration ?? 0;
+
+      console.log("[ChatBox] onMessage parsed image:", image, "audio:", audio);
+
+      // Check if this is a call signal embedded in the message
+      if (text && text.startsWith("__CALL_SIGNAL__|")) {
+        return;
+      }
+
+      if (payload?.callSignalType) {
+        return;
+      }
+
+      if (!text && !image && !audio) return;
 
       const id = String(payload?.messageId ?? payload?.id ?? `ws-${Date.now()}`);
-      const fromMe = String(senderId) === String(myUserId);
+      const isOfficial = Boolean(payload?.officialSender || payload?.isOfficial);
+      const fromMe = isOfficial ? false : String(senderId) === String(myUserId);
 
       setMessages((prev) => {
         // Skip duplicate real IDs
         if (prev.some((m) => String(m.id) === id)) return prev;
 
         // If the server echoes our own message back, replace the optimistic
-        // pending entry (same text, fromMe) rather than adding a duplicate.
-        const filtered = fromMe
-          ? prev.filter((m) => !(m._pending && m.text === text))
-          : prev;
+        // pending entry. For media messages, ignore text if image/audio match.
+        const isMatch = (m) => m._pending && fromMe && (
+          (image && m.image === image) ||
+          (audio && m.audio === audio) ||
+          (!image && !audio && m.text === text)
+        );
+
+        const filtered = prev.filter((m) => !isMatch(m));
 
         return [
           ...filtered,
           {
             id,
             text,
+            image,
+            audio,
+            audioDuration,
             fromMe,
-            time: payload?.timestamp ? new Date(payload.timestamp) : new Date(),
+            officialSender: isOfficial,
+            senderName: payload?.senderName ?? null,
+            time: payload?.timestamp || payload?.createdAt ? new Date(payload.timestamp || payload.createdAt) : new Date(),
           },
         ];
       });
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
 
       if (String(senderId) === peerId) {
-        markChatAsRead(userId).catch(() => {});
+        markChatAsRead(userId).catch(() => { });
       }
     });
 
@@ -174,6 +577,7 @@ export default function ChatBox({ user = {}, onBack }) {
   }, [userId, myUserId]);
 
   const sendMessageText = (rawText, { clearComposer = false } = {}) => {
+    if (isOfficialChat) return;
     const text = String(rawText ?? "").trim();
     if (!text || !userId) return;
 
@@ -182,7 +586,7 @@ export default function ChatBox({ user = {}, onBack }) {
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setMessages((prev) => [
       ...prev,
-      { id: tempId, text, fromMe: true, time: new Date(), _pending: true },
+      { id: tempId, text, image: null, audio: null, fromMe: true, time: new Date(), _pending: true },
     ]);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
 
@@ -197,6 +601,130 @@ export default function ChatBox({ user = {}, onBack }) {
 
     if (clearComposer) setMessage("");
     setShowEmojiBox(false);
+  };
+
+  const handleGalleryPick = async () => {
+    if (isOfficialChat) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        sendImageMessage(asset.uri);
+      }
+    } catch (error) {
+      Alert.alert("Error", "Could not pick image.");
+    }
+  };
+
+  const sendImageMessage = async (localUri) => {
+    if (!userId || isOfficialChat) return;
+
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: tempId, text: "", image: localUri, audio: null, fromMe: true, time: new Date(), _pending: true },
+    ]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+
+    try {
+      const response = await uploadChatMedia(localUri, 'image/jpeg');
+      const responseMedia = Array.isArray(response?.media) ? response.media : [];
+      const imageUrl = responseMedia.find(m => m?.type === 'IMAGE')?.url || responseMedia[0]?.url || response?.url;
+
+      if (imageUrl) {
+        wsService.sendMessage(String(userId), "", response);
+        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, image: imageUrl, _pending: true } : m));
+      } else {
+        throw new Error("Invalid response format from server");
+      }
+    } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      Alert.alert("Send failed", err?.message || "Could not upload image.");
+    }
+  };
+
+  const startRecording = async () => {
+    if (isOfficialChat) return;
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (permission.status === "granted") {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+        });
+        const { recording } = await Audio.Recording.createAsync(
+          Audio.RecordingOptionsPresets.HIGH_QUALITY
+        );
+        recordingRef.current = recording;
+        setIsRecording(true);
+        setRecordingDuration(0);
+        recordingIntervalRef.current = setInterval(() => {
+          setRecordingDuration((prev) => prev + 1);
+        }, 1000);
+      } else {
+        Alert.alert("Permission to access microphone is required!");
+      }
+    } catch (err) {
+      console.error("Failed to start recording", err);
+      Alert.alert("Error", "Could not start recording.");
+    }
+  };
+
+  const stopRecording = async () => {
+    try {
+      setIsRecording(false);
+      clearInterval(recordingIntervalRef.current);
+      if (!recordingRef.current) return;
+
+      await recordingRef.current.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      const uri = recordingRef.current.getURI();
+      const status = await recordingRef.current.getStatusAsync();
+      const durationMs = status.durationMillis;
+      recordingRef.current = null;
+
+      if (durationMs < 1000) {
+        // Ignore recordings shorter than 1 second
+        return;
+      }
+
+      sendAudioMessage(uri, durationMs);
+    } catch (err) {
+      console.error("Failed to stop recording", err);
+    }
+  };
+
+  const sendAudioMessage = async (localUri, durationMs) => {
+    if (!userId || isOfficialChat) return;
+
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: tempId, text: "", image: null, audio: localUri, audioDuration: durationMs, fromMe: true, time: new Date(), _pending: true },
+    ]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+
+    try {
+      const response = await uploadChatMedia(localUri, 'audio/m4a');
+      const responseAudioMedia = Array.isArray(response?.media) ? response.media : [];
+      const audioUrl = responseAudioMedia.find(m => m?.type === 'AUDIO')?.url || responseAudioMedia[0]?.url || response?.url;
+
+      if (audioUrl) {
+        wsService.sendMessage(String(userId), "", { ...response, audioDuration: durationMs });
+        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, audio: audioUrl, _pending: true } : m));
+      } else {
+        throw new Error("Invalid response format from server");
+      }
+    } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      Alert.alert("Send failed", err?.message || "Could not upload audio.");
+    }
   };
 
   const sendMessage = () => {
@@ -221,22 +749,58 @@ export default function ChatBox({ user = {}, onBack }) {
   }, [isKeyboardVisible, message]);
 
   return (
-    <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor="#0f0720" />
+    <View style={[styles.root, isOfficialChat && { backgroundColor: "#f5f6fa" }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
 
       {/* ── HEADER ── */}
-      <LinearGradient colors={["#160d30", "#0f0720"]} style={styles.header}>
-        <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8} onPress={onBack}>
-          <ArrowLeft size={22} color="white" />
+      <LinearGradient
+        colors={[Colors.white, Colors.white]}
+        style={[styles.header, isOfficialChat && styles.headerOfficial]}
+      >
+        <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8} onPress={handleBackPress}>
+          <ArrowLeft size={22} color={Colors.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
+        <View style={styles.headerNameRow}>
+          <Text
+            style={[styles.headerName, isOfficialChat && styles.headerNameOfficial]}
+            numberOfLines={1}
+          >
+            {name}
+          </Text>
+          {/*
+          {(headerVipLogo || otherUserDecorationBadge) && !isOfficialChat && (
+            <View style={styles.headerBadgeRow}>
+              {headerVipLogo && (
+                <Image
+                  source={{ uri: headerVipLogo }}
+                  style={styles.headerVipBadge}
+                  resizeMode="contain"
+                />
+              )}
+              {otherUserDecorationBadge && (
+                <Image
+                  source={{ uri: otherUserDecorationBadge }}
+                  style={styles.headerDecorationBadge}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+          )}
+          */}
+        </View>
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
-            <UserPlus size={20} color="#a78bfa" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
-            <MoreHorizontal size={22} color="rgba(167,139,250,0.8)" />
-          </TouchableOpacity>
+          {isOfficialChat ? (
+            <View style={{ width: 40 }} />
+          ) : (
+            <>
+              <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
+                <UserPlus size={20} color={Colors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
+                <MoreHorizontal size={22} color={Colors.primary} />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </LinearGradient>
 
@@ -258,7 +822,7 @@ export default function ChatBox({ user = {}, onBack }) {
                 styles.emojiSheet,
                 { bottom: composerBottom + (isKeyboardVisible ? 72 : 126) },
               ]}
-              onPress={() => {}}
+              onPress={() => { }}
             >
               <Text style={styles.emojiSheetTitle}>Emojis</Text>
               <View style={styles.emojiGrid}>
@@ -279,18 +843,21 @@ export default function ChatBox({ user = {}, onBack }) {
 
         <ScrollView
           ref={scrollRef}
-          style={styles.body}
+          style={[styles.body, isOfficialChat && { backgroundColor: "#f5f6fa" }]}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
-            paddingBottom: composerHeight + keyboardHeight + safeBottom + 12,
+            paddingBottom: isOfficialChat
+              ? safeBottom + 24
+              : composerHeight + (isKeyboardVisible ? keyboardHeight : 0) + 12,
+            paddingTop: isOfficialChat ? 10 : 0,
           }}
           keyboardShouldPersistTaps="handled"
         >
           {/* ── NOTIFICATION BANNER ── */}
-          {showBanner && (
+          {!isOfficialChat && !historyLoading && showBanner && (
             <View style={styles.bannerWrap}>
               <LinearGradient
-                colors={["rgba(124,77,255,0.18)", "rgba(74,108,247,0.15)"]}
+                colors={[Colors.primaryAlpha08, Colors.secondaryAlpha08]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.banner}
@@ -309,232 +876,522 @@ export default function ChatBox({ user = {}, onBack }) {
                   activeOpacity={0.8}
                   onPress={() => setShowBanner(false)}
                 >
-                  <X size={13} color="rgba(167,139,250,0.55)" />
+                  <X size={13} color={Colors.primary} />
                 </TouchableOpacity>
               </LinearGradient>
             </View>
           )}
 
           {/* ── USER PROFILE CARD ── */}
-          <View style={styles.matchCardWrap}>
-            <LinearGradient
-              colors={["#1a0a3e", "#2d1065", "#1a0a3e"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.matchCard}
-            >
-              <View style={styles.matchTopRow}>
-                <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
-                  <LinearGradient
-                    colors={otherUserVipFrame ? ["#0f0720", "#0f0720"] : ["#7c4dff", "#4a6cf7"]}
-                    style={styles.matchAvatarRing}
-                  >
-                    <View style={styles.matchAvatarWrap}>
-                      {avatar ? (
-                        <Image
-                          source={resolveAvatarSource(avatar)}
-                          style={styles.matchAvatar}
-                        />
-                      ) : (
-                        <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
-                          <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
-                        </View>
-                      )}
-                      {otherUserVipFrame ? (
-                        // VIP profile frame overlay — scale/position may need visual tuning on device
-                        <Image
-                          source={{ uri: otherUserVipFrame }}
-                          style={styles.matchAvatarFrameOverlay}
-                          resizeMode="contain"
-                          pointerEvents="none"
-                        />
-                      ) : null}
-                    </View>
-                  </LinearGradient>
-                </TouchableOpacity>
-                <View style={styles.matchUserInfo}>
-                  <Text style={styles.matchUserName}>{name}</Text>
-                  {lastMsg ? (
-                    <Text style={styles.matchLastMsg} numberOfLines={2}>{lastMsg}</Text>
-                  ) : null}
-                </View>
-              </View>
-            </LinearGradient>
-          </View>
-
-          {/* ── MESSAGES AREA ── */}
-          {messages.length === 0 ? (
-            <View style={styles.emptyChat} />
-          ) : (
-            <View style={styles.messagesList}>
-              {messages.map((msg) => (
-                <View
-                  key={msg.id}
-                  style={[
-                    styles.msgRow,
-                    msg.fromMe ? styles.msgRowMe : styles.msgRowThem,
-                  ]}
-                >
-                  {!msg.fromMe && (
-                    <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
-                      <View style={styles.msgAvatarWrap}>
+          {!isOfficialChat && !historyLoading && (
+            <View style={styles.matchCardWrap}>
+              <LinearGradient
+                colors={[Colors.bgSlateLight, Colors.bgSlateMedium, Colors.bgSlateLight]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.matchCard}
+              >
+                <View style={styles.matchTopRow}>
+                  <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
+                    <LinearGradient
+                      colors={otherUserVipFrame ? [Colors.white, Colors.white] : [Colors.primary, Colors.secondary]}
+                      style={styles.matchAvatarRing}
+                    >
+                      <View style={styles.matchAvatarWrap}>
                         {avatar ? (
                           <Image
                             source={resolveAvatarSource(avatar)}
-                            style={styles.msgAvatar}
+                            style={styles.matchAvatar}
                           />
                         ) : (
-                          <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
-                            <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                          <View style={[styles.matchAvatar, styles.matchAvatarPlaceholder]}>
+                            <Text style={styles.matchInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
                           </View>
                         )}
                         {otherUserVipFrame ? (
                           // VIP profile frame overlay — scale/position may need visual tuning on device
                           <Image
                             source={{ uri: otherUserVipFrame }}
-                            style={styles.msgAvatarFrameOverlay}
+                            style={styles.matchAvatarFrameOverlay}
                             resizeMode="contain"
                             pointerEvents="none"
                           />
                         ) : null}
                       </View>
-                    </TouchableOpacity>
-                  )}
-                  <View
-                    style={[
-                      styles.msgBubble,
-                      msg.fromMe ? styles.msgBubbleMe : styles.msgBubbleThem,
-                    ]}
-                  >
-                    {msg.fromMe ? (
-                      <LinearGradient
-                        colors={["#5b21b6", "#7c4dff"]}
-                        style={styles.msgBubbleGrad}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                      >
-                        <Text style={styles.msgTextMe}>{msg.text}</Text>
-                        <Text style={styles.msgTime}>{formatTime(msg.time)}</Text>
-                      </LinearGradient>
-                    ) : (
-                      <View>
-                        {/* Lv. badge + NEW STAR badge row */}
-                        {level != null && (
-                          <View style={styles.msgBadgeRow}>
-                            <View style={styles.msgLvBadge}>
-                              <Text style={styles.msgLvText}>Lv.{level}</Text>
-                            </View>
-                            {otherUserHasNewFrame && (
-                              <Image
-                                source={NEW_START_BADGE}
-                                style={styles.msgNewStarBadge}
-                                resizeMode="contain"
-                              />
-                            )}
-                          </View>
-                        )}
-                        <View style={styles.msgBubbleThemInner}>
-                          <Text style={styles.msgTextThem}>{msg.text}</Text>
-                          <Text style={[styles.msgTime, { color: "rgba(255,255,255,0.35)" }]}>
-                            {formatTime(msg.time)}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                  <View style={styles.matchUserInfo}>
+                    <Text style={styles.matchUserName}>{name}</Text>
+                    {lastMsg ? (
+                      <Text style={styles.matchLastMsg} numberOfLines={2}>{lastMsg}</Text>
+                    ) : null}
                   </View>
                 </View>
-              ))}
+              </LinearGradient>
+            </View>
+          )}
+
+          {/* ── MESSAGES AREA ── */}
+          {messages.length === 0 ? (
+            historyError ? (
+              <View style={styles.historyErrorWrap}>
+                <Text style={styles.historyErrorText}>
+                  Couldn&apos;t load messages. Check your connection and try again.
+                </Text>
+                <TouchableOpacity
+                  style={styles.historyRetryBtn}
+                  activeOpacity={0.8}
+                  onPress={handleRetryHistory}
+                >
+                  <Text style={styles.historyRetryText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            ) : historyLoading ? (
+              <View style={styles.historyLoadingWrap}>
+                <ActivityIndicator size="small" color={Colors.primary} />
+              </View>
+            ) : (
+              <View style={styles.emptyChat} />
+            )
+          ) : (
+            <View style={[styles.messagesList, isOfficialChat && styles.officialMessagesList]}>
+              {messages.map((msg) => {
+                const isOfficialMsg = Boolean(msg.officialSender || isOfficialChat);
+
+                if (isOfficialMsg) {
+                  const { title: officialTitle, body: officialBody } = parseOfficialMessage(msg);
+
+                  return (
+                    <View key={msg.id} style={styles.officialCardWrap}>
+                      {/* Centered Date Header: e.g. 10/9/2026 11:33 PM */}
+                      <Text style={styles.officialDateText}>
+                        {formatOfficialDateTime(msg.time)}
+                      </Text>
+
+                      {/* Official White Card */}
+                      <View style={styles.officialCard}>
+                        {msg.image ? (
+                          <Image
+                            source={{ uri: msg.image }}
+                            style={styles.officialCardBanner}
+                            resizeMode="cover"
+                          />
+                        ) : null}
+
+                        <View style={styles.officialCardBody}>
+                          {officialTitle ? (
+                            <Text
+                              style={[
+                                styles.officialCardTitle,
+                                !officialBody && { marginBottom: 0 },
+                              ]}
+                            >
+                              {officialTitle}
+                            </Text>
+                          ) : null}
+                          {officialBody ? (
+                            <Text style={styles.officialCardMessage}>{officialBody}</Text>
+                          ) : !officialTitle ? (
+                            <Text style={styles.officialCardMessage}>{msg.text}</Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    </View>
+                  );
+                }
+
+                const inviteInfo = parseRoomInviteMessage(msg.text);
+                return (
+                  <View
+                    key={msg.id}
+                    style={[
+                      styles.msgRow,
+                      msg.fromMe ? styles.msgRowMe : styles.msgRowThem,
+                    ]}
+                  >
+                    {!msg.fromMe && (
+                      <TouchableOpacity activeOpacity={0.85} onPress={handleAvatarPress}>
+                        <View style={styles.msgAvatarWrap}>
+                          {avatar ? (
+                            <Image
+                              source={resolveAvatarSource(avatar)}
+                              style={styles.msgAvatar}
+                            />
+                          ) : (
+                            <View style={[styles.msgAvatar, styles.msgAvatarPlaceholder]}>
+                              <Text style={styles.msgInitial}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                            </View>
+                          )}
+                          {otherUserVipFrame ? (
+                            <Image
+                              source={{ uri: otherUserVipFrame }}
+                              style={styles.msgAvatarFrameOverlay}
+                              resizeMode="contain"
+                              pointerEvents="none"
+                            />
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    )}
+                    <View
+                      style={[
+                        styles.msgBubble,
+                        msg.fromMe ? styles.msgBubbleMe : styles.msgBubbleThem,
+                        inviteInfo.isRoomInvite && styles.msgBubbleInvite,
+                        (msg.image || msg.imageUrl) && { backgroundColor: "transparent", borderWidth: 0 },
+                      ]}
+                    >
+                      {msg.fromMe ? (
+                        <LinearGradient
+                          colors={
+                            (msg.image || msg.imageUrl)
+                              ? ["transparent", "transparent"]
+                              : inviteInfo.isRoomInvite
+                                ? ["#2e1065", "#4c1d95"]
+                                : [Colors.primary, Colors.secondary]
+                          }
+                          style={[
+                            styles.msgBubbleGrad,
+                            inviteInfo.isRoomInvite && styles.msgBubbleGradInvite,
+                            (msg.image || msg.imageUrl) && { paddingHorizontal: 0, paddingVertical: 0 },
+                          ]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                        >
+                          {msg.image || msg.imageUrl ? (
+                            <Image
+                              source={{ uri: msg.image || msg.imageUrl }}
+                              style={{ width: W * 0.6, height: W * 0.6, borderRadius: 18 }}
+                              resizeMode="cover"
+                            />
+                          ) : null}
+
+                          {msg.audio ? (
+                            <AudioPlayer uri={msg.audio} durationMs={msg.audioDuration} fromMe={true} />
+                          ) : null}
+
+                          {inviteInfo.isRoomInvite ? (
+                            <View style={styles.roomInviteCard}>
+                              <View style={styles.roomInviteHeader}>
+                                <View style={styles.roomInviteBadge}>
+                                  <Text style={styles.roomInviteBadgeText}>🎙️ Voice Party</Text>
+                                </View>
+                                <Sparkles size={14} color="#fde047" />
+                              </View>
+                              <Text style={styles.roomInviteTitle} numberOfLines={2}>
+                                {inviteInfo.roomTitle}
+                              </Text>
+                              <Text style={styles.roomInviteSub}>
+                                You invited them to join this room.
+                              </Text>
+                              <TouchableOpacity
+                                style={styles.roomInviteJoinBtn}
+                                activeOpacity={0.85}
+                                disabled={isJoiningRoom}
+                                onPress={() => handleJoinRoomInvite(inviteInfo)}
+                              >
+                                <LinearGradient
+                                  colors={["#f97316", "#ea580c"]}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 0 }}
+                                  style={styles.roomInviteJoinGrad}
+                                >
+                                  <Text style={styles.roomInviteJoinText}>Open Room 🎙️</Text>
+                                </LinearGradient>
+                              </TouchableOpacity>
+                            </View>
+                          ) : msg.text && !((msg.image || msg.audio) && (msg.text === "📷 Image" || msg.text === "🎵 Audio" || msg.text === " ")) ? (
+                            <Text style={styles.msgTextMe}>{msg.text}</Text>
+                          ) : null}
+
+                          <Text
+                            style={[
+                              styles.msgTime,
+                              { color: Colors.whiteAlpha70 },
+                              (msg.image || msg.imageUrl) && {
+                                position: "absolute",
+                                bottom: 8,
+                                right: 12,
+                                backgroundColor: Colors.blackAlpha40,
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 10,
+                                overflow: "hidden",
+                              },
+                            ]}
+                          >
+                            {formatTime(msg.time)}
+                          </Text>
+                        </LinearGradient>
+                      ) : (
+                        <View>
+                          {/* Lv. badge + NEW STAR badge row */}
+                          {(level != null || otherUserHasNewFrame) && (
+                            <View style={styles.msgBadgeRow}>
+                              {level != null && (
+                                <View style={styles.msgLvBadge}>
+                                  <Text style={styles.msgLvText}>Lv.{level}</Text>
+                                </View>
+                              )}
+                              {otherUserHasNewFrame && (
+                                <Image
+                                  source={NEW_START_BADGE}
+                                  style={styles.msgNewStarBadge}
+                                  resizeMode="contain"
+                                />
+                              )}
+                            </View>
+                          )}
+                          <View
+                            style={[
+                              styles.msgBubbleThemInner,
+                              inviteInfo.isRoomInvite && styles.msgBubbleThemInnerInvite,
+                              (msg.image || msg.imageUrl) && {
+                                paddingHorizontal: 0,
+                                paddingVertical: 0,
+                                borderWidth: 0,
+                                backgroundColor: "transparent",
+                              },
+                            ]}
+                          >
+                            {msg.image || msg.imageUrl ? (
+                              <Image
+                                source={{ uri: msg.image || msg.imageUrl }}
+                                style={{ width: W * 0.6, height: W * 0.6, borderRadius: 18, borderBottomLeftRadius: 4 }}
+                                resizeMode="cover"
+                              />
+                            ) : null}
+
+                            {msg.audio ? (
+                              <AudioPlayer uri={msg.audio} durationMs={msg.audioDuration} fromMe={false} />
+                            ) : null}
+
+                            {inviteInfo.isRoomInvite ? (
+                              <View style={styles.roomInviteCard}>
+                                <View style={styles.roomInviteHeader}>
+                                  <View style={styles.roomInviteBadge}>
+                                    <Text style={styles.roomInviteBadgeText}>🎙️ Voice Party</Text>
+                                  </View>
+                                  <Sparkles size={14} color="#fde047" />
+                                </View>
+                                <Text style={styles.roomInviteTitle} numberOfLines={2}>
+                                  {inviteInfo.roomTitle}
+                                </Text>
+                                <Text style={styles.roomInviteSub}>
+                                  You&apos;ve been invited to join this room!
+                                </Text>
+                                <TouchableOpacity
+                                  style={styles.roomInviteJoinBtn}
+                                  activeOpacity={0.85}
+                                  disabled={isJoiningRoom}
+                                  onPress={() => handleJoinRoomInvite(inviteInfo)}
+                                >
+                                  <LinearGradient
+                                    colors={["#f97316", "#ea580c"]}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 0 }}
+                                    style={styles.roomInviteJoinGrad}
+                                  >
+                                    <Text style={styles.roomInviteJoinText}>Join Room 🎙️</Text>
+                                  </LinearGradient>
+                                </TouchableOpacity>
+                              </View>
+                            ) : msg.text && !((msg.image || msg.audio) && (msg.text === "📷 Image" || msg.text === "🎵 Audio" || msg.text === " ")) ? (
+                              <Text style={styles.msgTextThem}>{msg.text}</Text>
+                            ) : null}
+
+                            <Text
+                              style={[
+                                styles.msgTime,
+                                { color: Colors.grayPlaceholder },
+                                (msg.image || msg.imageUrl) && {
+                                  position: "absolute",
+                                  bottom: 8,
+                                  right: 12,
+                                  backgroundColor: Colors.blackAlpha40,
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 2,
+                                  borderRadius: 10,
+                                  overflow: "hidden",
+                                  color: "white",
+                                },
+                              ]}
+                            >
+                              {formatTime(msg.time)}
+                            </Text>
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           )}
         </ScrollView>
 
         {/* ── COMPOSER (floats above keyboard) ── */}
-        <View
-          style={[styles.composer, styles.composerFloating, { bottom: composerBottom }]}
-          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
-        >
-          <View style={styles.inputArea}>
-            <TouchableOpacity style={styles.safeInputIcon} activeOpacity={0.8}>
-              <Shield size={20} color="#7c4dff" />
-            </TouchableOpacity>
-
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.input}
-                placeholder="Type a message"
-                placeholderTextColor="rgba(167,139,250,0.4)"
-                value={message}
-                onChangeText={setMessage}
-                multiline
-              />
+        {!isOfficialChat && (
+          <View
+            style={[
+              styles.composer,
+              styles.composerFloating,
+              {
+                bottom: isKeyboardVisible ? keyboardHeight : 0,
+                paddingBottom: isKeyboardVisible ? 0 : idleBottom,
+              }
+            ]}
+            onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+          >
+            <View style={styles.inputArea}>
               <TouchableOpacity
-                style={styles.emojiBtn}
+                style={styles.safeInputIcon}
                 activeOpacity={0.8}
                 onPress={() => setShowEmojiBox((v) => !v)}
               >
                 <Text style={styles.emojiBtnText}>😊</Text>
               </TouchableOpacity>
-            </View>
 
-            <TouchableOpacity
-              style={[styles.sendBtn, message.trim() && styles.sendBtnActive]}
-              activeOpacity={0.8}
-              onPress={sendMessage}
-            >
-              <LinearGradient
-                colors={message.trim() ? ["#7c4dff", "#4a6cf7"] : ["rgba(124,77,255,0.25)", "rgba(74,108,247,0.25)"]}
-                style={styles.sendBtnGrad}
+              <View style={styles.inputRow}>
+                {isRecording ? (
+                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.error }} />
+                    <Text style={{ color: Colors.textDark, fontSize: 15 }}>
+                      Recording... {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, "0")}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Type a message"
+                      placeholderTextColor={Colors.grayPlaceholder}
+                      value={message}
+                      onChangeText={setMessage}
+                      multiline
+                    />
+                  </>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.sendBtn, message.trim() && styles.sendBtnActive]}
+                activeOpacity={0.8}
+                onPress={sendMessage}
               >
-                <Send size={18} color="white" />
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-
-          {!isKeyboardVisible && (
-            <View style={styles.actionBar}>
-              {[
-                { icon: <Mic size={22} color="rgba(167,139,250,0.55)" />, label: "Speaker" },
-                { icon: <ImageIcon size={22} color="rgba(167,139,250,0.55)" />, label: "Gallery" },
-                { icon: <HelpCircle size={22} color="#7c4dff" />, label: "Help" },
-                { icon: <Gift size={22} color="#ff7043" />, label: "Gift" },
-                { icon: <Phone size={22} color="rgba(167,139,250,0.55)" />, label: "Call" },
-              ].map((item, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={styles.actionBtn}
-                  activeOpacity={0.8}
-                  onPress={() => showComingSoon(item.label)}
+                <LinearGradient
+                  colors={message.trim() ? [Colors.primary, Colors.secondary] : [Colors.borderLight, Colors.borderLight]}
+                  style={styles.sendBtnGrad}
                 >
-                  {item.icon}
-                </TouchableOpacity>
-              ))}
+                  <Send size={18} color={message.trim() ? "white" : Colors.grayPlaceholder} />
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
-          )}
-        </View>
+
+            {!isKeyboardVisible && (
+              <View style={styles.actionBar}>
+                {[
+                  {
+                    icon: isRecording ? <Mic size={22} color={Colors.error} /> : <Mic size={22} color={Colors.primary} />,
+                    label: "Speaker",
+                    action: isRecording ? stopRecording : startRecording
+                  },
+                  { icon: <ImageIcon size={22} color={Colors.primary} />, label: "Gallery", action: handleGalleryPick },
+                  { icon: <HelpCircle size={22} color={Colors.primary} />, label: "Help" },
+                  { icon: <Gift size={22} color={Colors.accentGold || Colors.accentGold} />, label: "Gift" },
+                  { icon: <Phone size={22} color={Colors.primary} />, label: "Call", action: () => handleInitiateCall('audio') },
+                ].map((item, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.actionBtn}
+                    activeOpacity={0.8}
+                    onPress={() => item.action ? item.action() : showComingSoon(item.label)}
+                  >
+                    {item.icon}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ── CALL OVERLAY ── */}
+        {callState.status !== "IDLE" && (
+          <Modal visible={true} transparent animationType="slide">
+            <View style={{ flex: 1, backgroundColor: Colors.white }}>
+              {/* Call Background */}
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <View style={{ width: 120, height: 120, borderRadius: 60, backgroundColor: Colors.primaryAlpha20, alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
+                  {avatar ? (
+                    <Image source={resolveAvatarSource(avatar)} style={{ width: 120, height: 120, borderRadius: 60 }} />
+                  ) : (
+                    <Text style={{ color: Colors.primary, fontSize: 40, fontWeight: "800" }}>{name?.[0]?.toUpperCase() ?? "?"}</Text>
+                  )}
+                </View>
+                <Text style={{ color: Colors.textDark, fontSize: 28, fontWeight: "700", marginBottom: 8 }}>{name}</Text>
+                <Text style={{ color: Colors.textDarkMuted, fontSize: 16 }}>
+                  {callState.status === "INCOMING" ? "Incoming Call..." : callState.status === "ACCEPTING" ? "Connecting..." : callState.status === "OUTGOING" ? "Calling..." : formatCallDuration(callDuration)}
+                </Text>
+              </View>
+
+              {/* Call Controls */}
+              <View style={{ position: "absolute", bottom: 50, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 30, paddingHorizontal: 40 }}>
+                {callState.status === "INCOMING" ? (
+                  <>
+                    <TouchableOpacity onPress={() => rejectCall()} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.errorBg, alignItems: "center", justifyContent: "center" }}>
+                      <PhoneOff size={30} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => acceptCall()} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.success, alignItems: "center", justifyContent: "center" }}>
+                      <PhoneCall size={30} color="white" />
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    {(callState.status === "CONNECTED" || callState.status === "OUTGOING") && (
+                      <>
+                        <TouchableOpacity onPress={toggleLocalAudio} style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: Colors.blackAlpha05, alignItems: "center", justifyContent: "center" }}>
+                          {callState.agoraState.localAudioEnabled ? <Mic size={24} color="white" /> : <MicOff size={24} color={Colors.errorBg} />}
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => toggleSpeakerphone(!callState.agoraState.speakerphoneEnabled)} style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: Colors.blackAlpha05, alignItems: "center", justifyContent: "center" }}>
+                          {callState.agoraState.speakerphoneEnabled ? <Volume2 size={24} color={Colors.primary} /> : <VolumeX size={24} color={Colors.grayPlaceholder} />}
+                        </TouchableOpacity>
+                      </>
+                    )}
+                    {callState.status !== "ACCEPTING" && (
+                        <TouchableOpacity onPress={() => endCall()} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.errorBg, alignItems: "center", justifyContent: "center" }}>
+                          <PhoneOff size={30} color="white" />
+                        </TouchableOpacity>
+                    )}
+                  </>
+                )}
+              </View>
+            </View>
+          </Modal>
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#0f0720" },
+  root: { flex: 1, backgroundColor: Colors.white },
   bodyWrap: { flex: 1, position: "relative" },
   emojiOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.2)",
+    backgroundColor: Colors.blackAlpha20,
   },
   emojiSheet: {
     position: "absolute",
     left: 12,
     right: 12,
-    backgroundColor: "#170b2e",
+    backgroundColor: Colors.white,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.24)",
+    borderColor: Colors.borderLight,
     padding: 12,
   },
   emojiSheetTitle: {
-    color: "white",
+    color: Colors.textDark,
     fontSize: 13,
     fontWeight: "700",
     marginBottom: 8,
@@ -550,15 +1407,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(124,77,255,0.16)",
+    backgroundColor: Colors.bgSlateLight,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.22)",
+    borderColor: Colors.borderLight,
   },
   emojiItemText: { fontSize: 20 },
   composer: {
-    backgroundColor: "#0f0720",
+    backgroundColor: Colors.white,
     borderTopWidth: 1,
-    borderTopColor: "rgba(167,139,250,0.06)",
+    borderTopColor: Colors.borderLight,
   },
   composerFloating: {
     position: "absolute",
@@ -572,27 +1429,75 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 50,
+    paddingTop: 40,
     paddingBottom: 14,
     paddingHorizontal: 10,
     gap: 6,
+  },
+  headerOfficial: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 6,
+    zIndex: 10,
   },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(124,77,255,0.12)",
+    backgroundColor: Colors.primaryAlpha12,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.15)",
+    borderColor: Colors.borderPrimaryAlpha,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 10,
+    gap: 10,
+    // marginLeft: 4,
+  },
+  headerAvatar: {
+    width: 35,
+    height: 35,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  headerAvatarPlaceholder: {
+    backgroundColor: Colors.primaryAlpha15,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 0,
+  },
+  headerInitial: {
+    color: Colors.primary,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  headerNameRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
   },
   headerName: {
-    flex: 1,
-    color: "white",
+    color: Colors.textDark || "#0f172a",
     fontSize: 18,
     fontWeight: "700",
     textAlign: "center",
+    flexShrink: 1,
+  },
+  headerNameOfficial: {
+    color: "#0f172a",
+    fontSize: 18,
+    fontWeight: "700",
   },
   headerRight: { flexDirection: "row", gap: 6 },
 
@@ -614,21 +1519,21 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 8,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.18)",
+    borderColor: Colors.borderLight,
     borderRadius: 14,
   },
   bannerIconWrap: {
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: "rgba(124,77,255,0.2)",
+    backgroundColor: Colors.primaryAlpha10,
     alignItems: "center",
     justifyContent: "center",
   },
   bannerIconEmoji: { fontSize: 20 },
-  bannerText: { flex: 1, color: "rgba(255,255,255,0.7)", fontSize: 12, lineHeight: 17 },
+  bannerText: { flex: 1, color: Colors.textSlate, fontSize: 12, lineHeight: 17 },
   bannerBtn: {
-    backgroundColor: "#7c4dff",
+    backgroundColor: Colors.primary,
     borderRadius: 18,
     paddingHorizontal: 11,
     paddingVertical: 6,
@@ -643,7 +1548,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: Colors.borderPrimaryAlpha20,
   },
   matchCard: { padding: 14, gap: 12 },
 
@@ -668,7 +1573,7 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 24,
     borderWidth: 2,
-    borderColor: "#0f0720",
+    borderColor: Colors.white,
   },
   matchAvatarFrameOverlay: {
     position: "absolute",
@@ -678,12 +1583,12 @@ const styles = StyleSheet.create({
     top: "-15%",
   },
   matchAvatarPlaceholder: {
-    backgroundColor: "rgba(124,77,255,0.35)",
+    backgroundColor: Colors.primaryAlpha35,
     alignItems: "center",
     justifyContent: "center",
   },
   matchInitial: {
-    color: "white",
+    color: Colors.textSlateDark,
     fontSize: 22,
     fontWeight: "800",
   },
@@ -692,12 +1597,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   matchUserName: {
-    color: "white",
+    color: Colors.textSlateDark,
     fontSize: 20,
     fontWeight: "800",
   },
   matchLastMsg: {
-    color: "rgba(255,255,255,0.55)",
+    color: Colors.textSlateMuted,
     fontSize: 13,
     fontWeight: "500",
   },
@@ -716,22 +1621,45 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 10,
     borderWidth: 1,
-    borderColor: "rgba(124,77,255,0.25)",
+    borderColor: Colors.borderLight,
     borderRadius: 14,
   },
   safeIconWrap: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: "rgba(124,77,255,0.18)",
+    backgroundColor: Colors.bgSlateMedium,
     alignItems: "center",
     justifyContent: "center",
   },
-  safeText: { flex: 1, color: "#a78bfa", fontSize: 12, fontWeight: "600" },
+  safeText: { flex: 1, color: Colors.secondary, fontSize: 12, fontWeight: "600" },
   safeArrow: { flexDirection: "row", alignItems: "center" },
 
   // Empty chat
   emptyChat: { height: 120 },
+  historyLoadingWrap: {
+    height: 120,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  historyErrorWrap: {
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    gap: 12,
+  },
+  historyErrorText: {
+    color: Colors.textSlateMuted,
+    fontSize: 13,
+    textAlign: "center",
+  },
+  historyRetryBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  historyRetryText: { color: "white", fontSize: 13, fontWeight: "700" },
 
   // Messages
   messagesList: { paddingHorizontal: 14, paddingTop: 16, gap: 12 },
@@ -748,12 +1676,12 @@ const styles = StyleSheet.create({
     top: "-15%",
   },
   msgAvatarPlaceholder: {
-    backgroundColor: "rgba(124,77,255,0.35)",
+    backgroundColor: Colors.borderLight,
     alignItems: "center",
     justifyContent: "center",
   },
   msgInitial: {
-    color: "white",
+    color: Colors.textSlateDark,
     fontSize: 13,
     fontWeight: "700",
   },
@@ -768,9 +1696,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   msgBubbleThemInner: {
-    backgroundColor: "rgba(124,77,255,0.15)",
+    backgroundColor: Colors.bgSlateLight,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: Colors.borderLight,
     borderRadius: 18,
     borderBottomLeftRadius: 4,
     paddingHorizontal: 14,
@@ -778,8 +1706,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   msgTextMe: { color: "white", fontSize: 14, lineHeight: 20 },
-  msgTextThem: { color: "rgba(255,255,255,0.9)", fontSize: 14, lineHeight: 20 },
-  msgTime: { color: "rgba(255,255,255,0.45)", fontSize: 10, alignSelf: "flex-end" },
+  msgTextThem: { color: Colors.textSlateDark, fontSize: 14, lineHeight: 20 },
+  msgTime: { color: Colors.grayPlaceholder, fontSize: 10, alignSelf: "flex-end" },
 
   // Input
   inputArea: {
@@ -789,16 +1717,16 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 8,
     borderTopWidth: 1,
-    borderTopColor: "rgba(167,139,250,0.1)",
-    backgroundColor: "#0f0720",
+    borderTopColor: Colors.borderLight,
+    backgroundColor: Colors.white,
   },
   safeInputIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(124,77,255,0.12)",
+    backgroundColor: Colors.bgSlateLight,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: Colors.borderLight,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -806,17 +1734,17 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(124,77,255,0.1)",
+    backgroundColor: Colors.bgSlateMedium,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
+    borderColor: Colors.borderLight,
     paddingHorizontal: 14,
     paddingVertical: 8,
     minHeight: 44,
   },
   input: {
     flex: 1,
-    color: "white",
+    color: Colors.textSlateDark,
     fontSize: 14,
     maxHeight: 80,
     padding: 0,
@@ -833,7 +1761,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Level + new star badge row above "them" bubbles
+  // New star badge row above "them" bubbles
   msgBadgeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -841,15 +1769,15 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   msgLvBadge: {
-    backgroundColor: "#7c4dff",
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    backgroundColor: Colors.accentGold || "#fde047",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   msgLvText: {
-    color: "white",
+    color: "#fff",
     fontSize: 10,
-    fontWeight: "700",
+    fontWeight: "bold",
   },
   msgNewStarBadge: {
     width: 52,
@@ -868,10 +1796,180 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "rgba(124,77,255,0.1)",
+    backgroundColor: Colors.bgSlateMedium,
     borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.15)",
+    borderColor: Colors.borderLight,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  // Voice Party Room Invitation Card
+  msgBubbleInvite: {
+    maxWidth: W * 0.76,
+  },
+  msgBubbleGradInvite: {
+    padding: 12,
+  },
+  msgBubbleThemInnerInvite: {
+    backgroundColor: "#1f1238",
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(124, 77, 255, 0.3)",
+  },
+  roomInviteCard: {
+    width: "100%",
+    minWidth: 200,
+    gap: 6,
+    marginBottom: 4,
+  },
+  roomInviteHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+  roomInviteBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+  },
+  roomInviteBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  roomInviteTitle: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  roomInviteSub: {
+    color: "rgba(255, 255, 255, 0.75)",
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  roomInviteJoinBtn: {
+    marginTop: 8,
+    borderRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#f97316",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  roomInviteJoinGrad: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roomInviteJoinText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  // Official Broadcast Messages & Disabled Composer
+  officialMessagesList: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    gap: 18,
+  },
+  officialCardWrap: {
+    width: "100%",
+    marginBottom: 6,
+    alignItems: "center",
+  },
+  officialDateText: {
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: "500",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  officialCard: {
+    width: "100%",
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  officialCardBanner: {
+    width: "96%",
+    height: 170,
+    backgroundColor: Colors.bgSlateLight,
+    marginTop: 6,
+    alignSelf: "center",
+    borderRadius: 12,
+  },
+  officialCardBody: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  officialCardTitle: {
+    color: "#0f172a",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  officialCardMessage: {
+    color: "#334155",
+    fontSize: 13.5,
+    lineHeight: 20,
+    fontWeight: "400",
+  },
+  officialDivider: {
+    height: 1,
+    backgroundColor: "#f1f5f9",
+    marginHorizontal: 16,
+  },
+  officialActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    gap: 4,
+  },
+  officialActionText: {
+    color: "#0284c7",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  officialDisabledComposer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: Colors.white,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+  },
+  officialDisabledInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.bgSlateLight,
+    borderRadius: 24,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  officialDisabledInput: {
+    flex: 1,
+    color: Colors.grayPlaceholder,
+    fontSize: 13,
+    fontWeight: "500",
+    padding: 0,
   },
 });

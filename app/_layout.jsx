@@ -6,16 +6,28 @@ import {
   LogBox,
   Text,
   TextInput,
+  Linking,
 } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { setSessionExpiredHandler } from "../src/api/axios";
+import { Colors } from "../src/constants/colors";
+import { getToken } from "../src/store/authStore";
 import { initFirebase } from "../src/lib/firebase";
 import {
   initPushNotificationListeners,
   registerForPushNotifications,
 } from "../src/services/pushNotificationService";
 import { openUserChat } from "../src/utils/chatNavigation";
-
+import { navigateFromNotification } from "../src/utils/notificationNavigation";
+import {
+  extractRoomIdFromUrl,
+  setPendingDeepLink,
+} from "../src/utils/deepLinkUtils";
+import { getActiveRoomId } from "../src/services/partyVoiceService";
+import { initPresenceManager } from "../src/services/presenceService";
+import DeviceBlockedModal from "../Components/DeviceBlockedModal";
+import { getDeviceHeaders } from "../src/utils/deviceHeaders";
+import { CallProvider } from "../src/context/CallContext";
 LogBox.ignoreAllLogs();
 // ── Global font-scale guard ────────────────────────────────────────────────
 
@@ -34,14 +46,35 @@ TextInput.defaultProps.maxFontSizeMultiplier = 1.3;
 export default function RootLayout() {
   useEffect(() => {
     initFirebase();
+    getDeviceHeaders().catch(() => {});
+    const cleanupPresence = initPresenceManager();
+    return () => {
+      cleanupPresence();
+    };
   }, []);
 
   useEffect(() => {
-    // When any API call returns 401 (expired / missing token), clear the
-    // session and return the user to the login screen.
-    setSessionExpiredHandler(() => {
-      router.replace("/login");
+    // When any API call returns 401 (expired / missing token) or USER_BANNED,
+    // clear the session and return the user to the login screen.
+    setSessionExpiredHandler((reason, message) => {
+      if (reason === "USER_BANNED") {
+        // Handled via DeviceBlockedModal without navigating away immediately
+        DeviceEventEmitter.emit("userBanned", {
+          type: "USER_BANNED",
+          message:
+            message || "Your account has been banned due to a violation of our community guidelines.",
+        });
+      } else if (reason === "DEVICE_BLOCKED") {
+        // Handled via DeviceBlockedModal without navigating away immediately
+        DeviceEventEmitter.emit("deviceBlockedModal", {
+          type: "DEVICE_BLOCKED",
+          reason: message || "Device blocked due to suspicious activity",
+        });
+      } else {
+        router.replace("/login");
+      }
     });
+
     return () => {
       setSessionExpiredHandler(null);
     };
@@ -58,16 +91,13 @@ export default function RootLayout() {
     });
 
     const unsubscribePush = initPushNotificationListeners({
-      onForegroundMessage: ({ title, body }) => {
-        if (body) Alert.alert(title, body);
+      onForegroundMessage: () => {
+        // Foreground messages are handled seamlessly without disruptive native alert dialogs
       },
       onNotificationTap: ({ data }) => {
-        // Placeholder payload shape (chatUserId/senderName) — adjust once
-        // backend confirms what a push notification's `data` actually contains.
-        if (data?.chatUserId) {
-          openUserChat(router, {
-            userId: data.chatUserId,
-            name: data.senderName,
+        if (data) {
+          navigateFromNotification(router, data).catch((err) => {
+            console.warn("[_layout] Notification tap navigation error:", err);
           });
         }
       },
@@ -79,11 +109,64 @@ export default function RootLayout() {
     };
   }, []);
 
+  useEffect(() => {
+    let lastProcessedLink = null;
+    let lastProcessedTimestamp = 0;
+
+    const handleDeepLinkUrl = (event) => {
+      const url = event?.url;
+      if (!url) return;
+
+      const now = Date.now();
+      if (lastProcessedLink === url && now - lastProcessedTimestamp < 2000) {
+        return;
+      }
+      lastProcessedLink = url;
+      lastProcessedTimestamp = now;
+
+      const roomId = extractRoomIdFromUrl(url);
+      if (roomId) {
+        getToken()
+          .then((token) => {
+            if (token) {
+              const currentActiveRoomId = getActiveRoomId?.();
+              if (String(currentActiveRoomId) === String(roomId)) {
+                return;
+              }
+              router.push({
+                pathname: "/voice-party",
+                params: { roomId: String(roomId) },
+              });
+            } else {
+              setPendingDeepLink(url);
+              router.push("/login");
+            }
+          })
+          .catch(() => {
+            setPendingDeepLink(url);
+            router.push("/login");
+          });
+      }
+    };
+
+    const linkSub = Linking.addEventListener("url", handleDeepLinkUrl);
+    return () => {
+      linkSub.remove();
+    };
+  }, []);
+
   return (
     <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }}>
+      <CallProvider>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: Colors.background },
+            animation: "slide_from_right",
+          }}
+        >
         <Stack.Screen name="index" />
-        <Stack.Screen name="login" />
+        <Stack.Screen name="login" options={{ gestureEnabled: false }} />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="enter-mobile" />
         <Stack.Screen name="verify-otp" />
@@ -94,7 +177,15 @@ export default function RootLayout() {
         <Stack.Screen name="voice-party" />
         <Stack.Screen name="find-friends" />
         <Stack.Screen name="nearby" />
-      </Stack>
+        <Stack.Screen name="chat-box" />
+        <Stack.Screen name="user-profile" />
+        <Stack.Screen name="blocked-accounts" />
+        <Stack.Screen name="message-notification" />
+        <Stack.Screen name="personality-test" />
+        <Stack.Screen name="room/[roomId]" />
+        </Stack>
+        <DeviceBlockedModal />
+      </CallProvider>
     </SafeAreaProvider>
   );
 }

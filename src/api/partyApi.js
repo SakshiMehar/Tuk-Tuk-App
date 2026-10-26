@@ -2,7 +2,13 @@
 // PARTY ROOM API — Voice & seat endpoints
 // ============================================================
 //
-// Toggle mute (user on a seat):
+// Join as spectator:
+//   POST /api/v1/tuktuk/rooms/{roomId}/join
+// Claim a mic seat (after join):
+//   POST /api/v1/tuktuk/rooms/{roomId}/seat/{seatNumber}/claim
+// Exit (also releases any claimed seat):
+//   POST /api/v1/tuktuk/rooms/{roomId}/exit
+//
 //   POST /api/v1/tuktuk/rooms/{roomId}/seat/{seatNumber}/toggle-mute?isMuted=true
 //   POST /api/v1/tuktuk/rooms/{roomId}/seat/{seatNumber}/toggle-mute?isMuted=false
 //
@@ -13,17 +19,15 @@
 // Auth: Authorization: Bearer <JWT>  |  Content-Type: application/json
 // ============================================================
 
-import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
 import { API_BASE_URL } from "../config/env";
+import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
 
 const LOG_TAG = "[PartyAPI]";
 
 const logRequest = (method, path, payload) => {
-  console.log(`${LOG_TAG} → ${method} ${path}`, payload ?? "");
 };
 
 const logResponse = (method, path, data) => {
-  console.log(`${LOG_TAG} ← ${method} ${path}`, data);
 };
 
 const logError = (method, path, error) => {
@@ -61,6 +65,14 @@ export const getRoomRecommendations = async () => {
   return response.data;
 };
 
+export const getTreasureProgress = async (roomId) => {
+  const response = await API.get(
+    `/api/v1/tuktuk/rooms/${roomId}/treasure-progress`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
 export const getRecentlyRooms = async () => {
   const response = await API.get(
     "/api/v1/tuktuk/rooms/recently",
@@ -71,12 +83,23 @@ export const getRecentlyRooms = async () => {
 };
 
 export const getFollowingRooms = async () => {
-  const response = await API.get(
-    "/api/v1/tuktuk/rooms/following",
-    await authRequestConfig()
-  );
-  
-  return response.data;
+  const path = "/api/app/room-follows/my";
+  logRequest("GET", path);
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    // Fallback to legacy endpoint if room-follows/my fails
+    try {
+      const fallbackPath = "/api/v1/tuktuk/rooms/following";
+      const fallbackRes = await API.get(fallbackPath, await authRequestConfig());
+      return fallbackRes.data;
+    } catch {
+      throw error;
+    }
+  }
 };
 
 export const getManagedRooms = async () => {
@@ -98,65 +121,32 @@ export const joinRandomParty = async (body = {}) => {
   return response.data;
 };
 
-export const createRoom = async (body = {}) => {
-  const path = "/api/v1/tuktuk/rooms/create";
-  logRequest("POST", path, body);
-  try {
-    const response = await API.post(path, body, await authRequestConfig());
-    logResponse("POST", path, response.data);
-    return response.data;
-  } catch (error) {
-    logError("POST", path, error);
-    throw error;
-  }
-};
-
-/** POST /api/v1/tuktuk/rooms/{roomId}/create — user-scoped room create (room id = user id) */
-export const createRoomForUser = async (roomId, body = {}) => {
-  const path = `/api/v1/tuktuk/rooms/${roomId}/create`;
-  logRequest("POST", path, body);
-  try {
-    const response = await API.post(path, body, await authRequestConfig());
-    logResponse("POST", path, response.data);
-    return response.data;
-  } catch (error) {
-    logError("POST", path, error);
-    throw error;
-  }
-};
-
 /**
- * PATCH /api/v1/tuktuk/rooms/{roomId} — update room fields. Used here for
- * setting the room's profile/cover photo after creation. NOTE: the multipart
- * field name for the image ("image") is a best guess, matching this app's
- * uploadMyProfilePic convention — adjust if the backend expects something
- * else (e.g. "icon", matching the family-cover endpoint instead).
+ * Sends `fields` as multipart/form-data with a real file part for the image.
+ * Uses `fetch` (not axios) and never sets Content-Type manually — RN adds
+ * the correct `multipart/form-data; boundary=...` header itself from the
+ * FormData body. The backend now accepts the image under any non-empty file
+ * field name (image, profileImage, photo, roomImage, ...); "image" is kept
+ * here for consistency across this file's endpoints.
  */
-export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fields } = {}) => {
-  const path = `/api/v1/tuktuk/rooms/${roomId}`;
-
-  if (!imageUri) {
-    logRequest("PATCH", path, fields);
-    try {
-      const response = await API.patch(path, fields, await authRequestConfig());
-      logResponse("PATCH", path, response.data);
-      return response.data;
-    } catch (error) {
-      logError("PATCH", path, error);
-      throw error;
-    }
-  }
-
+const sendRoomMultipart = async (
+  method,
+  path,
+  fields = {},
+  { imageUri, mimeType, fileName } = {},
+) => {
   await refreshTokenCache();
   const token = await getBearerToken();
   if (!token) throw new Error("Please log in again to continue.");
 
   const form = new FormData();
-  form.append("image", {
-    uri: imageUri,
-    type: mimeType ?? fallbackMimeType(imageUri),
-    name: fileName ?? "room-cover.jpg",
-  });
+  if (imageUri) {
+    form.append("image", {
+      uri: imageUri,
+      type: mimeType ?? fallbackMimeType(imageUri),
+      name: fileName ?? "room-cover.jpg",
+    });
+  }
   Object.entries(fields).forEach(([key, value]) => {
     if (value != null) form.append(key, String(value));
   });
@@ -165,25 +155,131 @@ export const updateRoom = async (roomId, { imageUri, mimeType, fileName, ...fiel
     Authorization: `Bearer ${token}`,
   };
 
-  logRequest("PATCH", path, { image: fileName ?? imageUri, ...fields });
+  logRequest(method, path, {
+    ...(imageUri ? { image: fileName ?? imageUri } : {}),
+    ...fields,
+  });
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
-      method: "PATCH",
+      method,
       headers,
       body: form,
     });
     const data = await parseResponseBody(response);
     if (!response.ok) {
-      const message = data?.message ?? data?.error ?? `Room update failed (${response.status})`;
+      const message =
+        data?.message ?? data?.error ?? `Request failed (${response.status})`;
       const err = new Error(message);
       err.status = response.status;
       err.responseData = data;
       throw err;
     }
-    logResponse("PATCH", path, data);
+    logResponse(method, path, data);
     return data;
   } catch (error) {
-    logError("PATCH", path, error);
+    logError(method, path, error);
+    throw error;
+  }
+};
+
+export const createRoom = async (body = {}) => {
+  const { imageUri, mimeType, fileName, ...fields } = body;
+  const path = "/api/v1/tuktuk/rooms/create";
+
+  if (!imageUri) {
+    logRequest("POST", path, fields);
+    try {
+      const response = await API.post(path, fields, await authRequestConfig());
+      logResponse("POST", path, response.data);
+      return response.data;
+    } catch (error) {
+      logError("POST", path, error);
+      throw error;
+    }
+  }
+
+  return sendRoomMultipart("POST", path, fields, { imageUri, mimeType, fileName });
+};
+
+/** POST /api/v1/tuktuk/rooms/{roomId}/create — user-scoped room create (room id = user id) */
+export const createRoomForUser = async (roomId, body = {}) => {
+  const { imageUri, mimeType, fileName, ...fields } = body;
+  const path = `/api/v1/tuktuk/rooms/${roomId}/create`;
+
+  if (!imageUri) {
+    logRequest("POST", path, fields);
+    try {
+      const response = await API.post(path, fields, await authRequestConfig());
+      logResponse("POST", path, response.data);
+      return response.data;
+    } catch (error) {
+      logError("POST", path, error);
+      throw error;
+    }
+  }
+
+  return sendRoomMultipart("POST", path, fields, { imageUri, mimeType, fileName });
+};
+
+/**
+ * PATCH /api/v1/tuktuk/rooms/{roomId} — update room fields.
+ * Sends multipart/form-data supporting both image file and text fields (e.g. name).
+ */
+export const updateRoom = async (
+  roomId,
+  { imageUri, mimeType, fileName, ...fields } = {},
+) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}`;
+  return sendRoomMultipart("PATCH", path, fields, {
+    imageUri,
+    mimeType,
+    fileName,
+  });
+};
+
+/** GET /api/v1/tuktuk/rooms/{roomId} — fetch room details / status by room ID */
+export const getRoomById = async (roomId) => {
+  const cleanId = String(roomId).trim();
+  const path = `/api/v1/tuktuk/rooms/${encodeURIComponent(cleanId)}`;
+  logRequest("GET", path);
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    if (error?.response?.data) {
+      return error.response.data;
+    }
+    throw error;
+  }
+};
+
+/** GET /api/v1/tuktuk/rooms/{roomId}/announcement — fetch the room's pinned announcement */
+export const getRoomAnnouncement = async (roomId) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/announcement`;
+  logRequest("GET", path);
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    logResponse("GET", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    throw error;
+  }
+};
+
+/** PUT /api/v1/tuktuk/rooms/{roomId}/announcement — set the room's pinned announcement */
+export const updateRoomAnnouncement = async (roomId, announcement) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/announcement`;
+  const payload = { announcement };
+  logRequest("PUT", path, payload);
+  try {
+    const response = await API.put(path, payload, await authRequestConfig());
+    logResponse("PUT", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("PUT", path, error);
     throw error;
   }
 };
@@ -216,13 +312,54 @@ export const getRoomState = async (roomId) => {
   return response.data;
 };
 
+const parseRoomUserCount = (data) => {
+  if (typeof data === "number" && Number.isFinite(data)) return data;
+  const nested =
+    data?.onlineCount ??
+    data?.count ??
+    data?.userCount ??
+    data?.data?.onlineCount ??
+    data?.data?.count ??
+    data?.data;
+  if (typeof nested === "number" && Number.isFinite(nested)) return nested;
+  return null;
+};
+
 export const getRoomUserCount = async (roomId) => {
-  const response = await API.get(`/api/public/rooms/${roomId}/count`);
+  try {
+    const response = await API.get(`/api/public/rooms/${roomId}/count`);
+    const count = parseRoomUserCount(response.data);
+    if (count != null) return count;
+  } catch {
+    // Public count can fail if Redis is down — fall back to room state.
+  }
+
+  try {
+    const state = await getRoomState(roomId);
+    return (
+      parseRoomUserCount(state) ??
+      (Array.isArray(state?.onlineUsers) ? state.onlineUsers.length : 0)
+    );
+  } catch {
+    return 0;
+  }
+};
+
+export const getClaimedSeats = async (roomId) => {
+  const response = await API.get(`/api/public/rooms/${roomId}/claimed-seat`);
   return response.data;
 };
 
 export const getRoomChatMessages = async (roomId) => {
   const response = await API.get(
+    `/api/v1/tuktuk/rooms/${roomId}/chat/messages`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
+export const deleteRoomChatMessages = async (roomId) => {
+  const response = await API.delete(
     `/api/v1/tuktuk/rooms/${roomId}/chat/messages`,
     await authRequestConfig()
   );
@@ -249,10 +386,14 @@ export const leaveSeat = async (roomId, seatNumber) => {
   return response.data;
 };
 
-/** POST .../seat/heartbeat — keep mic seat alive; backend evicts after 30 s of silence */
-export const postSeatHeartbeat = async (roomId) => {
+/** POST .../seat/{seatNumber}/heartbeat — keep mic seat alive; backend evicts after 30 s of silence */
+export const postSeatHeartbeat = async (roomId, seatNumber) => {
+  const path =
+    seatNumber != null
+      ? `/api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/heartbeat`
+      : `/api/v1/tuktuk/rooms/${roomId}/seat/heartbeat`;
   const response = await API.post(
-    `/api/v1/tuktuk/rooms/${roomId}/seat/heartbeat`,
+    path,
     {},
     await authRequestConfig()
   );
@@ -285,6 +426,23 @@ export const lockSeat = async (roomId, seatNumber) => {
   }
 };
 
+/** POST .../seat/{seatNumber}/unlock — host unlocks a locked seat */
+export const unlockSeat = async (roomId, seatNumber) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/unlock`;
+  logRequest("POST", path);
+  try {
+    const response = await API.post(path, {}, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+export const lockRoomSeat = lockSeat;
+export const unlockRoomSeat = unlockSeat;
+
 /** POST .../toggle-mute?isMuted=true|false */
 export const toggleSeatMute = async (roomId, seatNumber, isMuted) => {
   const muted = isMuted === true || isMuted === "true";
@@ -315,8 +473,17 @@ export const getPartyRanking = async (period = "daily") => {
   return response.data;
 };
 
-/** GET /api/app/party/families — list of families. */
-export const getFamilies = async () => {
+/** GET /api/v1/tuktuk/rooms/search?q={query} — search rooms by name */
+export const searchRooms = async (query) => {
+  const response = await API.get(
+    `/api/v1/tuktuk/rooms/search?q=${encodeURIComponent(query)}`,
+    await authRequestConfig()
+  );
+  return response.data;
+};
+
+/** GET /api/app/party/families — fetch party families list */
+export const getPartyFamilies = async () => {
   const url = "/api/app/party/families";
   
   const response = await API.get(url, await authRequestConfig());
@@ -324,14 +491,34 @@ export const getFamilies = async () => {
   return response.data;
 };
 
-/** POST /api/v1/tuktuk/rooms/{roomId}/sendRoomGift — party room gift (diamond pay / room broadcast) */
+/** POST /api/v1/tuktuk/rooms/{roomId}/gift — pay with diamonds, broadcast animation */
+export const sendDiamondRoomGift = async (roomId, body) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/gift`;
+  const payload = {
+    receiverId: Number(body?.receiverId),
+    giftCode: String(body?.giftCode ?? ""),
+    quantity: Math.max(1, Number(body?.quantity) || 1),
+    diamondValue: Number(body?.diamondValue ?? 0),
+    ...(body?.senderName ? { senderName: String(body.senderName) } : {}),
+  };
+  logRequest("POST", path, payload);
+  try {
+    const response = await API.post(path, payload, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/v1/tuktuk/rooms/{roomId}/sendRoomGift — send owned inventory gift in room */
 export const sendRoomGift = async (roomId, body) => {
   const path = `/api/v1/tuktuk/rooms/${roomId}/sendRoomGift`;
   const payload = {
     receiverId: Number(body?.receiverId),
     giftCode: String(body?.giftCode ?? body?.giftId ?? ""),
     quantity: Math.max(1, Number(body?.quantity) || 1),
-    ...(body?.diamondValue != null ? { diamondValue: Number(body.diamondValue) } : {}),
     ...(body?.senderName ? { senderName: String(body.senderName) } : {}),
     ...(body?.animation ? { animation: String(body.animation) } : {}),
   };
@@ -345,3 +532,99 @@ export const sendRoomGift = async (roomId, body) => {
     throw error;
   }
 };
+
+/** GET /api/v1/tuktuk/rooms/{roomId}/gift-ranking — fetch dynamic top gift ranking in room */
+export const getRoomGiftRanking = async (roomId) => {
+  if (!roomId) return [];
+  const path = `/api/v1/tuktuk/rooms/${roomId}/gift-ranking`;
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    return response.data;
+  } catch (error) {
+    logError("GET", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/app/room-follows/{roomId} — follow room */
+export const followRoom = async (roomId) => {
+  if (!roomId) throw new Error("Room ID is required to follow");
+  const path = `/api/app/room-follows/${roomId}`;
+  logRequest("POST", path);
+  try {
+    const response = await API.post(path, {}, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** DELETE /api/app/room-follows/{roomId} — unfollow room */
+export const unfollowRoom = async (roomId) => {
+  if (!roomId) throw new Error("Room ID is required to unfollow");
+  const path = `/api/app/room-follows/${roomId}`;
+  logRequest("DELETE", path);
+  try {
+    const response = await API.delete(path, await authRequestConfig());
+    logResponse("DELETE", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("DELETE", path, error);
+    throw error;
+  }
+};
+
+/** POST /api/v1/tuktuk/rooms/{roomId}/kick — kick out user from room */
+export const kickRoomUser = async (roomId, targetUserId, reason = "") => {
+  if (!roomId) throw new Error("Room ID is required to kick user");
+  if (!targetUserId) throw new Error("Target user ID is required");
+  const path = `/api/v1/tuktuk/rooms/${roomId}/kick`;
+  const payload = {
+    targetUserId: String(targetUserId),
+    userId: String(targetUserId),
+    ...(reason ? { reason: String(reason) } : {}),
+  };
+  logRequest("POST", path, payload);
+  try {
+    const response = await API.post(path, payload, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** GET /api/v1/tuktuk/rooms/{roomId}/badges — fetch dynamic room badge wall data */
+export const getRoomBadges = async (roomId) => {
+  if (!roomId) return null;
+  const path = `/api/v1/tuktuk/rooms/${roomId}/badges`;
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    return response.data?.data ?? response.data;
+  } catch (error) {
+    return null;
+  }
+};
+
+/** POST /api/home/rooms/{roomId}/users/{userId}/report — report a user in a room */
+export const reportRoomUser = async (roomId, targetUserId, reason = "") => {
+  if (!roomId) throw new Error("Room ID is required to report");
+  if (!targetUserId) throw new Error("Target user ID is required to report");
+  const path = `/api/home/rooms/${encodeURIComponent(String(roomId))}/users/${encodeURIComponent(String(targetUserId))}/report`;
+  const payload = {
+    reason: String(reason || "").trim(),
+  };
+  logRequest("POST", path, payload);
+  try {
+    const response = await API.post(path, payload, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
