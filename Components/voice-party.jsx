@@ -4820,8 +4820,19 @@ export default function VoiceParty() {
       });
     };
 
+    const isChatClearedPayload = (payload) => {
+      if (!payload) return false;
+      const type = String(payload?.type || payload?.eventType || payload?.action || "").toUpperCase();
+      if (type === "CHAT_CLEARED" || type === "CLEAR_CHAT") return true;
+      const text = String(payload?.message || payload?.text || payload?.content || "").trim();
+      if (text === "__CHAT_CLEARED__") return true;
+      return false;
+    };
+
     const appendChatMessage = (payload) => {
-      if (payload?.type === "CHAT_CLEARED") {
+      if (isChatClearedPayload(payload)) {
+        sessionMessageBaselineRef.current = 0;
+        messageCountRef.current = 0;
         setMessages([]);
         return;
       }
@@ -4835,6 +4846,12 @@ export default function VoiceParty() {
       String(roomId),
       async (summary) => {
         const remoteCount = summary?.messageCount;
+        if (remoteCount === 0) {
+          sessionMessageBaselineRef.current = 0;
+          messageCountRef.current = 0;
+          setMessages([]);
+          return;
+        }
         const baseline = sessionMessageBaselineRef.current;
         if (
           remoteCount == null ||
@@ -5207,7 +5224,10 @@ export default function VoiceParty() {
             break;
           }
 
-          case "CHAT_CLEARED": {
+          case "CHAT_CLEARED":
+          case "CLEAR_CHAT": {
+            sessionMessageBaselineRef.current = 0;
+            messageCountRef.current = 0;
             setMessages([]);
             break;
           }
@@ -5462,6 +5482,17 @@ export default function VoiceParty() {
         const eventType = String(
           payload.type || payload.eventType || "",
         ).toUpperCase();
+        if (
+          eventType === "CHAT_CLEARED" ||
+          eventType === "CLEAR_CHAT" ||
+          payload.action === "CHAT_CLEARED" ||
+          payload.action === "CLEAR_CHAT"
+        ) {
+          sessionMessageBaselineRef.current = 0;
+          messageCountRef.current = 0;
+          setMessages([]);
+          return;
+        }
         if (
           eventType === "USER_KICKED" ||
           eventType === "KICKED" ||
@@ -6842,7 +6873,17 @@ export default function VoiceParty() {
             setClearingChat(true);
             try {
               const res = await deleteRoomChatMessages(String(targetRoomId));
+              sessionMessageBaselineRef.current = 0;
+              messageCountRef.current = 0;
               setMessages([]);
+
+              // Broadcast real-time CHAT_CLEARED event over WebSocket to all room participants
+              await wsService.sendRoomChatCleared(String(targetRoomId)).catch((wsErr) => {
+                if (__DEV__) {
+                  console.warn("[VoiceParty] Broadcast chat cleared failed:", wsErr);
+                }
+              });
+
               const msg =
                 res?.message || "Room chat history deleted successfully.";
               if (Platform.OS === "android") {
