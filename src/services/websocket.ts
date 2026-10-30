@@ -854,6 +854,80 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
+  async sendRoomChatCleared(roomId: string): Promise<void> {
+    if (!roomId) return;
+    const targetRoomId = String(roomId).trim();
+    if (!this.connected) {
+      await this.connect().catch(() => {});
+    }
+    if (!this.connected || !this.client) {
+      console.warn('[WS] Cannot broadcast chat cleared: client not connected');
+      return;
+    }
+
+    const payload = {
+      type: 'CHAT_CLEARED',
+      eventType: 'CHAT_CLEARED',
+      action: 'CHAT_CLEARED',
+      message: '__CHAT_CLEARED__',
+      text: '__CHAT_CLEARED__',
+      content: '__CHAT_CLEARED__',
+      roomId: targetRoomId,
+      timestamp: new Date().toISOString(),
+    };
+    const body = JSON.stringify(payload);
+
+    // 1. Direct publish to /topic/room/${targetRoomId}/chat
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/chat`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish chat cleared to /topic/room/.../chat:', e);
+    }
+
+    // 2. Direct publish to /topic/room/${targetRoomId}/notifications
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/notifications`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish chat cleared to /topic/room/.../notifications:', e);
+    }
+
+    // 2b. Direct publish to /topic/room/${targetRoomId}/moderation
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/moderation`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish chat cleared to /topic/room/.../moderation:', e);
+    }
+
+    // 3. Application destination /app/room/${targetRoomId}/chat
+    try {
+      this.client.publish({
+        destination: `/app/room/${targetRoomId}/chat`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish chat cleared to /app/room/.../chat:', e);
+    }
+
+    // 4. Application destination /app/room/${targetRoomId}/notifications
+    try {
+      this.client.publish({
+        destination: `/app/room/${targetRoomId}/notifications`,
+        body,
+      });
+    } catch (e) {
+      // Optional fallback destination
+    }
+  }
+
   sendSpeakingStatus(roomId: string, isSpeaking: boolean, isMuted?: boolean): void {
     if (!this.connected || !this.client) return;
     const destination = `/app/room/${roomId}/speaking`;
