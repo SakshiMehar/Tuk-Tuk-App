@@ -1726,7 +1726,7 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
 // Room chat is the one channel every device in the room reliably receives,
 // so other clients parse this line to show the same gift banner as the sender.
 const GIFT_CHAT_PATTERN =
-  /(?:^|\s)sent\s+(\S+)\s+(.+?)\s+×(\d+)(?:\s+to\s+(.+))?$/u;
+  /(?:^|\s)sent\s+(\S+)\s+(.+?)(?:\s+×(\d+))?(?:\s+to\s+(.+))?$/u;
 
 export const buildGiftChatText = ({ emoji, name, quantity, receiverName }) => {
   const qty = Math.max(1, Number(quantity) || 1);
@@ -2284,6 +2284,10 @@ export default function VoiceParty() {
   // room's live participant/seat lists — see resolveChatSenderName/Avatar below.
   const [userProfileCache, setUserProfileCache] = useState({});
   const avatarLookupAttemptedRef = useRef(new Set());
+  const lastSentGiftSenderRef = useRef(new Map());
+  const lastSentGiftReceiverRef = useRef(new Map());
+  const myDisplayNameRef = useRef("");
+  const myAvatarUrlRef = useRef("");
   const [inputText, setInputText] = useState("");
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [taggedUser, setTaggedUser] = useState(null); // { id, name, username }
@@ -2635,7 +2639,7 @@ export default function VoiceParty() {
     const isGif = isGifMedia(rawUrl) || Boolean(currentVideo.isGif);
 
     // If media is a GIF, do not pass to videoPlayer (expo-video cannot play GIFs).
-    // Automatically close after 6 seconds of animation.
+    // Automatically close after 10 seconds of animation.
     if (isGif) {
       try {
         videoPlayer?.pause?.();
@@ -2647,7 +2651,7 @@ export default function VoiceParty() {
           setShowVideoModal(false);
           setCurrentVideo(null);
         }
-      }, 6000);
+      }, 10000);
 
       return () => {
         cancelled = true;
@@ -2669,7 +2673,7 @@ export default function VoiceParty() {
         setShowVideoModal(false);
         setCurrentVideo(null);
       }
-    }, 7000);
+    }, 12000);
 
     (async () => {
       try {
@@ -2678,7 +2682,7 @@ export default function VoiceParty() {
           videoPlayer.currentTime = 0;
           videoPlayer.play();
 
-          // Close video modal after 6 seconds of playback for all room participants
+          // Close video modal after 10 seconds of playback for all room participants
           if (videoTimer) clearTimeout(videoTimer);
           videoTimer = setTimeout(() => {
             if (!cancelled) {
@@ -2688,7 +2692,7 @@ export default function VoiceParty() {
               setShowVideoModal(false);
               setCurrentVideo(null);
             }
-          }, 6000);
+          }, 10000);
         }
       } catch (err) {
         console.error("[VoiceParty] video playback failed", err);
@@ -2732,6 +2736,21 @@ export default function VoiceParty() {
   const [profileFollowLoading, setProfileFollowLoading] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
   const [localSessionUser, setLocalSessionUser] = useState(null);
+  useEffect(() => {
+    myDisplayNameRef.current = String(
+      localSessionUser?.name ??
+      localSessionUser?.username ??
+      localSessionUser?.nickname ??
+      "",
+    ).trim();
+    myAvatarUrlRef.current = String(
+      localSessionUser?.avatar ??
+      localSessionUser?.avatarUrl ??
+      localSessionUser?.profileImageUrl ??
+      localSessionUser?.profilePicUrl ??
+      "",
+    ).trim();
+  }, [localSessionUser]);
   const myCountryFlag = useMyCountryFlag();
   const hostId =
     roomInfo?.hostId ?? roomInfo?.creatorId ?? roomInfo?.ownerId ?? null;
@@ -3165,34 +3184,171 @@ export default function VoiceParty() {
     (userId) => {
       if (userId == null) return null;
       const idStr = String(userId);
+      if (myUserId != null && isSameUser(userId, myUserId)) {
+        const myAvatar =
+          localSessionUser?.avatar ||
+          localSessionUser?.avatarUrl ||
+          localSessionUser?.profileImageUrl ||
+          localSessionUser?.profilePicUrl ||
+          (myAvatarUrlRef.current || null);
+        if (myAvatar) return myAvatar;
+      }
       const fromOnline = onlineUsers.find(
-        (user) => user?.id != null && String(user.id) === idStr,
+        (user) => user?.id != null && isSameUser(user.id ?? user.userId, idStr),
       );
       if (fromOnline?.avatar) return fromOnline.avatar;
       const fromSeat = seats.find(
-        (seat) => seat?.user?.id != null && String(seat.user.id) === idStr,
+        (seat) =>
+          seat?.user && isSameUser(seat.user.id ?? seat.user.userId, idStr),
       );
       if (fromSeat?.user?.avatar) return fromSeat.user.avatar;
+      const cached = lastSentGiftSenderRef.current?.get(idStr);
+      if (cached?.avatar) return cached.avatar;
       return userProfileCache[idStr]?.avatarUrl ?? null;
     },
-    [onlineUsers, seats, userProfileCache],
+    [onlineUsers, seats, userProfileCache, myUserId, localSessionUser],
   );
 
   const resolveChatSenderName = useCallback(
     (userId, fallbackName) => {
       if (userId == null) return fallbackName;
       const idStr = String(userId);
+      if (myUserId != null && isSameUser(userId, myUserId)) {
+        const myName =
+          localSessionUser?.name ||
+          localSessionUser?.username ||
+          localSessionUser?.nickname ||
+          myDisplayNameRef.current;
+        if (myName) return myName;
+      }
       const fromOnline = onlineUsers.find(
-        (user) => user?.id != null && String(user.id) === idStr,
+        (user) => user?.id != null && isSameUser(user.id ?? user.userId, idStr),
       );
       if (fromOnline?.name) return fromOnline.name;
       const fromSeat = seats.find(
-        (seat) => seat?.user?.id != null && String(seat.user.id) === idStr,
+        (seat) =>
+          seat?.user && isSameUser(seat.user.id ?? seat.user.userId, idStr),
       );
       if (fromSeat?.user?.name) return fromSeat.user.name;
-      return userProfileCache[idStr]?.name ?? fallbackName;
+      const cached = lastSentGiftSenderRef.current?.get(idStr);
+      if (cached?.name && cached.name !== "User") return cached.name;
+      const fromProfile = userProfileCache[idStr]?.name;
+      if (fromProfile) return fromProfile;
+      return fallbackName && fallbackName !== "User"
+        ? fallbackName
+        : fromProfile || fallbackName;
     },
-    [onlineUsers, seats, userProfileCache],
+    [onlineUsers, seats, userProfileCache, myUserId, localSessionUser],
+  );
+
+  const resolveSenderInfoFromPayload = useCallback(
+    (payload) => {
+      const rawSenderId =
+        payload?.senderId ??
+        payload?.userId ??
+        payload?.fromUserId ??
+        payload?.from ??
+        payload?.sender?.id ??
+        payload?.sender?.userId;
+
+      const cachedLast = lastSentGiftSenderRef.current?.get("__last__");
+      const isRecentSelf =
+        cachedLast && Date.now() - (cachedLast.time || 0) < 30000;
+
+      const isSenderSelf =
+        (rawSenderId != null && isSameUser(rawSenderId, myUserId)) ||
+        (rawSenderId == null && isRecentSelf);
+
+      const selfName =
+        localSessionUser?.name ??
+        localSessionUser?.username ??
+        localSessionUser?.nickname ??
+        myDisplayNameRef.current ??
+        "";
+      const selfAvatar =
+        localSessionUser?.avatar ??
+        localSessionUser?.avatarUrl ??
+        localSessionUser?.profileImageUrl ??
+        localSessionUser?.profilePicUrl ??
+        myAvatarUrlRef.current ??
+        null;
+
+      const senderIdStr = rawSenderId != null ? String(rawSenderId) : null;
+      const cachedSender =
+        (senderIdStr ? lastSentGiftSenderRef.current?.get(senderIdStr) : null) ??
+        (isRecentSelf ? cachedLast : null);
+
+      let matchedSender = null;
+      if (rawSenderId != null) {
+        matchedSender =
+          onlineUsers.find((u) => isSameUser(u?.id ?? u?.userId, rawSenderId)) ||
+          seats.find(
+            (s) => s?.user && isSameUser(s.user.id ?? s.user.userId, rawSenderId),
+          )?.user ||
+          (isSameUser(rawSenderId, hostId)
+            ? {
+                name: roomInfo?.hostName ?? roomInfo?.name ?? "Host",
+                avatar: roomInfo?.hostAvatar ?? roomInfo?.avatar ?? null,
+              }
+            : null);
+      }
+
+      const finalSenderId =
+        rawSenderId ?? (isSenderSelf ? (myUserId ?? localSessionUser?.id) : cachedSender?.id) ?? null;
+
+      const rawName =
+        (payload?.senderName && payload.senderName !== "User" ? payload.senderName : null) ??
+        (payload?.sender && typeof payload.sender === "string" && payload.sender !== "User" ? payload.sender : null) ??
+        (payload?.userName && payload.userName !== "User" ? payload.userName : null) ??
+        (payload?.username && payload.username !== "User" ? payload.username : null) ??
+        (payload?.user?.name && payload.user.name !== "User" ? payload.user.name : null) ??
+        (payload?.fromUser?.name && payload.fromUser.name !== "User" ? payload.fromUser.name : null) ??
+        (payload?.nickname && payload.nickname !== "User" ? payload.nickname : null);
+
+      const finalSenderName =
+        rawName ??
+        (isSenderSelf && selfName ? selfName : null) ??
+        (cachedSender?.name && cachedSender.name !== "User" ? cachedSender.name : null) ??
+        matchedSender?.name ??
+        matchedSender?.username ??
+        (finalSenderId != null ? resolveChatSenderName(finalSenderId, null) : null) ??
+        payload?.senderName ??
+        payload?.userName ??
+        payload?.name ??
+        "User";
+
+      const finalSenderAvatar =
+        payload?.senderAvatar ??
+        payload?.avatar ??
+        payload?.user?.avatar ??
+        payload?.fromUser?.avatar ??
+        payload?.profileImageUrl ??
+        payload?.profilePicUrl ??
+        payload?.profileImage ??
+        (isSenderSelf && selfAvatar ? selfAvatar : null) ??
+        cachedSender?.avatar ??
+        matchedSender?.profileImageUrl ??
+        matchedSender?.avatar ??
+        (finalSenderId != null ? resolveChatSenderAvatar(finalSenderId) : null) ??
+        null;
+
+      return {
+        senderId: finalSenderId,
+        senderName: finalSenderName,
+        senderAvatar: finalSenderAvatar,
+        isSenderSelf,
+      };
+    },
+    [
+      myUserId,
+      localSessionUser,
+      onlineUsers,
+      seats,
+      hostId,
+      roomInfo,
+      resolveChatSenderName,
+      resolveChatSenderAvatar,
+    ],
   );
 
   // For any chat sender not currently in the room's live participant/seat lists —
@@ -4647,15 +4803,6 @@ export default function VoiceParty() {
   const recentGiftBannersRef = useRef(new Map());
   // Chat lines this device just sent as gifts — the server echoes them back.
   const mySentGiftTextsRef = useRef(new Map());
-  const myDisplayNameRef = useRef("");
-  useEffect(() => {
-    myDisplayNameRef.current = String(
-      localSessionUser?.name ??
-      localSessionUser?.username ??
-      localSessionUser?.nickname ??
-      "",
-    ).trim();
-  }, [localSessionUser]);
 
   const isPkGiftItem = useCallback((giftOrPayload) => {
     if (!giftOrPayload) return false;
@@ -4818,7 +4965,7 @@ export default function VoiceParty() {
     if (animationUrl) {
       const videoKey = String(payload?.id || animated.id || animated.name);
       const now = Date.now();
-      if (lastPlayedVideoIdRef.current === videoKey && (now - lastPlayedVideoTimeRef.current < 4000)) {
+      if (lastPlayedVideoIdRef.current === videoKey && (now - lastPlayedVideoTimeRef.current < 7000)) {
         // Skip duplicate playback if recently triggered
       } else {
         lastPlayedVideoIdRef.current = videoKey;
@@ -4898,14 +5045,76 @@ export default function VoiceParty() {
       });
     };
 
+    const isChatClearedPayload = (payload) => {
+      if (!payload) return false;
+      const type = String(payload?.type || payload?.eventType || payload?.action || "").toUpperCase();
+      if (type === "CHAT_CLEARED" || type === "CLEAR_CHAT") return true;
+      const text = String(payload?.message || payload?.text || payload?.content || "").trim();
+      if (text === "__CHAT_CLEARED__") return true;
+      return false;
+    };
+
     const appendChatMessage = (payload) => {
-      if (payload?.type === "CHAT_CLEARED") {
+      if (isChatClearedPayload(payload)) {
+        sessionMessageBaselineRef.current = 0;
+        messageCountRef.current = 0;
         setMessages([]);
         return;
       }
-      setMessages((prev) => upsertChatMessage(prev, payload));
+      let enriched = payload;
+      let text = payload?.message || payload?.text || "";
+      if (
+        typeof text === "string" &&
+        (text.includes("🎁") || Boolean(payload?.isGift))
+      ) {
+        const { senderId, senderName, senderAvatar } =
+          resolveSenderInfoFromPayload(payload);
+
+        if (senderName && senderName !== "User") {
+          if (text.startsWith("User sent ")) {
+            text = text.replace(/^User sent /, `${senderName} sent `);
+          } else if (text.includes("User sent 🎁")) {
+            text = text.replace(/User sent 🎁/g, `${senderName} sent 🎁`);
+          }
+        }
+
+        let receiverId = payload?.receiverId ?? payload?.toUserId;
+        let receiverName =
+          payload?.receiverName ??
+          payload?.receiver ??
+          payload?.toUser?.name;
+
+        if (!receiverName && !text.toLowerCase().includes(" to ")) {
+          const cachedRecv =
+            receiverId != null
+              ? lastSentGiftReceiverRef.current?.get(String(receiverId))
+              : null;
+          receiverName =
+            (receiverId != null ? resolveChatSenderName(receiverId, null) : null) ??
+            (cachedRecv && Date.now() - cachedRecv.time < 30000
+              ? cachedRecv.name
+              : null);
+        }
+
+        if (receiverName && !text.toLowerCase().includes(" to ")) {
+          text = `${text} to ${receiverName}`;
+        }
+
+        enriched = {
+          ...payload,
+          ...(senderId != null ? { userId: senderId, senderId } : {}),
+          ...(senderName ? { user: senderName, senderName } : {}),
+          ...(senderAvatar ? { avatar: senderAvatar, senderAvatar } : {}),
+          ...(receiverName ? { receiverName } : {}),
+          ...(receiverId != null ? { receiverId } : {}),
+          message: text,
+          text: text,
+          isGift: true,
+        };
+      }
+      setMessages((prev) => upsertChatMessage(prev, enriched));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-      revealGiftFromChat(payload);
+      revealGiftFromChat(enriched);
     };
 
     const unsubChat = wsService.onRoomChat(String(roomId), appendChatMessage);
@@ -4913,6 +5122,12 @@ export default function VoiceParty() {
       String(roomId),
       async (summary) => {
         const remoteCount = summary?.messageCount;
+        if (remoteCount === 0) {
+          sessionMessageBaselineRef.current = 0;
+          messageCountRef.current = 0;
+          setMessages([]);
+          return;
+        }
         const baseline = sessionMessageBaselineRef.current;
         if (
           remoteCount == null ||
@@ -5088,69 +5303,46 @@ export default function VoiceParty() {
     const unsubGiftAnimation = wsService.onRoomGiftAnimation(
       String(roomId),
       (payload) => {
-        const senderId =
-          payload?.senderId ??
-          payload?.userId ??
-          payload?.fromUserId ??
-          payload?.from;
-        let matchedUser = null;
-        if (senderId) {
-          matchedUser =
-            onlineUsers.find(
-              (u) => String(u.id || u.userId) === String(senderId),
-            ) ||
-            seats.find(
-              (s) =>
-                s.user &&
-                String(s.user.id || s.user.userId) === String(senderId),
-            )?.user;
-        }
+        const { senderId, senderName, senderAvatar, isSenderSelf } =
+          resolveSenderInfoFromPayload(payload);
 
-        const senderName =
-          payload?.senderName ??
-          payload?.sender ??
-          payload?.userName ??
-          payload?.username ??
-          payload?.user?.name ??
-          payload?.fromUser?.name ??
-          payload?.nickname ??
-          matchedUser?.name ??
-          matchedUser?.username ??
-          "User";
-
-        const senderAvatar =
-          payload?.senderAvatar ??
-          payload?.avatar ??
-          payload?.user?.avatar ??
-          payload?.profileImageUrl ??
-          payload?.profilePicUrl ??
-          matchedUser?.profileImageUrl ??
-          matchedUser?.avatar ??
+        const receiverId =
+          payload?.receiverId ??
+          payload?.toUserId ??
+          payload?.recipientId ??
           null;
-
-        const receiverId = payload?.receiverId ?? payload?.toUserId;
         let matchedReceiver = null;
         if (receiverId) {
           matchedReceiver =
             onlineUsers.find(
-              (u) => String(u.id || u.userId) === String(receiverId),
+              (u) => isSameUser(u?.id ?? u?.userId, receiverId),
             ) ||
             seats.find(
               (s) =>
-                s.user &&
-                String(s.user.id || s.user.userId) === String(receiverId),
+                s?.user &&
+                isSameUser(s.user.id ?? s.user.userId, receiverId),
             )?.user ||
             (isSameUser(receiverId, hostId)
-              ? { name: roomInfo?.name ?? "Host" }
+              ? { name: roomInfo?.hostName ?? roomInfo?.name ?? "Host" }
               : null);
         }
 
+        const cachedReceiver =
+          receiverId != null
+            ? lastSentGiftReceiverRef.current?.get(String(receiverId))
+            : null;
         const receiverName =
           payload?.receiverName ??
           payload?.receiver ??
           payload?.toUser?.name ??
+          payload?.recipientName ??
+          payload?.toUserName ??
           matchedReceiver?.name ??
-          (isSameUser(receiverId, hostId) ? "Host" : null);
+          (receiverId != null ? resolveChatSenderName(receiverId, null) : null) ??
+          (cachedReceiver && Date.now() - cachedReceiver.time < 30000
+            ? cachedReceiver.name
+            : null) ??
+          (isSameUser(receiverId, hostId) ? (roomInfo?.hostName ?? "Host") : null);
 
         const enrichedPayload = {
           ...payload,
@@ -5163,14 +5355,21 @@ export default function VoiceParty() {
         const giftName =
           payload?.giftName ?? payload?.name ?? payload?.gift?.name ?? "a gift";
         const qty = Math.max(1, Number(payload?.quantity ?? payload?.qty ?? 1));
-        const giftText = `sent ${payload?.emoji ?? "🎁"} ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
+        const receiverPart = receiverName ? ` to ${receiverName}` : "";
+        const giftText = `sent ${payload?.emoji ?? "🎁"} ${giftName}${qty > 1 ? ` ×${qty}` : ""}${receiverPart}`;
         const normalized = normalizeChatMessage({
           id: payload?.id ?? `gift-ws-${Date.now()}`,
           message: `${senderName} ${giftText}`,
           senderName,
+          user: senderName,
+          userId: senderId,
+          senderId,
           avatar: senderAvatar,
+          senderAvatar,
           text: `${senderName} ${giftText}`,
           isGift: true,
+          receiverName,
+          receiverId,
         });
         if (!normalized.text) return;
         setMessages((prev) => {
@@ -5285,7 +5484,10 @@ export default function VoiceParty() {
             break;
           }
 
-          case "CHAT_CLEARED": {
+          case "CHAT_CLEARED":
+          case "CLEAR_CHAT": {
+            sessionMessageBaselineRef.current = 0;
+            messageCountRef.current = 0;
             setMessages([]);
             break;
           }
@@ -5317,39 +5519,87 @@ export default function VoiceParty() {
 
           case "GIFT_SENT":
           case "GIFT": {
+            const { senderId, senderName, senderAvatar } =
+              resolveSenderInfoFromPayload(payload);
             const giftName = payload.giftName || payload.name || "a gift";
             const qty = Math.max(
               1,
               Number(payload.quantity || payload.qty || 1),
             );
+            const receiverId =
+              payload.receiverId ||
+              payload.toUserId ||
+              payload.recipientId ||
+              null;
+            let matchedReceiver = null;
+            if (receiverId) {
+              matchedReceiver =
+                onlineUsers.find(
+                  (u) => isSameUser(u?.id ?? u?.userId, receiverId),
+                ) ||
+                seats.find(
+                  (s) =>
+                    s?.user &&
+                    isSameUser(s.user.id ?? s.user.userId, receiverId),
+                )?.user ||
+                (isSameUser(receiverId, hostId)
+                  ? { name: roomInfo?.hostName ?? roomInfo?.name ?? "Host" }
+                  : null);
+            }
+            const cachedReceiver =
+              receiverId != null
+                ? lastSentGiftReceiverRef.current?.get(String(receiverId))
+                : null;
             const receiverName =
-              payload.receiverName || payload.receiver || null;
+              payload.receiverName ||
+              payload.receiver ||
+              payload.toUser?.name ||
+              payload.recipientName ||
+              payload.toUserName ||
+              matchedReceiver?.name ||
+              (receiverId != null
+                ? resolveChatSenderName(receiverId, null)
+                : null) ||
+              (cachedReceiver && Date.now() - cachedReceiver.time < 30000
+                ? cachedReceiver.name
+                : null) ||
+              (isSameUser(receiverId, hostId)
+                ? (roomInfo?.hostName ?? "Host")
+                : null);
+
             revealGiftAnimation(
               {
                 ...payload,
-                senderName: uName,
-                senderAvatar: uAvatar,
+                senderName,
+                senderAvatar,
                 receiverName,
                 giftName,
                 quantity: qty,
               },
               {
-                senderName: uName,
-                senderAvatar: uAvatar,
+                senderName,
+                senderAvatar,
                 receiverName,
                 name: giftName,
                 quantity: qty,
               },
             );
 
-            const giftChatText = `sent 🎁 ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
+            const receiverPart = receiverName ? ` to ${receiverName}` : "";
+            const giftChatText = `sent 🎁 ${giftName}${qty > 1 ? ` ×${qty}` : ""}${receiverPart}`;
             const normalized = normalizeChatMessage({
               id: payload.id ?? `ws-gift-${Date.now()}`,
-              message: `${uName} ${giftChatText}`,
-              text: `${uName} ${giftChatText}`,
-              senderName: uName,
-              avatar: uAvatar,
+              message: `${senderName} ${giftChatText}`,
+              text: `${senderName} ${giftChatText}`,
+              senderName,
+              user: senderName,
+              userId: senderId,
+              senderId,
+              avatar: senderAvatar,
+              senderAvatar,
               isGift: true,
+              receiverName,
+              receiverId,
             });
             setMessages((prev) => upsertChatMessage(prev, normalized));
             setTimeout(
@@ -5540,6 +5790,17 @@ export default function VoiceParty() {
         const eventType = String(
           payload.type || payload.eventType || "",
         ).toUpperCase();
+        if (
+          eventType === "CHAT_CLEARED" ||
+          eventType === "CLEAR_CHAT" ||
+          payload.action === "CHAT_CLEARED" ||
+          payload.action === "CLEAR_CHAT"
+        ) {
+          sessionMessageBaselineRef.current = 0;
+          messageCountRef.current = 0;
+          setMessages([]);
+          return;
+        }
         if (
           eventType === "USER_KICKED" ||
           eventType === "KICKED" ||
@@ -6920,7 +7181,17 @@ export default function VoiceParty() {
             setClearingChat(true);
             try {
               const res = await deleteRoomChatMessages(String(targetRoomId));
+              sessionMessageBaselineRef.current = 0;
+              messageCountRef.current = 0;
               setMessages([]);
+
+              // Broadcast real-time CHAT_CLEARED event over WebSocket to all room participants
+              await wsService.sendRoomChatCleared(String(targetRoomId)).catch((wsErr) => {
+                if (__DEV__) {
+                  console.warn("[VoiceParty] Broadcast chat cleared failed:", wsErr);
+                }
+              });
+
               const msg =
                 res?.message || "Room chat history deleted successfully.";
               if (Platform.OS === "android") {
@@ -7083,6 +7354,38 @@ export default function VoiceParty() {
     }
 
     setSendingGift(true);
+    if (giftReceiverId) {
+      lastSentGiftReceiverRef.current?.set(String(giftReceiverId), {
+        name: giftReceiverName,
+        time: Date.now(),
+      });
+    }
+
+    const selfId = myUserId ?? localSessionUser?.id ?? localSessionUser?.userId;
+    const selfName =
+      localSessionUser?.name ??
+      localSessionUser?.username ??
+      localSessionUser?.nickname ??
+      myDisplayNameRef.current ??
+      "You";
+    const selfAvatar =
+      localSessionUser?.avatar ??
+      localSessionUser?.avatarUrl ??
+      localSessionUser?.profileImageUrl ??
+      localSessionUser?.profilePicUrl ??
+      myAvatarUrlRef.current ??
+      null;
+
+    const selfSenderInfo = {
+      id: selfId,
+      name: selfName,
+      avatar: selfAvatar,
+      time: Date.now(),
+    };
+    lastSentGiftSenderRef.current?.set("__last__", selfSenderInfo);
+    if (selfId != null) {
+      lastSentGiftSenderRef.current?.set(String(selfId), selfSenderInfo);
+    }
     try {
       const payload = {
         receiverId: Number(giftReceiverId),
@@ -12355,21 +12658,46 @@ export default function VoiceParty() {
                   // The message's own user/avatar fields are a snapshot from when it
                   // was sent — resolve the sender's CURRENT name/avatar instead, so a
                   // later username/avatar change is reflected on old messages too.
-                  const senderName = resolveChatSenderName(
+                  let senderName = resolveChatSenderName(
                     msg.userId,
                     msg.user,
                   );
-                  const senderAvatar =
+                  let senderAvatar =
                     resolveChatSenderAvatar(msg.userId) ?? msg.avatar;
+
+                  if ((!senderName || senderName === "User" || !senderAvatar) && msg.isGift) {
+                    const cachedLast = lastSentGiftSenderRef.current?.get("__last__");
+                    if (cachedLast && (!msg.userId || isSameUser(msg.userId, cachedLast.id))) {
+                      if (!senderName || senderName === "User") {
+                        senderName = cachedLast.name || senderName;
+                      }
+                      if (!senderAvatar) {
+                        senderAvatar = cachedLast.avatar || senderAvatar;
+                      }
+                    }
+                  }
+
+                  let displayText = msg.text;
+                  if (msg.isGift && senderName && senderName !== "User") {
+                    if (displayText.startsWith("User sent ")) {
+                      displayText = displayText.replace(/^User sent /, `${senderName} sent `);
+                    } else if (displayText.includes("User sent 🎁")) {
+                      displayText = displayText.replace(/User sent 🎁/g, `${senderName} sent 🎁`);
+                    }
+                  }
+
                   // VIP chat cosmetics — the chat-bubble background frame and
                   // corner logo are only known for the logged-in user's own
                   // messages (myVipAssets), but the avatar ring itself is also
                   // shown for other senders when the backend embeds
                   // vipProfileFrameUrl on their message (their own XP >= threshold).
                   const isSenderSelf =
-                    msg.userId != null &&
-                    myUserId != null &&
-                    String(msg.userId) === String(myUserId);
+                    (msg.userId != null &&
+                      myUserId != null &&
+                      isSameUser(msg.userId, myUserId)) ||
+                    (Boolean(msg.isGift) &&
+                      Boolean(lastSentGiftSenderRef.current?.get("__last__")) &&
+                      (!msg.userId || isSameUser(msg.userId, myUserId)));
                   const isSenderVip = isSenderSelf && myVipAssets.unlocked;
                   const otherSenderVipProfileFrame =
                     !isSenderSelf && msg.vipProfileFrameUrl
@@ -12479,7 +12807,7 @@ export default function VoiceParty() {
                         activeOpacity={0.75}
                         onPress={() =>
                           handleUserAvatarPress({
-                            id: msg.userId,
+                            id: msg.userId ?? (isSenderSelf ? myUserId : null),
                             name: senderName,
                             avatar: senderAvatar,
                           })
@@ -12568,7 +12896,7 @@ export default function VoiceParty() {
                             activeOpacity={0.75}
                             onPress={() =>
                               handleUserAvatarPress({
-                                id: msg.userId,
+                                id: msg.userId ?? (isSenderSelf ? myUserId : null),
                                 name: senderName,
                                 avatar: senderAvatar,
                               })
@@ -12629,9 +12957,9 @@ export default function VoiceParty() {
                             </Text>
                           )}
                         </View>
-                        {isChatMediaUrl(msg.text) ? (
+                        {isChatMediaUrl(displayText) ? (
                           <Image
-                            source={{ uri: msg.text.trim() }}
+                            source={{ uri: displayText.trim() }}
                             style={styles.chatMediaImg}
                             resizeMode="contain"
                           />
@@ -12642,7 +12970,7 @@ export default function VoiceParty() {
                               msg.isGift && styles.chatGiftText,
                             ]}
                           >
-                            {msg.text}
+                            {displayText}
                           </Text>
                         )}
                       </View>

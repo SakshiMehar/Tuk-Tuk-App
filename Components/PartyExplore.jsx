@@ -42,6 +42,7 @@ import {
   loadFamilies,
   loadFollowingRooms,
   loadManagedRooms,
+  loadNewRooms,
   loadPartyRanking,
   loadRecentlyRooms,
   loadRoomRecommendations,
@@ -306,6 +307,8 @@ export default function PartyExplore() {
   const [activeFilter, setActiveFilter] = useState("Recommend");
   const [rooms, setRooms] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
+  const [newRooms, setNewRooms] = useState([]);
+  const [newRoomsLoading, setNewRoomsLoading] = useState(false);
   const [relatedRooms, setRelatedRooms] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [recommendedUsers, setRecommendedUsers] = useState([]);
@@ -384,7 +387,7 @@ export default function PartyExplore() {
     if (activeTopTab !== "Explore") return;
     let cancelled = false;
     setRoomsLoading(true);
-    loadRoomRecommendations()
+    loadRoomRecommendations({ page: 0, size: 20 })
       .then((apiRooms) => {
         if (!cancelled) setRooms(apiRooms);
       })
@@ -397,6 +400,24 @@ export default function PartyExplore() {
       });
     return () => { cancelled = true; };
   }, [activeTopTab, focusTick]);
+
+  useEffect(() => {
+    if (activeTopTab !== "Explore" || activeFilter !== "New") return;
+    let cancelled = false;
+    setNewRoomsLoading(true);
+    loadNewRooms({ page: 0, size: 20 })
+      .then((apiRooms) => {
+        if (!cancelled) setNewRooms(apiRooms);
+      })
+      .catch((err) => {
+        console.error("[PartyExplore] loadNewRooms failed:", err?.response?.status, err?.message ?? err);
+        if (!cancelled) setNewRooms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setNewRoomsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeTopTab, activeFilter, focusTick]);
 
   useEffect(() => {
     if (activeTopTab !== "Related") return;
@@ -523,10 +544,14 @@ export default function PartyExplore() {
     }
   };
 
-  const filteredRooms = useMemo(
-    () => rooms.filter((room) => matchesFilter(room, activeFilter)),
-    [rooms, activeFilter]
-  );
+  const isExploreRoomsLoading = activeFilter === "New" ? newRoomsLoading : roomsLoading;
+
+  const displayRooms = useMemo(() => {
+    if (activeFilter === "New") {
+      return newRooms;
+    }
+    return rooms.filter((room) => matchesFilter(room, activeFilter));
+  }, [rooms, newRooms, activeFilter]);
 
   const podium = useMemo(() => rankingList.slice(0, 3), [rankingList]);
   const restRanking = useMemo(() => rankingList.slice(3), [rankingList]);
@@ -580,6 +605,7 @@ export default function PartyExplore() {
         ...prev.filter((r) => String(r.id) !== String(normalized.id)),
       ];
       setRooms(upsert);
+      setNewRooms(upsert);
       if (activeRelatedTab === "Managed" || activeRelatedTab === "Recently") {
         setRelatedRooms(upsert);
       }
@@ -829,14 +855,14 @@ export default function PartyExplore() {
                 })}
               </ScrollView>
 
-              {roomsLoading ? (
+              {isExploreRoomsLoading ? (
                 <ActivityIndicator color={THEME.purple} style={{ marginVertical: 24 }} />
-              ) : filteredRooms.length === 0 ? (
+              ) : displayRooms.length === 0 ? (
                 <View style={styles.emptyRooms}>
                   <Text style={styles.emptyRoomsText}>No rooms in this category</Text>
                 </View>
               ) : (
-                filteredRooms.map((room) => (
+                displayRooms.map((room) => (
                   <ExploreRoomItem
                     key={room.id}
                     room={room}

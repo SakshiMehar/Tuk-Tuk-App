@@ -5,6 +5,7 @@ import {
     getFamilies as getFamiliesApi,
     getFollowingRooms,
     getManagedRooms,
+    getNewRooms,
     getPartyRanking as getPartyRankingApi,
     getRecentlyRooms,
     getRoomAnnouncement as getRoomAnnouncementApi,
@@ -301,25 +302,61 @@ export const parseOnlineUsers = (stateData, joinData) => {
 
 const resolveChatText = (msg) => {
   if (!msg || typeof msg !== "object") return "";
-  if (typeof msg.message === "string") return msg.message.trim();
   const nested =
     msg.message && typeof msg.message === "object" ? msg.message : null;
-  return (
-    firstText(
-      msg.text,
-      msg.content,
-      msg.body,
-      nested?.message,
-      nested?.text,
-      nested?.content,
-      nested?.body,
-      msg.data?.message,
-      msg.data?.text,
-      msg.data?.content,
-      msg.payload?.message,
-      msg.payload?.text,
-    ) ?? ""
+  let text =
+    typeof msg.message === "string"
+      ? msg.message.trim()
+      : (
+          firstText(
+            msg.text,
+            msg.content,
+            msg.body,
+            nested?.message,
+            nested?.text,
+            nested?.content,
+            nested?.body,
+            msg.data?.message,
+            msg.data?.text,
+            msg.data?.content,
+            msg.payload?.message,
+            msg.payload?.text,
+          ) ?? ""
+        ).trim();
+
+  const senderName = firstText(
+    msg?.senderName,
+    msg?.user,
+    msg?.username,
+    msg?.userName,
+    msg?.fromUserName,
+    msg?.fromUser?.name,
+    msg?.sender?.name,
   );
+  if (senderName && senderName !== "User") {
+    if (text.startsWith("User sent ")) {
+      text = text.replace(/^User sent /, `${senderName} sent `);
+    } else if (text.includes("User sent 🎁")) {
+      text = text.replace(/User sent 🎁/g, `${senderName} sent 🎁`);
+    }
+  }
+
+  const receiverName = firstText(
+    msg.receiverName,
+    msg.receiver,
+    msg.toUserName,
+    msg.toUser?.name,
+    msg.recipientName,
+  );
+  if (
+    receiverName &&
+    (text.includes("🎁") || Boolean(msg.isGift)) &&
+    !text.toLowerCase().includes(" to ")
+  ) {
+    text = `${text} to ${receiverName}`;
+  }
+
+  return text;
 };
 
 export const normalizeChatMessage = (msg, index = 0) => {
@@ -331,14 +368,25 @@ export const normalizeChatMessage = (msg, index = 0) => {
     msg?.senderProfilePic,
     msg?.senderProfileImageUrl,
     msg?.profilePicUrl,
+    msg?.profileImageUrl,
+    msg?.profileImage,
     msg?.sender?.avatar,
     msg?.sender?.avatarUrl,
     msg?.sender?.profilePicUrl,
     msg?.sender?.profileImageUrl,
+    msg?.fromUser?.avatar,
+    msg?.fromUser?.avatarUrl,
+    msg?.fromUser?.profileImageUrl,
+    msg?.user?.avatar,
+    msg?.user?.avatarUrl,
+    msg?.user?.profileImageUrl,
     msg?.message?.avatar,
     msg?.message?.senderAvatar,
     msg?.data?.avatar,
     msg?.data?.senderAvatar,
+    msg?.payload?.avatar,
+    msg?.payload?.senderAvatar,
+    msg?.payload?.profileImageUrl,
   );
 
   // Backend embeds this directly on the message/sender only when that
@@ -355,6 +403,8 @@ export const normalizeChatMessage = (msg, index = 0) => {
     msg?.data?.profileFrameUrl,
   );
 
+  const resolvedText = resolveChatText(msg);
+
   return {
     id: firstValue(
       msg?.id,
@@ -369,29 +419,55 @@ export const normalizeChatMessage = (msg, index = 0) => {
       firstValue(
         msg?.senderId,
         msg?.userId,
+        msg?.fromUserId,
+        msg?.from,
         msg?.sender?.id,
         msg?.sender?.userId,
+        msg?.fromUser?.id,
+        msg?.fromUser?.userId,
         msg?.message?.senderId,
+        msg?.message?.userId,
         msg?.data?.senderId,
+        msg?.data?.userId,
+        msg?.payload?.senderId,
+        msg?.payload?.userId,
       ) ?? null,
     user:
       firstText(
         msg?.senderName,
         msg?.user,
         msg?.username,
+        msg?.userName,
+        msg?.fromUserName,
+        msg?.fromUser?.name,
+        msg?.fromUser?.username,
         msg?.sender?.name,
+        msg?.sender?.username,
+        typeof msg?.sender === "string" ? msg?.sender : null,
         msg?.message?.senderName,
+        msg?.message?.userName,
         msg?.data?.senderName,
+        msg?.data?.userName,
+        msg?.payload?.senderName,
+        msg?.payload?.userName,
       ) ?? "User",
     avatar: normalizeAvatarField(rawAvatar),
     vipProfileFrameUrl: rawVipProfileFrame
       ? (resolveRemoteProfilePicUrl(rawVipProfileFrame) ?? rawVipProfileFrame)
       : null,
-    text: resolveChatText(msg),
+    text: resolvedText,
     level: msg?.level ?? msg?.senderLevel ?? 1,
     coins: msg?.coins ?? 0,
     diamonds: msg?.diamonds ?? 0,
-    isGift: Boolean(msg?.isGift),
+    isGift: Boolean(msg?.isGift || resolvedText.includes("🎁")),
+    receiverName: firstText(
+      msg?.receiverName,
+      msg?.receiver,
+      msg?.toUserName,
+      msg?.toUser?.name,
+      msg?.recipientName,
+    ),
+    receiverId: firstValue(msg?.receiverId, msg?.toUserId, msg?.recipientId),
     pending: Boolean(msg?.pending),
     verifiedBadgeUrl: firstText(msg?.verifiedBadgeUrl, msg?.sender?.verifiedBadgeUrl),
   };
@@ -448,8 +524,23 @@ const loadRoomsFromApi = async (fetcher, label) => {
   return list;
 };
 
-export const loadRoomRecommendations = () =>
-  loadRoomsFromApi(getRoomRecommendations, "recommendations");
+export const loadRoomRecommendations = ({ page = 0, size = 20 } = {}) =>
+  loadRoomsFromApi(() => getRoomRecommendations({ page, size }), "recommendations");
+
+export const loadNewRooms = async ({ page = 0, size = 20 } = {}) => {
+  const data = await getNewRooms({ page, size });
+  const rooms = parseRoomsResponse(data);
+  return rooms.map((r) => {
+    const normalized = normalizeRoom(r);
+    return {
+      ...normalized,
+      category:
+        normalized.category && normalized.category !== "recommend"
+          ? normalized.category
+          : "new",
+    };
+  });
+};
 
 export const loadRecentlyRooms = () =>
   loadRoomsFromApi(getRecentlyRooms, "recently rooms");

@@ -56,12 +56,21 @@ const parseResponseBody = async (response) => {
   }
 };
 
-export const getRoomRecommendations = async () => {
+export const getRoomRecommendations = async ({ page = 0, size = 20 } = {}) => {
   const response = await API.get(
-    "/api/v1/tuktuk/rooms/recommendations",
+    `/api/v1/tuktuk/rooms/recommendations?page=${page}&size=${size}`,
     await authRequestConfig()
   );
-  
+
+  return response.data;
+};
+
+export const getNewRooms = async ({ page = 0, size = 20 } = {}) => {
+  const response = await API.get(
+    `/api/v1/tuktuk/rooms/new?page=${page}&size=${size}`,
+    await authRequestConfig()
+  );
+
   return response.data;
 };
 
@@ -78,7 +87,7 @@ export const getRecentlyRooms = async () => {
     "/api/v1/tuktuk/rooms/recently",
     await authRequestConfig()
   );
-  
+
   return response.data;
 };
 
@@ -107,7 +116,7 @@ export const getManagedRooms = async () => {
     "/api/v1/tuktuk/rooms/managed",
     await authRequestConfig()
   );
-  
+
   return response.data;
 };
 
@@ -117,7 +126,7 @@ export const joinRandomParty = async (body = {}) => {
     body,
     await authRequestConfig()
   );
-  
+
   return response.data;
 };
 
@@ -290,7 +299,7 @@ export const joinRoom = async (roomId) => {
     {},
     await authRequestConfig()
   );
-  
+
   return response.data;
 };
 
@@ -300,7 +309,7 @@ export const exitRoom = async (roomId) => {
     {},
     await authRequestConfig()
   );
-  
+
   return response.data;
 };
 
@@ -373,7 +382,7 @@ export const claimSeat = async (roomId, seatNumber, profile) => {
     body,
     await authRequestConfig()
   );
-  
+
   return response.data;
 };
 
@@ -467,9 +476,9 @@ export const getVoiceToken = async (roomId, uid, isSpeaker = true) => {
 /** GET /api/app/party/ranking?period=daily|weekly|monthly — leaderboard. */
 export const getPartyRanking = async (period = "daily") => {
   const url = `/api/app/party/ranking?period=${encodeURIComponent(period)}`;
-  
+
   const response = await API.get(url, await authRequestConfig());
-  
+
   return response.data;
 };
 
@@ -485,9 +494,9 @@ export const searchRooms = async (query) => {
 /** GET /api/app/party/families — fetch party families list */
 export const getPartyFamilies = async () => {
   const url = "/api/app/party/families";
-  
+
   const response = await API.get(url, await authRequestConfig());
-  
+
   return response.data;
 };
 
