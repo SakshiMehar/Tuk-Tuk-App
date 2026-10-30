@@ -1,284 +1,321 @@
-import React, { useEffect, useState } from "react";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Image } from "expo-image";
+import { useEffect, useMemo, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  StatusBar,
+  View,
 } from "react-native";
-import { Image } from "expo-image";
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { s, vs, ms } from "react-native-size-matters";
-import { syncUserLevelForSession } from "../src/services/userLevelService";
-import backpackBg from "../assets/images/backpackBg.jpg";
+import { ms, s, vs } from "react-native-size-matters";
+import Svg, {
+  Defs,
+  Ellipse,
+  Path,
+  Rect,
+  Stop,
+  LinearGradient as SvgGradient,
+} from "react-native-svg";
+import { getAvatarInventory } from "../src/api/avatarApi";
+import { getIntimacyBackpackInventory, INTIMACY_INVENTORY_TYPES } from "../src/api/giftApi";
 
-const CATEGORIES = ["All", "Frames", "Effects", "Badges", "Backgrounds"];
+const { width } = Dimensions.get("window");
+const ITEM_CARD_WIDTH = Math.floor((width - 32 - 20) / 3);
 
-// Fallback initial items matching the design mockup exactly
-const FALLBACK_ITEMS = [
-  {
-    id: "avatarFrame",
-    type: "avatarFrame",
-    label: "Avatar Frame",
-    category: "Frames",
-    qty: 1,
-    unlocked: true,
-  },
-  {
-    id: "entryEffect",
-    type: "entryEffect",
-    label: "Entry Effect",
-    category: "Effects",
-    qty: 0,
-    unlocked: false,
-  },
-  {
-    id: "bubbleTheme",
-    type: "bubbleTheme",
-    label: "Chat Bubble",
-    category: "Effects",
-    qty: 0,
-    unlocked: false,
-  },
-  {
-    id: "roomBadge",
-    type: "roomBadge",
-    label: "Room Badge",
-    category: "Badges",
-    qty: 2,
-    unlocked: true,
-  },
-  {
-    id: "vipEffect",
-    type: "vipEffect",
-    label: "VIP Effect",
-    category: "Effects",
-    qty: 0,
-    unlocked: false,
-  },
-  {
-    id: "profileBg",
-    type: "profileBg",
-    label: "Profile BG",
-    category: "Backgrounds",
-    qty: 1,
-    unlocked: true,
-  },
+// ── Categories ──────────────────────────────────────────────────────────────
+const BACKPACK_CATEGORIES = [
+  { id: "intimacy", label: "Intimacy" },
+  { id: "avatar", label: "Avatar" },
+  { id: "profile", label: "Profile" },
+  { id: "entrance", label: "Entrance" },
+  { id: "chatFrame", label: "Chat Frame" },
+  { id: "miniCard", label: "Mini Card" },
 ];
 
-const firstDefined = (...values) => values.find((v) => v !== undefined && v !== null);
-
-const normalizeInventoryItem = (item, index) => {
-  const qty = Number(firstDefined(item?.quantity, item?.qty, item?.count, item?.unlocked ? 1 : 0));
-  return {
-    id: String(firstDefined(item?.id, item?.itemId, `inv-${index}`)),
-    type: item?.type ?? item?.category ?? "custom",
-    label: firstDefined(item?.name, item?.label, item?.title) ?? "Item",
-    category: firstDefined(item?.category, item?.type) ?? "Effects",
-    qty,
-    unlocked: qty > 0,
-    imageUrl: firstDefined(item?.imageUrl, item?.iconUrl, item?.assetUrl) ?? null,
-    equipped: Boolean(item?.equipped),
-  };
+// ── SubTabs for each category ───────────────────────────────────────────────
+const BACKPACK_SUBTABS = {
+  avatar: [
+    { id: "avatar_frame", label: "Avatar Frame" },
+    { id: "cp_avatar_frame", label: "CP Avatar Frame" },
+    { id: "dynamic_avatar", label: "Dynamic Avatar" },
+  ],
+  intimacy: [
+    { id: INTIMACY_INVENTORY_TYPES.RING, label: "Ring" },
+    { id: INTIMACY_INVENTORY_TYPES.JEWELRY, label: "Jewelry" },
+    { id: INTIMACY_INVENTORY_TYPES.LOVE_ZONE, label: "Love Zone" },
+    { id: INTIMACY_INVENTORY_TYPES.MIC_LINK, label: "Mic Link" },
+    { id: INTIMACY_INVENTORY_TYPES.SPECIAL_CARD, label: "Special Card" },
+    { id: INTIMACY_INVENTORY_TYPES.CP_CARD, label: "CP Card" },
+    { id: INTIMACY_INVENTORY_TYPES.INTIMACY_CARD, label: "Intimacy Card" },
+  ],
+  profile: [
+    { id: "profile_show", label: "Profile Show" },
+    { id: "profile_animation", label: "Profile Animation" },
+    { id: "personal_profile_card", label: "Personal Profile Card" },
+  ],
+  entrance: [
+    { id: "user_car", label: "User Car" },
+    { id: "pair_car", label: "Pair Car" },
+    { id: "enter_message", label: "Enter Message" },
+    { id: "pair_enter_message", label: "Pair Enter Message" },
+  ],
+  chatFrame: [
+    { id: "chat_bubble", label: "Chat Frame" },
+    { id: "room_bubble", label: "Room Bubble" },
+  ],
+  miniCard: [
+    { id: "mini_card", label: "Mini Card" },
+  ],
 };
 
-// ── Custom Illustrated Icons matching design mockup exactly ─────────────────
+const FILTER_PILLS = [
+  { id: "all", label: "All" },
+  { id: "normal", label: "Normal Outfit" },
+  { id: "privilege", label: "Privilege Outfit" },
+];
 
-function ItemIllustration({ type, imageUrl, size = s(58) }) {
-  if (imageUrl) {
-    return <Image source={{ uri: imageUrl }} style={{ width: size, height: size }} contentFit="contain" />;
-  }
-
-  switch (type) {
-    case "avatarFrame":
-      return (
-        <View style={[styles.avatarFrameArtWrap, { width: size, height: size }]}>
-          {/* Outer golden decorative scalloped ring with pink petals */}
-          <LinearGradient
-            colors={["#FCD34D", "#F59E0B", "#F472B6"]}
-            style={styles.avatarFrameGoldRing}
-          >
-            {/* Inner royal purple circle with user avatar icon */}
-            <LinearGradient colors={["#818CF8", "#6366F1", "#4F46E5"]} style={styles.avatarFrameInnerCircle}>
-              <Ionicons name="person" size={ms(20)} color="#FFFFFF" />
-            </LinearGradient>
-          </LinearGradient>
-          {/* Top Crown decoration */}
-          <View style={styles.avatarFrameCrown}>
-            <MaterialCommunityIcons name="crown" size={ms(16)} color="#F59E0B" />
-          </View>
-          {/* Bottom pink heart decoration */}
-          <View style={styles.avatarFrameHeart}>
-            <Ionicons name="heart" size={ms(9)} color="#EC4899" />
-          </View>
-        </View>
-      );
-
-    case "entryEffect":
-      return (
-        <View style={[styles.illustrationCenterWrap, { width: size, height: size }]}>
-          {/* Soft background halo glow */}
-          <View style={styles.starHaloGlow} />
-          {/* Orbital swirl ring */}
-          <View style={styles.starOrbitalRing} />
-          {/* 3D Purple Star in center */}
-          <LinearGradient colors={["#A855F7", "#7C3AED", "#6D28D9"]} style={styles.starCircle}>
-            <Ionicons name="star" size={ms(22)} color="#FFFFFF" />
-          </LinearGradient>
-          {/* Floating tiny sparkle stars */}
-          <Ionicons name="sparkles" size={ms(11)} color="#C084FC" style={styles.sparkleTopRight} />
-          <Ionicons name="sparkles" size={ms(9)} color="#E9D5FF" style={styles.sparkleBottomLeft} />
-        </View>
-      );
-
-    case "bubbleTheme":
-      return (
-        <View style={[styles.illustrationCenterWrap, { width: size, height: size }]}>
-          {/* Purple glossy speech bubble */}
-          <LinearGradient colors={["#A855F7", "#8B5CF6", "#7C3AED"]} style={styles.chatBubbleShape}>
-            <View style={styles.chatBubbleTail} />
-            <View style={styles.chatBubbleHeartCircle}>
-              <Ionicons name="heart" size={ms(11)} color="#EC4899" />
-            </View>
-          </LinearGradient>
-        </View>
-      );
-
-    case "roomBadge":
-      return (
-        <View style={[styles.illustrationCenterWrap, { width: size, height: size }]}>
-          {/* Gold scalloped badge */}
-          <LinearGradient colors={["#FDE68A", "#F59E0B", "#D97706"]} style={styles.badgeGoldRing}>
-            {/* Purple inner core with golden crown */}
-            <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.badgeInnerCore}>
-              <MaterialCommunityIcons name="crown" size={ms(17)} color="#FDE68A" />
-            </LinearGradient>
-          </LinearGradient>
-        </View>
-      );
-
-    case "vipEffect":
-      return (
-        <View style={[styles.illustrationCenterWrap, { width: size, height: size }]}>
-          {/* Soft purple/pink aura */}
-          <View style={styles.vipGlowAura} />
-          {/* 3D Glowing flame */}
-          <LinearGradient colors={["#FEF08A", "#F97316", "#EF4444"]} style={styles.vipFlameWrap}>
-            <Ionicons name="flame" size={ms(26)} color="#FFFFFF" />
-          </LinearGradient>
-        </View>
-      );
-
-    case "profileBg":
-      return (
-        <View style={[styles.illustrationCenterWrap, { width: size, height: size }]}>
-          {/* Purple rounded landscape card */}
-          <LinearGradient colors={["#8B5CF6", "#6D28D9"]} style={styles.profileBgCard}>
-            {/* Sun circle */}
-            <View style={styles.profileBgSun} />
-            {/* Mountain shape */}
-            <Ionicons name="image" size={ms(22)} color="rgba(255,255,255,0.95)" />
-          </LinearGradient>
-        </View>
-      );
-
-    default:
-      return (
-        <View style={[styles.illustrationCenterWrap, { width: size, height: size }]}>
-          <LinearGradient colors={["#A855F7", "#7C3AED"]} style={styles.defaultIconCircle}>
-            <Ionicons name="cube" size={ms(24)} color="#FFFFFF" />
-          </LinearGradient>
-        </View>
-      );
-  }
-}
-
-// ── Equipped Slot Component ──────────────────────────────────────────────────
-
-function EquippedSlotCard({ label, slotType, item, onPress }) {
-  const isEquipped = Boolean(item);
-
+// ── Sad Box Illustration (Pixel-perfect to reference Image 2) ───────────────
+function SadBoxIllustration({ size = 150 }) {
   return (
-    <TouchableOpacity
-      style={styles.equippedCard}
-      activeOpacity={0.85}
-      onPress={onPress}
-    >
-      <View style={styles.equippedIconContainer}>
-        {slotType === "Frame" ? (
-          <View style={styles.slotPlaceholderFrame}>
-            <Ionicons name="help" size={ms(18)} color="#9B8EB9" />
-          </View>
-        ) : (
-          <View style={styles.slotPlaceholderBadge}>
-            <Ionicons name="shield-outline" size={ms(26)} color="#C4B5FD" style={styles.badgeShieldBg} />
-            <Ionicons name="help" size={ms(14)} color="#9B8EB9" style={styles.badgeHelpInside} />
-          </View>
-        )}
-      </View>
+    <View style={styles.illustrationCenter}>
+      <Svg width={size * 1.4} height={size} viewBox="0 0 200 150" fill="none">
+        <Defs>
+          <SvgGradient id="boxGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0%" stopColor="#A78BFA" />
+            <Stop offset="100%" stopColor="#818CF8" />
+          </SvgGradient>
+          <SvgGradient id="boxTopGrad" x1="0" y1="0" x2="1" y2="0">
+            <Stop offset="0%" stopColor="#C4B5FD" />
+            <Stop offset="100%" stopColor="#DDD6FE" />
+          </SvgGradient>
+          <SvgGradient id="groundGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0%" stopColor="#EDE9FE" stopOpacity="0.8" />
+            <Stop offset="100%" stopColor="#F5F3FF" stopOpacity="0.2" />
+          </SvgGradient>
+        </Defs>
 
-      <View style={styles.equippedTextCol}>
-        <Text style={styles.equippedMainTitle} numberOfLines={1}>
-          {isEquipped ? item.label : `No ${label} equipped`}
-        </Text>
-        <Text style={styles.equippedSubTitle}>{label}</Text>
-      </View>
+        {/* Soft Lavender Hill Ground */}
+        <Ellipse cx="100" cy="132" rx="85" ry="22" fill="url(#groundGrad)" />
 
-      {/* Right pill chevron */}
-      <View style={styles.equippedChevronPill}>
-        <Ionicons name="chevron-forward" size={ms(12)} color="#7C3AED" />
-      </View>
-    </TouchableOpacity>
+        {/* Floating Delicate Leaves / Petals */}
+        <Path
+          d="M 42 112 C 38 102, 52 98, 56 108 C 54 116, 44 117, 42 112 Z"
+          fill="#DDD6FE"
+          opacity={0.85}
+        />
+        <Path
+          d="M 158 98 C 153 88, 168 83, 172 94 C 170 103, 161 105, 158 98 Z"
+          fill="#DDD6FE"
+          opacity={0.8}
+        />
+        <Path
+          d="M 166 112 C 162 106, 174 102, 177 109 C 175 116, 169 117, 166 112 Z"
+          fill="#C4B5FD"
+          opacity={0.65}
+        />
+
+        {/* 3D Box Front Face */}
+        <Rect
+          x="65"
+          y="50"
+          width="70"
+          height="62"
+          rx="12"
+          fill="url(#boxGrad)"
+        />
+
+        {/* 3D Box Top Isometric Plane */}
+        <Path
+          d="M 65 59 Q 65 50, 77 50 L 123 50 Q 135 50, 135 59 L 128 44 Q 123 38, 112 38 L 88 38 Q 77 38, 72 44 Z"
+          fill="url(#boxTopGrad)"
+          opacity={0.92}
+        />
+
+        {/* Eyes: Two vertical rounded white pills */}
+        <Rect x="84" y="72" width="6" height="13" rx="3" fill="#FFFFFF" />
+        <Rect x="110" y="72" width="6" height="13" rx="3" fill="#FFFFFF" />
+
+        {/* Mouth: Downward sad frown curve */}
+        <Path
+          d="M 88 99 C 88 91, 112 91, 112 99"
+          stroke="#FFFFFF"
+          strokeWidth="3.5"
+          strokeLinecap="round"
+          fill="none"
+        />
+      </Svg>
+    </View>
   );
 }
 
-// ── Main Backpack Panel Component ───────────────────────────────────────────
-
+// ── Main Component ──────────────────────────────────────────────────────────
 export default function BackpackPanel({ onClose, onGoToStore }) {
   const insets = useSafeAreaInsets();
-  const [activeCategory, setActiveCategory] = useState("All");
-  const [items, setItems] = useState(FALLBACK_ITEMS);
-  const [equippedBadge, setEquippedBadge] = useState(null);
-  const [equippedFrame, setEquippedFrame] = useState(null);
 
+  // Active Category (default "intimacy")
+  const [selectedCategory, setSelectedCategory] = useState("intimacy");
+  // Active SubTab
+  const [selectedSubTab, setSelectedSubTab] = useState(
+    BACKPACK_SUBTABS.intimacy[0].id
+  );
+  // Active Filter Pill
+  const [selectedFilter, setSelectedFilter] = useState("all");
+
+  // Items State & Loading
+  const [inventoryItems, setInventoryItems] = useState({});
+  const [loading, setLoading] = useState(false);
+
+  // Switch category
+  const handleSelectCategory = (catId) => {
+    setSelectedCategory(catId);
+    const subList = BACKPACK_SUBTABS[catId] || [];
+    if (subList.length > 0) {
+      setSelectedSubTab(subList[0].id);
+    }
+    setSelectedFilter("all");
+  };
+
+  // Switch subtab
+  const handleSelectSubTab = (subTabId) => {
+    setSelectedSubTab(subTabId);
+    setSelectedFilter("all");
+  };
+
+  // ── Fetch Intimacy Backpack Inventory ─────────────────────────────────────
+  // Endpoint: GET http://localhost:8084/api/app/gifts/inventory/intimecy/{type}?page=0&size=20
   useEffect(() => {
-    let cancelled = false;
+    if (selectedCategory !== "intimacy") return;
+    const cacheKey = `intimacy_${selectedSubTab}`;
+    if (inventoryItems[cacheKey]) return;
+
+    let isMounted = true;
     (async () => {
       try {
-        const result = await syncUserLevelForSession();
-        if (cancelled) return;
-        const xp = result?.xp;
-        if (Array.isArray(xp?.inventory) && xp.inventory.length > 0) {
-          setItems(xp.inventory.map(normalizeInventoryItem));
+        setLoading(true);
+        console.log(
+          `[BackpackPanel] Fetching intimacy inventory for type: ${selectedSubTab}...`
+        );
+        const res = await getIntimacyBackpackInventory(selectedSubTab, 0, 20);
+        if (isMounted) {
+          const rawList = Array.isArray(res)
+            ? res
+            : Array.isArray(res?.content)
+              ? res.content
+              : Array.isArray(res?.data)
+                ? res.data
+                : Array.isArray(res?.items)
+                  ? res.items
+                  : [];
+
+          const mapped = rawList.map((it, idx) => ({
+            id: String(it.inventoryId ?? it.userGiftId ?? `${it.id ?? "gift"}_${idx}`),
+            giftId: it.id,
+            name: it.name ?? it.giftName ?? it.title ?? "Intimacy Item",
+            imageUrl: it.iconUrl ?? it.imageUrl ?? it.coverImage ?? null,
+            quantity: Number(it.quantity ?? it.qty ?? it.count ?? 1),
+            duration: it.expiryDays
+              ? `${it.expiryDays} Day${it.expiryDays > 1 ? "s" : ""}`
+              : it.duration ?? "Permanent",
+            outfitType: (it.outfitType || "all").toLowerCase(),
+            isEquipped: Boolean(it.isEquipped || it.equipped),
+            category: "intimacy",
+            subCategory: selectedSubTab,
+            raw: it,
+          }));
+
+          setInventoryItems((prev) => ({ ...prev, [cacheKey]: mapped }));
         }
-        setEquippedBadge(xp?.equippedBadge ? normalizeInventoryItem(xp.equippedBadge, "badge") : null);
-        setEquippedFrame(xp?.equippedFrame ? normalizeInventoryItem(xp.equippedFrame, "frame") : null);
-      } catch {
-        // use fallback items
+      } catch (err) {
+        console.warn(
+          `[BackpackPanel] Intimacy inventory error for ${selectedSubTab}:`,
+          err?.message || err
+        );
+        if (isMounted) {
+          setInventoryItems((prev) => ({ ...prev, [cacheKey]: [] }));
+        }
+      } finally {
+        if (isMounted) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
-  const handleEquipItem = (item) => {
-    if (item.category === "Frames") {
-      setEquippedFrame((prev) => (prev?.id === item.id ? null : item));
-    } else if (item.category === "Badges") {
-      setEquippedBadge((prev) => (prev?.id === item.id ? null : item));
-    } else {
-      Alert.alert(
-        "Item Equipped",
-        `You have equipped ${item.label}!`,
-        [{ text: "Great" }]
-      );
-    }
-  };
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedCategory, selectedSubTab, inventoryItems]);
+
+  // ── Fetch Avatar Backpack Inventory ───────────────────────────────────────
+  // Endpoint: GET http://localhost:8084/api/store/avatar/inventory
+  useEffect(() => {
+    if (selectedCategory !== "avatar") return;
+    const cacheKey = `avatar_${selectedSubTab}`;
+    if (inventoryItems[cacheKey]) return;
+
+    let isMounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        console.log(
+          `[BackpackPanel] Fetching avatar inventory for ${selectedSubTab}...`
+        );
+        const res = await getAvatarInventory();
+        if (isMounted) {
+          const rawList = Array.isArray(res)
+            ? res
+            : Array.isArray(res?.inventory)
+              ? res.inventory
+              : Array.isArray(res?.data)
+                ? res.data
+                : Array.isArray(res?.items)
+                  ? res.items
+                  : [];
+
+          const mapped = rawList.map((it, idx) => ({
+            id: String(it.inventoryId ?? it.userAvatarId ?? `${it.id ?? "avatar"}_${idx}`),
+            avatarId: it.id,
+            name: it.name ?? it.title ?? "Avatar Item",
+            imageUrl: it.iconUrl ?? it.imageUrl ?? it.frameUrl ?? null,
+            quantity: Number(it.quantity ?? it.qty ?? 1),
+            duration: it.duration ?? "1 Day",
+            outfitType: (it.outfitType || "all").toLowerCase(),
+            isEquipped: Boolean(it.isEquipped || it.equipped),
+            category: "avatar",
+            subCategory: selectedSubTab,
+            raw: it,
+          }));
+
+          setInventoryItems((prev) => ({ ...prev, [cacheKey]: mapped }));
+        }
+      } catch (err) {
+        console.warn(
+          `[BackpackPanel] Avatar inventory fetch error:`,
+          err?.message || err
+        );
+        if (isMounted) {
+          setInventoryItems((prev) => ({ ...prev, [cacheKey]: [] }));
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedCategory, selectedSubTab, inventoryItems]);
+
+  // Visible Items filter
+  const activeCacheKey = `${selectedCategory}_${selectedSubTab}`;
+  const visibleItems = useMemo(() => {
+    const list = inventoryItems[activeCacheKey] || [];
+    if (selectedFilter === "all") return list;
+    return list.filter((it) => it.outfitType === selectedFilter);
+  }, [inventoryItems, activeCacheKey, selectedFilter]);
 
   const handleStorePress = () => {
     if (onGoToStore) {
@@ -288,563 +325,395 @@ export default function BackpackPanel({ onClose, onGoToStore }) {
     }
   };
 
-  const visibleItems =
-    activeCategory === "All"
-      ? items
-      : items.filter((it) => it.category === activeCategory);
+  const currentSubTabs = BACKPACK_SUBTABS[selectedCategory] || [];
 
   return (
     <View style={styles.rootContainer}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAF5FE" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* Screen Background Image */}
-      <Image
-        source={backpackBg}
-        style={StyleSheet.absoluteFill}
-        contentFit="cover"
-      />
-
-      {/* ── Top Header ── */}
-      <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top + vs(6), vs(16)) }]}>
+      {/* ── Top Header Bar (Back button, Centered Backpack, Storefront icon) ── */}
+      <View
+        style={[
+          styles.headerRow,
+          { paddingTop: Math.max(insets.top + vs(6), vs(16)) },
+        ]}
+      >
         <TouchableOpacity
-          style={styles.headerRoundBtn}
-          activeOpacity={0.75}
+          style={styles.navIconBtn}
+          activeOpacity={0.7}
           onPress={onClose}
         >
-          <Ionicons name="chevron-back" size={ms(16)} color="#2E1E5B" />
+          <Ionicons name="arrow-back" size={ms(20)} color="#1E293B" />
         </TouchableOpacity>
 
-        <View style={styles.headerCenter}>
-          <View style={styles.headerBackpackIconWrap}>
-            <LinearGradient
-              colors={["#A855F7", "#7C3AED"]}
-              style={styles.headerBackpackGrad}
-            >
-              <Ionicons name="briefcase" size={ms(17)} color="#FFFFFF" />
-            </LinearGradient>
-          </View>
-          <View style={styles.headerTextCol}>
-            <Text style={styles.headerTitle}>Backpack</Text>
-            <Text style={styles.headerSubtitle}>Your collection of amazing items</Text>
-          </View>
-        </View>
+        <Text style={styles.headerTitle}>Backpack</Text>
 
         <TouchableOpacity
-          style={styles.headerRoundBtn}
-          activeOpacity={0.75}
-          onPress={onClose}
+          style={styles.navIconBtn}
+          activeOpacity={0.7}
+          onPress={handleStorePress}
         >
-          <Ionicons name="close" size={ms(16)} color="#2E1E5B" />
+          <MaterialCommunityIcons
+            name="storefront-outline"
+            size={ms(22)}
+            color="#1E293B"
+          />
         </TouchableOpacity>
       </View>
 
-      {/* ── Scrollable Body ── */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + vs(30) }]}
-      >
-        {/* Top 2 Equipped Slots */}
-        <View style={styles.equippedRow}>
-          <EquippedSlotCard
-            label="Frame"
-            slotType="Frame"
-            item={equippedFrame}
-            onPress={() => setActiveCategory("Frames")}
-          />
-          <EquippedSlotCard
-            label="Badge"
-            slotType="Badge"
-            item={equippedBadge}
-            onPress={() => setActiveCategory("Badges")}
-          />
-        </View>
+      {/* ── Categories Row (Horizontal Scroll) ── */}
+      <View style={styles.categoryContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryScroll}
+        >
+          {BACKPACK_CATEGORIES.map((cat) => {
+            const isSelected = selectedCategory === cat.id;
+            return (
+              <TouchableOpacity
+                key={cat.id}
+                activeOpacity={0.8}
+                onPress={() => handleSelectCategory(cat.id)}
+                style={[
+                  styles.categoryPill,
+                  isSelected && styles.categoryPillSelected,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.categoryText,
+                    isSelected && styles.categoryTextSelected,
+                  ]}
+                >
+                  {cat.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
-        {/* ── Main "My Backpack" Container Card ── */}
-        <View style={styles.mainBackpackCard}>
-          {/* Section Ribbon / Title */}
-          <View style={styles.ribbonRow}>
-            <Text style={styles.ribbonSparkleLeft}>✦</Text>
-            <LinearGradient
-              colors={["#A855F7", "#7C3AED"]}
-              style={styles.ribbonBagIconWrap}
-            >
-              <Ionicons name="briefcase" size={ms(15)} color="#FFFFFF" />
-            </LinearGradient>
-            <Text style={styles.ribbonTitle}>My Backpack</Text>
-            <Text style={styles.ribbonSparkleRight}>✦</Text>
-          </View>
-
-          {/* Category Pills (Horizontal Scroll) */}
+      {/* ── Sub-Tabs Row (Horizontal Scroll) ── */}
+      {currentSubTabs.length > 0 && (
+        <View style={styles.subTabContainer}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryRow}
+            contentContainerStyle={styles.subTabScroll}
           >
-            {CATEGORIES.map((cat) => {
-              const active = cat === activeCategory;
+            {currentSubTabs.map((sub) => {
+              const isSelected = selectedSubTab === sub.id;
               return (
                 <TouchableOpacity
-                  key={cat}
+                  key={sub.id}
                   activeOpacity={0.8}
-                  onPress={() => setActiveCategory(cat)}
-                  style={styles.categoryPillWrap}
+                  onPress={() => handleSelectSubTab(sub.id)}
+                  style={[
+                    styles.subTabPill,
+                    isSelected && styles.subTabPillSelected,
+                  ]}
                 >
-                  {active ? (
-                    <LinearGradient
-                      colors={["#9333EA", "#7C3AED", "#6366F1"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.categoryPillActive}
-                    >
-                      <Text style={styles.categoryPillTextActive}>{cat}</Text>
-                    </LinearGradient>
-                  ) : (
-                    <View style={styles.categoryPillInactive}>
-                      <Text style={styles.categoryPillTextInactive}>{cat}</Text>
-                    </View>
-                  )}
+                  <Text
+                    style={[
+                      styles.subTabText,
+                      isSelected && styles.subTabTextSelected,
+                    ]}
+                  >
+                    {sub.label}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
+        </View>
+      )}
 
-          {/* 3-Column Item Grid */}
-          {visibleItems.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="cube-outline" size={ms(38)} color="#C4B5FD" />
-              <Text style={styles.emptyTitle}>Nothing in this category yet</Text>
-              <Text style={styles.emptySub}>Check the store to unlock exclusive items!</Text>
+      {/* ── Filter Pills Row (All / Normal Outfit / Privilege Outfit) ── */}
+      <View style={styles.filterPillsContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterPillsScroll}
+        >
+          {FILTER_PILLS.map((pill) => {
+            const isSelected = selectedFilter === pill.id;
+            return (
+              <TouchableOpacity
+                key={pill.id}
+                activeOpacity={0.8}
+                onPress={() => setSelectedFilter(pill.id)}
+                style={[
+                  styles.filterPill,
+                  isSelected && styles.filterPillSelected,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    isSelected && styles.filterPillTextSelected,
+                  ]}
+                >
+                  {pill.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* ── Main Content Area ── */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.mainScrollContent,
+          { paddingBottom: Math.max(insets.bottom + vs(20), vs(32)) },
+        ]}
+      >
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color="#8B5CF6" />
+            <Text style={styles.loadingText}>Loading inventory...</Text>
+          </View>
+        ) : visibleItems.length === 0 ? (
+          /* ── Empty State: Sad Box Character ── */
+          <View style={styles.emptyWrap}>
+            <SadBoxIllustration size={s(150)} />
+
+            {/* ── Go to Store Button (Kept unchanged as requested) ── */}
+            <View style={styles.storeSection}>
+              <TouchableOpacity
+                style={styles.storeButton}
+                activeOpacity={0.85}
+                onPress={handleStorePress}
+              >
+                <MaterialCommunityIcons
+                  name="storefront-outline"
+                  size={ms(18)}
+                  color="#7C3AED"
+                />
+                <Text style={styles.storeButtonText}>Go to Store</Text>
+                <Ionicons name="chevron-forward" size={ms(15)} color="#7C3AED" />
+              </TouchableOpacity>
             </View>
-          ) : (
+          </View>
+        ) : (
+          /* ── Item Grid when inventory items exist ── */
+          <View>
             <View style={styles.itemGrid}>
-              {visibleItems.map((it) => {
-                const isEquipped =
-                  (equippedFrame && it.id === equippedFrame.id) ||
-                  (equippedBadge && it.id === equippedBadge.id);
-
-                return (
-                  <View
-                    key={it.id}
-                    style={styles.itemCard}
-                  >
-                    {/* Top Right Badge: Quantity or Lock Icon */}
-                    {it.unlocked ? (
-                      <View style={styles.qtyBadge}>
-                        <Text style={styles.qtyBadgeText}>{it.qty}</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.lockBadge}>
-                        <Ionicons name="lock-closed" size={ms(11)} color="#8B5CF6" />
-                      </View>
-                    )}
-
-                    {/* Illustration Icon */}
-                    <View style={styles.illustrationWrap}>
-                      <ItemIllustration type={it.type} imageUrl={it.imageUrl} size={s(56)} />
+              {visibleItems.map((item) => (
+                <View key={item.id} style={styles.itemCard}>
+                  {/* Quantity Badge */}
+                  {item.quantity > 1 && (
+                    <View style={styles.qtyBadge}>
+                      <Text style={styles.qtyBadgeText}>×{item.quantity}</Text>
                     </View>
+                  )}
 
-                    {/* Item Label */}
-                    <Text style={styles.itemLabel} numberOfLines={1}>
-                      {it.label}
-                    </Text>
-
-                    {/* Equip Button or None State */}
-                    {it.unlocked ? (
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        onPress={() => handleEquipItem(it)}
-                        style={styles.equipBtnTouchable}
-                      >
-                        <LinearGradient
-                          colors={isEquipped ? ["#7C3AED", "#6D28D9"] : ["#A855F7", "#7C3AED", "#6366F1"]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.equipBtnGradient}
-                        >
-                          <Text style={styles.equipBtnText}>
-                            {isEquipped ? "Equipped" : `Equip ×${it.qty}`}
-                          </Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
+                  {/* Image */}
+                  <View style={styles.itemImgWrap}>
+                    {item.imageUrl ? (
+                      <Image
+                        source={{ uri: item.imageUrl }}
+                        style={styles.itemImg}
+                        contentFit="contain"
+                      />
                     ) : (
-                      <View style={styles.nonePill}>
-                        <Text style={styles.nonePillText}>None</Text>
-                      </View>
+                      <MaterialCommunityIcons
+                        name="gift"
+                        size={ms(42)}
+                        color="#A78BFA"
+                      />
                     )}
                   </View>
-                );
-              })}
-            </View>
-          )}
-        </View>
 
-        {/* ── Go to Store Button ── */}
-        <View style={styles.storeSection}>
-          <TouchableOpacity
-            style={styles.storeButton}
-            activeOpacity={0.85}
-            onPress={handleStorePress}
-          >
-            <MaterialCommunityIcons name="storefront-outline" size={ms(18)} color="#7C3AED" />
-            <Text style={styles.storeButtonText}>Go to Store</Text>
-            <Ionicons name="chevron-forward" size={ms(15)} color="#7C3AED" />
-          </TouchableOpacity>
-        </View>
+                  {/* Label */}
+                  <Text style={styles.itemName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+
+                  {/* Duration */}
+                  <Text style={styles.itemDuration}>{item.duration}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Go to store button at bottom of items list */}
+            <View style={styles.storeSection}>
+              <TouchableOpacity
+                style={styles.storeButton}
+                activeOpacity={0.85}
+                onPress={handleStorePress}
+              >
+                <MaterialCommunityIcons
+                  name="storefront-outline"
+                  size={ms(18)}
+                  color="#7C3AED"
+                />
+                <Text style={styles.storeButtonText}>Go to Store</Text>
+                <Ionicons name="chevron-forward" size={ms(15)} color="#7C3AED" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
 }
 
-// ── Styles with react-native-size-matters ────────────────────────────────────
-
+// ── Styles ──────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   rootContainer: {
     flex: 1,
-    backgroundColor: "#FAF4FE",
+    backgroundColor: "#FFFFFF",
   },
-  headerContainer: {
+
+  // Header Bar
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: s(16),
-    paddingBottom: vs(12),
-  },
-  headerRoundBtn: {
-    width: s(32),
-    height: s(32),
-    borderRadius: s(16),
+    paddingBottom: vs(6),
     backgroundColor: "#FFFFFF",
+  },
+  navIconBtn: {
+    width: s(38),
+    height: s(38),
+    borderRadius: s(19),
+    backgroundColor: "#F8FAFC",
     alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: vs(2) },
-    shadowOpacity: 0.08,
-    shadowRadius: ms(6),
-    elevation: 3,
-  },
-  headerCenter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(8),
-  },
-  headerBackpackIconWrap: {
-    width: s(36),
-    height: s(36),
-    borderRadius: ms(12),
-    overflow: "hidden",
-  },
-  headerBackpackGrad: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTextCol: {
     justifyContent: "center",
   },
   headerTitle: {
     fontSize: ms(18),
-    fontWeight: "800",
-    color: "#201445",
-    letterSpacing: -0.2,
-  },
-  headerSubtitle: {
-    fontSize: ms(11),
-    color: "#8676A3",
-    marginTop: vs(1),
-    fontWeight: "500",
-  },
-  scrollContent: {
-    paddingHorizontal: s(14),
-    paddingTop: vs(4),
-  },
-  equippedRow: {
-    flexDirection: "row",
-    gap: s(10),
-    marginBottom: vs(14),
-  },
-  equippedCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: ms(20),
-    borderWidth: 1,
-    borderColor: "#EDE6F8",
-    paddingVertical: vs(10),
-    paddingHorizontal: s(10),
-    flexDirection: "row",
-    alignItems: "center",
-    position: "relative",
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: vs(3) },
-    shadowOpacity: 0.05,
-    shadowRadius: ms(8),
-    elevation: 2,
-    gap: s(8),
-  },
-  equippedIconContainer: {
-    width: s(46),
-    height: s(46),
-    borderRadius: ms(23),
-    backgroundColor: "#F6F1FD",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  slotPlaceholderFrame: {
-    width: s(28),
-    height: s(28),
-    borderRadius: ms(8),
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderColor: "#C4B5FD",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#EDE9FE",
-  },
-  slotPlaceholderBadge: {
-    width: s(32),
-    height: s(32),
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  badgeShieldBg: {
-    position: "absolute",
-  },
-  badgeHelpInside: {
-    position: "absolute",
-  },
-  equippedTextCol: {
-    flex: 1,
-  },
-  equippedMainTitle: {
-    fontSize: ms(11.5),
     fontWeight: "700",
-    color: "#201445",
-  },
-  equippedSubTitle: {
-    fontSize: ms(10.5),
-    color: "#9B8EB9",
-    marginTop: vs(1.5),
-    fontWeight: "500",
-  },
-  equippedChevronPill: {
-    width: s(20),
-    height: s(20),
-    borderRadius: s(10),
-    backgroundColor: "#F3ECFE",
-    alignItems: "center",
-    justifyContent: "center",
+    color: "#0F172A",
   },
 
-  // ── Main Backpack Card (matching design reference) ──
-  mainBackpackCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: ms(28),
-    paddingVertical: vs(18),
-    paddingHorizontal: s(10),
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: vs(6) },
-    shadowOpacity: 0.08,
-    shadowRadius: ms(28),
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: "#EDE6F8",
+  // Category Tabs
+  categoryContainer: {
+    marginTop: vs(6),
+    paddingBottom: vs(8),
   },
-  ribbonRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: s(7),
-    marginBottom: vs(16),
-  },
-  ribbonSparkleLeft: {
-    fontSize: ms(16),
-    color: "#FBBF24",
-    fontWeight: "700",
-  },
-  ribbonSparkleRight: {
-    fontSize: ms(16),
-    color: "#E879F9",
-    fontWeight: "700",
-  },
-  ribbonBagIconWrap: {
-    width: s(28),
-    height: s(28),
-    borderRadius: ms(9),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ribbonTitle: {
-    fontSize: ms(17),
-    fontWeight: "800",
-    color: "#201445",
-    letterSpacing: -0.2,
-  },
-
-  // Category Pills (Horizontal Scroll)
-  categoryRow: {
-    flexDirection: "row",
+  categoryScroll: {
+    paddingHorizontal: s(16),
     alignItems: "center",
     gap: s(6),
-    paddingBottom: vs(16),
   },
-  categoryPillWrap: {
-    marginRight: s(2),
-  },
-  categoryPillActive: {
-    paddingHorizontal: s(16),
+  categoryPill: {
     paddingVertical: vs(7),
-    borderRadius: ms(20),
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: vs(2) },
-    shadowOpacity: 0.25,
-    shadowRadius: ms(4),
-    elevation: 2,
+    paddingHorizontal: s(14),
+    borderRadius: s(20),
+    backgroundColor: "transparent",
   },
-  categoryPillInactive: {
-    paddingHorizontal: s(16),
-    paddingVertical: vs(7),
-    borderRadius: ms(20),
-    backgroundColor: "#F8F7FD",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#EDE6F8",
+  categoryPillSelected: {
+    backgroundColor: "#7C3AED",
   },
-  categoryPillTextActive: {
+  categoryText: {
     fontSize: ms(12),
-    fontWeight: "800",
+    fontWeight: "600",
+    color: "#334155",
+  },
+  categoryTextSelected: {
     color: "#FFFFFF",
-  },
-  categoryPillTextInactive: {
-    fontSize: ms(12),
     fontWeight: "700",
-    color: "#7E6E9C",
   },
 
-  // Item Grid
-  itemGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
+  // Sub-Tabs
+  subTabContainer: {
+    marginTop: vs(4),
+    paddingBottom: vs(8),
   },
-  itemCard: {
-    width: "31.5%",
-    backgroundColor: "#FFFFFF",
-    borderRadius: ms(20),
-    borderWidth: 1.2,
-    borderColor: "#F2EDFB",
-    paddingVertical: vs(12),
-    paddingHorizontal: s(6),
+  subTabScroll: {
+    paddingHorizontal: s(16),
     alignItems: "center",
-    marginBottom: vs(12),
-    position: "relative",
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: vs(2) },
-    shadowOpacity: 0.04,
-    shadowRadius: ms(6),
-    elevation: 1,
+    gap: s(6),
   },
-  qtyBadge: {
-    position: "absolute",
-    top: vs(6),
-    right: s(6),
-    backgroundColor: "#F1EBFC",
-    width: s(20),
-    height: s(20),
-    borderRadius: s(10),
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2,
-  },
-  qtyBadgeText: {
-    fontSize: ms(10),
-    fontWeight: "800",
-    color: "#7C3AED",
-  },
-  lockBadge: {
-    position: "absolute",
-    top: vs(6),
-    right: s(6),
-    width: s(20),
-    height: s(20),
-    borderRadius: s(10),
-    backgroundColor: "#F1EBFC",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2,
-  },
-  illustrationWrap: {
-    height: vs(62),
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: vs(6),
-  },
-  illustrationCenterWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  itemLabel: {
-    fontSize: ms(11.5),
-    fontWeight: "800",
-    color: "#201445",
-    textAlign: "center",
-    marginTop: vs(6),
-    marginBottom: vs(8),
-  },
-  equipBtnTouchable: {
-    width: "100%",
-    alignItems: "center",
-  },
-  equipBtnGradient: {
-    borderRadius: ms(14),
+  subTabPill: {
     paddingVertical: vs(6),
-    paddingHorizontal: s(10),
-    minWidth: s(66),
+    paddingHorizontal: s(14),
+    borderRadius: s(18),
+    backgroundColor: "transparent",
+  },
+  subTabPillSelected: {
+    backgroundColor: "#8B5CF6",
+  },
+  subTabText: {
+    fontSize: ms(13),
+    fontWeight: "500",
+    color: "#475569",
+  },
+  subTabTextSelected: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+  },
+
+  // Filter Pills (All / Normal Outfit / Privilege Outfit)
+  filterPillsContainer: {
+    marginTop: vs(4),
+    paddingBottom: vs(12),
+  },
+  filterPillsScroll: {
+    paddingHorizontal: s(16),
+    alignItems: "center",
+    gap: s(8),
+  },
+  filterPill: {
+    paddingVertical: vs(6),
+    paddingHorizontal: s(16),
+    borderRadius: s(18),
+    backgroundColor: "#F1F5F9",
+  },
+  filterPillSelected: {
+    backgroundColor: "#7C3AED",
+  },
+  filterPillText: {
+    fontSize: ms(12),
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  filterPillTextSelected: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+
+  // Main Scroll Content
+  mainScrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: s(16),
+    paddingTop: vs(20),
+  },
+
+  // Loading
+  loadingWrap: {
+    paddingVertical: vs(80),
     alignItems: "center",
     justifyContent: "center",
   },
-  equipBtnText: {
-    color: "#FFFFFF",
-    fontSize: ms(10),
-    fontWeight: "800",
-  },
-  nonePill: {
-    backgroundColor: "#F5F3FB",
-    borderRadius: ms(14),
-    paddingVertical: vs(5),
-    paddingHorizontal: s(12),
-    minWidth: s(54),
-    alignItems: "center",
-  },
-  nonePillText: {
-    color: "#9E96B8",
-    fontSize: ms(10),
-    fontWeight: "700",
-  },
-  emptyContainer: {
-    alignItems: "center",
-    paddingVertical: vs(32),
-    gap: vs(6),
-  },
-  emptyTitle: {
-    fontSize: ms(14),
-    fontWeight: "700",
-    color: "#201445",
-  },
-  emptySub: {
-    fontSize: ms(11),
-    color: "#8676A3",
+  loadingText: {
+    marginTop: vs(12),
+    fontSize: ms(13),
+    color: "#64748B",
+    fontWeight: "500",
   },
 
-  // ── Go to Store Button (centered pill) ──
+  // Empty State
+  emptyWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: vs(40),
+  },
+  illustrationCenter: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // Go to Store Button (Kept unchanged as requested)
   storeSection: {
     alignItems: "center",
-    justifyContent: "center",
-    marginTop: vs(16),
+    marginTop: vs(28),
+    marginBottom: vs(16),
   },
   storeButton: {
     flexDirection: "row",
@@ -852,164 +721,75 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: s(8),
     backgroundColor: "#FFFFFF",
-    borderRadius: ms(26),
-    borderWidth: 1.5,
-    borderColor: "#F0EBF8",
-    paddingVertical: vs(12),
-    paddingHorizontal: s(36),
+    paddingVertical: vs(13),
+    paddingHorizontal: s(28),
+    borderRadius: s(25),
+    borderWidth: 1,
+    borderColor: "#EDE9FE",
     shadowColor: "#7C3AED",
     shadowOffset: { width: 0, height: vs(3) },
-    shadowOpacity: 0.08,
-    shadowRadius: ms(8),
+    shadowOpacity: 0.12,
+    shadowRadius: s(8),
     elevation: 3,
   },
   storeButtonText: {
-    fontSize: ms(14.5),
-    fontWeight: "800",
-    color: "#201445",
+    fontSize: ms(14),
+    fontWeight: "700",
+    color: "#2E1E5B",
   },
 
-  // ── Illustration Specific Sub-styles ──
-  avatarFrameArtWrap: {
+  // Items Grid
+  itemGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: s(10),
+  },
+  itemCard: {
+    width: ITEM_CARD_WIDTH,
+    backgroundColor: "#FAF5FE",
+    borderRadius: s(14),
+    padding: s(10),
     alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#EDE9FE",
     position: "relative",
   },
-  avatarFrameGoldRing: {
-    width: s(46),
-    height: s(46),
-    borderRadius: s(23),
-    padding: s(3),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarFrameInnerCircle: {
-    width: "100%",
-    height: "100%",
-    borderRadius: s(20),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarFrameCrown: {
+  qtyBadge: {
     position: "absolute",
-    top: -vs(5),
-  },
-  avatarFrameHeart: {
-    position: "absolute",
-    bottom: -vs(2),
-  },
-  starHaloGlow: {
-    position: "absolute",
-    width: s(48),
-    height: s(48),
-    borderRadius: s(24),
-    backgroundColor: "#F3E8FF",
-  },
-  starOrbitalRing: {
-    position: "absolute",
-    width: s(52),
-    height: s(24),
-    borderRadius: ms(12),
-    borderWidth: 1.5,
-    borderColor: "#DDD6FE",
-    transform: [{ rotate: "-20deg" }],
-  },
-  starCircle: {
-    width: s(38),
-    height: s(38),
-    borderRadius: s(19),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sparkleTopRight: {
-    position: "absolute",
-    top: 0,
-    right: s(2),
-  },
-  sparkleBottomLeft: {
-    position: "absolute",
-    bottom: 0,
-    left: s(2),
-  },
-  chatBubbleShape: {
-    width: s(42),
-    height: s(40),
-    borderRadius: ms(18),
-    borderBottomLeftRadius: ms(4),
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  chatBubbleTail: {
-    position: "absolute",
-    bottom: -vs(3),
-    left: s(3),
-    width: s(10),
-    height: s(10),
-    backgroundColor: "#7C3AED",
-    borderBottomLeftRadius: ms(4),
-    transform: [{ rotate: "45deg" }],
-  },
-  chatBubbleHeartCircle: {
-    width: s(20),
-    height: s(20),
-    borderRadius: s(10),
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badgeGoldRing: {
-    width: s(46),
-    height: s(46),
-    borderRadius: s(23),
-    padding: s(3.5),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badgeInnerCore: {
-    width: "100%",
-    height: "100%",
-    borderRadius: s(20),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  vipGlowAura: {
-    position: "absolute",
-    width: s(48),
-    height: s(48),
-    borderRadius: s(24),
-    backgroundColor: "#FEE2E2",
-  },
-  vipFlameWrap: {
-    width: s(40),
-    height: s(40),
-    borderRadius: s(20),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  profileBgCard: {
-    width: s(44),
-    height: s(38),
-    borderRadius: ms(12),
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    overflow: "hidden",
-  },
-  profileBgSun: {
-    position: "absolute",
-    top: vs(4),
+    top: vs(6),
     right: s(6),
-    width: s(8),
-    height: s(8),
-    borderRadius: s(4),
-    backgroundColor: "#FDE047",
+    backgroundColor: "rgba(124, 58, 237, 0.15)",
+    paddingHorizontal: s(6),
+    paddingVertical: vs(2),
+    borderRadius: s(8),
   },
-  defaultIconCircle: {
-    width: s(40),
-    height: s(40),
-    borderRadius: s(20),
+  qtyBadgeText: {
+    fontSize: ms(10),
+    fontWeight: "700",
+    color: "#7C3AED",
+  },
+  itemImgWrap: {
+    width: s(64),
+    height: s(64),
     alignItems: "center",
     justifyContent: "center",
+    marginVertical: vs(6),
+  },
+  itemImg: {
+    width: "100%",
+    height: "100%",
+  },
+  itemName: {
+    fontSize: ms(12),
+    fontWeight: "600",
+    color: "#1E293B",
+    textAlign: "center",
+    width: "100%",
+  },
+  itemDuration: {
+    fontSize: ms(10),
+    color: "#94A3B8",
+    marginTop: vs(2),
+    marginBottom: vs(4),
   },
 });

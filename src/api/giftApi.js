@@ -1,3 +1,5 @@
+import axios from "axios";
+import { Platform } from "react-native";
 import API, {
   authRequestConfig,
   getBearerToken,
@@ -81,6 +83,68 @@ export const getGiftInventory = async () => {
     logError("GET", path, error);
     throw error;
   }
+};
+
+export const INTIMACY_INVENTORY_TYPES = {
+  RING: "RING",
+  JEWELRY: "JEWELRY",
+  LOVE_ZONE: "LOVE_ZONE",
+  MIC_LINK: "MIC_LINK",
+  SPECIAL_CARD: "SPECIAL_CARD",
+  CP_CARD: "CP_CARD",
+  INTIMACY_CARD: "INTIMACY_CARD",
+};
+
+/**
+ * GET http://localhost:8084/api/app/gifts/inventory/intimecy/{type}?page=0&size=20
+ * Types: RING, JEWELRY, LOVE_ZONE, MIC_LINK, SPECIAL_CARD, CP_CARD, INTIMACY_CARD
+ */
+export const getIntimacyBackpackInventory = async (type = "RING", page = 0, size = 20) => {
+  const normalizedType = String(type || "RING").toUpperCase();
+  const subPath = `/api/app/gifts/inventory/intimecy/${encodeURIComponent(normalizedType)}?page=${page}&size=${size}`;
+  logRequest("GET", subPath);
+
+  const LOCAL_BASE_URL = "http://localhost:8084";
+  const ANDROID_EMU_BASE_URL = "http://10.0.2.2:8084";
+
+  await refreshTokenCache().catch(() => {});
+  const token = await getBearerToken();
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    "ngrok-skip-browser-warning": "true",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  const candidates = [
+    `${LOCAL_BASE_URL}${subPath}`,
+    ...(Platform.OS === "android" ? [`${ANDROID_EMU_BASE_URL}${subPath}`] : []),
+    subPath,
+  ];
+
+  let lastError = null;
+  for (const url of candidates) {
+    try {
+      if (url.startsWith("http")) {
+        const res = await axios.get(url, { headers, timeout: 3500 });
+        logResponse("GET", url, res.data);
+        return res.data;
+      } else {
+        const { headers: authHeaders } = await buildAuthedConfig(`gifts/inventory/intimecy/${type}`);
+        const res = await API.get(url, { headers: authHeaders });
+        logResponse("GET", url, res.data);
+        return res.data;
+      }
+    } catch (err) {
+      lastError = err;
+      if (err?.response?.status === 401 || err?.response?.status === 403) {
+        throw err;
+      }
+    }
+  }
+
+  logError("GET", subPath, lastError);
+  throw lastError;
 };
 
 /** POST /api/app/gifts/buy — deduct diamonds, add to inventory */
@@ -289,6 +353,39 @@ export const recordListenRewardProgress = async ({ roomId, deltaSeconds }) => {
     return response.data;
   } catch (error) {
     logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** GET /api/gifts/category/{category} — fetch gifts by category (ring, jewelry, love_zone, mic_link, special_card, cp_card, intimacy_card) */
+export const getGiftsByCategory = async (category) => {
+  const normalizedCategory = encodeURIComponent(String(category ?? "").trim().toLowerCase());
+  const path = normalizedCategory
+    ? `/api/gifts/category/${normalizedCategory}`
+    : "/api/gifts";
+  logRequest("GET", path);
+  try {
+    const { headers } = await buildAuthedConfig(`gifts/category/${category}`);
+    const response = await API.get(path, { headers });
+    logResponse("GET", path, response.data);
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (error) {
+    logError("GET", path, error);
+    throw error;
+  }
+};
+
+/** GET /api/gifts — fetch all gifts from system */
+export const getAllGifts = async () => {
+  const path = "/api/gifts";
+  logRequest("GET", path);
+  try {
+    const { headers } = await buildAuthedConfig("gifts/all");
+    const response = await API.get(path, { headers });
+    logResponse("GET", path, response.data);
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (error) {
+    logError("GET", path, error);
     throw error;
   }
 };
