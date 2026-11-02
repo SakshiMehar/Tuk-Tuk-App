@@ -9,6 +9,7 @@ export const ROUTES = {
 
   // Auth Screens
   AUTH: {
+    SPLASH: 'Splash',
     LOGIN: 'Login',
     MOBILE: 'Mobile',
     OTP: 'Otp',

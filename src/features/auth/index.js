@@ -1,4 +1,5 @@
 export * from './screens/LoginScreen';
+export * from './screens/SplashScreen';
 export * from './screens/MobileScreen';
 export * from './screens/OtpScreen';
 export * from './hooks/useAuth';

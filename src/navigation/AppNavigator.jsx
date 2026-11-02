@@ -12,13 +12,13 @@ import { colors } from '@shared/theme';
 const RootStack = createNativeStackNavigator();
 
 const navTheme = {
-  dark: true,
+  dark: false,
   colors: {
     primary: colors.brand.primary,
-    background: colors.background.primary,
-    card: colors.background.secondary,
-    text: colors.text.primary,
-    border: colors.border.light,
+    background: '#FFFFFF',
+    card: '#FFFFFF',
+    text: '#111827',
+    border: 'rgba(0, 0, 0, 0.05)',
     notification: colors.brand.secondary,
   },
   fonts: {

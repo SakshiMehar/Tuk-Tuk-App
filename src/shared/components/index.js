@@ -6,3 +6,5 @@ export * from './Loader/Loader';
 export * from './EmptyState/EmptyState';
 export * from './ErrorView/ErrorView';
 export * from './Toast/Toast';
+export * from './LinearGradient/LinearGradient';
+export * from './AppBackground/AppBackground';

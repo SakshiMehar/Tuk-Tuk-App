@@ -1,16 +1,19 @@
 {
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@app/*": ["src/app/*"],
-      "@navigation/*": ["src/navigation/*"],
-      "@features/*": ["src/features/*"],
-      "@shared/*": ["src/shared/*"],
-      "@store/*": ["src/store/*"],
-      "@types/*": ["src/types/*"],
-      "@assets/*": ["assets/*"]
+      "@/*": ["./src/*"],
+      "@app/*": ["./src/app/*"],
+      "@navigation/*": ["./src/navigation/*"],
+      "@features/*": ["./src/features/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@store/*": ["./src/store/*"],
+      "@types/*": ["./src/types/*"],
+      "@assets/*": ["./assets/*"],
+      "@expo/vector-icons": ["./src/shared/compat/vectorIcons"],
+      "expo-linear-gradient": ["./src/shared/compat/linearGradient"],
+      "@react-native-masked-view/masked-view": ["./src/shared/compat/maskedView"],
+      "expo-router": ["./src/shared/compat/expoRouter"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
