@@ -7,6 +7,8 @@ export const GOOGLE_WEB_CLIENT_ID =
   '969637468541-g2tea78vrhg915eklstvv4q612223129.apps.googleusercontent.com';
 
 export const FACEBOOK_APP_ID = '978713374875936';
+export const FACEBOOK_APP_NAME = 'TukTukApp';
+export const FACEBOOK_APP_SECRET = 'c7aae4e707d931073f62d0b9862007a1';
 
 export const firebaseConfig = {
   apiKey: 'AIzaSyCWckmHnO5vjpWdb2F6Qpp8r36cteVfgoo',
@@ -28,6 +30,8 @@ export const isFirebaseConfigured = (): boolean =>
 export default {
   GOOGLE_WEB_CLIENT_ID,
   FACEBOOK_APP_ID,
+  FACEBOOK_APP_NAME,
+  FACEBOOK_APP_SECRET,
   firebaseConfig,
   isFirebaseConfigured,
 };

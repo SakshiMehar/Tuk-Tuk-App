@@ -42,6 +42,7 @@ export function PhoneLoginModal({ visible, onClose, onSuccess }: PhoneLoginModal
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [resendTimer, setResendTimer] = useState(30);
+  const [isDevMode, setIsDevMode] = useState(false);
 
   const otpInputs = useRef<any[]>([]);
 
@@ -54,6 +55,7 @@ export function PhoneLoginModal({ visible, onClose, onSuccess }: PhoneLoginModal
       setOtp(['', '', '', '', '', '']);
       setError('');
       setResendTimer(30);
+      setIsDevMode(false);
     }
   }, [visible]);
 
@@ -81,7 +83,8 @@ export function PhoneLoginModal({ visible, onClose, onSuccess }: PhoneLoginModal
     setLoading(true);
 
     try {
-      await sendPhoneOtp(fullPhoneNumber);
+      const result = await sendPhoneOtp(fullPhoneNumber);
+      setIsDevMode(!!result?.isDevMode);
       setStep('otp');
       setResendTimer(30);
       setTimeout(() => {
@@ -291,6 +294,19 @@ export function PhoneLoginModal({ visible, onClose, onSuccess }: PhoneLoginModal
                   <Text style={styles.subtitle}>
                     Sent to {selectedCountry.code} {phone.trim()}
                   </Text>
+                  {isDevMode && (
+                    <Text
+                      style={{
+                        color: '#F59E0B',
+                        fontSize: ms(11.5),
+                        textAlign: 'center',
+                        marginBottom: vs(12),
+                        fontWeight: '600',
+                      }}
+                    >
+                      💡 Demo/Test: Enter 6 digits (e.g. 123456)
+                    </Text>
+                  )}
 
                   {/* 6 Digit OTP Input Boxes */}
                   <View style={styles.otpBoxesRow}>

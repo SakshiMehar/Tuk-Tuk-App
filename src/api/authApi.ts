@@ -58,12 +58,14 @@ export const firebasePhoneAuth = async (
 export const firebaseFacebookAuth = async (
   idToken: string,
   phoneNumber?: string,
-  name?: string
+  name?: string,
+  avatar?: string
 ) => {
   const body = {
     idToken,
     ...(phoneNumber ? { phoneNumber } : {}),
     ...(name ? { name } : {}),
+    ...(avatar ? { avatar } : {}),
   };
   try {
     const res = await apiClient.post('/api/auth/firebase-facebook', body);
@@ -77,7 +79,7 @@ export const firebaseFacebookAuth = async (
         user: {
           id: 'usr_fb_' + Date.now(),
           name: name || 'Tuk-Tuk Facebook User',
-          avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
+          avatar: avatar || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
           diamonds: 28961.4,
           level: 1,
           isVip: true,

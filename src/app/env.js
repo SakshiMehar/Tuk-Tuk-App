@@ -26,6 +26,6 @@ export const ENV = {
   WS_RECONNECT_INTERVAL_MS: 3000,
   WS_MAX_RECONNECT_ATTEMPTS: 5,
   SEAT_HEARTBEAT_INTERVAL_MS: 10000,
-};
+}; 
 
 export default ENV;
