@@ -1,15 +1,15 @@
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ChevronRight, ThumbsUp } from "lucide-react-native";
+import { Bell, ChevronRight, Plus, ThumbsUp } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
   BackHandler,
+  DeviceEventEmitter,
   Dimensions,
   Easing,
   FlatList,
@@ -35,11 +35,16 @@ import {
 import AppBackground from "../../Components/AppBackground";
 import ComingSoonModal from "../../Components/ComingSoonModal";
 import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
+import PostCreateSheet from "../../Components/PostCreateSheet";
 import PostImageViewer from "../../Components/PostImageViewer";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
-import LiveBadge from "../../Components/LiveBadge";
 import ReportReasonModal from "../../Components/ReportReasonModal";
 import Toast from "../../Components/Toast";
+import {
+  getFollowingRooms,
+  getRecentlyRooms,
+  getRoomRecommendations,
+} from "../../src/api/partyApi";
 import {
   addComment,
   createPost,
@@ -87,6 +92,7 @@ import {
 import { syncUserCountryToServer } from "../../src/services/userCountryService";
 import { updateUserProfile } from "../../src/services/userProfileService";
 import { loadMyVipAssets } from "../../src/services/vipService";
+import { wsService } from "../../src/services/websocket";
 import { getUser, updateUser } from "../../src/store/authStore";
 import {
   applyWalletFromSources,
@@ -95,6 +101,7 @@ import {
 import { openUserChat } from "../../src/utils/chatNavigation";
 import { getDeviceCoordinates } from "../../src/utils/deviceLocation";
 import { resolveLocalLevelBadge } from "../../src/utils/levelBadge";
+import { isUserLive, useUserOnlineOrLiveStatus } from "../../src/utils/liveStatus";
 import { resolveEntityNewUserFrameSource } from "../../src/utils/newUserFrame";
 import { navigateFromNotification } from "../../src/utils/notificationNavigation";
 import { resolveProfileAvatarSource } from "../../src/utils/profileAvatar";
@@ -103,8 +110,6 @@ import { ms, s, vs } from "../../src/utils/responsive";
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import { resolveImageSource } from "../../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
-import { wsService } from "../../src/services/websocket";
-import { isUserLive, isUserOnline, useUserOnlineOrLiveStatus } from "../../src/utils/liveStatus";
 
 // Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
 // appears (UserProfileView, ChatTab) — derives the logo URL for a card that
@@ -184,7 +189,7 @@ const actionCards = [
     subtitle: "Mystery match",
     colors: ["#dc62bcff", "#351743ff"],
     img: { uri: `${HOME_S3_BASE}/TM2B.gif` },
-    route: "/(tabs)/blind-pick",
+    route: "/blind-pick",
     imgSize: CARD_SIZE * 0.8,
     gifDelay: 1200,
   },
@@ -734,857 +739,58 @@ const moreMenuStyles = StyleSheet.create({
   },
 });
 
-// ── Post Create Sheet ─────────────────────────────────────────
-const MAX_POST_PHOTOS = 10;
-
-const PostCreateSheet = memo(({ visible, onClose, onPost }) => {
-  const [caption, setCaption] = useState("");
-  // Photos and video are mutually exclusive (same convention most social
-  // apps use) — photos support picking/attaching several at once, video
-  // stays a single attachment.
-  const [photos, setPhotos] = useState([]);
-  const [video, setVideo] = useState(null);
-  const [confirmed, setConfirmed] = useState(false); // true after user taps "Attach"
-  const [loading, setLoading] = useState(false);
-  const captionRef = useRef(null);
-  const scrollRef = useRef(null);
-
-  const mediaType = video ? "video" : photos.length > 0 ? "photo" : null;
-  const hasMedia = photos.length > 0 || Boolean(video?.uri);
-
-  useEffect(() => {
-    if (!visible) {
-      setCaption("");
-      setPhotos([]);
-      setVideo(null);
-      setConfirmed(false);
-    }
-  }, [visible]);
-
-  const addPhotos = useCallback((assets) => {
-    setPhotos((prev) => {
-      const existingUris = new Set(prev.map((a) => a.uri));
-      const fresh = assets.filter((a) => a?.uri && !existingUris.has(a.uri));
-      return [...prev, ...fresh].slice(0, MAX_POST_PHOTOS);
-    });
-    setVideo(null);
-  }, []);
-
-  const pickMedia = useCallback(
-    async (type) => {
-      const { status } =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission needed",
-          "Gallery access is required to attach a photo or video.",
-        );
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: type === "photo" ? ["images"] : ["videos"],
-        allowsEditing: false,
-        allowsMultipleSelection: type === "photo",
-        selectionLimit: type === "photo" ? MAX_POST_PHOTOS : 1,
-        quality: 0.85,
-        videoMaxDuration: 60,
-      });
-      if (result.canceled || !result.assets?.length) return;
-      if (type === "photo") {
-        addPhotos(result.assets);
-      } else {
-        setVideo(result.assets[0]);
-        setPhotos([]);
-      }
-      setConfirmed(true);
-    },
-    [addPhotos],
-  );
-
-  const openCamera = useCallback(
-    async (type) => {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission needed",
-          "Camera access is required to take a photo or video.",
-        );
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: type === "photo" ? ["images"] : ["videos"],
-        allowsEditing: false,
-        quality: 0.85,
-      });
-      if (result.canceled || !result.assets?.[0]) return;
-      if (type === "photo") {
-        addPhotos([result.assets[0]]);
-      } else {
-        setVideo(result.assets[0]);
-        setPhotos([]);
-      }
-      setConfirmed(true);
-    },
-    [addPhotos],
-  );
-
-  const removePhotoAt = useCallback((index) => {
-    setPhotos((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  // "Done" just confirms the media selection and reveals the caption input.
-  // The actual API call happens in handlePost when the user taps "Post".
-  const handleConfirmMedia = useCallback(() => {
-    if (!hasMedia) return;
-    setConfirmed(true);
-  }, [hasMedia]);
-
-  // Re-launch picker with crop enabled on the existing single photo. Only
-  // offered when exactly one photo is attached — cropping several photos
-  // one-by-one is out of scope here.
-  const handleCrop = useCallback(async () => {
-    if (photos.length !== 1) return;
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true, // native crop UI
-      quality: 0.85,
-    });
-    if (!result.canceled && result.assets?.[0]) {
-      setPhotos([result.assets[0]]);
-      setConfirmed(true);
-    }
-  }, [photos]);
-
-  const handlePost = useCallback(async () => {
-    if (!caption.trim() && !hasMedia) return;
-    setLoading(true);
-    try {
-      await onPost({ caption, photos, video, mediaType });
-      onClose();
-    } catch (e) {
-      Alert.alert(
-        "Post failed",
-        e?.message || "Could not create your post. Please try again.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [caption, photos, video, mediaType, hasMedia, onPost, onClose]);
-
-  const canPost = caption.trim().length > 0 || hasMedia;
-  const showComposer = !hasMedia || confirmed;
-
-  const renderPhotosItem = ({ item, index }) => {
-    return (
-      <View key={index} style={[postCreateStyles.photoItem]}>
-        <Image
-          source={{ uri: item.uri }}
-          style={postCreateStyles.confirmedThumbImg1}
-          contentFit="cover"
-        />
-        <TouchableOpacity
-          style={postCreateStyles.removeBtnSmall}
-          onPress={() => removePhotoAt(index)}
-        >
-          <Text style={postCreateStyles.removeTxt}>✕</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View style={postCreateStyles.overlay}>
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          onPress={onClose}
-          activeOpacity={1}
-        />
-        <View
-          style={{
-            width: "100%",
-            justifyContent: "flex-end",
-            paddingBottom: 45,
-            flexGrow: 1,
-          }}
-        >
-          <View style={postCreateStyles.sheet}>
-            <LinearGradient
-              colors={["#1e0a3c", "#16082a", "#0d0618"]}
-              // colors={["#1e0a3c", "#16082a", "#6308f5ff"]}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={["#7c4dff", "#ff4ea3"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={postCreateStyles.topGlow}
-            />
-            <View style={postCreateStyles.handle} />
-
-            {/* ── HEADER ── */}
-            <View style={postCreateStyles.header}>
-              <Text style={postCreateStyles.title}>Create Post</Text>
-              <TouchableOpacity
-                onPress={onClose}
-                style={postCreateStyles.closeBtn}
-              >
-                <Text style={postCreateStyles.closeTxt}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              ref={scrollRef}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 48 }}
-            >
-              {/* ── STEP 1: media picker (hidden after confirmed) ── */}
-              <View style={postCreateStyles.mediaRow}>
-                <TouchableOpacity
-                  style={postCreateStyles.mediaCard}
-                  onPress={() => pickMedia("photo")}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={["rgba(124,77,255,0.25)", "rgba(124,77,255,0.08)"]}
-                    style={postCreateStyles.mediaCardGrad}
-                  >
-                    <Text style={postCreateStyles.mediaCardEmoji}>🖼️</Text>
-                    <Text style={postCreateStyles.mediaCardLabel}>Gallery</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={postCreateStyles.mediaCard}
-                  onPress={() => openCamera("photo")}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={["rgba(255,78,163,0.25)", "rgba(255,78,163,0.08)"]}
-                    style={postCreateStyles.mediaCardGrad}
-                  >
-                    <Text style={postCreateStyles.mediaCardEmoji}>📷</Text>
-                    <Text style={postCreateStyles.mediaCardLabel}>Camera</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={postCreateStyles.mediaCard}
-                  onPress={() => pickMedia("video")}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={["rgba(255,107,53,0.25)", "rgba(255,107,53,0.08)"]}
-                    style={postCreateStyles.mediaCardGrad}
-                  >
-                    <Text style={postCreateStyles.mediaCardEmoji}>🎬</Text>
-                    <Text style={postCreateStyles.mediaCardLabel}>Video</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={postCreateStyles.mediaCard}
-                  onPress={() => openCamera("video")}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={["rgba(0,180,216,0.25)", "rgba(0,180,216,0.08)"]}
-                    style={postCreateStyles.mediaCardGrad}
-                  >
-                    <Text style={postCreateStyles.mediaCardEmoji}>🎥</Text>
-                    <Text style={postCreateStyles.mediaCardLabel}>Record</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-              {!confirmed && (
-                <>
-                  {/* ── FULL PREVIEW + BOTTOM ACTION BUTTONS ── */}
-                  {hasMedia && (
-                    <View style={postCreateStyles.confirmBlock}>
-                      {video ? (
-                        <View style={postCreateStyles.previewWrapper}>
-                          <Image
-                            source={{ uri: video.uri }}
-                            style={postCreateStyles.preview}
-                            contentFit="cover"
-                          />
-                          <View style={postCreateStyles.videoOverlay}>
-                            <Text style={postCreateStyles.videoPlayIcon}>
-                              ▶
-                            </Text>
-                          </View>
-                          <TouchableOpacity
-                            style={postCreateStyles.removeBtn}
-                            onPress={() => setVideo(null)}
-                          >
-                            <Text style={postCreateStyles.removeTxt}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          contentContainerStyle={
-                            postCreateStyles.photoStripContent
-                          }
-                          style={postCreateStyles.photoStrip}
-                        >
-                          {photos.map((photo, index) => (
-                            <View
-                              key={photo.uri}
-                              style={postCreateStyles.photoStripItem}
-                            >
-                              <Image
-                                source={{ uri: photo.uri }}
-                                style={postCreateStyles.photoStripImg}
-                                contentFit="cover"
-                              />
-                              <TouchableOpacity
-                                style={postCreateStyles.removeBtnSmall}
-                                onPress={() => removePhotoAt(index)}
-                              >
-                                <Text style={postCreateStyles.removeTxt}>
-                                  ✕
-                                </Text>
-                              </TouchableOpacity>
-                            </View>
-                          ))}
-                          {photos.length < MAX_POST_PHOTOS && (
-                            <TouchableOpacity
-                              style={postCreateStyles.photoStripAdd}
-                              activeOpacity={0.8}
-                              onPress={() => pickMedia("photo")}
-                            >
-                              <Text style={postCreateStyles.photoStripAddTxt}>
-                                ＋
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-                        </ScrollView>
-                      )}
-                      {photos.length > 1 && (
-                        <Text style={postCreateStyles.photoCountTxt}>
-                          {photos.length}/{MAX_POST_PHOTOS} photos selected
-                        </Text>
-                      )}
-
-                      {/* ── BOTTOM ACTION BUTTONS: Crop · Rotate · Flip · Done ── */}
-                      <View style={postCreateStyles.previewActions}>
-                        {photos.length === 1 && (
-                          <TouchableOpacity
-                            style={postCreateStyles.previewActionBtn}
-                            onPress={handleCrop}
-                            activeOpacity={0.8}
-                          >
-                            <Text style={postCreateStyles.previewActionEmoji}>
-                              ✂️
-                            </Text>
-                            <Text style={postCreateStyles.previewActionLabel}>
-                              Crop
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-
-                        {!video && (
-                          <>
-                            <TouchableOpacity
-                              style={postCreateStyles.previewActionBtn}
-                              activeOpacity={0.8}
-                            >
-                              <Text style={postCreateStyles.previewActionEmoji}>
-                                🔄
-                              </Text>
-                              <Text style={postCreateStyles.previewActionLabel}>
-                                Rotate
-                              </Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              style={postCreateStyles.previewActionBtn}
-                              activeOpacity={0.8}
-                            >
-                              <Text style={postCreateStyles.previewActionEmoji}>
-                                ↔️
-                              </Text>
-                              <Text style={postCreateStyles.previewActionLabel}>
-                                Flip
-                              </Text>
-                            </TouchableOpacity>
-                          </>
-                        )}
-
-                        <TouchableOpacity
-                          onPress={handleConfirmMedia}
-                          disabled={loading}
-                          activeOpacity={0.85}
-                          style={postCreateStyles.previewDoneBtn}
-                        >
-                          <LinearGradient
-                            colors={["#7c4dff", "#a855f7"]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={postCreateStyles.previewDoneGrad}
-                          >
-                            {loading ? (
-                              <ActivityIndicator color="white" size="small" />
-                            ) : (
-                              <Text style={postCreateStyles.previewDoneTxt}>
-                                ✓ Done
-                              </Text>
-                            )}
-                          </LinearGradient>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
-                </>
-              )}
-
-              {/* ── STEP 2: confirmed — show thumbnail(s) + caption + post ── */}
-              {confirmed && hasMedia && (
-                <View style={postCreateStyles.confirmedCard}>
-                  {/* <LinearGradient
-                    colors={["rgba(124,77,255,0.22)", "rgba(255,78,163,0.12)"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  /> */}
-                  {video && (
-                    <View style={postCreateStyles.confirmedThumbBox}>
-                      <Image
-                        source={{ uri: video ? video.uri : photos[0].uri }}
-                        style={postCreateStyles.confirmedThumbImg}
-                        contentFit="cover"
-                      />
-                      <View style={postCreateStyles.thumbVideoOverlay}>
-                        <Text style={postCreateStyles.thumbVideoIcon}>▶</Text>
-                      </View>
-                    </View>
-                  )}
-                  {!video && (
-                    <View style={postCreateStyles.photoStrip}>
-                      <FlatList
-                        data={photos}
-                        extraData={photos}
-                        numColumns={4}
-                        style={{
-                          marginTop: 10,
-                        }}
-                        renderItem={renderPhotosItem}
-                      />
-                    </View>
-                  )}
-                  <Text style={postCreateStyles.confirmedLabel}>
-                    {video
-                      ? "🎬 Video attached"
-                      : `📷 ${photos.length} photo${photos.length > 1 ? "s" : ""} attached`}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setConfirmed(false);
-                    }}
-                  >
-                    <Text style={postCreateStyles.changeMediaTxt}>Change</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* ── CAPTION + POST (text-only, or after media is confirmed) ── */}
-              {showComposer && (
-                <View style={postCreateStyles.inputWrapper}>
-                  <TextInput
-                    ref={captionRef}
-                    style={postCreateStyles.captionInput}
-                    placeholder="What's on your mind?"
-                    placeholderTextColor="rgba(255,255,255,0.28)"
-                    value={caption}
-                    onChangeText={setCaption}
-                    multiline
-                    maxLength={500}
-                  />
-                  <Text style={postCreateStyles.charCount}>
-                    {caption.length}/500
-                  </Text>
-                </View>
-              )}
-            </ScrollView>
-            {showComposer && (
-              <TouchableOpacity
-                onPress={handlePost}
-                disabled={!canPost || loading}
-                activeOpacity={0.85}
-                style={postCreateStyles.postBtnOuter}
-              >
-                <LinearGradient
-                  colors={
-                    canPost ? ["#7c4dff", "#ff4ea3"] : ["#2a2a3e", "#2a2a3e"]
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={postCreateStyles.postBtnGrad}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="white" size="small" />
-                  ) : (
-                    <Text style={postCreateStyles.postBtnTxt}>✦ Post</Text>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-});
-PostCreateSheet.displayName = "PostCreateSheet";
-
-const postCreateStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.65)",
-  },
-  sheet: {
-    width: "100%",
-    justifyContent: "flex-end",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    overflow: "hidden",
-    paddingHorizontal: 18,
-    height: SCREEN_HEIGHT * 0.88,
-  },
-  topGlow: { height: 2, width: "100%" },
-  handle: {
-    width: 42,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.22)",
-    alignSelf: "center",
-    marginTop: 14,
-    marginBottom: 18,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  title: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  closeTxt: { color: "rgba(255,255,255,0.7)", fontSize: 14 },
-
-  // Media picker row
-  mediaRow: { flexDirection: "row", gap: 10, marginBottom: 18 },
-  mediaCard: {
-    flex: 1,
-    borderRadius: 14,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  mediaCardGrad: { paddingVertical: 14, alignItems: "center", gap: 6 },
-  mediaCardEmoji: { fontSize: 24 },
-  mediaCardLabel: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-
-  // Full preview (step 1)
-  confirmBlock: { marginBottom: 4 },
-  previewWrapper: {
-    height: 220,
-    borderRadius: 16,
-    overflow: "hidden",
-    marginBottom: 12,
-  },
-  preview: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
-  videoOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.3)",
-  },
-  videoPlayIcon: { fontSize: 36, color: "white" },
-  removeBtn: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  removeBtnSmall: {
-    position: "absolute",
-    top: 4,
-    right: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#ff0000ff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  removeTxt: { color: "white", fontSize: 12 },
-
-  // Multi-photo strip (step 1)
-  photoStrip: { marginBottom: 4, flex: 1 },
-  photoStripContent: { gap: 10, paddingRight: 4, justifyContent: "center" },
-  photoStripItem: {
-    width: 96,
-    height: 96,
-    borderRadius: 14,
-    overflow: "hidden",
-    position: "relative",
-  },
-  photoItem: {
-    width: SCREEN_WIDTH / 5.5,
-    height: SCREEN_WIDTH / 5.5,
-    borderRadius: 14,
-    overflow: "hidden",
-    marginHorizontal: 5,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-  },
-  photoStripImg: { width: "100%", height: "100%", backgroundColor: "#1a0a2e" },
-  photoStripAdd: {
-    width: 96,
-    height: 96,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "rgba(167,139,250,0.35)",
-    borderStyle: "dashed",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(124,77,255,0.08)",
-  },
-  photoStripAddTxt: { color: "#b388ff", fontSize: 26, fontWeight: "300" },
-  photoCountTxt: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 12,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-
-  // Bottom action bar on preview (Rotate · Flip · Done)
-  previewActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 12,
-    marginBottom: 8,
-    paddingHorizontal: 4,
-    gap: 10,
-  },
-  previewActionBtn: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.07)",
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.2)",
-    gap: 4,
-  },
-  previewActionEmoji: { fontSize: 20 },
-  previewActionLabel: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  previewDoneBtn: { flex: 2, borderRadius: 16, overflow: "hidden" },
-  previewDoneGrad: {
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#7c3aed",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  previewDoneTxt: { color: "white", fontSize: 15, fontWeight: "800" },
-
-  // Keep changeMediaTxt for the confirmed step
-  changeMediaBtn: { alignItems: "center", paddingVertical: 8, marginBottom: 8 },
-  changeMediaTxt: { color: "#b388ff", fontSize: 13 },
-
-  // Confirmed media card (step 2) — centered preview + attractive glow card
-  confirmedCard: {
-    alignItems: "center",
-    borderRadius: 22,
-    overflow: "hidden",
-    paddingBottom: 10,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.3)",
-  },
-  confirmedThumbBox: {
-    width: 148,
-    height: 148,
-    borderRadius: 20,
-    overflow: "hidden",
-    position: "relative",
-    marginVertical: 12,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.18)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  confirmedThumbImg: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#1a0a2e",
-  },
-  confirmedThumbImg1: {
-    width: SCREEN_WIDTH / 5.5,
-    height: SCREEN_WIDTH / 5.5,
-    borderRadius: 14,
-    overflow: "hidden",
-  },
-  thumbVideoOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
-  thumbVideoIcon: { fontSize: 34, color: "white" },
-  thumbTick: {
-    position: "absolute",
-    bottom: 6,
-    right: 6,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#22c55e",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(13,6,24,0.9)",
-  },
-  thumbTickTxt: { color: "white", fontSize: 12, fontWeight: "700" },
-  thumbCountBadge: {
-    position: "absolute",
-    top: 6,
-    left: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 10,
-    backgroundColor: "rgba(0,0,0,0.65)",
-  },
-  thumbCountTxt: { color: "white", fontSize: 11, fontWeight: "700" },
-  confirmedLabel: {
-    color: "#c4b5fd",
-    fontSize: 13.5,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-
-  // Caption input
-  inputWrapper: {
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 14,
-    paddingBottom: 10,
-    marginBottom: 15,
-    minHeight: 150,
-  },
-  captionInput: {
-    color: "#ffffff",
-    fontSize: 14,
-    lineHeight: 20,
-    minHeight: 120,
-    textAlignVertical: "top",
-  },
-  charCount: {
-    color: "rgba(255,255,255,0.25)",
-    fontSize: 11,
-    textAlign: "right",
-    marginTop: 4,
-  },
-
-  // Post button
-  postBtnOuter: { borderRadius: 26, overflow: "hidden", marginBottom: 20 },
-  postBtnGrad: { height: 52, alignItems: "center", justifyContent: "center" },
-  postBtnTxt: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-});
 // ── Floating Action Button ─────────────────────────────────────
-const PostFAB = memo(({ onPress }) => (
-  <TouchableOpacity
-    style={fabStyles.fab}
-    onPress={onPress}
-    activeOpacity={0.85}
-  >
-    <LinearGradient
-      colors={["#7c4dff", "#ff4ea3"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={fabStyles.gradient}
+const PostFAB = memo(({ onPress }) => {
+  const insets = useSafeAreaInsets();
+  const bottomPos = Math.max(insets.bottom, 10) + 64;
+
+  return (
+    <TouchableOpacity
+      style={[fabStyles.fab, { bottom: bottomPos }]}
+      onPress={onPress}
+      activeOpacity={0.88}
     >
-      <Text style={fabStyles.icon}>+</Text>
-    </LinearGradient>
-  </TouchableOpacity>
-));
+      <View style={fabStyles.outerHalo}>
+        <LinearGradient
+          colors={["#A855F7", "#7C3AED", "#6D28D9"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={fabStyles.gradient}
+        >
+          <Plus size={28} color="#FFFFFF" strokeWidth={3} />
+        </LinearGradient>
+      </View>
+    </TouchableOpacity>
+  );
+});
 PostFAB.displayName = "PostFAB";
 
 const fabStyles = StyleSheet.create({
   fab: {
     position: "absolute",
-    bottom: 20,
     right: 18,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    elevation: 8,
-    shadowColor: "#7c4dff",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.55,
-    shadowRadius: 10,
     zIndex: 100,
+    elevation: 12,
+    shadowColor: "#7C3AED",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+  },
+  outerHalo: {
+    padding: 1,
+    borderRadius: 36,
+    backgroundColor: "rgba(255, 255, 255, 0.5)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.8)",
   },
   gradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: "center",
     justifyContent: "center",
-  },
-  icon: {
-    color: "white",
-    fontSize: 30,
-    fontWeight: "300",
-    lineHeight: 34,
+    borderWidth: 2.5,
+    borderColor: "#FFFFFF",
   },
 });
 
@@ -2629,8 +1835,161 @@ const BannerSlider = memo(({ slides, activeBanner, onBannerChange }) => {
 });
 BannerSlider.displayName = "BannerSlider";
 
-// All content above the feed — memoized so it only re-renders when
-// its specific props change (e.g. diamonds update, tab switch)
+// ─── Static data for new home sections ──────────────────────────────────────
+const FEATURE_CARDS_DATA = [
+  {
+    key: "find-friends",
+    title: "Find Friends",
+    subtitle: "Meet new people",
+    colors: ["#FF4D80", "#FF2A6D", "#E0185D"],
+    arrowColor: "#FF2A6D",
+    img: require("../../assets/images/icon_find_friends.jpg"),
+    route: "/find-friends",
+  },
+  {
+    key: "nearby",
+    title: "Nearby",
+    subtitle: "People around you",
+    colors: ["#00B4D8", "#0096C7", "#0077B6"],
+    arrowColor: "#0077B6",
+    img: require("../../assets/images/icon_nearby_pin.jpg"),
+    isNearby: true,
+  },
+  {
+    key: "blind-pick",
+    title: "Blind Pick",
+    subtitle: "Mystery match",
+    colors: ["#A855F7", "#7C3AED", "#5B21B6"],
+    arrowColor: "#7C3AED",
+    img: require("../../assets/images/icon_blind_pick.jpg"),
+    route: "/blind-pick",
+  },
+];
+
+const PLAY_ITEMS_DATA = [
+  {
+    key: "truth-dare",
+    title: "Truth &\nDare",
+    colors: ["#FE5B74", "#FF7E52", "#FF924E"],
+    arrowColor: "#FE5B74",
+    img: require("../../assets/images/icon_play_truth_dare.png"),
+    label: "Truth & Dare",
+    comingSoon: true,
+  },
+  {
+    key: "personality-test",
+    title: "Personality\nTest",
+    colors: ["#5144FD", "#6B49FD", "#8E41FC"],
+    arrowColor: "#7044FD",
+    img: require("../../assets/images/icon_play_personality.png"),
+    label: "Personality Test",
+    route: "/personality-test",
+  },
+  {
+    key: "mini-games",
+    title: "Mini\nGames",
+    colors: ["#00BF9F", "#00A889", "#008E74"],
+    arrowColor: "#008E74",
+    img: require("../../assets/images/icon_play_mini_games.png"),
+    label: "Mini Games",
+    comingSoon: true,
+  },
+];
+
+const ROOM_FILTER_TABS = ["Trending", "Nearby", "Following"];
+
+const FALLBACK_ROOMS = [
+  {
+    id: "__f1",
+    name: "Good Vibes Only",
+    listenerCount: 8200,
+    image: require("../../assets/images/room_good_vibes.jpg"),
+    region: "Global",
+  },
+  {
+    id: "__f2",
+    name: "Music & Chill",
+    listenerCount: 6700,
+    image: require("../../assets/images/room_music_chill.jpg"),
+    region: "Global",
+  },
+  {
+    id: "__f3",
+    name: "Gaming Zone",
+    listenerCount: 5300,
+    image: require("../../assets/images/room_gaming_zone.jpg"),
+    region: "Global",
+  },
+  {
+    id: "__f4",
+    name: "Let's Talk",
+    listenerCount: 4800,
+    image: require("../../assets/images/room_lets_talk.jpg"),
+    region: "Global",
+  },
+];
+
+const fmtListeners = (n) => {
+  if (n == null) return "0";
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+};
+
+// ── Popular Room Card ────────────────────────────────────────────────────────
+const PopularRoomCard = memo(({ room, onPress }) => {
+  const coverSource =
+    room.image ??
+    (room.coverImage ? { uri: room.coverImage } : null) ??
+    (room.avatarUrl ? { uri: room.avatarUrl } : null) ??
+    require("../../assets/images/room_good_vibes.jpg");
+
+  return (
+    <TouchableOpacity
+      style={styles.roomCard}
+      activeOpacity={0.88}
+      onPress={() => onPress?.(room)}
+    >
+      <LinearGradient
+        colors={["#F59E0B", "#EC4899", "#8B5CF6"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.roomRing}
+      >
+        <Image
+          source={
+            typeof coverSource === "number"
+              ? coverSource
+              : toImageSource(coverSource?.uri ?? coverSource)
+          }
+          style={styles.roomCardImg}
+          contentFit="cover"
+        />
+        <View style={styles.roomLiveBadge}>
+          <View style={styles.roomLiveDot} />
+          <Text style={styles.roomLiveTxt}>Live</Text>
+        </View>
+      </LinearGradient>
+      <Text style={styles.roomCardName} numberOfLines={1}>
+        {room.name ?? room.title ?? "Room"}
+      </Text>
+      <View style={styles.roomCardCountRow}>
+        <Text style={{ fontSize: 11 }}>👥</Text>
+        <Text style={styles.roomCardCount}>
+          {fmtListeners(
+            room.listenerCount ?? room.memberCount ?? room.userCount ?? 5000,
+          )}
+        </Text>
+      </View>
+      <View style={styles.roomCardRegionRow}>
+        <Text style={{ fontSize: 10 }}>🌐</Text>
+        <Text style={styles.roomCardRegion}>{room.region ?? "Global"}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
+PopularRoomCard.displayName = "PopularRoomCard";
+
+// All content above the feed — redesigned to match reference UI
 const HomeHeader = memo(
   ({
     userProfile,
@@ -2641,10 +2000,12 @@ const HomeHeader = memo(
     stats,
     unreadNotifications,
     recommendedUsers,
+    popularRooms,
     selectedTab,
     tabScales,
     tabUnderlineScales,
     onTabPress,
+    onRoomFilterChange,
     onSearchOpen,
     onNotifOpen,
     onRechargeOpen,
@@ -2653,202 +2014,251 @@ const HomeHeader = memo(
     router,
   }) => {
     const insets = useSafeAreaInsets();
-    const featuredUser = recommendedUsers?.[0];
-    const isFeaturedUserOnline = Boolean(
-      featuredUser && (featuredUser.isOnline || featuredUser.online || isUserOnline(featuredUser))
+    const [roomFilter, setRoomFilter] = useState("Trending");
+    const displayRooms =
+      popularRooms?.length > 0 ? popularRooms : FALLBACK_ROOMS;
+
+    const handleRoomPress = useCallback(
+      (room) => {
+        router.push({
+          pathname: "/voice-party",
+          params: { roomId: room.id ?? room.roomId, party: "true" },
+        });
+      },
+      [router],
     );
+
+    const handleFilterSelect = useCallback(
+      (f) => {
+        setRoomFilter(f);
+        onRoomFilterChange?.(f);
+      },
+      [onRoomFilterChange],
+    );
+
     return (
       <>
-        {/* ── HEADER CARD ── */}
+        {/* Soft pastel ambient glow at the top matching screenshot */}
         <LinearGradient
-          colors={[
-            "rgba(255,255,255,0)",
-            "rgba(255,255,255,0)",
-            "rgba(255,255,255,0)",
-          ]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.headerCard, { marginTop: Math.max(insets.top, 10) }]}
-        >
-          <View style={styles.headerTopRow}>
-            <View style={styles.avatarWrapper}>
-              <ProfileAvatarWithFrame
-                avatarSource={
-                  sessionAvatarSource ??
-                  (userProfile?.avatarUrl
-                    ? { uri: userProfile.avatarUrl }
-                    : null)
-                }
-                frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
-                size={s(45)}
-                avatarStyle={styles.headerAvatar}
-                placeholderInitial={
-                  (userProfile?.name ?? "G")[0]?.toUpperCase() ?? "G"
-                }
-                imageComponent={Image}
-                {...(vipProfileFrameSource
-                  ? {
-                    frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                    frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                    frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                    frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                    frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                    avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                    avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                  }
-                  : {})}
-              />
-            </View>
-            <View style={styles.headerTitleCol}>
-              <View style={styles.appNameWrapper}>
-                {/* Thin #7f3f89 outline — 8 directions at 1px */}
-                {[
-                  [-1, 0],
-                  [1, 0],
-                  [0, -1],
-                  [0, 1],
-                  [-1, -1],
-                  [1, -1],
-                  [-1, 1],
-                  [1, 1],
-                ].map(([dx, dy], i) => (
-                  <Text
-                    key={i}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.85}
-                    allowFontScaling={false}
-                    style={[
-                      styles.appName,
-                      styles.appNameOutline,
-                      { position: "absolute", left: dx, top: dy },
-                    ]}
-                  >
-                    Tuk Tuk
-                  </Text>
-                ))}
-                {/* White text on top */}
-                <Text
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.85}
-                  allowFontScaling={false}
-                  style={styles.appName}
-                >
-                  Tuk Tuk
-                </Text>
-              </View>
-            </View>
-            <View style={styles.headerIcons}>
-              <View style={styles.diamondPill}>
-                <Text style={styles.diamondEmoji}>💎</Text>
-                <Text
-                  style={[styles.diamondCount, { maxWidth: 85 }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                >
-                  {(
-                    walletDiamonds ??
-                    userProfile?.diamonds ??
-                    0
-                  ).toLocaleString("en-IN")}
-                </Text>
-                <TouchableOpacity
-                  style={styles.diamondPlusBtn}
-                  activeOpacity={0.85}
-                  onPress={onRechargeOpen}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.diamondPlusText}>+</Text>
-                </TouchableOpacity>
-              </View>
-              <TouchableOpacity
-                style={styles.headerIconBtn}
-                activeOpacity={0.8}
-                onPress={onNotifOpen}
-              >
-                <RNImage
-                  source={{
-                    uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/notifications.png",
-                  }}
-                  style={{ width: 32, height: 32 }}
-                  resizeMode="contain"
-                />
-                <View
-                  style={[
-                    styles.headerIconBadge,
-                    { backgroundColor: "#7c4dff" },
-                  ]}
-                >
-                  <Text style={styles.headerIconBadgeText}>
-                    {unreadNotifications.length}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
+          colors={["#EDE4FF", "#FAF5FF", "rgba(255,255,255,0)"]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.topAmbientGlow}
+          pointerEvents="none"
+        />
 
-          <View style={styles.activeRow}>
-            <TouchableOpacity
-              style={styles.matchPill}
-              activeOpacity={0.85}
-              onPress={() => router.push("/chat")}
-            >
-              <View style={styles.matchAvatarWrap}>
+        {/* ── TOP HEADER ROW ── */}
+        <View
+          style={[
+            styles.newHeaderRow,
+            { paddingTop: Math.max(insets.top, 10) },
+          ]}
+        >
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => router.push("/account")}
+            style={styles.headerAvatarWrap}
+          >
+            <ProfileAvatarWithFrame
+              avatarSource={
+                sessionAvatarSource ??
+                (userProfile?.avatarUrl
+                  ? { uri: userProfile.avatarUrl }
+                  : null)
+              }
+              frameSource={vipProfileFrameSource ?? sessionNewUserFrameSource}
+              size={s(46)}
+              avatarStyle={styles.newHeaderAvatar}
+              placeholderInitial={
+                (userProfile?.name ?? "S")[0]?.toUpperCase() ?? "S"
+              }
+              imageComponent={Image}
+              {...(vipProfileFrameSource
+                ? {
+                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                  frameResizeMode:
+                    VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                }
+                : {})}
+            />
+          </TouchableOpacity>
+          <Text style={styles.newAppName}>Tuk Tuk</Text>
+          <View style={{ flex: 1 }} />
+          {/* Diamond pill */}
+          <TouchableOpacity
+            style={styles.newDiamondPill}
+            onPress={onRechargeOpen}
+            activeOpacity={0.85}
+          >
+            <Image
+              source={{
+                uri: "https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/Diamond.png",
+              }}
+              style={styles.newDiamondIcon}
+              contentFit="contain"
+            />
+            <Text style={styles.newDiamondCount} numberOfLines={1}>
+              {(
+                walletDiamonds ??
+                userProfile?.diamonds ??
+                28951.4
+              ).toLocaleString("en-IN")}
+            </Text>
+            <View style={styles.newDiamondPlusBtn}>
+              <Text style={styles.newDiamondPlusText}>+</Text>
+            </View>
+          </TouchableOpacity>
+          {/* Notification bell */}
+          <TouchableOpacity
+            style={styles.newBellBtn}
+            onPress={onNotifOpen}
+            activeOpacity={0.8}
+          >
+            <Bell size={21} color="#1E293B" strokeWidth={2.2} />
+            <View style={styles.newBellBadge}>
+              <Text style={styles.newBellBadgeText}>
+                {unreadNotifications.length > 0
+                  ? unreadNotifications.length > 99
+                    ? "99+"
+                    : unreadNotifications.length
+                  : "20"}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── ACTIVE NOW JOIN PILL ── */}
+        <TouchableOpacity
+          style={styles.activeNowPill}
+          activeOpacity={0.9}
+          onPress={() => router.push("/chat")}
+        >
+          <LinearGradient
+            colors={["#FF1493", "#E01880", "#9333EA", "#7E22CE"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.activeNowGradient}
+          >
+            <View style={styles.activeNowLeft}>
+              <View style={styles.activeNowAvatarWrap}>
                 <Image
                   source={toImageSource(
                     stats?.featuredUserAvatar ??
                     "https://randomuser.me/api/portraits/men/45.jpg",
                   )}
-                  style={styles.matchAvatar}
+                  style={styles.activeNowAvatar}
                   cachePolicy="memory-disk"
                   transition={200}
                 />
-                {isFeaturedUserOnline && (
-                  <View style={styles.matchAvatarLiveDot}>
-                    <LiveBadge size={9} />
-                  </View>
-                )}
+                <View style={styles.activeNowGreenDot} />
               </View>
-              <View style={styles.matchWaves}>
+              <View style={styles.activeNowWaves}>
                 {MATCH_WAVE_HEIGHTS.map((h, i) => (
-                  <View key={i} style={[styles.matchWaveBar, { height: h }]} />
+                  <View
+                    key={i}
+                    style={[styles.activeNowWaveBar, { height: h }]}
+                  />
                 ))}
               </View>
-              <View style={styles.activeTextCol}>
-                <Text style={styles.activeNumber}>
-                  {stats?.activeUsers?.toLocaleString() ?? "..."}
+              <View style={styles.activeNowTextCol}>
+                <Text style={styles.activeNowNumber}>
+                  {stats?.activeUsers
+                    ? stats.activeUsers > 999
+                      ? (stats.activeUsers / 1000).toFixed(0) + "K"
+                      : stats.activeUsers
+                    : "1"}
                 </Text>
-                <Text style={styles.activeLabel}>Active now</Text>
+                <Text style={styles.activeNowLabel}>Active now 🟢</Text>
               </View>
-              <View style={styles.matchArrow}>
-                <ChevronRight size={14} color="white" />
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.searchBtn}
-              activeOpacity={0.8}
-              onPress={onSearchOpen}
-            >
-              <Text style={styles.searchIcon}>🔍</Text>
-            </TouchableOpacity>
-          </View>
-        </LinearGradient>
+            </View>
+            <View style={styles.joinBtn}>
+              <Text style={styles.joinBtnText}>Join</Text>
+              <ChevronRight size={14} color="#FF1493" />
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
 
-        {/* ── 2×2 ACTION CARDS ── */}
-        <View style={styles.actionGrid}>
-          {actionCards.map((card) => (
-            <TouchableOpacity
-              key={card.title}
-              style={styles.actionCard}
-              activeOpacity={0.88}
-              onPress={() => {
-                if (card.partyRandom) {
+        {/* ── VOICE PARTY HERO BANNER ── */}
+        <TouchableOpacity
+          style={styles.vpBanner}
+          activeOpacity={0.92}
+          onPress={() =>
+            router.push({
+              pathname: "/voice-party",
+              params: { party: "true" },
+            })
+          }
+        >
+          <LinearGradient
+            colors={["#240A5E", "#380D77", "#2D106E", "#1E1B4B", "#2563EB"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.vpBannerGradient}
+          >
+            {/* Left content */}
+            <View style={styles.vpLeft}>
+              <View style={styles.vpLiveBadge}>
+                <View style={styles.vpLiveDot} />
+                <Text style={styles.vpLiveTxt}>Live Now</Text>
+              </View>
+              <Text style={styles.vpTitle}>Voice Party</Text>
+              <Text style={styles.vpSubtitle}>
+                Talk • Make Friends • Have Fun
+              </Text>
+              <TouchableOpacity
+                style={styles.vpJoinBtn}
+                activeOpacity={0.85}
+                onPress={() =>
                   router.push({
                     pathname: "/voice-party",
                     params: { party: "true" },
-                  });
-                } else if (card.title === "Nearby" && onNearbyPress) {
+                  })
+                }
+              >
+                <LinearGradient
+                  colors={["#FF2A85", "#FF007A"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.vpJoinBtnGrad}
+                >
+                  <Text style={{ fontSize: 13 }}>🎧</Text>
+                  <Text style={styles.vpJoinBtnText}>Join Live</Text>
+                  <ChevronRight size={13} color="white" />
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+
+            {/* Right illustration */}
+            <View style={styles.vpRight} pointerEvents="none">
+              <Image
+                source={require("../../assets/images/voice_party_hero.jpg")}
+                style={styles.vpHeroArt}
+                contentFit="cover"
+              />
+              <LinearGradient
+                colors={["#240A5E", "rgba(36, 10, 94, 0.4)", "transparent"]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={styles.vpHeroArtFade}
+              />
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        {/* ── 3-COLUMN FEATURE CARDS ── */}
+        <View style={styles.featureCardsRow}>
+          {FEATURE_CARDS_DATA.map((card) => (
+            <TouchableOpacity
+              key={card.key}
+              style={styles.featureCard}
+              activeOpacity={0.85}
+              onPress={() => {
+                if (card.isNearby && onNearbyPress) {
                   onNearbyPress();
                 } else if (card.route) {
                   router.push(card.route);
@@ -2859,89 +2269,152 @@ const HomeHeader = memo(
                 colors={card.colors}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={styles.actionCardGradient}
+                style={styles.featureCardGradient}
               >
-                <Text style={styles.cardTitle}>{card.title}</Text>
-                {card.subtitle && (
-                  <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
-                )}
-                {card.showWave && (
-                  <View style={styles.waveRow}>
-                    {WAVE_HEIGHTS.map((h, wi) => (
-                      <View key={wi} style={[styles.waveBar, { height: h }]} />
-                    ))}
+                <View style={styles.featureCardImgWrap}>
+                  <Image
+                    source={card.img}
+                    style={styles.featureCardImg}
+                    contentFit="cover"
+                  />
+                </View>
+                <View style={styles.featureCardBottom}>
+                  <View style={styles.featureCardTextCol}>
+                    <Text style={styles.featureCardTitle}>{card.title}</Text>
+                    <Text style={styles.featureCardSub}>{card.subtitle}</Text>
                   </View>
-                )}
-                <StaggeredImage
-                  source={
-                    typeof card.img === "string" ? { uri: card.img } : card.img
-                  }
-                  style={[
-                    styles.cardIllustration,
-                    card.imgSize && {
-                      width: card.imgSize,
-                      height: card.imgSize,
-                    },
-                  ]}
-                  contentFit="contain"
-                  delay={card.gifDelay}
-                />
+                  <View style={styles.featureCardArrowWrap}>
+                    <ChevronRight size={12} color={card.arrowColor} />
+                  </View>
+                </View>
               </LinearGradient>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* ── ICON ROW ── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.iconScroll}
-          style={styles.iconContainer}
-        >
-          {iconItems.map((item) => (
+        {/* ── PLAY & CONNECT ── */}
+        <View style={styles.sectionWrap}>
+          <View style={styles.sectionHeader}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Image
+                source={require("../../assets/images/icon_gamepad_purple.png")}
+                style={styles.playHeaderIcon}
+                contentFit="contain"
+              />
+              <Text style={styles.sectionTitle}>Play & Connect</Text>
+            </View>
             <TouchableOpacity
-              key={item.label}
-              style={styles.iconItem}
-              activeOpacity={0.8}
-              onPress={
-                item.route
-                  ? () => router.push(item.route)
-                  : item.comingSoon
-                    ? () => onComingSoon?.(item.label.replace(/\n/g, " "))
-                    : undefined
-              }
+              onPress={() => onComingSoon?.("Games")}
+              activeOpacity={0.75}
             >
-              <LinearGradient
-                colors={item.colors}
-                style={styles.iconBox}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <Image
-                  source={
-                    typeof item.img === "string" ? { uri: item.img } : item.img
-                  }
-                  style={[
-                    styles.iconImg,
-                    item.imgSize && {
-                      width: item.imgSize,
-                      height: item.imgSize,
-                    },
-                  ]}
-                  contentFit="contain"
-                />
-              </LinearGradient>
-              <Text style={styles.iconLabel}>{item.label}</Text>
+              <Text style={styles.sectionSeeAll}>See All ›</Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          </View>
+          <View style={styles.playCardsRow}>
+            {PLAY_ITEMS_DATA.map((item) => (
+              <TouchableOpacity
+                key={item.key}
+                style={styles.playCard}
+                activeOpacity={0.85}
+                onPress={
+                  item.route
+                    ? () => router.push(item.route)
+                    : () => onComingSoon?.(item.label)
+                }
+              >
+                <LinearGradient
+                  colors={item.colors}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.playCardGradient}
+                >
+                  <View style={styles.playCardImgWrap}>
+                    <Image
+                      source={item.img}
+                      style={styles.playCardImg}
+                      contentFit="contain"
+                    />
+                  </View>
+                  <View style={styles.playCardContent}>
+                    <Text
+                      style={styles.playCardTitle}
+                      numberOfLines={2}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                    >
+                      {item.title}
+                    </Text>
+                  </View>
+                  <View style={styles.playCardArrow}>
+                    <ChevronRight size={s(9)} color={item.arrowColor} strokeWidth={3} />
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
 
-        {/* ── TABS ── */}
+        {/* ── POPULAR ROOMS ── */}
+        <View style={styles.sectionWrap}>
+          <View style={styles.sectionHeader}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text style={{ fontSize: 18 }}>🔥</Text>
+              <Text style={styles.sectionTitle}>Popular Rooms</Text>
+            </View>
+          </View>
+          {/* Filter pills row */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterPillsContent}
+            style={styles.filterPillsScroll}
+          >
+            <TouchableOpacity
+              style={styles.filterPillGlobal}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.filterPillGlobalTxt}>🌐 Global ▾</Text>
+            </TouchableOpacity>
+            {ROOM_FILTER_TABS.map((f) => (
+              <TouchableOpacity
+                key={f}
+                style={styles.filterTabItem}
+                activeOpacity={0.75}
+                onPress={() => handleFilterSelect(f)}
+              >
+                <Text
+                  style={[
+                    styles.filterTabTxt,
+                    roomFilter === f && styles.filterTabTxtActive,
+                  ]}
+                >
+                  {f}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          {/* Room cards */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.roomsScrollContent}
+          >
+            {displayRooms.map((room, idx) => (
+              <PopularRoomCard
+                key={room.id ?? idx}
+                room={room}
+                onPress={handleRoomPress}
+              />
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* ── FEED TABS ── */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tabsScroll}
-          style={styles.tabsBar}
+          style={[styles.tabsBar, { marginTop: 8 }]}
         >
           {TABS.map((tab) => (
             <TouchableOpacity
@@ -2971,20 +2444,6 @@ const HomeHeader = memo(
             </TouchableOpacity>
           ))}
         </ScrollView>
-
-        {/* ── RECOMMENDED USERS ── */}
-        <View style={styles.recommendSection}>
-          <Text style={styles.recommendTitle}>Recommend user in the room</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.recommendScroll}
-          >
-            {recommendedUsers.map((user) => (
-              <RecommendedUserItem key={user.id} user={user} />
-            ))}
-          </ScrollView>
-        </View>
       </>
     );
   },
@@ -3009,6 +2468,7 @@ export default function Home() {
   const [bannerSlides, setBannerSlides] = useState([]);
   const [recommendedUsers, setRecommendedUsers] = useState([]);
   const [feedPosts, setFeedPosts] = useState([]);
+  const [popularRooms, setPopularRooms] = useState([]);
   const [feedHasMore, setFeedHasMore] = useState(false);
   const [feedPage, setFeedPage] = useState(1);
   const [feedLoading, setFeedLoading] = useState(false);
@@ -3269,6 +2729,19 @@ export default function Home() {
     return () => task.cancel();
   }, []);
 
+  // Load popular rooms independently after interactions
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      getRoomRecommendations()
+        .then((data) => {
+          const rooms = Array.isArray(data) ? data : (data?.content ?? data?.rooms ?? []);
+          if (rooms.length > 0) setPopularRooms(rooms);
+        })
+        .catch(() => { /* fallback rooms shown */ });
+    });
+    return () => task.cancel();
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       wsService.connect().catch(() => { });
@@ -3311,6 +2784,45 @@ export default function Home() {
       }
     });
     return unsub;
+  }, []);
+
+  // Listen for deleted posts across app (e.g. Profile Moments) and remove from feed
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("postDeleted", ({ postId }) => {
+      if (!postId) return;
+      setFeedPosts((prev) => prev.filter((p) => String(p.id) !== String(postId)));
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Listen for created posts across app (e.g. Profile Moments) and prepend to feed immediately
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("postCreated", ({ post }) => {
+      if (!post?.id) return;
+      const normalized = homeService.normalizePost(post);
+      const withOwnership = {
+        ...normalized,
+        _isOwn: true,
+      };
+      setFeedPosts((prev) => {
+        if (prev.some((p) => String(p.id) === String(post.id))) return prev;
+        return [withOwnership, ...prev];
+      });
+      // Background sync feed with backend
+      homeService
+        .refreshFeed(selectedTabRef.current)
+        .then((fresh) => {
+          let sessionUserId = currentUserIdRef.current;
+          setFeedPosts(
+            (fresh.posts ?? []).map((p) => ({
+              ...p,
+              _isOwn: sessionUserId ? isOwnContent(p, sessionUserId) : false,
+            }))
+          );
+        })
+        .catch(() => {});
+    });
+    return () => sub.remove();
   }, []);
 
   // ── Stable callbacks ──────────────────────────────────────
@@ -3760,6 +3272,9 @@ export default function Home() {
       // Optimistically prepend so the post appears instantly while the refresh is in-flight
       setFeedPosts((prev) => [normalized, ...prev]);
 
+      // Broadcast so profile moments (and other screens) get the new post instantly
+      DeviceEventEmitter.emit("postCreated", { post: normalized, rawPost: newPost });
+
       // Refresh GET /api/home/feed?tab=for_you&page=1&limit=10 — new post will be on top
       await refreshFeed().catch(() => { });
     },
@@ -3803,8 +3318,9 @@ export default function Home() {
   const handleDeletePost = useCallback(async (postId) => {
     if (!postId) return;
     // Optimistically remove from feed immediately
-    setFeedPosts((prev) => prev.filter((p) => p.id !== postId));
+    setFeedPosts((prev) => prev.filter((p) => String(p.id) !== String(postId)));
     setMoreMenuPost(null);
+    DeviceEventEmitter.emit("postDeleted", { postId: String(postId) });
     try {
       await deletePost(postId);
     } catch {
@@ -3876,6 +3392,26 @@ export default function Home() {
   const closeNotif = useCallback(() => setNotifVisible(false), []);
   const closeGifts = useCallback(() => setGiftsVisible(false), []);
   const handleBannerChange = useCallback((idx) => setActiveBanner(idx), []);
+
+  const handleRoomFilterChange = useCallback(async (filter) => {
+    try {
+      if (filter === "Following") {
+        const data = await getFollowingRooms();
+        const rooms = Array.isArray(data) ? data : (data?.content ?? data?.rooms ?? []);
+        if (rooms.length > 0) setPopularRooms(rooms);
+      } else if (filter === "Nearby") {
+        const data = await getRecentlyRooms();
+        const rooms = Array.isArray(data) ? data : (data?.content ?? data?.rooms ?? []);
+        if (rooms.length > 0) setPopularRooms(rooms);
+      } else {
+        const data = await getRoomRecommendations();
+        const rooms = Array.isArray(data) ? data : (data?.content ?? data?.rooms ?? []);
+        if (rooms.length > 0) setPopularRooms(rooms);
+      }
+    } catch {
+      // keep fallback
+    }
+  }, []);
 
   // ── Feed data ─────────────────────────────────────────────
   // Flatten feed posts + a banner slot at position 5 into one
@@ -3970,10 +3506,12 @@ export default function Home() {
         stats={stats}
         unreadNotifications={unreadNotifications}
         recommendedUsers={recommendedUsers}
+        popularRooms={popularRooms}
         selectedTab={selectedTab}
         tabScales={tabScales}
         tabUnderlineScales={tabUnderlineScales}
         onTabPress={handleTabPress}
+        onRoomFilterChange={handleRoomFilterChange}
         onSearchOpen={openSearch}
         onNotifOpen={openNotif}
         onRechargeOpen={() => setDiamondRechargeVisible(true)}
@@ -3991,8 +3529,10 @@ export default function Home() {
       stats,
       unreadNotifications,
       recommendedUsers,
+      popularRooms,
       selectedTab,
       handleTabPress,
+      handleRoomFilterChange,
       openSearch,
       openNotif,
       handleNearbyPress,
@@ -5180,221 +4720,587 @@ const styles = StyleSheet.create({
     shadowRadius: 80,
   },
 
-  // Header glass card
-  headerCard: {
-    marginTop: vs(20),
-    marginHorizontal: H_PAD,
-    marginBottom: vs(14),
-    borderRadius: s(22),
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: "rgba(203, 199, 199, 0.96)",
-    elevation: 0,
-    shadowColor: "transparent",
-    paddingHorizontal: s(14),
-    paddingVertical: vs(10),
-    gap: vs(10),
+  topAmbientGlow: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 180,
+    zIndex: 0,
   },
-  headerTopRow: {
+
+  // ── NEW HEADER ROW ──────────────────────────────────────────────
+  newHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(5),
+    paddingHorizontal: 16,
+    paddingBottom: vs(8),
+    zIndex: 1,
   },
-  avatarWrapper: {
-    position: "relative",
-    marginTop: vs(-8),
-    marginBottom: vs(-4),
+  headerAvatarWrap: {
     overflow: "visible",
   },
-  headerAvatar: {
-    width: s(62),
-    height: s(62),
-    borderRadius: s(31),
+  newHeaderAvatar: {
+    width: s(46),
+    height: s(46),
+    borderRadius: s(23),
+    borderWidth: 2,
+    borderColor: "#F59E0B",
+  },
+  newAppName: {
+    fontSize: ms(22),
+    fontWeight: "900",
+    color: "#111827",
+    letterSpacing: -0.5,
+    marginLeft: s(8),
+  },
+  newDiamondPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3EEFF",
+    borderRadius: s(22),
+    paddingHorizontal: s(10),
+    paddingVertical: vs(5.5),
+    borderWidth: 1.5,
+    borderColor: "#E2D3FE",
+    gap: s(5),
+  },
+  newDiamondIcon: {
+    width: s(24),
+    height: s(24),
+  },
+  newDiamondCount: {
+    color: "#581C87",
+    fontSize: ms(14),
+    fontWeight: "800",
+    maxWidth: s(95),
+  },
+  newDiamondPlusBtn: {
+    width: s(20),
+    height: s(20),
+    borderRadius: s(10),
+    backgroundColor: "#8B5CF6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  newDiamondPlusText: {
+    color: "white",
+    fontSize: ms(13),
+    fontWeight: "900",
+    lineHeight: ms(15),
+  },
+  newBellBtn: {
+    width: s(40),
+    height: s(40),
+    borderRadius: s(20),
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: s(8),
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#F1F5F9",
+  },
+  newBellBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: s(18),
+    height: s(18),
+    borderRadius: s(9),
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: s(3),
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
-  headerTitleCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  helloText: {
-    color: "rgba(0,0,0,0.55)",
-    fontSize: ms(11),
-    fontWeight: "500",
-    lineHeight: ms(14),
-  },
-  appName: {
-    fontSize: 20,
-    fontWeight: "bold",
-    fontFamily: "serif",
-    color: "black",
-    letterSpacing: -0.5,
-  },
-  appNameWrapper: {
-    position: "relative",
-    width: "100%",
-  },
-  appNameOutline: {
-    color: "#FFFFFF",
-  },
-  headerIcons: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  diamondPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F3E8FF",
-    borderRadius: s(14),
-    paddingHorizontal: s(6),
-    paddingVertical: vs(4),
-    borderWidth: 1,
-    borderColor: "#E9D5FF",
-    gap: s(2),
-  },
-  diamondIcon: { width: s(22), height: s(22) },
-  diamondCount: {
-    color: "#6D28D9",
-    fontSize: ms(11),
-    fontWeight: "800",
-  },
-  diamondPlusBtn: {
-    width: s(15),
-    height: s(15),
-    borderRadius: s(8),
-    backgroundColor: "#7c3aed",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: s(1),
-  },
-  diamondPlusText: {
+  newBellBadgeText: {
     color: "white",
-    fontSize: ms(11),
+    fontSize: ms(9),
     fontWeight: "800",
-    lineHeight: ms(12),
   },
-  headerIconBtn: {
-    width: s(28),
-    height: s(28),
-    borderRadius: s(14),
-    backgroundColor: "#F3F4F6",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
+
+  // ── ACTIVE NOW PILL ──────────────────────────────────────────────
+  activeNowPill: {
+    marginHorizontal: 16,
+    marginTop: vs(6),
+    marginBottom: vs(14),
+    borderRadius: 30,
+    overflow: "hidden",
+    shadowColor: "#FF1493",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 5,
   },
-  headerIconEmoji: { fontSize: ms(13) },
-  headerIconBadge: {
-    position: "absolute",
-    top: -3,
-    right: -3,
-    minWidth: s(15),
-    height: s(15),
-    borderRadius: s(8),
+  activeNowGradient: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: s(2),
+    justifyContent: "space-between",
+    paddingVertical: vs(10),
+    paddingHorizontal: s(14),
+    borderRadius: 30,
+  },
+  activeNowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(8),
+  },
+  activeNowAvatarWrap: {
+    width: s(36),
+    height: s(36),
+    position: "relative",
+  },
+  activeNowAvatar: {
+    width: s(36),
+    height: s(36),
+    borderRadius: s(18),
     borderWidth: 1.5,
     borderColor: "#FFFFFF",
   },
-  headerIconBadgeText: {
+  activeNowGreenDot: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#22C55E",
+    borderWidth: 1.5,
+    borderColor: "#FF1493",
+  },
+  activeNowWaves: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2.5,
+  },
+  activeNowWaveBar: {
+    width: 3,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderRadius: 2,
+  },
+  activeNowTextCol: {
+    marginLeft: s(2),
+  },
+  activeNowNumber: {
     color: "white",
-    fontSize: ms(8),
+    fontSize: ms(15),
+    fontWeight: "900",
+    lineHeight: ms(18),
+  },
+  activeNowLabel: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: ms(11),
+    fontWeight: "600",
+  },
+  joinBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "white",
+    borderRadius: 20,
+    paddingVertical: vs(7),
+    paddingHorizontal: s(16),
+    gap: 3,
+  },
+  joinBtnText: {
+    color: "#FF1493",
+    fontSize: ms(13.5),
+    fontWeight: "900",
+  },
+
+  // ── VOICE PARTY HERO BANNER ──────────────────────────────────────
+  vpBanner: {
+    marginHorizontal: 16,
+    marginBottom: vs(14),
+    borderRadius: 24,
+    overflow: "hidden",
+    shadowColor: "#380D77",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  vpBannerGradient: {
+    flexDirection: "row",
+    height: vs(195),
+    borderRadius: 24,
+    overflow: "hidden",
+    position: "relative",
+  },
+  vpLeft: {
+    flex: 1,
+    justifyContent: "center",
+    paddingLeft: s(18),
+    paddingVertical: vs(16),
+    zIndex: 2,
+  },
+  vpLiveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,45,85,0.22)",
+    borderWidth: 1,
+    borderColor: "rgba(255,45,85,0.45)",
+    borderRadius: 12,
+    paddingHorizontal: s(10),
+    paddingVertical: vs(4),
+    alignSelf: "flex-start",
+    gap: s(5),
+  },
+  vpLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#FF2D55",
+  },
+  vpLiveTxt: {
+    color: "white",
+    fontSize: ms(11),
     fontWeight: "800",
   },
-  headerDivider: {
-    height: 1,
-    backgroundColor: "rgba(0,0,0,0.09)",
+  vpTitle: {
+    color: "white",
+    fontSize: ms(28),
+    fontWeight: "900",
+    letterSpacing: -0.3,
+    marginTop: vs(6),
   },
-  // Active now row
-  activeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  vpSubtitle: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: ms(12),
+    fontWeight: "500",
+    marginTop: vs(4),
+    marginBottom: vs(16),
   },
-  matchPill: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FF2A70",
-    borderRadius: 28,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    gap: 7,
-    shadowColor: "#FF2A70",
+  vpJoinBtn: {
+    borderRadius: 22,
+    alignSelf: "flex-start",
+    overflow: "hidden",
+    shadowColor: "#FF007A",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  vpJoinBtnGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: vs(9),
+    paddingHorizontal: s(16),
+    gap: 4,
+  },
+  vpJoinBtnText: {
+    color: "white",
+    fontSize: ms(13),
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  vpRight: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: s(175),
+    overflow: "hidden",
+  },
+  vpHeroArt: {
+    width: "100%",
+    height: "100%",
+  },
+  vpHeroArtFade: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 40,
+  },
+
+  // ── 3-COLUMN FEATURE CARDS ───────────────────────────────────────
+  featureCardsRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    gap: 10,
+    marginBottom: vs(16),
+  },
+  featureCard: {
+    flex: 1,
+    height: vs(138),
+    borderRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 4,
   },
-  matchAvatarWrap: {
-    width: s(34),
-    height: s(34),
+  featureCardGradient: {
+    flex: 1,
+    padding: s(10),
+    justifyContent: "space-between",
     position: "relative",
   },
-  matchAvatar: {
-    width: s(34),
-    height: s(34),
-    borderRadius: s(17),
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
+  featureCardImgWrap: {
+    width: s(48),
+    height: s(48),
+    borderRadius: s(16),
+    overflow: "hidden",
   },
-  matchAvatarLiveDot: {
-    position: "absolute",
-    bottom: -1,
-    right: -1,
-    zIndex: 5,
+  featureCardImg: {
+    width: "100%",
+    height: "100%",
   },
-  matchWaves: {
+  featureCardBottom: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
+    alignItems: "flex-end",
+    justifyContent: "space-between",
   },
-  matchWaveBar: {
-    width: 3,
-    backgroundColor: "rgba(255,255,255,0.7)",
-    borderRadius: 2,
-  },
-  activeTextCol: {
+  featureCardTextCol: {
     flex: 1,
   },
-  activeNumber: {
+  featureCardTitle: {
     color: "white",
-    fontSize: ms(15),
-    fontWeight: "800",
-    lineHeight: ms(19),
+    fontSize: ms(13),
+    fontWeight: "900",
+    lineHeight: ms(16),
   },
-  activeLabel: {
-    color: "rgba(255,255,255,0.95)",
-    fontSize: ms(12),
-    fontWeight: "600",
-    lineHeight: ms(14),
+  featureCardSub: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: ms(9.5),
+    fontWeight: "500",
+    marginTop: 2,
   },
-  matchArrow: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.3)",
+  featureCardArrowWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+    marginLeft: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  searchBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#F3F4F6",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+
+  // ── SECTION COMMON ───────────────────────────────────────────────
+  sectionWrap: {
+    marginBottom: vs(16),
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    marginBottom: vs(10),
+  },
+  sectionTitle: {
+    color: "#111827",
+    fontSize: ms(16.5),
+    fontWeight: "800",
+    marginLeft: 6,
+  },
+  sectionSeeAll: {
+    color: "#7C3AED",
+    fontSize: ms(13),
+    fontWeight: "700",
+  },
+
+  // ── PLAY & CONNECT ───────────────────────────────────────────────
+  playHeaderIcon: {
+    width: s(22),
+    height: vs(18),
+  },
+  playCardsRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    gap: s(8),
+  },
+  playCard: {
+    flex: 1,
+    height: vs(78),
+    borderRadius: s(18),
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  playCardGradient: {
+    flex: 1,
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: s(6),
+    paddingRight: s(6),
+    paddingVertical: vs(6),
+  },
+  playCardImgWrap: {
+    width: s(38),
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  playCardImg: {
+    width: "100%",
+    height: "100%",
+  },
+  playCardContent: {
+    flex: 1,
+    height: "100%",
+    justifyContent: "flex-start",
+    paddingLeft: s(2),
+    paddingRight: s(14),
+    paddingTop: vs(4),
+  },
+  playCardTitle: {
+    color: "#FFFFFF",
+    fontSize: ms(11.5),
+    fontWeight: "900",
+    lineHeight: ms(14),
+    letterSpacing: -0.2,
+  },
+  playCardArrow: {
+    position: "absolute",
+    bottom: vs(7),
+    right: s(7),
+    width: s(18),
+    height: s(18),
+    borderRadius: s(9),
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
     elevation: 2,
   },
-  searchIcon: { fontSize: 18 },
+
+  // ── POPULAR ROOMS ────────────────────────────────────────────────
+  filterPillsScroll: { marginBottom: vs(12) },
+  filterPillsContent: {
+    paddingHorizontal: 16,
+    gap: 10,
+    alignItems: "center",
+  },
+  filterPillGlobal: {
+    backgroundColor: "#6D28D9",
+    borderRadius: 16,
+    paddingHorizontal: s(12),
+    paddingVertical: vs(5),
+  },
+  filterPillGlobalTxt: {
+    color: "white",
+    fontSize: ms(12),
+    fontWeight: "800",
+  },
+  filterTabItem: {
+    paddingVertical: vs(4),
+    paddingHorizontal: s(4),
+  },
+  filterTabTxt: {
+    color: "#64748B",
+    fontSize: ms(13),
+    fontWeight: "600",
+  },
+  filterTabTxtActive: {
+    color: "#6D28D9",
+    fontWeight: "900",
+  },
+  roomsScrollContent: {
+    paddingHorizontal: 16,
+    gap: 12,
+    paddingBottom: 6,
+  },
+  roomCard: {
+    width: s(124),
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: s(10),
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#F1F5F9",
+  },
+  roomRing: {
+    width: s(82),
+    height: s(82),
+    borderRadius: s(41),
+    padding: 2.5,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  roomCardImg: {
+    width: "100%",
+    height: "100%",
+    borderRadius: s(39),
+  },
+  roomLiveBadge: {
+    position: "absolute",
+    top: 2,
+    right: -4,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EF4444",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    gap: 3,
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
+  roomLiveDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "white",
+  },
+  roomLiveTxt: {
+    color: "white",
+    fontSize: ms(9),
+    fontWeight: "900",
+  },
+  roomCardName: {
+    color: "#0F172A",
+    fontSize: ms(12.5),
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: vs(8),
+  },
+  roomCardCountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: vs(3),
+  },
+  roomCardCount: {
+    color: "#64748B",
+    fontSize: ms(11),
+    fontWeight: "600",
+  },
+  roomCardRegionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    marginTop: vs(2),
+  },
+  roomCardRegion: {
+    color: "#6D28D9",
+    fontSize: ms(10.5),
+    fontWeight: "600",
+  },
 
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 100 },

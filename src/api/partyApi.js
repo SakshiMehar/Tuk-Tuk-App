@@ -628,3 +628,64 @@ export const reportRoomUser = async (roomId, targetUserId, reason = "") => {
   }
 };
 
+/** GET /api/v1/tuktuk/rooms/{roomId}/admins — fetch list of room admins */
+export const getRoomAdmins = async (roomId) => {
+  if (!roomId) return [];
+  const cleanId = String(roomId).trim();
+  const path = `/api/v1/tuktuk/rooms/${encodeURIComponent(cleanId)}/admins`;
+  logRequest("GET", path);
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    logResponse("GET", path, response.data);
+    const data = response.data?.data ?? response.data;
+    const adminsList = Array.isArray(data?.admins)
+      ? data.admins
+      : Array.isArray(data)
+        ? data
+        : [];
+    return adminsList;
+  } catch (error) {
+    logError("GET", path, error);
+    return [];
+  }
+};
+
+/** POST /api/v1/tuktuk/rooms/{roomId}/admins — appoint a user as room admin */
+export const appointRoomAdmin = async (roomId, targetUserId) => {
+  if (!roomId) throw new Error("Room ID is required to appoint admin");
+  if (!targetUserId) throw new Error("Target user ID is required");
+  const cleanId = String(roomId).trim();
+  const path = `/api/v1/tuktuk/rooms/${encodeURIComponent(cleanId)}/admins`;
+  const parsedId = Number(targetUserId);
+  const payload = {
+    userId: !isNaN(parsedId) ? parsedId : targetUserId,
+  };
+  logRequest("POST", path, payload);
+  try {
+    const response = await API.post(path, payload, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data?.data ?? response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** DELETE /api/v1/tuktuk/rooms/{roomId}/admins/{userId} — dismiss/remove a room admin */
+export const removeRoomAdmin = async (roomId, targetUserId) => {
+  if (!roomId) throw new Error("Room ID is required to remove admin");
+  if (!targetUserId) throw new Error("Target user ID is required");
+  const cleanId = String(roomId).trim();
+  const cleanUserId = String(targetUserId).trim();
+  const path = `/api/v1/tuktuk/rooms/${encodeURIComponent(cleanId)}/admins/${encodeURIComponent(cleanUserId)}`;
+  logRequest("DELETE", path);
+  try {
+    const response = await API.delete(path, await authRequestConfig());
+    logResponse("DELETE", path, response.data);
+    return response.data?.data ?? response.data;
+  } catch (error) {
+    logError("DELETE", path, error);
+    throw error;
+  }
+};
+

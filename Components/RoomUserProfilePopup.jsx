@@ -606,19 +606,30 @@ export default function RoomUserProfilePopup({
               {/* Bottom 3 Management Buttons (Admin, Invite mic, Kick out) */}
               {showManagement && (
                 <View style={styles.managementRow}>
-                  {/* 1. Admin button */}
-                  <TouchableOpacity
-                    style={styles.managementItem}
-                    activeOpacity={0.7}
-                    onPress={handleAdminAction}
-                  >
-                    <View style={styles.managementIconWrap}>
-                      <ShieldAlert size={22} color="#64748B" />
-                    </View>
-                    <Text style={styles.managementLabel} numberOfLines={1}>
-                      {isUserAdmin ? "Remove Admin" : "Admin"}
-                    </Text>
-                  </TouchableOpacity>
+                  {/* 1. Admin button (only room owner can appoint/remove admins) */}
+                  {isViewerOwner && !isUserOwner && (
+                    <TouchableOpacity
+                      style={styles.managementItem}
+                      activeOpacity={0.7}
+                      onPress={handleAdminAction}
+                    >
+                      <View style={styles.managementIconWrap}>
+                        <ShieldAlert
+                          size={22}
+                          color={isUserAdmin ? "#EF4444" : "#64748B"}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.managementLabel,
+                          isUserAdmin && { color: "#EF4444", fontWeight: "600" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {isUserAdmin ? "Remove Admin" : "Admin"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
 
                   {/* 2. Invite mic button */}
                   <TouchableOpacity
@@ -634,19 +645,21 @@ export default function RoomUserProfilePopup({
                     </Text>
                   </TouchableOpacity>
 
-                  {/* 3. Kick out button */}
-                  <TouchableOpacity
-                    style={styles.managementItem}
-                    activeOpacity={0.7}
-                    onPress={handleKickOutAction}
-                  >
-                    <View style={styles.managementIconWrap}>
-                      <LogOut size={22} color="#64748B" />
-                    </View>
-                    <Text style={styles.managementLabel} numberOfLines={1}>
-                      Kick out
-                    </Text>
-                  </TouchableOpacity>
+                  {/* 3. Kick out button (cannot kick room owner) */}
+                  {!isUserOwner && (
+                    <TouchableOpacity
+                      style={styles.managementItem}
+                      activeOpacity={0.7}
+                      onPress={handleKickOutAction}
+                    >
+                      <View style={styles.managementIconWrap}>
+                        <LogOut size={22} color="#64748B" />
+                      </View>
+                      <Text style={styles.managementLabel} numberOfLines={1}>
+                        Kick out
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             </>

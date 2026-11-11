@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  DeviceEventEmitter,
   Dimensions,
   Image,
   Modal,
@@ -29,6 +30,7 @@ import DiamondRechargeModal from "../../Components/DiamondRechargeModal";
 import FamilyChatModal from "../../Components/FamilyChatModal";
 import GetRewardsPanel from "../../Components/GetRewardsPanel";
 import MonthlyCardPanel from "../../Components/MonthlyCardPanel";
+import PostCreateSheet from "../../Components/PostCreateSheet";
 import PremiumPanel from "../../Components/PremiumPanel";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import ProfileConnectionsModal from "../../Components/ProfileConnectionsModal";
@@ -40,6 +42,7 @@ import HonorLevelModal from "../../Modal/HonorLevelModal";
 import WalletRechargeSection from "../../Components/WalletRechargeSection";
 import { refreshTokenCache } from "../../src/api/axios";
 import { getGiftsReceived, getGiftsSent } from "../../src/api/giftApi";
+import { createPost } from "../../src/api/postApi";
 import { APP_BG, APP_CARD, APP_CARD_BORDER, APP_PURPLE, APP_TEXT, APP_TEXT_DIM, APP_TEXT_MUTED, DIAMOND_ICON_URL } from "../../src/constants/theme";
 import { VIP_PROFILE_FRAME_LAYOUT } from "../../src/constants/vip";
 import { useUserOnlineOrLiveStatus } from "../../src/utils/liveStatus";
@@ -60,7 +63,7 @@ import {
 } from "../../src/services/familyService";
 import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
 import { loadMyProfile, saveMyProfile } from "../../src/services/meProfileService";
-import { loadMyProfilePosts, updateMyPostDescription } from "../../src/services/myPostsService";
+import { deleteMyPost, loadMyProfilePosts, normalizeMyPost, updateMyPostDescription } from "../../src/services/myPostsService";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import { loadProfileStats } from "../../src/services/profileStatsService";
 import {
@@ -1166,6 +1169,83 @@ export default function Profile() {
   const [editingPost, setEditingPost] = useState(null);
   const [editPostText, setEditPostText] = useState("");
   const [postSaving, setPostSaving] = useState(false);
+  const [deletingPostId, setDeletingPostId] = useState(null);
+  const [postSheetVisible, setPostSheetVisible] = useState(false);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("postDeleted", ({ postId }) => {
+      if (!postId) return;
+      setMyPosts((prev) => prev.filter((p) => String(p.id) !== String(postId)));
+    });
+    const subCreated = DeviceEventEmitter.addListener("postCreated", ({ post }) => {
+      if (!post?.id) return;
+      const normalized = normalizeMyPost(post);
+      setMyPosts((prev) => {
+        if (prev.some((p) => String(p.id) === String(post.id))) return prev;
+        return [normalized, ...prev];
+      });
+    });
+    return () => {
+      sub.remove();
+      subCreated.remove();
+    };
+  }, []);
+
+  const handleCreatePost = useCallback(
+    async ({ caption, photos, video, mediaType }) => {
+      const localImageUris = (photos ?? []).map((p) => p.uri).filter(Boolean);
+      const mediaUri = video?.uri ?? localImageUris[0] ?? null;
+
+      const createdPost = await createPost({ caption, photos, video, mediaType });
+
+      const returnedImageUrls = Array.isArray(createdPost?.imageUrls)
+        ? createdPost.imageUrls
+        : Array.isArray(createdPost?.mediaUrls)
+          ? createdPost.mediaUrls
+          : null;
+      const imageUrls =
+        mediaType === "video"
+          ? []
+          : returnedImageUrls?.length
+            ? returnedImageUrls
+            : localImageUris;
+
+      const resolvedImage =
+        createdPost?.imageUrl ??
+        createdPost?.mediaUrl ??
+        createdPost?.image ??
+        imageUrls[0] ??
+        null;
+
+      const normalized = normalizeMyPost({
+        ...createdPost,
+        id: createdPost?.id ?? createdPost?.postId ?? `local-${Date.now()}`,
+        userId: createdPost?.userId ?? createdPost?.authorId ?? userId ?? null,
+        name: createdPost?.name ?? createdPost?.username ?? name ?? "You",
+        avatar: createdPost?.avatar ?? createdPost?.profileImage ?? null,
+        text: createdPost?.text ?? createdPost?.caption ?? createdPost?.content ?? caption ?? "",
+        imageUrl: resolvedImage,
+        imageUrls,
+        hasVideo: mediaType === "video",
+        videoUrl: createdPost?.videoUrl ?? (mediaType === "video" ? mediaUri : null),
+        duration: createdPost?.duration ?? null,
+        likeCount: createdPost?.likeCount ?? createdPost?.likes ?? 0,
+        _localMediaUri: mediaUri,
+        _mediaType: mediaType ?? null,
+        _isOwn: true,
+      });
+
+      // Optimistically prepend to myPosts immediately so profile screen displays it instantly
+      setMyPosts((prev) => {
+        if (prev.some((p) => String(p.id) === String(normalized.id))) return prev;
+        return [normalized, ...prev];
+      });
+
+      // Broadcast to home screen (and anywhere else) so it displays instantly without refresh
+      DeviceEventEmitter.emit("postCreated", { post: normalized, rawPost: createdPost });
+    },
+    [userId, name]
+  );
   const [profileTabLoading, setProfileTabLoading] = useState(false);
   const [statsLoading, setStatsLoading] = useState(true);
   const tabDataLoadedRef = useRef({ Moment: false, Profile: false, Gift: false });
@@ -1399,6 +1479,42 @@ export default function Profile() {
       setPostSaving(false);
     }
   }, [editingPost, editPostText, postSaving]);
+
+  const handleDeleteMyPost = useCallback(async (postId) => {
+    if (!postId || deletingPostId) return;
+    setDeletingPostId(postId);
+
+    // Optimistically remove from local state immediately
+    setMyPosts((prev) => prev.filter((p) => String(p.id) !== String(postId)));
+    // Broadcast event so Home feed (and any other screen) removes it immediately
+    DeviceEventEmitter.emit("postDeleted", { postId: String(postId) });
+
+    try {
+      await deleteMyPost(postId);
+    } catch (err) {
+      console.error("[profile] deleteMyPost error:", err);
+      Alert.alert("Delete failed", err?.message || "Could not delete this moment.");
+      loadMyPosts().catch(() => {});
+    } finally {
+      setDeletingPostId(null);
+    }
+  }, [deletingPostId, loadMyPosts]);
+
+  const handleConfirmDeletePost = useCallback((post) => {
+    if (!post?.id) return;
+    Alert.alert(
+      "Delete Post",
+      "Are you sure you want to delete this moment? It will be removed permanently.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => handleDeleteMyPost(post.id),
+        },
+      ]
+    );
+  }, [handleDeleteMyPost]);
 
   const handleOpenSavedUser = useCallback(async (user) => {
     setActiveMenu(null);
@@ -2430,20 +2546,19 @@ export default function Profile() {
         {/* ── MOMENT CONTENT ── */}
         {activeTab === "Moment" && (
           <View style={styles.momentSection}>
-            <View style={styles.shareCard}>
+            <TouchableOpacity
+              style={styles.shareCard}
+              activeOpacity={0.88}
+              onPress={() => setPostSheetVisible(true)}
+            >
               <View style={styles.shareCardText}>
                 <Text style={styles.shareCardTitle}>Share your moment today</Text>
                 <Text style={styles.shareCardSub}>Your stories would gain more likes and friends.</Text>
               </View>
-              <Pressable
-                onPress={() =>
-                  router.navigate({ pathname: "/home", params: { createPost: "1" } })
-                }
-                style={styles.shareCardBtn}
-              >
+              <View style={styles.shareCardBtn}>
                 <FontAwesome name="send" size={20} color="white" />
-              </Pressable>
-            </View>
+              </View>
+            </TouchableOpacity>
 
             {myPostsLoading ? (
               <ActivityIndicator color="#a78bfa" style={{ marginVertical: 24 }} />
@@ -2490,14 +2605,31 @@ export default function Profile() {
                         )}
                       </View>
                     </View>
-                    <TouchableOpacity
-                      style={styles.momentPostEditBtn}
-                      onPress={() => handleOpenEditPost(post)}
-                      activeOpacity={0.8}
-                    >
-                      <FontAwesome name="pencil" size={12} color={APP_PURPLE} />
-                      <Text style={styles.momentPostEditText}>Edit</Text>
-                    </TouchableOpacity>
+                    <View style={styles.momentPostActions}>
+                      <TouchableOpacity
+                        style={styles.momentPostEditBtn}
+                        onPress={() => handleOpenEditPost(post)}
+                        activeOpacity={0.8}
+                      >
+                        <FontAwesome name="pencil" size={12} color={APP_PURPLE} />
+                        <Text style={styles.momentPostEditText}>Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.momentPostDeleteBtn}
+                        onPress={() => handleConfirmDeletePost(post)}
+                        activeOpacity={0.8}
+                        disabled={deletingPostId === post.id}
+                      >
+                        {deletingPostId === post.id ? (
+                          <ActivityIndicator size="small" color="#EF4444" />
+                        ) : (
+                          <>
+                            <FontAwesome name="trash" size={12} color="#EF4444" />
+                            <Text style={styles.momentPostDeleteText}>Delete</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   </View>
 
                   {post.text ? (
@@ -2857,6 +2989,12 @@ export default function Profile() {
           </View>
         </View>
       </Modal>
+
+      <PostCreateSheet
+        visible={postSheetVisible}
+        onClose={() => setPostSheetVisible(false)}
+        onPost={handleCreatePost}
+      />
     </View>
   );
 }
@@ -3542,6 +3680,11 @@ const styles = StyleSheet.create({
     width: 52,
     height: 21,
   },
+  momentPostActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   momentPostEditBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -3553,6 +3696,22 @@ const styles = StyleSheet.create({
   },
   momentPostEditText: {
     color: APP_PURPLE,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  momentPostDeleteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.25)",
+  },
+  momentPostDeleteText: {
+    color: "#EF4444",
     fontSize: 12,
     fontWeight: "700",
   },

@@ -1,4 +1,4 @@
-import { getMyProfilePosts, updatePostCaption } from "../api/postApi";
+import { deletePost, getMyProfilePosts, updatePostCaption } from "../api/postApi";
 import { normalizePost } from "./homeService";
 import { API_BASE_URL } from "../config/env";
 
@@ -17,7 +17,7 @@ const resolveMediaUrl = (url) => {
   return `${API_BASE_URL}/${trimmed}`;
 };
 
-const normalizeMyPost = (post) => {
+export const normalizeMyPost = (post) => {
   const normalized = normalizePost(post);
   return {
     ...normalized,
@@ -29,8 +29,6 @@ const normalizeMyPost = (post) => {
 export const loadMyProfilePosts = async (page = 1, limit = 20) => {
   const data = await getMyProfilePosts(page, limit);
   const posts = listFrom(data, "posts").map(normalizeMyPost);
-
-  
 
   return {
     posts,
@@ -45,4 +43,8 @@ export const updateMyPostDescription = async (postId, text) => {
   const parsed = normalizeMyPost(raw);
   
   return parsed;
+};
+
+export const deleteMyPost = async (postId) => {
+  return await deletePost(postId);
 };

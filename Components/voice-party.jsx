@@ -89,9 +89,11 @@ import Svg, {
 import GiftPurchaseModal from "../Modal/GiftPurchaseModal";
 import API, { refreshTokenCache } from "../src/api/axios";
 import {
+  appointRoomAdmin,
   deleteRoomChatMessages,
   followRoom,
   getClaimedSeats,
+  getRoomAdmins,
   getRoomBadges,
   getRoomChatMessages,
   getRoomState,
@@ -99,6 +101,7 @@ import {
   lockSeat,
   postRoomHeartbeat,
   postSeatHeartbeat,
+  removeRoomAdmin,
   reportRoomUser,
   unfollowRoom,
   unlockSeat,
@@ -2744,6 +2747,29 @@ export default function VoiceParty() {
   const canManageRoomUsers = isHostSelf || isViewerAdmin;
   const [clearingChat, setClearingChat] = useState(false);
 
+  const refreshRoomAdmins = useCallback(async (targetRoomId) => {
+    const activeId = String(targetRoomId || roomIdRef.current || roomId || "").trim();
+    if (!activeId) return;
+    try {
+      const adminsList = await getRoomAdmins(activeId);
+      const activeIds = new Set(
+        (adminsList || [])
+          .filter((a) => a?.active !== false)
+          .map((a) => String(a.userId ?? a.id ?? ""))
+          .filter(Boolean),
+      );
+      setRoomAdminIds(activeIds);
+    } catch (err) {
+      console.warn("[VoiceParty] Failed to refresh room admins:", err);
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    if (roomId) {
+      refreshRoomAdmins(roomId);
+    }
+  }, [roomId, refreshRoomAdmins]);
+
   // Only the creator/owner of the room can edit room name & photo
   const currentAppUserId =
     myUserId ||
@@ -4357,6 +4383,7 @@ export default function VoiceParty() {
             if (!cancelled && announcement) setWelcomeMessage(announcement);
           })
           .catch(() => {});
+        refreshRoomAdmins(session.roomId);
 
         onMicRef.current = false;
         mySeatNumberRef.current = null;
@@ -5301,6 +5328,38 @@ export default function VoiceParty() {
             break;
           }
 
+          case "ADMIN_APPOINTED":
+          case "ROOM_ADMIN_APPOINTED": {
+            const adminId =
+              payload.userId != null
+                ? String(payload.userId)
+                : payload.targetUserId != null
+                  ? String(payload.targetUserId)
+                  : uId;
+            if (adminId) {
+              setRoomAdminIds((prev) => new Set([...prev, String(adminId)]));
+            }
+            break;
+          }
+
+          case "ADMIN_REMOVED":
+          case "ROOM_ADMIN_REMOVED": {
+            const adminId =
+              payload.userId != null
+                ? String(payload.userId)
+                : payload.targetUserId != null
+                  ? String(payload.targetUserId)
+                  : uId;
+            if (adminId) {
+              setRoomAdminIds((prev) => {
+                const next = new Set(prev);
+                next.delete(String(adminId));
+                return next;
+              });
+            }
+            break;
+          }
+
           case "MIC_MUTED":
           case "MIC_UNMUTED": {
             const isMuted =
@@ -5532,6 +5591,42 @@ export default function VoiceParty() {
           );
           setOnlineCount((prev) => Math.max(0, prev - 1));
         }
+
+        if (
+          eventType === "ADMIN_APPOINTED" ||
+          eventType === "ROOM_ADMIN_APPOINTED" ||
+          payload.action === "APPOINT_ADMIN"
+        ) {
+          const adminId =
+            payload.userId != null
+              ? String(payload.userId)
+              : payload.targetUserId != null
+                ? String(payload.targetUserId)
+                : null;
+          if (adminId) {
+            setRoomAdminIds((prev) => new Set([...prev, String(adminId)]));
+          }
+        }
+
+        if (
+          eventType === "ADMIN_REMOVED" ||
+          eventType === "ROOM_ADMIN_REMOVED" ||
+          payload.action === "REMOVE_ADMIN"
+        ) {
+          const adminId =
+            payload.userId != null
+              ? String(payload.userId)
+              : payload.targetUserId != null
+                ? String(payload.targetUserId)
+                : null;
+          if (adminId) {
+            setRoomAdminIds((prev) => {
+              const next = new Set(prev);
+              next.delete(String(adminId));
+              return next;
+            });
+          }
+        }
       },
     );
 
@@ -5587,6 +5682,7 @@ export default function VoiceParty() {
         .catch(() => {
           // Non-critical — the `pk` topic or the fallback poll will catch it.
         });
+      refreshRoomAdmins(roomId);
     });
     // ── Emoji / Sticker / GIF broadcast subscription ──────────────────────
     const unsubEmoji = wsService.onRoomEmoji(String(roomId), (payload) => {
@@ -7186,8 +7282,8 @@ export default function VoiceParty() {
     teamBMemberIds,
     durationMinutes,
   }) => {
-    if (!isHostSelf) {
-      Alert.alert("Not allowed", "Only the room host can start a PK battle.");
+    if (!isHostSelf && !isViewerAdmin) {
+      Alert.alert("Not allowed", "Only the room host or admin can start a PK battle.");
       return;
     }
     if (pkBattleActionInFlightRef.current) return;
@@ -7799,57 +7895,77 @@ export default function VoiceParty() {
   }, [profilePopupUser]);
 
   const handlePopupToggleAdmin = useCallback(
-    (targetUser) => {
+    async (targetUser) => {
       const targetId = String(targetUser?.id ?? targetUser?.userId ?? "");
       const targetName = targetUser?.name ?? targetUser?.username ?? "User";
       if (!targetId || isSameUser(targetId, myUserId)) return;
 
-      if (!isHostSelf && !isViewerAdmin) {
+      if (!isHostSelf) {
         Alert.alert(
           "Unauthorized",
-          "Only the room owner or admin can manage admin permissions.",
+          "Only the room owner can manage admin permissions.",
+        );
+        return;
+      }
+
+      if (hostId && isSameUser(targetId, hostId)) {
+        Alert.alert(
+          "Action Not Allowed",
+          "The room host cannot be modified as an admin.",
         );
         return;
       }
 
       const isCurrentlyAdmin = roomAdminIds.has(targetId);
-      if (isCurrentlyAdmin) {
-        setRoomAdminIds((prev) => {
-          const next = new Set(prev);
-          next.delete(targetId);
-          return next;
-        });
-        if (roomId) {
-          wsService.sendRoomMessage(
-            String(roomId),
-            `🛡️ ${targetName} is no longer a room admin.`,
+      try {
+        if (isCurrentlyAdmin) {
+          await removeRoomAdmin(String(roomId), targetId);
+          setRoomAdminIds((prev) => {
+            const next = new Set(prev);
+            next.delete(targetId);
+            return next;
+          });
+          if (roomId) {
+            wsService.sendRoomMessage(
+              String(roomId),
+              `🛡️ ${targetName} is no longer a room admin.`,
+            );
+          }
+          Alert.alert(
+            "Admin Removed",
+            `${targetName} is no longer a room admin.`,
           );
+        } else {
+          await appointRoomAdmin(String(roomId), targetId);
+          setRoomAdminIds((prev) => {
+            const next = new Set(prev);
+            next.add(targetId);
+            return next;
+          });
+          if (roomId) {
+            wsService.sendRoomMessage(
+              String(roomId),
+              `🛡️ ${targetName} has been appointed as a room admin!`,
+            );
+          }
+          Alert.alert("Admin Appointed", `${targetName} is now a room admin.`);
         }
-        Alert.alert(
-          "Admin Removed",
-          `${targetName} is no longer a room admin.`,
-        );
-      } else {
-        setRoomAdminIds((prev) => {
-          const next = new Set(prev);
-          next.add(targetId);
-          return next;
-        });
-        if (roomId) {
-          wsService.sendRoomMessage(
-            String(roomId),
-            `🛡️ ${targetName} has been appointed as a room admin!`,
-          );
-        }
-        Alert.alert("Admin Granted", `${targetName} is now a room admin.`);
+      } catch (err) {
+        const errMsg =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          (isCurrentlyAdmin ? "Failed to remove admin." : "Failed to appoint admin.");
+        Alert.alert("Error", String(errMsg));
+      } finally {
+        closeProfilePopup();
       }
-      closeProfilePopup();
     },
     [
       roomId,
       myUserId,
       isHostSelf,
-      isViewerAdmin,
+      hostId,
       roomAdminIds,
       closeProfilePopup,
     ],
@@ -7902,6 +8018,14 @@ export default function VoiceParty() {
         Alert.alert(
           "Action Not Allowed",
           "The room host cannot be kicked out.",
+        );
+        return;
+      }
+
+      if (!isHostSelf && roomAdminIds.has(targetId)) {
+        Alert.alert(
+          "Action Not Allowed",
+          "Admins cannot kick out other admins. Only the room owner can.",
         );
         return;
       }
@@ -7964,7 +8088,15 @@ export default function VoiceParty() {
         ],
       );
     },
-    [roomId, myUserId, isHostSelf, isViewerAdmin, hostId, closeProfilePopup],
+    [
+      roomId,
+      myUserId,
+      isHostSelf,
+      isViewerAdmin,
+      hostId,
+      roomAdminIds,
+      closeProfilePopup,
+    ],
   );
 
   const handleUserAvatarPress = (userLike) => {
@@ -9710,7 +9842,7 @@ export default function VoiceParty() {
             <Text style={styles.playCenterTitle}>Play center</Text>
             <View style={styles.playCenterRow}>
               {/* Music */}
-              {isHostSelf && (
+              {(isHostSelf || isViewerAdmin) && (
                 <TouchableOpacity
                   style={styles.playCenterItem}
                   activeOpacity={0.75}
@@ -12271,7 +12403,7 @@ export default function VoiceParty() {
                   <Text style={styles.pinnedWelcomeText} numberOfLines={3}>
                     {welcomeMessage}
                   </Text>
-                  {isHostSelf && (
+                  {(isHostSelf || isViewerAdmin) && (
                     <TouchableOpacity
                       style={styles.pinnedEditBtn}
                       activeOpacity={0.8}
@@ -12874,7 +13006,7 @@ export default function VoiceParty() {
             </View>
           )}
 
-          {isHostSelf && isMusicPlaying && (
+          {(isHostSelf || isViewerAdmin) && isMusicPlaying && (
             <MiniMusicPlayer
               isPlaying={!isMusicPaused}
               volume={musicVolume}

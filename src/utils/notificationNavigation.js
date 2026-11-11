@@ -238,7 +238,7 @@ const resolveTargetAction = async (targetUrl, data = {}) => {
   if (normalizedCleanPath === "/profile" || normalizedCleanPath === "/(tabs)/profile")
     return { type: "route", path: "/(tabs)/profile" };
   if (normalizedCleanPath === "/blind-pick" || normalizedCleanPath === "/(tabs)/blind-pick")
-    return { type: "route", path: "/(tabs)/blind-pick" };
+    return { type: "route", path: "/blind-pick" };
   if (normalizedCleanPath === "/account") return { type: "route", path: "/account" };
   if (normalizedCleanPath === "/settings")
     return { type: "route", path: "/settings" };
