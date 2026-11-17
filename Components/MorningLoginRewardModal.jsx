@@ -63,54 +63,34 @@ export default function MorningLoginRewardModal({
         return err?.response?.data ?? null;
       });
 
-      // If backend explicitly rejected due to time window or claim status
+      // If backend explicitly rejected due to time window or already claimed
       if (result && result.success === false) {
-        if (__DEV__) {
-          console.log("[MorningReward] DEV MODE: Backend rejected claim (outside 5 AM - 10 AM window). Previewing Success popup:", result.message);
-          const simulated = Math.floor(Math.random() * (maxDiamonds - minDiamonds + 1)) + minDiamonds;
-          setDiamondsAwarded(simulated);
-          setStep("success");
-          refreshWalletBalance().catch(() => {});
-          if (typeof onClaimSuccess === "function") {
-            try {
-              onClaimSuccess(simulated);
-            } catch (cbErr) {
-              console.warn("[MorningReward] onClaimSuccess error:", cbErr);
-            }
-          }
-          return;
-        } else {
-          Alert.alert("Reward Notice", result.message || "Morning reward is available only between 5 AM and 10 AM.");
-          return;
-        }
+        Alert.alert("Reward Notice", result.message || "Morning reward is available only between 5 AM and 10 AM.");
+        return;
       }
 
-      const awarded =
-        result?.diamondsAwarded ??
-        result?.diamonds ??
-        Math.floor(Math.random() * (maxDiamonds - minDiamonds + 1)) + minDiamonds;
+      const awarded = result?.diamondsAwarded ?? result?.diamonds;
 
-      setDiamondsAwarded(awarded);
-      setStep("success");
+      if (awarded != null) {
+        const diamondsCount = Number(awarded);
+        setDiamondsAwarded(diamondsCount);
+        setStep("success");
 
-      // Instantly refresh wallet balance across the app
-      refreshWalletBalance().catch(() => {});
-      if (typeof onClaimSuccess === "function") {
-        try {
-          onClaimSuccess(awarded);
-        } catch (cbErr) {
-          console.warn("[MorningReward] onClaimSuccess error:", cbErr);
+        // Instantly refresh wallet balance across the app
+        refreshWalletBalance().catch(() => {});
+        if (typeof onClaimSuccess === "function") {
+          try {
+            onClaimSuccess(diamondsCount);
+          } catch (cbErr) {
+            console.warn("[MorningReward] onClaimSuccess error:", cbErr);
+          }
         }
+      } else {
+        const errMsg = result?.message || "Could not claim morning reward at this time.";
+        Alert.alert("Reward Notice", errMsg);
       }
     } catch (err) {
       console.warn("[MorningReward] Claim failed:", err?.message || err);
-      if (__DEV__) {
-        const simulated = Math.floor(Math.random() * (maxDiamonds - minDiamonds + 1)) + minDiamonds;
-        setDiamondsAwarded(simulated);
-        setStep("success");
-        refreshWalletBalance().catch(() => {});
-        return;
-      }
       const errMsg =
         err?.response?.data?.message ||
         err?.message ||
@@ -119,7 +99,7 @@ export default function MorningLoginRewardModal({
     } finally {
       setClaiming(false);
     }
-  }, [claiming, minDiamonds, maxDiamonds, onClaimSuccess]);
+  }, [claiming, onClaimSuccess]);
 
   const handleDismiss = useCallback(() => {
     // Reset internal state for next session

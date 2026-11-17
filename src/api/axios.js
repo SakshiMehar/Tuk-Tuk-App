@@ -362,13 +362,16 @@ API.interceptors.response.use(
       return Promise.reject(banErr);
     }
 
-    // ── Handle HTTP 403 / DEVICE_BLOCKED response ────────────────
+    // ── Handle DEVICE_BLOCKED response ────────────────
     const isDeviceBlocked =
-      status === 403 ||
       responseData?.code === "DEVICE_BLOCKED" ||
       responseData?.error === "DEVICE_BLOCKED" ||
-      /device.*(block|ban|restrict|denied)/i.test(
-        String(responseData?.message || responseData?.error || "")
+      responseData?.type === "DEVICE_BLOCKED" ||
+      responseData?.status === "DEVICE_BLOCKED" ||
+      responseData?.code === "DEVICE_BANNED" ||
+      responseData?.error === "DEVICE_BANNED" ||
+      /device.*(block|ban|restrict)/i.test(
+        String(responseData?.message || responseData?.error || responseData?.reason || "")
       );
 
     if (isDeviceBlocked) {

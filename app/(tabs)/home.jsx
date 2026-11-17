@@ -2584,27 +2584,17 @@ export default function Home() {
 
   // ── Morning Login Reward Check (5 AM – 10 AM) ──
   useEffect(() => {
-    // Delay slightly to ensure smooth navigation transition from splash/login
+    // Check morning login reward status when user opens the app
     const timer = setTimeout(() => {
       getMorningRewardStatus()
         .then((status) => {
-          console.log("[HomeScreen] Morning reward status check:", status);
           if (status?.eligible === true && !status?.alreadyClaimed) {
             setMorningRewardStatus(status);
-            setMorningRewardVisible(true);
-          } else if (__DEV__ && !status?.alreadyClaimed) {
-            // In dev mode, auto-show so developer can test outside 5 AM - 10 AM window
-            console.log("[HomeScreen] DEV MODE: Auto-showing Morning Reward modal for testing (backend window 5 AM - 10 AM)");
-            setMorningRewardStatus(status || { minDiamonds: 5, maxDiamonds: 10, eligible: true });
             setMorningRewardVisible(true);
           }
         })
         .catch((err) => {
-          console.warn("[HomeScreen] Morning reward check skipped:", err?.message || err);
-          if (__DEV__) {
-            setMorningRewardStatus({ minDiamonds: 5, maxDiamonds: 10, eligible: true });
-            setMorningRewardVisible(true);
-          }
+          console.warn("[HomeScreen] Morning reward check error:", err?.message || err);
         });
     }, 600);
 
@@ -4147,25 +4137,12 @@ export default function Home() {
         statusData={morningRewardStatus}
         onClose={() => setMorningRewardVisible(false)}
         onClaimSuccess={(awarded) => {
+          setMorningRewardStatus((prev) => (prev ? { ...prev, eligible: false, alreadyClaimed: true } : null));
           setToastMessage(`+${awarded} Diamonds credited to your wallet! 💎`);
           setToastVisible(true);
           refreshWalletBalance();
         }}
       />
-
-      {/* ── DEV ONLY: Test Morning Reward button ── */}
-      {__DEV__ && (
-        <TouchableOpacity
-          style={styles.devMorningRewardBtn}
-          activeOpacity={0.8}
-          onPress={() => {
-            setMorningRewardStatus({ minDiamonds: 5, maxDiamonds: 10, eligible: true });
-            setMorningRewardVisible(true);
-          }}
-        >
-          <Text style={styles.devMorningRewardText}>🎁 Test Morning Reward</Text>
-        </TouchableOpacity>
-      )}
 
       {/* ── Gender Picker (shown once if gender not set) ── */}
       <Modal
@@ -6321,27 +6298,6 @@ const styles = StyleSheet.create({
   freeTagText: {
     color: "white",
     fontSize: 10,
-    fontWeight: "700",
-  },
-  devMorningRewardBtn: {
-    position: "absolute",
-    bottom: 85,
-    right: 16,
-    backgroundColor: "rgba(45, 15, 94, 0.95)",
-    borderWidth: 1.5,
-    borderColor: "#fde047",
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    shadowColor: "#f59e0b",
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    elevation: 10,
-    zIndex: 999,
-  },
-  devMorningRewardText: {
-    color: "#fde047",
-    fontSize: 11,
     fontWeight: "700",
   },
 });

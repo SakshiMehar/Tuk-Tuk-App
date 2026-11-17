@@ -902,6 +902,7 @@ const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
   if (!seatNumber) return parsedSeats;
   const user = await getUser();
   const userId = await getAppUserId().catch(() => null);
+  const effectiveUserId = userId ?? user?.id ?? user?.userId ?? null;
   // For OWN seat always prefer local profile data — WS data can be stale or empty.
   const resolvedAvatarUri =
     resolveProfileAvatarUri(user) ??
@@ -921,7 +922,8 @@ const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
       ...seat,
       user: {
         ...existing,
-        id: existing.id ?? userId,
+        id: existing.id ?? effectiveUserId,
+        userId: existing.userId ?? effectiveUserId,
         name:
           existing.name && existing.name !== "Guest"
             ? existing.name
@@ -938,21 +940,12 @@ const enrichSeatsWithMyProfile = async (parsedSeats, seatNumber) => {
         hasNewUserFrame: Boolean(user?.hasNewUserFrame),
         newUserFrameUrl: user?.newUserFrameUrl ?? null,
         level: existing.level ?? user?.level ?? 1,
-        active: true,
+        active: existing.active ?? true,
         muted: existing.muted ?? false,
       },
     };
   });
 };
-
-// Presence (participants/onlineUsers) and seats are computed from separate
-// backend sources that aren't updated atomically, so a single broadcast can
-// carry a fresh seats map alongside a momentarily-stale presence list that's
-// simply missing a still-seated user. Requiring the mismatch to repeat across
-// consecutive updates (via staleSeatTracker) before clearing a seat avoids
-// wiping a connected user's avatar for other clients on a one-off glitch,
-// while still cleaning up genuine ghost seats after they persist.
-const STALE_SEAT_MISS_THRESHOLD = 2;
 
 const reconcileSeatAssignments = (
   parsedSeats,
@@ -961,11 +954,6 @@ const reconcileSeatAssignments = (
     myUserId = null,
     mySeatNumber = null,
     staleSeatTracker = null,
-    // Agora uids currently producing live remote audio (see
-    // agoraVoiceService.getVoiceDiagnostics().remoteSpeakerUids). A user
-    // missing from the WS presence list but still live on Agora is a
-    // presence-sync glitch, not a real departure — clearing their seat here
-    // would wipe their profile while their voice keeps playing.
     activeVoiceUids = null,
     knownMuteStates = null,
   } = {},
@@ -981,7 +969,7 @@ const reconcileSeatAssignments = (
     ) {
       return { ...seat, user: null };
     }
-    
+
     if (user && knownMuteStates) {
       const isMuted = knownMuteStates.get(String(user.id || user.userId));
       if (isMuted !== undefined) {
@@ -995,59 +983,21 @@ const reconcileSeatAssignments = (
     };
   });
 
-  const onlineIds =
-    Array.isArray(onlineUsers) && onlineUsers.length > 0
-      ? new Set(
-          onlineUsers
-            .map((u) => (u?.id != null ? String(u.id) : (u?.userId != null ? String(u.userId) : null)))
-            .filter(Boolean),
-        )
-      : null;
-
-  // If room presence is known, clear seats for users who already left.
-  if (onlineIds) {
+  // Ensure current user's seat assignment matches local mic state
+  if (myUserId) {
     for (let i = 0; i < next.length; i += 1) {
       if (!next[i]?.user) continue;
-      const userId =
-        next[i].user.id != null
-          ? String(next[i].user.id)
-          : next[i].user.userId != null
-            ? String(next[i].user.userId)
-            : null;
-      if (!userId) {
-        next[i] = { ...next[i], user: null };
-        continue;
-      }
-
-      // If the seat belongs to current user, ensure local mic status matches
-      if (myUserId && userId === String(myUserId)) {
-        if (!mySeatNumber) {
+      const uId = next[i].user.id ?? next[i].user.userId;
+      if (uId != null && isSameUser(uId, myUserId)) {
+        if (!mySeatNumber || next[i].id !== mySeatNumber) {
+          // Current user is no longer on this seat
           next[i] = { ...next[i], user: null };
-          continue;
-        } else if (next[i].id !== mySeatNumber) {
-          next[i] = { ...next[i], user: null };
-          continue;
         }
       }
-
-      if (onlineIds.has(userId)) {
-        staleSeatTracker?.delete(userId);
-        continue;
-      }
-      if (
-        activeVoiceUids?.size &&
-        activeVoiceUids.has(resolveVoiceUidForUserId(userId))
-      ) {
-        staleSeatTracker?.delete(userId);
-        continue;
-      }
-
-      // User is neither in room online users nor actively in Agora voice -> clear seat immediately
-      next[i] = { ...next[i], user: null };
-      staleSeatTracker?.delete(userId);
     }
   }
 
+  // Deduplicate: If same user appears on multiple seats, keep only the latest/active one
   const indexByUserId = new Map();
   for (let i = 0; i < next.length; i += 1) {
     const seat = next[i];
@@ -1070,14 +1020,13 @@ const reconcileSeatAssignments = (
     const currUser = seat?.user;
 
     let keepCurrent = false;
-    if (myUserId && String(myUserId) === userId && mySeatNumber) {
-      keepCurrent = seat.id === mySeatNumber && prevSeat.id !== mySeatNumber;
+    if (myUserId && isSameUser(userId, myUserId) && mySeatNumber) {
+      keepCurrent = seat.id === mySeatNumber;
     } else if (Boolean(currUser?.active) !== Boolean(prevUser?.active)) {
       keepCurrent = Boolean(currUser?.active);
     } else if (Boolean(currUser?.muted) !== Boolean(prevUser?.muted)) {
       keepCurrent = Boolean(prevUser?.muted) && !Boolean(currUser?.muted);
     } else {
-      // Fallback: prefer later seat as fresher assignment.
       keepCurrent = Number(seat.id) >= Number(prevSeat.id);
     }
 
@@ -2402,12 +2351,13 @@ export default function VoiceParty() {
     });
 
     // Include local session user / self if not in list
-    if (myUserId && !seenIds.has(String(myUserId))) {
-      seenIds.add(String(myUserId));
+    const selfId = myUserId || localSessionUser?.id || localSessionUser?.userId;
+    if (selfId && !seenIds.has(String(selfId))) {
+      seenIds.add(String(selfId));
       list.push({
         ...(localSessionUser || {}),
-        id: String(myUserId),
-        userId: String(myUserId),
+        id: String(selfId),
+        userId: String(selfId),
         name: localSessionUser?.name || localSessionUser?.username || "You",
         avatar:
           localSessionUser?.avatar ||
@@ -2802,6 +2752,10 @@ export default function VoiceParty() {
   const [profilePopupFollowing, setProfilePopupFollowing] = useState(false);
   const [profileFollowLoading, setProfileFollowLoading] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
+  const myUserIdRef = useRef(myUserId);
+  useEffect(() => {
+    myUserIdRef.current = myUserId;
+  }, [myUserId]);
   const [localSessionUser, setLocalSessionUser] = useState(null);
   const myCountryFlag = useMyCountryFlag();
   const hostId =
@@ -2914,7 +2868,14 @@ export default function VoiceParty() {
 
   useEffect(() => {
     getUser()
-      .then((user) => setLocalSessionUser(user))
+      .then((user) => {
+        setLocalSessionUser(user);
+        const uid = user?.id ?? user?.userId;
+        if (uid) {
+          myUserIdRef.current = String(uid);
+          setMyUserId((prev) => prev || String(uid));
+        }
+      })
       .catch(() => setLocalSessionUser(null));
   }, []);
 
@@ -3602,8 +3563,13 @@ export default function VoiceParty() {
 
   useEffect(() => {
     getAppUserId()
-      .then((id) => setMyUserId(id))
-      .catch(() => setMyUserId(null));
+      .then((id) => {
+        if (id) {
+          myUserIdRef.current = String(id);
+          setMyUserId(String(id));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -4550,12 +4516,20 @@ export default function VoiceParty() {
             if (freshOnline.length > 0) {
               setOnlineUsers(freshOnline);
               setOnlineCount(freshOnline.length);
+            } else if (freshState?.onlineCount != null && Number.isFinite(Number(freshState.onlineCount))) {
+              setOnlineCount(Number(freshState.onlineCount));
+            }
+            const activeSeatNum = mySeatNumberRef.current;
+            const activeUserId = myUserIdRef.current || myUserId;
+            let reconciledSeats = freshSeats;
+            if (activeSeatNum) {
+              reconciledSeats = await enrichSeatsWithMyProfile(freshSeats, activeSeatNum);
             }
             setSeats((prev) =>
-              reconcileSeatAssignments(freshSeats, {
+              reconcileSeatAssignments(reconciledSeats, {
                 onlineUsers: freshOnline.length > 0 ? freshOnline : null,
-                myUserId,
-                mySeatNumber: mySeatNumberRef.current,
+                myUserId: activeUserId,
+                mySeatNumber: activeSeatNum,
                 staleSeatTracker: staleSeatTrackerRef.current,
                 activeVoiceUids: activeVoiceUidsRef.current,
                 knownMuteStates: knownMuteStatesRef.current,
@@ -5070,6 +5044,8 @@ export default function VoiceParty() {
         setOnlineUsers(users);
         setOnlineCount(users.length);
         onlineUsersRef.current = users;
+      } else if (payload?.onlineCount != null && Number.isFinite(Number(payload.onlineCount))) {
+        setOnlineCount(Number(payload.onlineCount));
       }
 
       // An empty `seats: {}` payload is ambiguous (partial/diff broadcast vs.
@@ -5094,25 +5070,32 @@ export default function VoiceParty() {
           ? users
           : (onlineUsersRef.current && onlineUsersRef.current.length > 0 ? onlineUsersRef.current : onlineUsers);
 
-        if (mySeatNumber) {
-          enrichSeatsWithMyProfile(patchSeats, mySeatNumber).then((enriched) =>
-            setSeats((prev) =>
-              reconcileSeatAssignments(mergeOntoPrev(prev, enriched), {
-                onlineUsers: activeOnlineUsers,
-                myUserId,
-                mySeatNumber,
-                staleSeatTracker: staleSeatTrackerRef.current,
-                activeVoiceUids: activeVoiceUidsRef.current,
-                knownMuteStates: knownMuteStatesRef.current,
-              }),
-            ),
-          );
+        const activeSeatNum = mySeatNumberRef.current || mySeatNumber;
+        const activeUserId = myUserIdRef.current || myUserId;
+
+        if (activeSeatNum) {
+          setSeats((prev) => {
+            const merged = mergeOntoPrev(prev, patchSeats);
+            enrichSeatsWithMyProfile(merged, activeSeatNum).then((enriched) => {
+              setSeats((prevSeats) =>
+                reconcileSeatAssignments(enriched, {
+                  onlineUsers: activeOnlineUsers,
+                  myUserId: activeUserId,
+                  mySeatNumber: activeSeatNum,
+                  staleSeatTracker: staleSeatTrackerRef.current,
+                  activeVoiceUids: activeVoiceUidsRef.current,
+                  knownMuteStates: knownMuteStatesRef.current,
+                }),
+              );
+            });
+            return prev;
+          });
         } else {
           setSeats((prev) =>
             reconcileSeatAssignments(mergeOntoPrev(prev, patchSeats), {
               onlineUsers: activeOnlineUsers,
-              myUserId,
-              mySeatNumber,
+              myUserId: activeUserId,
+              mySeatNumber: null,
               staleSeatTracker: staleSeatTrackerRef.current,
               activeVoiceUids: activeVoiceUidsRef.current,
               knownMuteStates: knownMuteStatesRef.current,
@@ -5639,7 +5622,8 @@ export default function VoiceParty() {
                   ? String(payload.targetUserId)
                   : null;
             if (kickedUserId) {
-              if (myUserId && kickedUserId === String(myUserId)) {
+              const currentSelfId = myUserIdRef.current || myUserId;
+              if (currentSelfId && isSameUser(kickedUserId, currentSelfId)) {
                 Alert.alert(
                   "Removed from Room",
                   "You have been removed from this room by the host or an administrator.",
@@ -5699,7 +5683,8 @@ export default function VoiceParty() {
         payload.userName || payload.targetUserName || payload.name || "User";
       if (!kickedUserId) return;
 
-      if (myUserId && kickedUserId === String(myUserId)) {
+      const currentSelfId = myUserIdRef.current || myUserId;
+      if (currentSelfId && isSameUser(kickedUserId, currentSelfId)) {
         Alert.alert(
           "Removed from Room",
           "You have been removed from this room by the host or an administrator.",
@@ -5854,22 +5839,30 @@ export default function VoiceParty() {
     const unsubReconnect = wsService.onReconnect(() => {
       const tokenAtRequest = seatSyncTokenRef.current;
       getRoomState(String(roomId))
-        .then((freshState) => {
+        .then(async (freshState) => {
           if (seatSyncTokenRef.current !== tokenAtRequest) return;
           const freshOnline = parseOnlineUsers(freshState, null);
           const freshSeats = parseSeats(freshState?.seats, freshState);
           if (freshOnline.length > 0) {
             setOnlineUsers(freshOnline);
             setOnlineCount(freshOnline.length);
+          } else if (freshState?.onlineCount != null && Number.isFinite(Number(freshState.onlineCount))) {
+            setOnlineCount(Number(freshState.onlineCount));
+          }
+          const activeSeatNum = mySeatNumberRef.current;
+          const activeUserId = myUserIdRef.current || myUserId;
+          let reconciledSeats = freshSeats;
+          if (activeSeatNum) {
+            reconciledSeats = await enrichSeatsWithMyProfile(freshSeats, activeSeatNum);
           }
           setSeats((prev) =>
-            reconcileSeatAssignments(freshSeats, {
+            reconcileSeatAssignments(reconciledSeats, {
               onlineUsers: freshOnline.length > 0 ? freshOnline : null,
-              myUserId,
-              mySeatNumber: mySeatNumberRef.current,
+              myUserId: activeUserId,
+              mySeatNumber: activeSeatNum,
               staleSeatTracker: staleSeatTrackerRef.current,
               activeVoiceUids: activeVoiceUidsRef.current,
-                knownMuteStates: knownMuteStatesRef.current,
+              knownMuteStates: knownMuteStatesRef.current,
             }),
           );
         })
@@ -5967,7 +5960,7 @@ export default function VoiceParty() {
         wsService.leaveRoom(activeRoomId);
       }
     };
-  }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
+  }, [roomId, revealGiftAnimation]);
 
   const handleToggleMusic = useCallback(async () => {
     if (!isHostSelf && !isViewerAdmin) {
@@ -6449,14 +6442,15 @@ export default function VoiceParty() {
       parseSeats(nextState?.seats, nextState),
       seatNumber,
     );
+    const activeUserId = myUserIdRef.current || myUserId;
     setSeats(
       reconcileSeatAssignments(nextSeats, {
         onlineUsers,
-        myUserId,
+        myUserId: activeUserId,
         mySeatNumber: seatNumber,
         staleSeatTracker: staleSeatTrackerRef.current,
         activeVoiceUids: activeVoiceUidsRef.current,
-                knownMuteStates: knownMuteStatesRef.current,
+        knownMuteStates: knownMuteStatesRef.current,
       }),
     );
     if (typeof nextState?.onlineCount === "number") {
@@ -6480,11 +6474,11 @@ export default function VoiceParty() {
         setSeats(
           reconcileSeatAssignments(parseSeats(state?.seats, state), {
             onlineUsers,
-            myUserId,
+            myUserId: myUserIdRef.current || myUserId,
             mySeatNumber: null,
             staleSeatTracker: staleSeatTrackerRef.current,
             activeVoiceUids: activeVoiceUidsRef.current,
-                knownMuteStates: knownMuteStatesRef.current,
+            knownMuteStates: knownMuteStatesRef.current,
           }),
         );
       } catch (err) {
@@ -6501,14 +6495,20 @@ export default function VoiceParty() {
     try {
       const freshState = await getRoomState(String(roomId));
       const freshSeats = parseSeats(freshState?.seats, freshState);
+      const activeSeatNum = mySeatNumberRef.current || mySeatNumber;
+      const activeUserId = myUserIdRef.current || myUserId;
+      let reconciledFresh = freshSeats;
+      if (activeSeatNum) {
+        reconciledFresh = await enrichSeatsWithMyProfile(freshSeats, activeSeatNum);
+      }
       setSeats(
-        reconcileSeatAssignments(freshSeats, {
+        reconcileSeatAssignments(reconciledFresh, {
           onlineUsers,
-          myUserId,
-          mySeatNumber,
+          myUserId: activeUserId,
+          mySeatNumber: activeSeatNum,
           staleSeatTracker: staleSeatTrackerRef.current,
           activeVoiceUids: activeVoiceUidsRef.current,
-                knownMuteStates: knownMuteStatesRef.current,
+          knownMuteStates: knownMuteStatesRef.current,
         }),
       );
 
@@ -11423,7 +11423,7 @@ export default function VoiceParty() {
                 <Text style={styles.activeUsersTitle}>Active Users</Text>
                 <View style={styles.activeUsersBadge}>
                   <Text style={styles.activeUsersBadgeText}>
-                    {onlineCount || displayActiveUsers.length}
+                    {Math.max(onlineCount || 0, displayActiveUsers.length)}
                   </Text>
                 </View>
                 <View style={styles.activeUsersSeatedBadge}>
@@ -12523,7 +12523,7 @@ export default function VoiceParty() {
               resizeMode="cover"
             />
             <Text style={styles.trophyText}>
-              {onlineCount || displayActiveUsers.length}
+              {Math.max(onlineCount || 0, displayActiveUsers.length)}
             </Text>
           </View>
           <View style={styles.badgesRowRight}>
