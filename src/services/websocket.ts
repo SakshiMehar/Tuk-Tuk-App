@@ -854,6 +854,86 @@ class WebSocketService {
     this.client!.publish({ destination, body });
   }
 
+  async sendRoomUserExit(
+    roomId: string,
+    seatNumber?: number | string | null,
+    userInfo?: { id?: string | number; name?: string; avatar?: string } | null,
+  ): Promise<void> {
+    if (!roomId) return;
+    const targetRoomId = String(roomId).trim();
+    if (!this.connected) {
+      await this.connect().catch(() => {});
+    }
+    if (!this.connected || !this.client) {
+      return;
+    }
+
+    const uId = userInfo?.id != null ? String(userInfo.id) : null;
+    const uName = userInfo?.name || 'User';
+    const uAvatar = userInfo?.avatar || null;
+    const parsedSeat =
+      seatNumber != null && Number.isFinite(Number(seatNumber))
+        ? Number(seatNumber)
+        : null;
+
+    const payload = {
+      type: 'USER_LEFT',
+      eventType: 'USER_LEFT',
+      action: 'EXIT',
+      roomId: targetRoomId,
+      userId: uId,
+      id: uId,
+      userName: uName,
+      name: uName,
+      avatar: uAvatar,
+      seatNumber: parsedSeat,
+      seatId: parsedSeat,
+      timestamp: new Date().toISOString(),
+    };
+    const body = JSON.stringify(payload);
+
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/notifications`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish user exit to /topic/room/.../notifications:', e);
+    }
+
+    if (parsedSeat != null || uId != null) {
+      const seatPayload = {
+        type: 'SEAT_RELEASED',
+        eventType: 'SEAT_RELEASED',
+        action: 'SEAT_RELEASED',
+        roomId: targetRoomId,
+        seatNumber: parsedSeat,
+        seatId: parsedSeat,
+        userId: uId,
+        id: uId,
+        timestamp: new Date().toISOString(),
+      };
+      const seatBody = JSON.stringify(seatPayload);
+      try {
+        this.client.publish({
+          destination: `/topic/room/${targetRoomId}/notifications`,
+          body: seatBody,
+        });
+      } catch (e) {
+        console.warn('[WS] Failed to publish seat released to /topic/room/.../notifications:', e);
+      }
+    }
+
+    try {
+      this.client.publish({
+        destination: `/app/room/${targetRoomId}/notifications`,
+        body,
+      });
+    } catch {
+      // Ignored
+    }
+  }
+
   async sendRoomChatCleared(roomId: string): Promise<void> {
     if (!roomId) return;
     const targetRoomId = String(roomId).trim();
@@ -925,6 +1005,72 @@ class WebSocketService {
       });
     } catch (e) {
       // Optional fallback destination
+    }
+  }
+
+  async sendRoomAdminChanged(
+    roomId: string,
+    targetUserId: string | number,
+    isAppointed: boolean,
+    targetName?: string,
+  ): Promise<void> {
+    if (!roomId) return;
+    const targetRoomId = String(roomId).trim();
+    if (!this.connected) {
+      await this.connect().catch(() => {});
+    }
+    if (!this.connected || !this.client) {
+      console.warn('[WS] Cannot broadcast admin change: client not connected');
+      return;
+    }
+
+    const eventType = isAppointed ? 'ADMIN_APPOINTED' : 'ADMIN_REMOVED';
+    const message = isAppointed
+      ? `🛡️ ${targetName || 'User'} has been appointed as a room admin!`
+      : `🛡️ ${targetName || 'User'} is no longer a room admin.`;
+
+    const payload = {
+      type: eventType,
+      eventType,
+      action: isAppointed ? 'APPOINT_ADMIN' : 'REMOVE_ADMIN',
+      userId: String(targetUserId),
+      targetUserId: String(targetUserId),
+      roomId: targetRoomId,
+      message,
+      text: message,
+      content: message,
+      timestamp: new Date().toISOString(),
+    };
+    const body = JSON.stringify(payload);
+
+    // 1. Publish to notifications topic
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/notifications`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish admin change to notifications:', e);
+    }
+
+    // 2. Publish to chat topic so all clients receive it in real-time
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/chat`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish admin change to chat:', e);
+    }
+
+    // 3. Application destination
+    try {
+      this.client.publish({
+        destination: `/app/room/${targetRoomId}/chat`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish admin change to /app/room/.../chat:', e);
     }
   }
 

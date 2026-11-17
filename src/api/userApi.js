@@ -103,8 +103,43 @@ export const getUserById = async (userId) => {
   return response.data;
 };
 
+/** GET /user/profile/{userId}/room/{roomId} — fetch dynamic user profile with room admin status */
+export const getUserRoomProfile = async (userId, roomId) => {
+  const uId = encodeURIComponent(String(userId));
+  const rId = encodeURIComponent(String(roomId));
+
+  console.log(`[userApi] GET room user profile (userId: ${userId}, roomId: ${roomId})`);
+  // Try /api/app/users/user/profile/{userId}/room/{roomId} first, and fallback to /user/profile/{userId}/room/{roomId}
+  try {
+    const response = await API.get(
+      `/api/app/users/user/profile/${uId}/room/${rId}`,
+      await authRequestConfig()
+    );
+    console.log(`[userApi] GET room user profile response:`, response.data);
+    return response.data;
+  } catch (err) {
+    if (err?.response?.status === 404 || err?.status === 404) {
+      try {
+        const fallback = await API.get(
+          `/user/profile/${uId}/room/${rId}`,
+          await authRequestConfig()
+        );
+        console.log(`[userApi] GET fallback /user/profile/${uId}/room/${rId} response:`, fallback.data);
+        return fallback.data;
+      } catch (err2) {
+        // Fallback to standard user profile if room-specific endpoint is unavailable
+        return getUserProfile(userId);
+      }
+    }
+    throw err;
+  }
+};
+
 /** GET /api/app/users/user/profile/{userId} — fetch full dynamic user profile */
-export const getUserProfile = async (userId) => {
+export const getUserProfile = async (userId, roomId = null) => {
+  if (roomId) {
+    return getUserRoomProfile(userId, roomId);
+  }
   const id = encodeURIComponent(String(userId));
   console.log(`[userApi] GET /api/app/users/user/profile/${id} request started (userId: ${userId})`);
   const response = await API.get(

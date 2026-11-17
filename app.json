@@ -125,7 +125,8 @@
         }
       ],
       "./plugins/withoutAgoraScreenShare.js",
-      "./plugins/withNotifeeMavenRepo.js"
+      "./plugins/withNotifeeMavenRepo.js",
+      "./plugins/withAndroidPip.js"
     ],
     "experiments": {
       "typedRoutes": true,

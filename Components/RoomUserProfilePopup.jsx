@@ -137,9 +137,16 @@ export default function RoomUserProfilePopup({
     isOwner || user?.isOwner || role?.toLowerCase() === "owner"
   );
   const isUserAdmin = Boolean(
-    targetIsAdmin || user?.isAdmin || role?.toLowerCase() === "admin"
+    targetIsAdmin ||
+    user?.isRoomAdmin ||
+    user?.isAdmin ||
+    role?.toLowerCase() === "admin"
   );
-  const displayRole = role ?? (isUserOwner ? "Owner" : isUserAdmin ? "Admin" : user?.role ?? "Owner");
+  // An admin cannot kick out another admin (kickout is disabled on other admins).
+  // The room owner (viewerOwner) can kick out anyone (except themselves).
+  const isKickoutDisabled = Boolean(!isViewerOwner && isUserAdmin);
+  const displayRole =
+    role ?? (isUserOwner ? "Owner" : isUserAdmin ? "Admin" : "Member");
   const flagUrl = user?.flagUrl ?? null;
   const countryName = user?.countryName ?? null;
 
@@ -311,6 +318,13 @@ export default function RoomUserProfilePopup({
   };
 
   const handleKickOutAction = () => {
+    if (isKickoutDisabled) {
+      Alert.alert(
+        "Action Not Allowed",
+        "Admins cannot kick out other admins. Only the room owner can kick out an admin.",
+      );
+      return;
+    }
     if (onKickOut) {
       onKickOut(user);
     } else {
@@ -645,19 +659,44 @@ export default function RoomUserProfilePopup({
                     </Text>
                   </TouchableOpacity>
 
-                  {/* 3. Kick out button (cannot kick room owner) */}
+                  {/* 3. Kick out button (cannot kick room owner; admin cannot kick another admin) */}
                   {!isUserOwner && (
                     <TouchableOpacity
-                      style={styles.managementItem}
-                      activeOpacity={0.7}
+                      style={[
+                        styles.managementItem,
+                        isKickoutDisabled && styles.disabledManagementItem,
+                      ]}
+                      activeOpacity={isKickoutDisabled ? 1 : 0.7}
+                      disabled={isKickoutDisabled}
                       onPress={handleKickOutAction}
                     >
-                      <View style={styles.managementIconWrap}>
-                        <LogOut size={22} color="#64748B" />
+                      <View
+                        style={[
+                          styles.managementIconWrap,
+                          isKickoutDisabled
+                            ? styles.disabledIconWrap
+                            : styles.activeKickoutIconWrap,
+                        ]}
+                      >
+                        <LogOut
+                          size={22}
+                          color={isKickoutDisabled ? "#CBD5E1" : "#EF4444"}
+                        />
                       </View>
-                      <Text style={styles.managementLabel} numberOfLines={1}>
+                      <Text
+                        style={[
+                          styles.managementLabel,
+                          isKickoutDisabled
+                            ? styles.disabledManagementLabel
+                            : styles.activeKickoutLabel,
+                        ]}
+                        numberOfLines={1}
+                      >
                         Kick out
                       </Text>
+                      {isKickoutDisabled && (
+                        <Text style={styles.disabledSubText}>Disabled</Text>
+                      )}
                     </TouchableOpacity>
                   )}
                 </View>
@@ -965,5 +1004,30 @@ const styles = StyleSheet.create({
     fontSize: ms(11.5),
     fontWeight: "600",
     textAlign: "center",
+  },
+  activeKickoutIconWrap: {
+    backgroundColor: "#FEF2F2",
+  },
+  activeKickoutLabel: {
+    color: "#EF4444",
+    fontWeight: "700",
+  },
+  disabledManagementItem: {
+    opacity: 0.5,
+  },
+  disabledIconWrap: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  disabledManagementLabel: {
+    color: "#CBD5E1",
+    fontWeight: "500",
+  },
+  disabledSubText: {
+    color: "#94A3B8",
+    fontSize: ms(9),
+    fontWeight: "600",
+    marginTop: -vs(2),
   },
 });

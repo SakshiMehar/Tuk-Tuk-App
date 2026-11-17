@@ -63,7 +63,7 @@ import {
 } from "../../src/services/familyService";
 import { fetchSavedUsersFromServer, removeFavoriteUser } from "../../src/services/favoritesService";
 import { loadMyProfile, saveMyProfile } from "../../src/services/meProfileService";
-import { deleteMyPost, loadMyProfilePosts, normalizeMyPost, updateMyPostDescription } from "../../src/services/myPostsService";
+import { deleteMyPost, loadMyProfilePosts, normalizeMyPost, resolveMediaUrl, updateMyPostDescription } from "../../src/services/myPostsService";
 import { syncNewUserFrameForSession } from "../../src/services/newUserFrameService";
 import { loadProfileStats } from "../../src/services/profileStatsService";
 import {
@@ -2638,12 +2638,23 @@ export default function Profile() {
                     <Text style={styles.momentPostTextMuted}>No caption</Text>
                   )}
 
-                  {post.imageUrl && !post.hasVideo ? (
-                    <Image
-                      source={{ uri: post.imageUrl }}
-                      style={styles.momentPostImage}
-                    />
-                  ) : null}
+                  {(() => {
+                    const postImg = resolveMediaUrl(
+                      post.imageUrl ||
+                      post.mediaUrl ||
+                      (Array.isArray(post.imageUrls) && post.imageUrls[0]) ||
+                      (Array.isArray(post.mediaUrls) && post.mediaUrls[0]) ||
+                      post._localMediaUri
+                    );
+                    if (!postImg || post.hasVideo) return null;
+                    return (
+                      <Image
+                        source={{ uri: postImg }}
+                        style={styles.momentPostImage}
+                        resizeMode="cover"
+                      />
+                    );
+                  })()}
 
                   {post.hasVideo ? (
                     <View style={styles.momentPostVideoBox}>

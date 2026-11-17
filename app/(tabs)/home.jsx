@@ -40,6 +40,8 @@ import PostImageViewer from "../../Components/PostImageViewer";
 import ProfileAvatarWithFrame from "../../Components/ProfileAvatarWithFrame";
 import ReportReasonModal from "../../Components/ReportReasonModal";
 import Toast from "../../Components/Toast";
+import MorningLoginRewardModal from "../../Components/MorningLoginRewardModal";
+import { getMorningRewardStatus } from "../../src/services/morningRewardService";
 import {
   getFollowingRooms,
   getRecentlyRooms,
@@ -1318,7 +1320,8 @@ const toImageSource = (uri) => {
   // Backend may send a bundled preset id (e.g. "avatar3") instead of a real
   // image URL — resolve those to the local asset, otherwise treat as a URI.
   if (isBundledAvatarId(uri)) return getAvatarSource(uri);
-  return { uri };
+  const resolved = homeService.toAbsoluteUrl(uri) || uri;
+  return { uri: resolved };
 };
 
 const resolveNotifIcon = (icon, type) => {
@@ -1385,15 +1388,31 @@ const PostCard = memo(
         hasNewUserFrame: post.authorHasNewUserFrame,
       });
     // Resolve media — prefer CDN URL(s), fall back to local URI picked from device
-    const imageUri = post.imageUrl ?? post._localMediaUri ?? null;
-    const galleryUrls = post.imageUrls?.length
-      ? post.imageUrls
-      : imageUri
-        ? [imageUri]
-        : [];
+    const rawImageCandidate =
+      post?.imageUrl ||
+      post?.mediaUrl ||
+      post?.image ||
+      (Array.isArray(post?.imageUrls) && post.imageUrls.length ? post.imageUrls[0] : null) ||
+      (Array.isArray(post?.mediaUrls) && post.mediaUrls.length ? post.mediaUrls[0] : null) ||
+      post?._localMediaUri ||
+      null;
+    const resolvedImageUri = homeService.toAbsoluteUrl(rawImageCandidate) || rawImageCandidate;
+    const imageUri = resolvedImageUri;
+
+    const rawGalleryUrls =
+      (Array.isArray(post?.imageUrls) && post.imageUrls.length && post.imageUrls) ||
+      (Array.isArray(post?.mediaUrls) && post.mediaUrls.length && post.mediaUrls) ||
+      (Array.isArray(post?.images) && post.images.length && post.images) ||
+      (imageUri ? [imageUri] : []);
+
+    const galleryUrls = rawGalleryUrls
+      .map((item) => (typeof item === "string" ? item : item?.url || item?.imageUrl || item?.mediaUrl))
+      .filter(Boolean)
+      .map((u) => homeService.toAbsoluteUrl(u) || u);
+
     const isGallery = galleryUrls.length > 1;
-    const hasImage = imageUri && post._mediaType !== "video" && !post.hasVideo;
-    const hasVideo = post.hasVideo || post._mediaType === "video";
+    const hasVideo = Boolean(post?.hasVideo || post?._mediaType === "video" || post?.mediaType === "video");
+    const hasImage = !hasVideo && (Boolean(imageUri) || galleryUrls.length > 0);
     const [galleryIndex, setGalleryIndex] = useState(0);
     const [galleryWidth, setGalleryWidth] = useState(0);
     const [isTextExpanded, setIsTextExpanded] = useState(false);
@@ -1410,18 +1429,13 @@ const PostCard = memo(
 
     // Measure the first photo's real aspect ratio via a separate, one-shot
     // RN Image.getSize() call BEFORE the visible (cachePolicy="none")
-    // expo-image ever mounts with its final layout. Deriving the ratio from
-    // the visible Image's own onLoad instead would change its style right
-    // after it finishes loading, which with cachePolicy="none" can make it
-    // restart the fetch from scratch — and if that reload gets interrupted
-    // (e.g. by list scroll/virtualization), the image is left stuck blank.
-    // For a gallery post, every slide shares this same box height (matching
-    // how Instagram carousels work) rather than re-measuring per slide.
+    // expo-image ever mounts with its final layout.
     useEffect(() => {
       if (!imageUri) return undefined;
       let cancelled = false;
+      const targetUri = homeService.toAbsoluteUrl(imageUri) || imageUri;
       RNImage.getSize(
-        imageUri,
+        targetUri,
         (w, h) => {
           if (!cancelled && w && h) setImgAspectRatio(w / h);
         },
@@ -2484,6 +2498,9 @@ export default function Home() {
   const followingIdsRef = useRef([]);
 
   // ── Modal state ───────────────────────────────────────────
+  const [morningRewardVisible, setMorningRewardVisible] = useState(false);
+  const [morningRewardStatus, setMorningRewardStatus] = useState(null);
+  const morningRewardCheckedRef = useRef(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [notifVisible, setNotifVisible] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
@@ -2563,6 +2580,35 @@ export default function Home() {
         if (!user?.gender) setGenderPickerVisible(true);
       })
       .catch(() => { });
+  }, []);
+
+  // ── Morning Login Reward Check (5 AM – 10 AM) ──
+  useEffect(() => {
+    // Delay slightly to ensure smooth navigation transition from splash/login
+    const timer = setTimeout(() => {
+      getMorningRewardStatus()
+        .then((status) => {
+          console.log("[HomeScreen] Morning reward status check:", status);
+          if (status?.eligible === true && !status?.alreadyClaimed) {
+            setMorningRewardStatus(status);
+            setMorningRewardVisible(true);
+          } else if (__DEV__ && !status?.alreadyClaimed) {
+            // In dev mode, auto-show so developer can test outside 5 AM - 10 AM window
+            console.log("[HomeScreen] DEV MODE: Auto-showing Morning Reward modal for testing (backend window 5 AM - 10 AM)");
+            setMorningRewardStatus(status || { minDiamonds: 5, maxDiamonds: 10, eligible: true });
+            setMorningRewardVisible(true);
+          }
+        })
+        .catch((err) => {
+          console.warn("[HomeScreen] Morning reward check skipped:", err?.message || err);
+          if (__DEV__) {
+            setMorningRewardStatus({ minDiamonds: 5, maxDiamonds: 10, eligible: true });
+            setMorningRewardVisible(true);
+          }
+        });
+    }, 600);
+
+    return () => clearTimeout(timer);
   }, []);
 
   // Saves gender + country from the "Who are you?" picker straight to the
@@ -3238,15 +3284,22 @@ export default function Home() {
             ? returnedImageUrls
             : localImageUris;
 
+      const resolvedRawImage =
+        newPost?.imageUrl ??
+        newPost?.mediaUrl ??
+        newPost?.image ??
+        imageUrls[0] ??
+        mediaUri ??
+        null;
+      const normalizedImageUrl = homeService.toAbsoluteUrl(resolvedRawImage) || resolvedRawImage;
+
       const normalized = {
         id: newPost?.id ?? newPost?.postId ?? `local-${Date.now()}`,
         userId: newPost?.userId ?? newPost?.authorId ?? sessionUserId ?? null,
         name:
           newPost?.name ?? newPost?.username ?? newPost?.authorName ?? "You",
         avatar:
-          newPost?.avatar ??
-          newPost?.profileImage ??
-          newPost?.authorAvatar ??
+          homeService.toAbsoluteUrl(newPost?.avatar ?? newPost?.profileImage ?? newPost?.authorAvatar) ??
           null,
         text:
           newPost?.text ??
@@ -3254,13 +3307,10 @@ export default function Home() {
           newPost?.content ??
           caption ??
           "",
-        imageUrl:
-          newPost?.imageUrl ??
-          newPost?.mediaUrl ??
-          newPost?.image ??
-          imageUrls[0] ??
-          null,
-        imageUrls,
+        imageUrl: normalizedImageUrl,
+        imageUrls: (imageUrls || []).map((u) => homeService.toAbsoluteUrl(u) || u),
+        mediaUrl: normalizedImageUrl,
+        mediaUrls: (imageUrls || []).map((u) => homeService.toAbsoluteUrl(u) || u),
         hasVideo: mediaType === "video",
         duration: newPost?.duration ?? null,
         likeCount: newPost?.likeCount ?? newPost?.likes ?? 0,
@@ -4090,6 +4140,32 @@ export default function Home() {
         onClose={() => setDiamondRechargeVisible(false)}
         currentDiamonds={walletDiamonds}
       />
+
+      {/* ── Morning Login Reward Modal (5 AM – 10 AM) ── */}
+      <MorningLoginRewardModal
+        visible={morningRewardVisible}
+        statusData={morningRewardStatus}
+        onClose={() => setMorningRewardVisible(false)}
+        onClaimSuccess={(awarded) => {
+          setToastMessage(`+${awarded} Diamonds credited to your wallet! 💎`);
+          setToastVisible(true);
+          refreshWalletBalance();
+        }}
+      />
+
+      {/* ── DEV ONLY: Test Morning Reward button ── */}
+      {__DEV__ && (
+        <TouchableOpacity
+          style={styles.devMorningRewardBtn}
+          activeOpacity={0.8}
+          onPress={() => {
+            setMorningRewardStatus({ minDiamonds: 5, maxDiamonds: 10, eligible: true });
+            setMorningRewardVisible(true);
+          }}
+        >
+          <Text style={styles.devMorningRewardText}>🎁 Test Morning Reward</Text>
+        </TouchableOpacity>
+      )}
 
       {/* ── Gender Picker (shown once if gender not set) ── */}
       <Modal
@@ -6245,6 +6321,27 @@ const styles = StyleSheet.create({
   freeTagText: {
     color: "white",
     fontSize: 10,
+    fontWeight: "700",
+  },
+  devMorningRewardBtn: {
+    position: "absolute",
+    bottom: 85,
+    right: 16,
+    backgroundColor: "rgba(45, 15, 94, 0.95)",
+    borderWidth: 1.5,
+    borderColor: "#fde047",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    shadowColor: "#f59e0b",
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 10,
+    zIndex: 999,
+  },
+  devMorningRewardText: {
+    color: "#fde047",
+    fontSize: 11,
     fontWeight: "700",
   },
 });

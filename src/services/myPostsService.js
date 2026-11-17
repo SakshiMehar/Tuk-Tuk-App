@@ -8,10 +8,36 @@ const listFrom = (value, key) => {
   return target?.content ?? target?.data ?? target?.items ?? [];
 };
 
-const resolveMediaUrl = (url) => {
+export const resolveMediaUrl = (url) => {
   if (!url || typeof url !== "string") return null;
   const trimmed = url.trim();
   if (!trimmed) return null;
+
+  if (
+    trimmed.startsWith("file://") ||
+    trimmed.startsWith("content://") ||
+    trimmed.startsWith("ph://")
+  ) {
+    return trimmed;
+  }
+
+  if (
+    trimmed.includes(".ngrok-free.dev") ||
+    trimmed.includes(".ngrok.io") ||
+    trimmed.includes("localhost:") ||
+    trimmed.includes("127.0.0.1:") ||
+    trimmed.includes("10.0.2.2:")
+  ) {
+    try {
+      const match = trimmed.match(/^https?:\/\/[^\/]+(\/.*)$/);
+      if (match && match[1]) {
+        return `${API_BASE_URL}${match[1]}`;
+      }
+    } catch {
+      // fallback
+    }
+  }
+
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (trimmed.startsWith("/")) return `${API_BASE_URL}${trimmed}`;
   return `${API_BASE_URL}/${trimmed}`;
@@ -19,9 +45,28 @@ const resolveMediaUrl = (url) => {
 
 export const normalizeMyPost = (post) => {
   const normalized = normalizePost(post);
+  const rawImage =
+    normalized.imageUrl ||
+    post?.mediaUrl ||
+    post?.imageUrl ||
+    (Array.isArray(post?.mediaUrls) && post.mediaUrls[0]) ||
+    (Array.isArray(post?.imageUrls) && post.imageUrls[0]) ||
+    null;
+  const rawGallery =
+    (Array.isArray(normalized.imageUrls) && normalized.imageUrls.length && normalized.imageUrls) ||
+    (Array.isArray(post?.mediaUrls) && post.mediaUrls.length && post.mediaUrls) ||
+    (Array.isArray(post?.imageUrls) && post.imageUrls.length && post.imageUrls) ||
+    (rawImage ? [rawImage] : []);
+
+  const imageUrls = rawGallery.map(resolveMediaUrl).filter(Boolean);
+  const imageUrl = resolveMediaUrl(rawImage) || imageUrls[0] || null;
+
   return {
     ...normalized,
-    imageUrl: resolveMediaUrl(normalized.imageUrl),
+    imageUrl,
+    imageUrls,
+    mediaUrl: imageUrl,
+    mediaUrls: imageUrls,
     videoUrl: resolveMediaUrl(normalized.videoUrl),
   };
 };

@@ -23,13 +23,51 @@ import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
 import { fetchNotificationsData } from "./notificationService";
 import { isUserOnline } from "../utils/liveStatus";
 
-// Backend returns relative paths like "/uploads/feed/abc.jpg".
-// React Native Image requires a full https:// URL.
-const toAbsoluteUrl = (url) => {
+// Backend returns relative paths like "/uploads/feed/abc.jpg" or URLs with stale ngrok domains.
+// React Native Image requires a full, reachable URL.
+export const toAbsoluteUrl = (url) => {
   if (!url || typeof url !== "string") return null;
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("/")) return `${API_BASE_URL}${url}`;
-  return url;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  // Local device file/content URIs (e.g. newly picked media)
+  if (
+    trimmed.startsWith("file://") ||
+    trimmed.startsWith("content://") ||
+    trimmed.startsWith("ph://")
+  ) {
+    return trimmed;
+  }
+
+  // If URL has any stale ngrok tunnel or localhost origin, redirect to current active API_BASE_URL
+  if (
+    trimmed.includes(".ngrok-free.dev") ||
+    trimmed.includes(".ngrok.io") ||
+    trimmed.includes("localhost:") ||
+    trimmed.includes("127.0.0.1:") ||
+    trimmed.includes("10.0.2.2:")
+  ) {
+    try {
+      const match = trimmed.match(/^https?:\/\/[^\/]+(\/.*)$/);
+      if (match && match[1]) {
+        return `${API_BASE_URL}${match[1]}`;
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  // Preserve external CDNs (e.g. AWS S3 bucket URLs)
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Relative backend path
+  if (trimmed.startsWith("/")) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+
+  return `${API_BASE_URL}/${trimmed}`;
 };
 
 const firstText = (...values) =>

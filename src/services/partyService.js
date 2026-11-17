@@ -14,15 +14,18 @@ import {
     getRoomState,
     joinRandomParty as joinRandomPartyApi,
     joinRoom as joinRoomApi,
+    leaveSeat,
     searchRooms as searchRoomsApi,
     updateRoom as updateRoomApi,
     updateRoomAnnouncement as updateRoomAnnouncementApi,
 } from "../api/partyApi";
 import { resolveBundledAvatarId } from "../data/avatarOptions";
-import { syncUserFromToken } from "../utils/sessionUser";
+import { syncUserFromToken, getAppUserId } from "../utils/sessionUser";
+import { getUser } from "../store/authStore";
 import { resolveRemoteProfilePicUrl } from "./meProfileService";
 import { wsService } from "./websocket";
-import { setLocalUserLive, setUserLiveStatus } from "../utils/liveStatus";
+import { setLocalUserLive, setUserLiveStatus, getLocalLiveRoomId } from "../utils/liveStatus";
+import { getActiveSeatNumber, teardownVoice } from "./partyVoiceService";
 
 const firstText = (...values) =>
   values.find(
@@ -768,6 +771,22 @@ export const createAndJoinRoom = async (payload = {}) => {
 export const enterRoomSession = async (roomId) => {
   await syncUserFromToken().catch(() => {});
 
+  // If user was previously active in another room, cleanly exit and release seat first
+  const prevRoomId = getLocalLiveRoomId();
+  if (prevRoomId && String(prevRoomId).trim() !== String(roomId).trim()) {
+    try {
+      const activeSeat = typeof getActiveSeatNumber === "function" ? getActiveSeatNumber() : null;
+      await exitRoomSession(String(prevRoomId).trim(), activeSeat);
+      if (typeof teardownVoice === "function") {
+        await teardownVoice().catch(() => {});
+      }
+    } catch (prevErr) {
+      if (__DEV__) {
+        console.warn(`[partyService] Error cleaning up previous room session ${prevRoomId}:`, prevErr?.message ?? prevErr);
+      }
+    }
+  }
+
   const apiCalls = [];
   const track = (call) => apiCalls.push(call);
 
@@ -918,11 +937,54 @@ export const searchPartyRooms = async (query) => {
   return rooms.map(normalizeRoom);
 };
 
-export const exitRoomSession = async (roomId) => {
+export const exitRoomSession = async (roomId, seatNumber = null, userInfo = null) => {
   if (!roomId) return null;
+  const targetRoomId = String(roomId).trim();
+  const targetSeat =
+    seatNumber != null
+      ? Number(seatNumber)
+      : (typeof getActiveSeatNumber === "function" ? getActiveSeatNumber() : null);
+
+  // 1. Leave seat via API if user was on a seat
+  try {
+    await leaveSeat(targetRoomId, targetSeat);
+  } catch (err) {
+    if (__DEV__) {
+      console.warn(`[partyService] leaveSeat failed for room ${targetRoomId}:`, err?.message ?? err);
+    }
+  }
+
+  // 2. Broadcast user exit and seat released via WebSocket before leaving
+  try {
+    let resolvedUser = userInfo;
+    if (!resolvedUser) {
+      resolvedUser = await getUser().catch(() => null);
+    }
+    const uId = resolvedUser?.id ?? (await getAppUserId().catch(() => null));
+    await wsService.sendRoomUserExit(targetRoomId, targetSeat, {
+      id: uId,
+      name: resolvedUser?.name || resolvedUser?.username || "User",
+      avatar: resolvedUser?.avatar || resolvedUser?.profilePicUrl,
+    });
+  } catch {
+    // Non-critical
+  }
+
+  // 3. Mark user offline/not-live locally
   setLocalUserLive(null, false);
-  wsService.leaveRoom(String(roomId));
-  const result = await exitRoomApi(roomId);
+
+  // 4. Unsubscribe WebSocket
+  wsService.leaveRoom(targetRoomId);
+
+  // 5. Call exitRoom API on backend
+  let result = null;
+  try {
+    result = await exitRoomApi(targetRoomId);
+  } catch (err) {
+    if (__DEV__) {
+      console.warn(`[partyService] exitRoomApi failed for room ${targetRoomId}:`, err?.message ?? err);
+    }
+  }
 
   return result;
 };

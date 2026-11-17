@@ -16,6 +16,7 @@ import { unwrapVoiceTokenResponse } from "./voice/voiceTokenUtils";
 import { wsService } from "./websocket";
 
 let activeRoomId = null;
+let activeSeatNumber = null;
 let activeIsSpeaker = false;
 
 const ensureAuthToken = async () => {
@@ -173,27 +174,37 @@ export const activateMicOnSeat = async (roomId, seatNumber) => {
 export const takeMic = async (roomId, seatNumber) => {
   const reserved = await reserveSeat(roomId, seatNumber);
   const voice = await activateMicOnSeat(roomId, seatNumber);
+  activeRoomId = String(roomId);
+  activeSeatNumber = Number(seatNumber);
   return { ...reserved, ...voice };
 };
 
 export const leaveMic = async (roomId, seatNumber) => {
   await ensureAuthToken();
 
+  const targetSeat = seatNumber ?? activeSeatNumber;
   await agoraVoice.toggleLocalMute(true);
-  await toggleSeatMute(roomId, seatNumber, true);
-  await leaveSeat(roomId, seatNumber);
+  if (targetSeat != null) {
+    await toggleSeatMute(roomId, targetSeat, true).catch(() => {});
+    await leaveSeat(roomId, targetSeat).catch(() => {});
+  } else {
+    await leaveSeat(roomId, null).catch(() => {});
+  }
+  activeSeatNumber = null;
   wsService.sendSpeakingStatus(String(roomId), false);
 
   const uid = await getVoiceUid();
-  const tokenData = await fetchVoiceToken(roomId, uid, false);
+  const tokenData = await fetchVoiceToken(roomId, uid, false).catch(() => null);
   activeIsSpeaker = false;
 
-  await agoraVoice.joinVoiceChannel({
-    roomId: String(roomId),
-    uid,
-    tokenData,
-    isSpeaker: false,
-  });
+  if (tokenData) {
+    await agoraVoice.joinVoiceChannel({
+      roomId: String(roomId),
+      uid,
+      tokenData,
+      isSpeaker: false,
+    }).catch(() => {});
+  }
 
   return { uid };
 };
@@ -216,11 +227,27 @@ export const reconnectAsListener = async (roomId) => {
 };
 
 export const getActiveRoomId = () => activeRoomId;
+export const getActiveSeatNumber = () => activeSeatNumber;
+export const setActiveSeatNumber = (seatNumber) => {
+  activeSeatNumber = seatNumber != null ? Number(seatNumber) : null;
+};
 
-export const teardownVoice = async () => {
+export const teardownVoice = async (seatNumberToLeave = null) => {
+  const targetRoom = activeRoomId;
+  const targetSeat = seatNumberToLeave ?? activeSeatNumber;
   activeRoomId = null;
+  activeSeatNumber = null;
   activeIsSpeaker = false;
   agoraVoice.setTokenRenewalHandler(null);
+
+  if (targetRoom && targetSeat != null) {
+    try {
+      await leaveSeat(targetRoom, targetSeat);
+    } catch {
+      // Ignored during teardown
+    }
+  }
+
   await agoraVoice.leaveVoiceChannel();
   agoraVoice.destroyVoiceEngine();
 };

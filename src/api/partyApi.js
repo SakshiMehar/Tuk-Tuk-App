@@ -21,6 +21,8 @@
 
 import { API_BASE_URL } from "../config/env";
 import API, { authRequestConfig, getBearerToken, refreshTokenCache } from "./axios";
+import { getUser } from "../store/authStore";
+import { getAppUserId } from "../utils/sessionUser";
 
 const LOG_TAG = "[PartyAPI]";
 
@@ -378,8 +380,32 @@ export const claimSeat = async (roomId, seatNumber, profile) => {
 };
 
 export const leaveSeat = async (roomId, seatNumber) => {
+  let targetSeat = seatNumber;
+  if (targetSeat == null && roomId) {
+    try {
+      const state = await getRoomState(roomId);
+      const user = await getUser().catch(() => null);
+      const userId = user?.id ?? (await getAppUserId().catch(() => null));
+      if (userId && state?.seats) {
+        for (const [sNum, sVal] of Object.entries(state.seats)) {
+          const sUid = sVal?.userId ?? sVal?.user?.id ?? sVal?.id;
+          if (sUid && String(sUid) === String(userId)) {
+            targetSeat = sNum;
+            break;
+          }
+        }
+      }
+    } catch {
+      // Continue to fallback
+    }
+  }
+
+  const path =
+    targetSeat != null
+      ? `/api/v1/tuktuk/rooms/${roomId}/seat/${targetSeat}/leave`
+      : `/api/v1/tuktuk/rooms/${roomId}/seat/leave`;
   const response = await API.post(
-    `/api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/leave`,
+    path,
     {},
     await authRequestConfig()
   );
@@ -650,15 +676,17 @@ export const getRoomAdmins = async (roomId) => {
   }
 };
 
-/** POST /api/v1/tuktuk/rooms/{roomId}/admins — appoint a user as room admin */
+/** POST /api/v1/tuktuk/rooms/{roomId}/admins?userId={userId} — appoint a user as room admin */
 export const appointRoomAdmin = async (roomId, targetUserId) => {
   if (!roomId) throw new Error("Room ID is required to appoint admin");
   if (!targetUserId) throw new Error("Target user ID is required");
   const cleanId = String(roomId).trim();
-  const path = `/api/v1/tuktuk/rooms/${encodeURIComponent(cleanId)}/admins`;
-  const parsedId = Number(targetUserId);
+  const cleanUserId = String(targetUserId).trim();
+  const parsedId = Number(cleanUserId);
+  const numericOrStringId = !isNaN(parsedId) ? parsedId : cleanUserId;
+  const path = `/api/v1/tuktuk/rooms/${encodeURIComponent(cleanId)}/admins?userId=${encodeURIComponent(numericOrStringId)}`;
   const payload = {
-    userId: !isNaN(parsedId) ? parsedId : targetUserId,
+    userId: numericOrStringId,
   };
   logRequest("POST", path, payload);
   try {

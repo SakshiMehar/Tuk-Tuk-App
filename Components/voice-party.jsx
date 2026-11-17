@@ -197,6 +197,7 @@ import {
   applyWalletFromSources,
   refreshWalletBalance,
 } from "../src/store/walletStore";
+import * as pipService from "../src/services/pipService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { createRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
@@ -998,7 +999,7 @@ const reconcileSeatAssignments = (
     Array.isArray(onlineUsers) && onlineUsers.length > 0
       ? new Set(
           onlineUsers
-            .map((u) => (u?.id != null ? String(u.id) : null))
+            .map((u) => (u?.id != null ? String(u.id) : (u?.userId != null ? String(u.userId) : null)))
             .filter(Boolean),
         )
       : null;
@@ -1017,6 +1018,18 @@ const reconcileSeatAssignments = (
         next[i] = { ...next[i], user: null };
         continue;
       }
+
+      // If the seat belongs to current user, ensure local mic status matches
+      if (myUserId && userId === String(myUserId)) {
+        if (!mySeatNumber) {
+          next[i] = { ...next[i], user: null };
+          continue;
+        } else if (next[i].id !== mySeatNumber) {
+          next[i] = { ...next[i], user: null };
+          continue;
+        }
+      }
+
       if (onlineIds.has(userId)) {
         staleSeatTracker?.delete(userId);
         continue;
@@ -1028,24 +1041,22 @@ const reconcileSeatAssignments = (
         staleSeatTracker?.delete(userId);
         continue;
       }
-      if (!staleSeatTracker) {
-        next[i] = { ...next[i], user: null };
-        continue;
-      }
-      const misses = (staleSeatTracker.get(userId) ?? 0) + 1;
-      if (misses >= STALE_SEAT_MISS_THRESHOLD) {
-        next[i] = { ...next[i], user: null };
-        staleSeatTracker.delete(userId);
-      } else {
-        staleSeatTracker.set(userId, misses);
-      }
+
+      // User is neither in room online users nor actively in Agora voice -> clear seat immediately
+      next[i] = { ...next[i], user: null };
+      staleSeatTracker?.delete(userId);
     }
   }
 
   const indexByUserId = new Map();
   for (let i = 0; i < next.length; i += 1) {
     const seat = next[i];
-    const userId = seat?.user?.id != null ? String(seat.user.id) : null;
+    const userId =
+      seat?.user?.id != null
+        ? String(seat.user.id)
+        : seat?.user?.userId != null
+          ? String(seat.user.userId)
+          : null;
     if (!userId) continue;
 
     if (!indexByUserId.has(userId)) {
@@ -2302,6 +2313,46 @@ export default function VoiceParty() {
   const [reportTarget, setReportTarget] = useState(null);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
+  const [isInPipMode, setIsInPipMode] = useState(false);
+
+  useEffect(() => {
+    pipService
+      .isInPipMode()
+      .then((inPip) => {
+        if (inPip) {
+          setIsInPipMode(true);
+        }
+      })
+      .catch(() => {});
+
+    const unsub = pipService.subscribePipModeChanged((inPip) => {
+      setIsInPipMode(inPip);
+      if (inPip) {
+        setShowPowerMenu(false);
+        setShowMoreMenu(false);
+        setShowGiftPanel(false);
+        setShowChatInput(false);
+        setShowEmojiPicker(false);
+        setShowBackpack(false);
+        setShowTreasureBox(false);
+        setShowActiveUsersModal(false);
+        setShowFollowModal(false);
+        setShowRoomProfileModal(false);
+        setShowEditRoomModal(false);
+        setSeatActionSheet(null);
+        setProfilePopupUser(null);
+        setShowShareMenu(false);
+        setShowReportModal(false);
+        setShowPkBattle(false);
+        setShowPkTeamAccept(false);
+        setShowDiamondRecharge(false);
+        setShowTreasureAnimation(false);
+        setShowVideoModal(false);
+        setShowMusicPlaylist(false);
+      }
+    });
+    return unsub;
+  }, []);
   const [claimedRewardModal, setClaimedRewardModal] = useState(null);
   const [showActiveUsersModal, setShowActiveUsersModal] = useState(false);
   const [showFollowModal, setShowFollowModal] = useState(false);
@@ -2441,6 +2492,23 @@ export default function VoiceParty() {
   const isNavigatingToInboxRef = useRef(false);
   const fetchedUiAssetIdsRef = useRef(new Set());
   const knownMuteStatesRef = useRef(new Map());
+  const seatsRef = useRef(seats);
+  useEffect(() => {
+    seatsRef.current = seats;
+  }, [seats]);
+
+  const onlineUsersRef = useRef(onlineUsers);
+  useEffect(() => {
+    onlineUsersRef.current = onlineUsers;
+  }, [onlineUsers]);
+
+  useEffect(() => {
+    mySeatNumberRef.current = mySeatNumber;
+    if (typeof partyVoice.setActiveSeatNumber === "function") {
+      partyVoice.setActiveSeatNumber(mySeatNumber);
+    }
+  }, [mySeatNumber]);
+
   const { keyboardHeight, safeBottom, idleBottom, composerBottom, isKeyboardVisible } = useKeyboardInset();
 
   useEffect(() => {
@@ -2743,9 +2811,28 @@ export default function VoiceParty() {
     isSameUser(roomInfo?.creatorId, myUserId) ||
     isSameUser(roomInfo?.ownerId, myUserId);
   const [roomAdminIds, setRoomAdminIds] = useState(new Set());
-  const isViewerAdmin = Boolean(myUserId && roomAdminIds.has(String(myUserId)));
+  const effectiveUserId =
+    myUserId ||
+    localSessionUser?.id ||
+    localSessionUser?.userId ||
+    null;
+  const isViewerAdmin = Boolean(
+    effectiveUserId && roomAdminIds.has(String(effectiveUserId)),
+  );
   const canManageRoomUsers = isHostSelf || isViewerAdmin;
   const [clearingChat, setClearingChat] = useState(false);
+
+  // If viewer loses admin/host role while playing music, automatically stop playback
+  useEffect(() => {
+    if (!isHostSelf && !isViewerAdmin && isMusicPlaying) {
+      if (typeof agoraVoice.stopAudioForEveryone === "function") {
+        agoraVoice.stopAudioForEveryone();
+      }
+      setIsMusicPlaying(false);
+      setIsMusicPaused(false);
+      setMusicPlaylist([]);
+    }
+  }, [isHostSelf, isViewerAdmin, isMusicPlaying]);
 
   const refreshRoomAdmins = useCallback(async (targetRoomId) => {
     const activeId = String(targetRoomId || roomIdRef.current || roomId || "").trim();
@@ -2758,16 +2845,33 @@ export default function VoiceParty() {
           .map((a) => String(a.userId ?? a.id ?? ""))
           .filter(Boolean),
       );
+
+      // Verify current user's room admin status via GET /user/profile/{userId}/room/{roomId}
+      const selfId = myUserId || localSessionUser?.id || localSessionUser?.userId;
+      if (selfId) {
+        try {
+          const selfRoomProfile = await getUserProfile(selfId, activeId);
+          if (selfRoomProfile?.isRoomAdmin === true) {
+            activeIds.add(String(selfId));
+          } else if (selfRoomProfile?.isRoomAdmin === false && !isHostSelf) {
+            activeIds.delete(String(selfId));
+          }
+        } catch {}
+      }
+
       setRoomAdminIds(activeIds);
     } catch (err) {
       console.warn("[VoiceParty] Failed to refresh room admins:", err);
     }
-  }, [roomId]);
+  }, [roomId, myUserId, localSessionUser, isHostSelf]);
 
   useEffect(() => {
-    if (roomId) {
+    if (!roomId) return;
+    refreshRoomAdmins(roomId);
+    const interval = setInterval(() => {
       refreshRoomAdmins(roomId);
-    }
+    }, 4000);
+    return () => clearInterval(interval);
   }, [roomId, refreshRoomAdmins]);
 
   // Only the creator/owner of the room can edit room name & photo
@@ -4541,6 +4645,12 @@ export default function VoiceParty() {
     return () => {
       cancelled = true;
       const activeRoomId = roomIdRef.current;
+      const activeSeat =
+        mySeatNumberRef.current ||
+        mySeatNumber ||
+        (typeof partyVoice.getActiveSeatNumber === "function" ? partyVoice.getActiveSeatNumber() : null) ||
+        (seatsRef.current || []).find((s) => s?.user && isSameUser(s.user.id ?? s.user.userId, myUserId))?.id ||
+        null;
       if (isNavigatingToInboxRef.current) {
         // User opened Inbox/Chat — keep room session & audio alive
         return;
@@ -4548,13 +4658,16 @@ export default function VoiceParty() {
       if (activeRoomId && !exitedRef.current) {
         exitedRef.current = true;
         const cleanup = async () => {
+          if (activeSeat != null) {
+            await partyVoice.leaveMic(String(activeRoomId), activeSeat).catch(() => {});
+          }
           await flushListenRewardProgress(activeRoomId).catch(() => {});
-          await partyVoice.teardownVoice().catch(() => {});
-          await exitRoomSession(String(activeRoomId)).catch(() => {});
+          await partyVoice.teardownVoice(activeSeat).catch(() => {});
+          await exitRoomSession(String(activeRoomId), activeSeat, localSessionUser).catch(() => {});
         };
         cleanup();
       } else {
-        partyVoice.teardownVoice().catch(() => {});
+        partyVoice.teardownVoice(activeSeat).catch(() => {});
       }
     };
   }, [roomIdParam, isRandomParty, router]);
@@ -4863,6 +4976,53 @@ export default function VoiceParty() {
         setMessages([]);
         return;
       }
+
+      // Check for admin status changes broadcast via chat stream
+      const rawType = String(
+        payload?.type || payload?.eventType || payload?.action || "",
+      ).toUpperCase();
+      const rawText = String(
+        payload?.message || payload?.text || payload?.content || "",
+      );
+      const isRemoveAdmin =
+        rawType === "ADMIN_REMOVED" ||
+        rawType === "ROOM_ADMIN_REMOVED" ||
+        payload?.action === "REMOVE_ADMIN" ||
+        rawText.includes("is no longer a room admin");
+      const isAppointAdmin =
+        rawType === "ADMIN_APPOINTED" ||
+        rawType === "ROOM_ADMIN_APPOINTED" ||
+        payload?.action === "APPOINT_ADMIN" ||
+        rawText.includes("has been appointed as a room admin");
+
+      if (isRemoveAdmin) {
+        const adminId =
+          payload?.userId != null
+            ? String(payload.userId)
+            : payload?.targetUserId != null
+              ? String(payload.targetUserId)
+              : null;
+        if (adminId) {
+          setRoomAdminIds((prev) => {
+            const next = new Set(prev);
+            next.delete(String(adminId));
+            return next;
+          });
+        }
+        if (roomId) refreshRoomAdmins(roomId);
+      } else if (isAppointAdmin) {
+        const adminId =
+          payload?.userId != null
+            ? String(payload.userId)
+            : payload?.targetUserId != null
+              ? String(payload.targetUserId)
+              : null;
+        if (adminId) {
+          setRoomAdminIds((prev) => new Set([...prev, String(adminId)]));
+        }
+        if (roomId) refreshRoomAdmins(roomId);
+      }
+
       setMessages((prev) => upsertChatMessage(prev, payload));
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
       revealGiftFromChat(payload);
@@ -4909,6 +5069,7 @@ export default function VoiceParty() {
       if (hasPresenceSnapshot) {
         setOnlineUsers(users);
         setOnlineCount(users.length);
+        onlineUsersRef.current = users;
       }
 
       // An empty `seats: {}` payload is ambiguous (partial/diff broadcast vs.
@@ -4929,11 +5090,15 @@ export default function VoiceParty() {
           const byId = new Map(patch.map((s) => [s.id, s]));
           return base.map((seat) => byId.get(seat.id) ?? seat);
         };
+        const activeOnlineUsers = hasPresenceSnapshot
+          ? users
+          : (onlineUsersRef.current && onlineUsersRef.current.length > 0 ? onlineUsersRef.current : onlineUsers);
+
         if (mySeatNumber) {
           enrichSeatsWithMyProfile(patchSeats, mySeatNumber).then((enriched) =>
             setSeats((prev) =>
               reconcileSeatAssignments(mergeOntoPrev(prev, enriched), {
-                onlineUsers: hasPresenceSnapshot ? users : null,
+                onlineUsers: activeOnlineUsers,
                 myUserId,
                 mySeatNumber,
                 staleSeatTracker: staleSeatTrackerRef.current,
@@ -4945,12 +5110,12 @@ export default function VoiceParty() {
         } else {
           setSeats((prev) =>
             reconcileSeatAssignments(mergeOntoPrev(prev, patchSeats), {
-              onlineUsers: hasPresenceSnapshot ? users : null,
+              onlineUsers: activeOnlineUsers,
               myUserId,
               mySeatNumber,
               staleSeatTracker: staleSeatTrackerRef.current,
               activeVoiceUids: activeVoiceUidsRef.current,
-                knownMuteStates: knownMuteStatesRef.current,
+              knownMuteStates: knownMuteStatesRef.current,
             }),
           );
         }
@@ -5167,7 +5332,20 @@ export default function VoiceParty() {
         const eventType = String(
           payload.eventType || payload.type || "",
         ).toUpperCase();
-        const uId = payload.userId != null ? String(payload.userId) : null;
+        const uId =
+          payload.userId != null
+            ? String(payload.userId)
+            : payload.id != null
+              ? String(payload.id)
+              : payload.uid != null
+                ? String(payload.uid)
+                : payload.targetUserId != null
+                  ? String(payload.targetUserId)
+                  : payload.user?.id != null
+                    ? String(payload.user.id)
+                    : payload.user?.userId != null
+                      ? String(payload.user.userId)
+                      : null;
         const uName =
           payload.userName || payload.senderName || payload.name || "User";
         const uAvatar =
@@ -5205,7 +5383,9 @@ export default function VoiceParty() {
                   (u) => String(u?.id ?? u?.userId) === uId,
                 );
                 if (exists) return prev;
-                return [...prev, joinedUser];
+                const nextUsers = [...prev, joinedUser];
+                onlineUsersRef.current = nextUsers;
+                return nextUsers;
               });
               setOnlineCount((prev) => prev + 1);
             }
@@ -5230,9 +5410,15 @@ export default function VoiceParty() {
                 user: leftUser,
               });
 
-              setOnlineUsers((prev) =>
-                prev.filter((u) => String(u?.id ?? u?.userId) !== uId),
-              );
+              setOnlineUsers((prev) => {
+                const nextUsers = prev.filter(
+                  (u) =>
+                    !isSameUser(u?.id, uId) &&
+                    !isSameUser(u?.userId, uId),
+                );
+                onlineUsersRef.current = nextUsers;
+                return nextUsers;
+              });
               setOnlineCount((prev) => Math.max(0, prev - 1));
 
               // Clear seat if left user was seated
@@ -5240,13 +5426,15 @@ export default function VoiceParty() {
                 prev.map((seat) => {
                   if (
                     seat.user &&
-                    String(seat.user.id ?? seat.user.userId) === uId
+                    (isSameUser(seat.user.id, uId) ||
+                     isSameUser(seat.user.userId, uId))
                   ) {
                     return { ...seat, user: null };
                   }
                   return seat;
                 }),
               );
+              staleSeatTrackerRef.current?.delete(String(uId));
             }
             break;
           }
@@ -5339,6 +5527,7 @@ export default function VoiceParty() {
             if (adminId) {
               setRoomAdminIds((prev) => new Set([...prev, String(adminId)]));
             }
+            if (roomId) refreshRoomAdmins(roomId);
             break;
           }
 
@@ -5357,6 +5546,7 @@ export default function VoiceParty() {
                 return next;
               });
             }
+            if (roomId) refreshRoomAdmins(roomId);
             break;
           }
 
@@ -5416,18 +5606,27 @@ export default function VoiceParty() {
 
           case "SEAT_RELEASED":
           case "SEAT_LEFT": {
-            const targetSeatId = Number(payload.seatNumber || payload.seatId);
+            const rawSeatNum = payload.seatNumber ?? payload.seatId ?? payload.seat;
+            const targetSeatId =
+              rawSeatNum != null && Number.isFinite(Number(rawSeatNum))
+                ? Number(rawSeatNum)
+                : null;
             setSeats((prev) =>
               prev.map((seat) => {
-                const matches = targetSeatId
-                  ? seat.id === targetSeatId
-                  : uId && String(seat.user?.id ?? seat.user?.userId) === uId;
-                if (matches) {
+                const matchSeat = targetSeatId != null && seat.id === targetSeatId;
+                const matchUser =
+                  uId &&
+                  seat.user &&
+                  (isSameUser(seat.user.id, uId) || isSameUser(seat.user.userId, uId));
+                if (matchSeat || matchUser) {
                   return { ...seat, user: null };
                 }
                 return seat;
               }),
             );
+            if (uId) {
+              staleSeatTrackerRef.current?.delete(String(uId));
+            }
             break;
           }
 
@@ -5771,6 +5970,14 @@ export default function VoiceParty() {
   }, [roomId, mySeatNumber, myUserId, revealGiftAnimation]);
 
   const handleToggleMusic = useCallback(async () => {
+    if (!isHostSelf && !isViewerAdmin) {
+      Alert.alert(
+        "Permission Denied",
+        "Only the room owner or admin can play music.",
+      );
+      return;
+    }
+
     let hasMicPermission = true;
     if (Platform.OS === "android") {
       hasMicPermission = await PermissionsAndroid.check(
@@ -5829,7 +6036,7 @@ export default function VoiceParty() {
     } catch (err) {
       console.error("Audio selection error:", err);
     }
-  }, [onMic, isMicMuted, roomId, mySeatNumber]);
+  }, [isHostSelf, isViewerAdmin, onMic, isMicMuted, roomId, mySeatNumber]);
 
   const handleNextMusic = useCallback(() => {
     if (musicPlaylist.length > 0) {
@@ -5853,14 +6060,24 @@ export default function VoiceParty() {
       return;
     }
     exitedRef.current = true;
+    const seatToLeave =
+      mySeatNumberRef.current ||
+      mySeatNumber ||
+      (typeof partyVoice.getActiveSeatNumber === "function" ? partyVoice.getActiveSeatNumber() : null) ||
+      (seatsRef.current || []).find((s) => s?.user && isSameUser(s.user.id ?? s.user.userId, myUserId))?.id ||
+      null;
+
     try {
       await flushListenRewardProgress(roomId);
     } catch {
       // Non-blocking for room exit
     }
     try {
-      await partyVoice.teardownVoice();
-      await exitRoomSession(String(roomId));
+      if (seatToLeave != null) {
+        await partyVoice.leaveMic(String(roomId), seatToLeave).catch(() => {});
+      }
+      await partyVoice.teardownVoice(seatToLeave);
+      await exitRoomSession(String(roomId), seatToLeave, localSessionUser);
     } catch {
       // APIs logged in partyApi
     }
@@ -5869,7 +6086,7 @@ export default function VoiceParty() {
     setOnMic(false);
     setMySeatNumber(null);
     router.back();
-  }, [roomId, router, flushListenRewardProgress]);
+  }, [roomId, router, flushListenRewardProgress, mySeatNumber, myUserId, localSessionUser]);
 
   const promptExitConfirmation = useCallback(() => {
     Alert.alert(
@@ -5895,12 +6112,47 @@ export default function VoiceParty() {
     );
   }, [handleExitRoom]);
 
+  const handleKeepPress = useCallback(async () => {
+    setShowPowerMenu(false);
+    if (Platform.OS === "android") {
+      try {
+        const supported = await pipService.isPipSupported();
+        if (supported) {
+          // Allow the modal dismiss transition to finish before entering PiP
+          setTimeout(async () => {
+            try {
+              await pipService.enterPipMode({ width: 9, height: 16 });
+            } catch (err) {
+              console.warn("[VoiceParty] enterPipMode failed:", err);
+            }
+          }, 120);
+          return;
+        } else {
+          Alert.alert(
+            "PiP Not Supported",
+            "Picture-in-Picture mode is not supported on this device.",
+          );
+        }
+      } catch (err) {
+        console.warn("[VoiceParty] Failed to enter PiP mode:", err);
+      }
+    } else {
+      Alert.alert(
+        "PiP Not Supported",
+        "Picture-in-Picture is only supported on Android devices.",
+      );
+    }
+  }, []);
+
   // Intercept Android hardware back button — close any open chat input /
   // pickers / modals in order; show confirmation popup before leaving room.
   // ONLY active when the voice party room screen is focused.
   useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (isInPipMode) {
+        return true;
+      }
       if (showTagPicker) {
         setShowTagPicker(false);
         return true;
@@ -6955,6 +7207,13 @@ export default function VoiceParty() {
   };
 
   const handleConfirmClearChat = useCallback(() => {
+    if (!isHostSelf && !isViewerAdmin) {
+      Alert.alert(
+        "Permission Denied",
+        "Only the room owner or admin can clear the room chat.",
+      );
+      return;
+    }
     Alert.alert(
       "Clear Chat",
       "Are you sure you want to clear the room chat history?",
@@ -7000,14 +7259,14 @@ export default function VoiceParty() {
               ) {
                 Alert.alert(
                   "Permission Denied",
-                  "Only the room host can delete chat history.",
+                  "Only the room owner or admin can delete chat history.",
                 );
               } else {
                 Alert.alert(
                   "Clear Chat Failed",
                   typeof errorMsg === "string" && errorMsg
                     ? errorMsg
-                    : "Only the room host can delete chat history.",
+                    : "Only the room owner or admin can delete chat history.",
                 );
               }
             } finally {
@@ -7017,7 +7276,7 @@ export default function VoiceParty() {
         },
       ],
     );
-  }, [roomId]);
+  }, [isHostSelf, isViewerAdmin, roomId]);
 
   // Build a deduplicated list of all people currently in the room
   // (mic seat users + audience), excluding the current user.
@@ -7732,12 +7991,31 @@ export default function VoiceParty() {
         setProfilePopupFollowing(Boolean(status?.following));
       }
 
-      // Fetch dynamic profile: GET /api/app/users/user/profile/:userId
+      // Fetch dynamic profile with room admin check: GET /user/profile/:userId/room/:roomId
       try {
-        const profileData = await getUserProfile(userId);
+        const activeRoomId = String(roomIdRef.current || roomId || "").trim();
+        const profileData = await getUserProfile(userId, activeRoomId || null);
         const userProfile =
           profileData?.data ?? profileData?.user ?? profileData;
         if (userProfile) {
+          const isUserRoomAdmin = Boolean(
+            userProfile.isRoomAdmin ??
+            profileData.isRoomAdmin ??
+            roomAdminIds.has(String(userId))
+          );
+          if (isUserRoomAdmin) {
+            setRoomAdminIds((prev) => new Set([...prev, String(userId)]));
+          } else if (
+            userProfile.isRoomAdmin === false ||
+            profileData.isRoomAdmin === false
+          ) {
+            setRoomAdminIds((prev) => {
+              const next = new Set(prev);
+              next.delete(String(userId));
+              return next;
+            });
+          }
+
           setProfilePopupUser((prev) => ({
             ...(prev ?? initial),
             ...userProfile,
@@ -7754,12 +8032,15 @@ export default function VoiceParty() {
             countryName: userProfile.countryName ?? prev?.countryName,
             flagUrl: userProfile.flagUrl ?? prev?.flagUrl,
             badgeUrl: userProfile.badgeUrl ?? prev?.badgeUrl,
+            verifiedBadgeUrl:
+              userProfile.verifiedBadgeUrl ?? prev?.verifiedBadgeUrl,
             avatar:
               userProfile.avatar ?? userProfile.profilePicUrl ?? prev?.avatar,
             profilePicUrl:
               userProfile.profilePicUrl ??
               userProfile.avatar ??
               prev?.profilePicUrl,
+            isRoomAdmin: isUserRoomAdmin,
           }));
           if (
             !lockedAvatarSource &&
@@ -7926,10 +8207,10 @@ export default function VoiceParty() {
             return next;
           });
           if (roomId) {
-            wsService.sendRoomMessage(
-              String(roomId),
-              `🛡️ ${targetName} is no longer a room admin.`,
-            );
+            await wsService
+              .sendRoomAdminChanged(String(roomId), targetId, false, targetName)
+              .catch(() => {});
+            refreshRoomAdmins(roomId);
           }
           Alert.alert(
             "Admin Removed",
@@ -7943,10 +8224,10 @@ export default function VoiceParty() {
             return next;
           });
           if (roomId) {
-            wsService.sendRoomMessage(
-              String(roomId),
-              `🛡️ ${targetName} has been appointed as a room admin!`,
-            );
+            await wsService
+              .sendRoomAdminChanged(String(roomId), targetId, true, targetName)
+              .catch(() => {});
+            refreshRoomAdmins(roomId);
           }
           Alert.alert("Admin Appointed", `${targetName} is now a room admin.`);
         }
@@ -8022,7 +8303,12 @@ export default function VoiceParty() {
         return;
       }
 
-      if (!isHostSelf && roomAdminIds.has(targetId)) {
+      const isTargetAdmin =
+        roomAdminIds.has(targetId) ||
+        (targetUser?.id != null && roomAdminIds.has(String(targetUser.id))) ||
+        (targetUser?.userId != null && roomAdminIds.has(String(targetUser.userId)));
+
+      if (!isHostSelf && isTargetAdmin) {
         Alert.alert(
           "Action Not Allowed",
           "Admins cannot kick out other admins. Only the room owner can.",
@@ -8659,6 +8945,108 @@ export default function VoiceParty() {
       claimingRewardTierRef.current = null;
     }
   };
+
+  if (isInPipMode) {
+    const hostCoverUri =
+      roomInfo?.profileImageUrl ||
+      hostProfileDetails?.avatarUrl ||
+      hostUserLike?.avatar ||
+      hostUserLike?.profileImageUrl ||
+      null;
+    const roomTitle = roomInfo?.name || roomInfo?.title || "Voice Party";
+    const hostName = roomInfo?.hostName || hostUserLike?.name || "Host";
+
+    return (
+      <TouchableOpacity
+        style={styles.pipContainer}
+        activeOpacity={0.95}
+        onPress={() => {
+          pipService.maximizePip().catch(() => {});
+        }}
+      >
+        <StatusBar hidden />
+        <LinearGradient
+          colors={["#130a2a", "#221147", "#0d061c"]}
+          style={styles.pipGradient}
+        >
+          {/* Glowing Live Ring + Avatar */}
+          <View style={styles.pipAvatarWrap}>
+            <LinearGradient
+              colors={["#a855f7", "#ec4899", "#8b5cf6"]}
+              style={styles.pipAvatarRing}
+            >
+              {hostCoverUri ? (
+                <Image
+                  source={{ uri: hostCoverUri }}
+                  style={styles.pipAvatar}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={[styles.pipAvatar, styles.pipAvatarFallback]}>
+                  <Text style={styles.pipAvatarInitial}>
+                    {roomTitle.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </LinearGradient>
+            <View style={styles.pipLiveDot}>
+              <View style={styles.pipLiveDotInner} />
+            </View>
+          </View>
+
+          {/* Room Title & Host */}
+          <Text style={styles.pipTitle} numberOfLines={1}>
+            {roomTitle}
+          </Text>
+          <Text style={styles.pipSubtitle} numberOfLines={1}>
+            {hostName} · Live
+          </Text>
+
+          {/* Mini Speaking Waveform / Mic Indicators */}
+          <View style={styles.pipWaveRow}>
+            <View
+              style={[
+                styles.pipWaveBar,
+                { height: 8, backgroundColor: onMic ? "#4ade80" : "#a855f7" },
+              ]}
+            />
+            <View
+              style={[
+                styles.pipWaveBar,
+                { height: 14, backgroundColor: onMic ? "#22c55e" : "#c084fc" },
+              ]}
+            />
+            <View
+              style={[
+                styles.pipWaveBar,
+                { height: 10, backgroundColor: onMic ? "#4ade80" : "#a855f7" },
+              ]}
+            />
+            <View
+              style={[
+                styles.pipWaveBar,
+                { height: 16, backgroundColor: onMic ? "#22c55e" : "#c084fc" },
+              ]}
+            />
+            <View
+              style={[
+                styles.pipWaveBar,
+                { height: 8, backgroundColor: onMic ? "#4ade80" : "#a855f7" },
+              ]}
+            />
+          </View>
+
+          {/* Quick status pill */}
+          <View style={styles.pipStatusPill}>
+            <Mic size={10} color={onMic ? "#4ade80" : "#c4b5fd"} />
+            <Text style={styles.pipStatusText}>
+              {onMic ? "On Mic" : "Listening"}
+            </Text>
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -9802,13 +10190,16 @@ export default function VoiceParty() {
         loading={profilePopupLoading}
         isFollowing={profilePopupFollowing}
         followLoading={profileFollowLoading}
-        isSelf={isSameUser(profilePopupUser?.id, myUserId)}
-        isOwner={isSameUser(profilePopupUser?.id, hostId)}
+        isSelf={isSameUser(profilePopupUser?.id ?? profilePopupUser?.userId, myUserId)}
+        isOwner={isSameUser(profilePopupUser?.id ?? profilePopupUser?.userId, hostId)}
         isViewerOwner={isHostSelf}
         isViewerAdmin={isViewerAdmin}
         canManage={canManageRoomUsers}
         targetIsAdmin={Boolean(
-          profilePopupUser?.id && roomAdminIds.has(String(profilePopupUser.id)),
+          profilePopupUser?.isRoomAdmin ??
+          (profilePopupUser &&
+            (roomAdminIds.has(String(profilePopupUser.id)) ||
+             roomAdminIds.has(String(profilePopupUser.userId))))
         )}
         countryFlag={
           isSameUser(profilePopupUser?.id, myUserId) ? myCountryFlag : null
@@ -9898,6 +10289,13 @@ export default function VoiceParty() {
                 activeOpacity={0.75}
                 onPress={async () => {
                   setShowPlayCenter(false);
+                  if (!isHostSelf && !isViewerAdmin) {
+                    Alert.alert(
+                      "Permission Denied",
+                      "Only the room owner or admin can start a PK battle.",
+                    );
+                    return;
+                  }
                   // Re-check with the server instead of trusting local state —
                   // the initial room-join fetch may still be in flight, or a
                   // websocket drop could have left `activePkBattle` stale,
@@ -9948,7 +10346,7 @@ export default function VoiceParty() {
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
-                onPress={() => setShowPowerMenu(false)}
+                onPress={handleKeepPress}
               >
                 <View style={styles.playCenterIconWrap}>
                   <Minimize2 size={20} color="#a78bfa" />
@@ -17456,5 +17854,114 @@ const styles = StyleSheet.create({
   },
   activityBannerClapText: {
     fontSize: 14,
+  },
+  /* ── PiP (Picture-in-Picture) Window Styles ── */
+  pipContainer: {
+    flex: 1,
+    backgroundColor: "#0d061c",
+    width: "100%",
+    height: "100%",
+  },
+  pipGradient: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    width: "100%",
+    height: "100%",
+  },
+  pipAvatarWrap: {
+    position: "relative",
+    marginBottom: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pipAvatarRing: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    padding: 2.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pipAvatar: {
+    width: 47,
+    height: 47,
+    borderRadius: 23.5,
+    backgroundColor: "#2e1065",
+  },
+  pipAvatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7c3aed",
+  },
+  pipAvatarInitial: {
+    color: "#ffffff",
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  pipLiveDot: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#0d061c",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pipLiveDotInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#22c55e",
+  },
+  pipTitle: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center",
+    width: "92%",
+    marginBottom: 2,
+    letterSpacing: 0.2,
+  },
+  pipSubtitle: {
+    color: "#c4b5fd",
+    fontSize: 10,
+    fontWeight: "500",
+    textAlign: "center",
+    width: "90%",
+    marginBottom: 6,
+  },
+  pipWaveRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    marginBottom: 6,
+    height: 16,
+  },
+  pipWaveBar: {
+    width: 3,
+    borderRadius: 2,
+  },
+  pipStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: "rgba(167, 139, 250, 0.35)",
+  },
+  pipStatusText: {
+    color: "#e9d5ff",
+    fontSize: 9.5,
+    fontWeight: "600",
   },
 });
