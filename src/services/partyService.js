@@ -457,6 +457,43 @@ export const createLocalChatMessage = ({ text, user, avatar, extra = {} }) => ({
   ...extra,
 });
 
+// Helper to extract canonical admin action
+const extractAdminSignature = (text) => {
+  if (!text) return null;
+  const clean = String(text).toLowerCase().replace(/^[^\w\s]+/, "").trim();
+  if (clean.includes("is no longer a room admin")) {
+    const match = clean.match(/([a-z0-9_]+)\s+is no longer a room admin/);
+    return "admin-remove:" + (match ? match[1] : clean);
+  }
+  if (clean.includes("appointed as a room admin") || clean.includes("is now a room admin")) {
+    const match = clean.match(/([a-z0-9_]+)\s+(?:has been appointed as a room admin|is now a room admin)/);
+    return "admin-appoint:" + (match ? match[1] : clean);
+  }
+  return null;
+};
+
+// Helper to extract canonical gift action
+const extractGiftSignature = (msg) => {
+  if (!msg) return null;
+  const isGift =
+    Boolean(msg.isGift) ||
+    /sent\s+(?:🎁\s*)?/i.test(String(msg.text || msg.message || ""));
+  if (!isGift) return null;
+  const raw = String(msg.text || msg.message || "")
+    .toLowerCase()
+    .replace(/^[^\w\s]+/, "")
+    .trim();
+  const match = raw.match(/sent\s+(?:🎁\s*)?([^\n\r]+)/i);
+  const giftPart = match ? match[1].replace(/\s+/g, " ").trim() : raw;
+  const user = String(msg.user || msg.senderName || "").trim().toLowerCase();
+  return `${user}:${giftPart}`;
+};
+
+const getGiftCore = (msg) => {
+  const sig = extractGiftSignature(msg);
+  return sig ? sig.split(":")[1] : null;
+};
+
 /** Append or replace a pending local echo when the server message arrives. */
 export const upsertChatMessage = (prev, payload) => {
   const normalized = normalizeChatMessage(payload);
@@ -465,6 +502,69 @@ export const upsertChatMessage = (prev, payload) => {
   const exists = prev.some((m) => String(m.id) === String(normalized.id));
   if (exists) return prev;
 
+  const now = Date.now();
+
+  // 1. Admin notice deduplication (e.g. appointed or removed as room admin)
+  const adminSig = extractAdminSignature(normalized.text);
+  if (adminSig) {
+    const existingAdminIdx = prev.findIndex((m) => {
+      const mSig = extractAdminSignature(m.text);
+      return mSig === adminSig;
+    });
+    if (existingAdminIdx >= 0) {
+      // If incoming message carries richer author info (e.g. host avatar/VIP frame), update existing entry
+      const existing = prev[existingAdminIdx];
+      if (
+        (normalized.avatar || normalized.vipProfileFrameUrl) &&
+        !existing.vipProfileFrameUrl
+      ) {
+        const next = [...prev];
+        next[existingAdminIdx] = { ...normalized, id: existing.id };
+        return next;
+      }
+      return prev; // Ignore duplicate admin notice
+    }
+  }
+
+  // 2. Gift message deduplication (prevents multiple topics/local echos from showing twice)
+  const giftSig = extractGiftSignature(normalized);
+  if (giftSig) {
+    const giftCore = getGiftCore(normalized);
+    // Check if replacing a pending gift echo from sender
+    const pendingIdx = prev.findIndex(
+      (m) =>
+        m.pending &&
+        (m.text === normalized.text ||
+          extractGiftSignature(m) === giftSig ||
+          (giftCore && getGiftCore(m) === giftCore)),
+    );
+    if (pendingIdx >= 0) {
+      const next = [...prev];
+      next[pendingIdx] = { ...normalized, pending: false };
+      return next;
+    }
+
+    // Check if the same gift from same sender was added in the last 4 seconds
+    const recentGiftIdx = prev.slice(-15).findIndex((m) => {
+      const mSig = extractGiftSignature(m);
+      if (!mSig || mSig !== giftSig) {
+        if (giftCore && getGiftCore(m) === giftCore) {
+          const mUser = String(m.user || "").toLowerCase();
+          const nUser = String(normalized.user || "").toLowerCase();
+          if (mUser && nUser && (mUser === nUser || mUser === "you" || nUser === "you")) {
+            return true;
+          }
+        }
+        return false;
+      }
+      return true;
+    });
+    if (recentGiftIdx >= 0) {
+      return prev; // Ignore duplicate gift message
+    }
+  }
+
+  // 3. Regular pending message replacement
   const pendingIdx = prev.findIndex(
     (m) =>
       m.pending &&

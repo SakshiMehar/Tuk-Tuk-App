@@ -1,5 +1,6 @@
 import { getChats, getUserMessages, markUserMessagesRead } from "../api/chatApi";
 import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
+import { isUserOnline, setUserOnlineStatus } from "../utils/liveStatus";
 
 const firstText = (...values) =>
   values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
@@ -64,17 +65,67 @@ const normalizeConversation = (conversation) => {
     conversation?.sentAt
   );
 
+  const targetUserId = firstValue(
+    conversation?.userId,
+    conversation?.peerId,
+    conversation?.receiverId,
+    conversation?.otherUserId,
+    peer?.id,
+    peer?.userId
+  );
+
+  const isOfficial = Boolean(
+    conversation?.officialSender ||
+    conversation?.isOfficial ||
+    conversation?.official ||
+    lastMessage?.officialSender ||
+    lastMessage?.isOfficial ||
+    peer?.officialSender ||
+    peer?.isOfficial ||
+    peer?.official ||
+    peer?.name === "Tuk Tuk Team" ||
+    peer?.senderName === "Tuk Tuk Team" ||
+    conversation?.name === "Tuk Tuk Team" ||
+    conversation?.title === "Tuk Tuk Team" ||
+    conversation?.senderName === "Tuk Tuk Team" ||
+    String(peer?.userId ?? peer?.id ?? conversation?.userId ?? conversation?.peerId ?? "") === "100005"
+  );
+
+  const peerStatus = firstText(
+    peer?.liveStatus,
+    peer?.userStatus,
+    peer?.status
+  ) || "";
+
+  const isStatusOnline =
+    peerStatus.toUpperCase() === "ONLINE" ||
+    peerStatus.toUpperCase() === "ONLINE_IN_ROOM" ||
+    peerStatus.toUpperCase() === "LIVE" ||
+    peerStatus.toUpperCase() === "IN_PARTY";
+
+  const explicitOnline = firstValue(
+    peer?.isOnline,
+    peer?.online
+  );
+
+  const isOnline = isOfficial
+    ? false
+    : explicitOnline !== null
+    ? Boolean(explicitOnline)
+    : (isUserOnline({ userId: targetUserId, status: peerStatus, peer }) || isStatusOnline);
+
+  const isInRoom = !isOfficial && Boolean(
+    conversation?.isInRoom ??
+    peer?.isInRoom ??
+    conversation?.inRoom ??
+    peer?.inRoom ??
+    (peer?.roomId != null && String(peer.roomId).trim() !== "" && String(peer.roomId).trim() !== "0" && String(peer.roomId).trim() !== "null")
+  );
+
   return {
     ...conversation,
     id: firstValue(conversation?.id, conversation?.conversationId, conversation?._id, peer?.id),
-    userId: firstValue(
-      conversation?.userId,
-      conversation?.peerId,
-      conversation?.receiverId,
-      conversation?.otherUserId,
-      peer?.id,
-      peer?.userId
-    ),
+    userId: targetUserId,
     name:
       firstText(
         conversation?.name,
@@ -111,19 +162,9 @@ const normalizeConversation = (conversation) => {
     time: formatChatTime(lastAt) || firstText(conversation?.time) || "",
     unread: Number(conversation?.unread ?? conversation?.unreadCount ?? 0) || 0,
     verifiedBadgeUrl: firstText(conversation?.verifiedBadgeUrl, peer?.verifiedBadgeUrl),
-    live: Boolean(conversation?.live ?? conversation?.isLive ?? peer?.isLive ?? conversation?.isInRoom ?? peer?.isInRoom),
-    isInRoom: Boolean(
-      conversation?.isInRoom ??
-      peer?.isInRoom ??
-      conversation?.inRoom ??
-      peer?.inRoom ??
-      conversation?.live ??
-      peer?.live ??
-      (conversation?.roomId != null && String(conversation.roomId).trim() !== "") ??
-      (peer?.roomId != null && String(peer.roomId).trim() !== "")
-    ),
+    live: isInRoom,
+    isInRoom,
     roomId: firstValue(
-      conversation?.roomId,
       peer?.roomId,
       conversation?.currentRoomId,
       peer?.currentRoomId,
@@ -132,8 +173,9 @@ const normalizeConversation = (conversation) => {
       conversation?.room?.id,
       peer?.room?.id
     ),
-    isOnline: Boolean(conversation?.isOnline ?? conversation?.online ?? peer?.isOnline ?? peer?.online),
-    online: Boolean(conversation?.online ?? conversation?.isOnline ?? peer?.online ?? peer?.isOnline),
+    status: isOfficial ? "OFFLINE" : peerStatus || (isOnline ? "ONLINE" : "OFFLINE"),
+    isOnline,
+    online: isOnline,
     liked: Boolean(conversation?.liked),
     vipProfileFrameUrl: extractVipProfileFrameUrl(conversation) ?? extractVipProfileFrameUrl(peer),
     level: firstNumber(conversation?.level, peer?.level),
@@ -144,22 +186,7 @@ const normalizeConversation = (conversation) => {
       peer?.countryName,
       peer?.country
     ),
-    officialSender: Boolean(
-      conversation?.officialSender ||
-      conversation?.isOfficial ||
-      conversation?.official ||
-      lastMessage?.officialSender ||
-      lastMessage?.isOfficial ||
-      peer?.officialSender ||
-      peer?.isOfficial ||
-      peer?.official ||
-      peer?.name === "Tuk Tuk Team" ||
-      peer?.senderName === "Tuk Tuk Team" ||
-      conversation?.name === "Tuk Tuk Team" ||
-      conversation?.title === "Tuk Tuk Team" ||
-      conversation?.senderName === "Tuk Tuk Team" ||
-      String(peer?.userId ?? peer?.id ?? conversation?.userId ?? conversation?.peerId ?? "") === "100005"
-    ),
+    officialSender: isOfficial,
   };
 };
 

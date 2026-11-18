@@ -1055,7 +1055,7 @@ class WebSocketService {
     };
     const body = JSON.stringify(payload);
 
-    // 1. Publish to notifications topic
+    // 1. Publish to notifications topic so room state updates
     try {
       this.client.publish({
         destination: `/topic/room/${targetRoomId}/notifications`,
@@ -1065,17 +1065,7 @@ class WebSocketService {
       console.warn('[WS] Failed to publish admin change to notifications:', e);
     }
 
-    // 2. Publish to chat topic so all clients receive it in real-time
-    try {
-      this.client.publish({
-        destination: `/topic/room/${targetRoomId}/chat`,
-        body,
-      });
-    } catch (e) {
-      console.warn('[WS] Failed to publish admin change to chat:', e);
-    }
-
-    // 3. Application destination
+    // 2. Publish to application destination so backend broadcasts chat message once
     try {
       this.client.publish({
         destination: `/app/room/${targetRoomId}/chat`,

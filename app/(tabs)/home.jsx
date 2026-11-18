@@ -112,6 +112,7 @@ import { ms, s, vs } from "../../src/utils/responsive";
 import { getAppUserId, isOwnContent } from "../../src/utils/sessionUser";
 import { resolveImageSource } from "../../src/utils/videoSource";
 import { extractVipProfileFrameUrl } from "../../src/utils/vipProfileFrame";
+import { checkAndShowRoomRestrictionAlert } from "../../src/utils/roomRestriction";
 
 // Same per-tier VIP "logo" crest used as the VIP badge everywhere else it
 // appears (UserProfileView, ChatTab) — derives the logo URL for a card that
@@ -2034,9 +2035,13 @@ const HomeHeader = memo(
 
     const handleRoomPress = useCallback(
       (room) => {
+        const targetRoomId = room?.id ?? room?.roomId;
+        if (targetRoomId && checkAndShowRoomRestrictionAlert(targetRoomId)) {
+          return;
+        }
         router.push({
           pathname: "/voice-party",
-          params: { roomId: room.id ?? room.roomId, party: "true" },
+          params: { roomId: targetRoomId, party: "true" },
         });
       },
       [router],

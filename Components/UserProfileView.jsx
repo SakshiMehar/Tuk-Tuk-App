@@ -48,6 +48,7 @@ import { openUserChat } from "../src/utils/chatNavigation";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
 import { resolveImageSource } from "../src/utils/videoSource";
 import { isUserLive, isUserOnline, getUserLiveRoomId, useUserOnlineOrLiveStatus } from "../src/utils/liveStatus";
+import { checkAndShowRoomRestrictionAlert } from "../src/utils/roomRestriction";
 import { s } from "../src/utils/responsive";
 
 // Same per-tier VIP "logo" crest already used as the VIP badge everywhere
@@ -482,7 +483,11 @@ export default function UserProfileView({ user, onBack }) {
                 <TouchableOpacity
                   style={styles.liveRoomBanner}
                   activeOpacity={0.85}
-                  onPress={() => router.push({ pathname: "/voice-party", params: { roomId: String(getUserLiveRoomId(profile ?? user)) } })}
+                  onPress={() => {
+                    const liveRoomId = String(getUserLiveRoomId(profile ?? user));
+                    if (checkAndShowRoomRestrictionAlert(liveRoomId)) return;
+                    router.push({ pathname: "/voice-party", params: { roomId: liveRoomId } });
+                  }}
                 >
                   <LinearGradient
                     colors={["#ff2d55", "#e11d48", "#7c4dff"]}

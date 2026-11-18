@@ -35,6 +35,31 @@ export const initPresenceManager = () => {
     }
   }).catch(() => {});
 
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  const startHeartbeat = () => {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(async () => {
+      if (currentAppState === "active") {
+        try {
+          if (!wsService.isConnected()) {
+            await wsService.connect().catch(() => {});
+          }
+          wsService.sendPresence(true);
+        } catch {
+          // ignore heartbeat errors
+        }
+      }
+    }, 25000); // Send every 25 seconds (well within server 90s TTL)
+  };
+
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  };
+
   const handleAppStateChange = async (nextAppState: AppStateStatus) => {
     const prev = currentAppState;
     currentAppState = nextAppState;
@@ -49,6 +74,7 @@ export const initPresenceManager = () => {
     if (nextAppState === "active") {
       // ── App resumed to foreground ──
       setLocalUserOnline(true);
+      startHeartbeat();
       try {
         const user = await getUser().catch(() => null);
         const myUserId = user?.id ?? user?.userId ?? user?._id;
@@ -75,6 +101,7 @@ export const initPresenceManager = () => {
           `[Presence] App in background, but user is active in live room ${activeLiveRoomId}. Preserving Live status.`
         );
       } else {
+        stopHeartbeat();
         // User left app and is not in any voice room — mark offline
         setLocalUserOnline(false);
         try {
@@ -99,6 +126,7 @@ export const initPresenceManager = () => {
   // Initial trigger for current state
   if (currentAppState === "active") {
     setLocalUserOnline(true);
+    startHeartbeat();
     getToken().then(async (token) => {
       if (token) {
         try {
@@ -123,6 +151,7 @@ export const initPresenceManager = () => {
   }
 
   return () => {
+    stopHeartbeat();
     subscription.remove();
     isInitialized = false;
   };

@@ -48,7 +48,16 @@ export default function ProfileAvatarWithFrame({
   initialStyle,
   imageComponent: ImageComponent = Image,
 }) {
-  const resolvedIsLive = useUserOnlineOrLiveStatus(user, isLive ?? showLiveBadge, isOnline);
+  const hasDisabledBadge =
+    showLiveBadge === false ||
+    (isLive === false && isOnline === false) ||
+    (isLive === false && isOnline == null && showLiveBadge == null);
+  const liveStatus = useUserOnlineOrLiveStatus(
+    hasDisabledBadge ? null : user,
+    isLive ?? showLiveBadge,
+    isOnline
+  );
+  const resolvedIsLive = hasDisabledBadge ? false : liveStatus;
   const resolvedFrame = frameSource ?? resolveNewUserFrameSource(user);
   const frameImageSource =
     typeof resolvedFrame === "string" ? { uri: resolvedFrame } : resolvedFrame;

@@ -25,6 +25,7 @@ import {
 } from "../src/utils/deepLinkUtils";
 import { getActiveRoomId } from "../src/services/partyVoiceService";
 import { initPresenceManager } from "../src/services/presenceService";
+import { checkAndShowRoomRestrictionAlert } from "../src/utils/roomRestriction";
 import DeviceBlockedModal from "../Components/DeviceBlockedModal";
 import { getDeviceHeaders } from "../src/utils/deviceHeaders";
 import { CallProvider } from "../src/context/CallContext";
@@ -174,6 +175,9 @@ export default function RootLayout() {
             if (token) {
               const currentActiveRoomId = getActiveRoomId?.();
               if (String(currentActiveRoomId) === String(roomId)) {
+                return;
+              }
+              if (checkAndShowRoomRestrictionAlert(roomId)) {
                 return;
               }
               router.push({

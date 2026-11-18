@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   BackHandler,
+  DeviceEventEmitter,
   Image,
   ScrollView,
   StatusBar,
@@ -45,8 +46,9 @@ import ComingSoonModal from "./ComingSoonModal";
 import FamilyChatModal from "./FamilyChatModal";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ProfileConnectionsModal from "./ProfileConnectionsModal";
-import { isUserInRoom, getUserLiveRoomId, isUserLive, isUserOnline } from "../src/utils/liveStatus";
+import { isUserInRoom, getUserLiveRoomId, isUserLive, isUserOnline, resolveTargetUserId, subscribeLiveStatus } from "../src/utils/liveStatus";
 import { getActiveRoomId } from "../src/services/partyVoiceService";
+import { checkAndShowRoomRestrictionAlert } from "../src/utils/roomRestriction";
 
 const RECOMMEND_RING_COLORS = ["#333333", "#888888"];
 
@@ -225,6 +227,9 @@ export default function ChatTab() {
       (getActiveRoomId?.() ? String(getActiveRoomId()) : null);
 
     if (activeTargetRoomId) {
+      if (checkAndShowRoomRestrictionAlert(activeTargetRoomId)) {
+        return;
+      }
       isReturningRef.current = true;
       router.push({
         pathname: "/voice-party",
@@ -308,7 +313,13 @@ export default function ChatTab() {
   useFocusEffect(
     useCallback(() => {
       fetchChats();
-      wsService.connect().catch(() => { });
+      if (!wsService.isConnected()) {
+        wsService.connect().then(() => {
+          wsService.sendPresence(true);
+        }).catch(() => { });
+      } else {
+        wsService.sendPresence(true);
+      }
     }, [fetchChats])
   );
 
@@ -321,7 +332,7 @@ export default function ChatTab() {
 
   // Real-time presence updates for recommended users & chat list (/topic/presence)
   useEffect(() => {
-    const unsub = wsService.onPresence((event) => {
+    const handlePresenceEvent = (event) => {
       if (!event || event.userId == null) return;
       const targetId = String(event.userId);
       const isOnline = Boolean(event.isOnline ?? event.online);
@@ -336,7 +347,7 @@ export default function ChatTab() {
 
       setRecommendedUsers((prev) =>
         prev.map((user) => {
-          const uid = String(user?.id ?? user?.userId ?? "");
+          const uid = String(resolveTargetUserId(user) ?? user?.id ?? user?.userId ?? "");
           if (uid === targetId) {
             return {
               ...user,
@@ -353,7 +364,7 @@ export default function ChatTab() {
 
       setConversations((prev) =>
         prev.map((item) => {
-          const uid = String(item?.userId ?? item?.id ?? "");
+          const uid = String(resolveTargetUserId(item) ?? item?.userId ?? "");
           if (uid === targetId) {
             return {
               ...item,
@@ -367,8 +378,21 @@ export default function ChatTab() {
           return item;
         })
       );
+    };
+
+    const unsubWs = wsService.onPresence(handlePresenceEvent);
+    const subEmitter = DeviceEventEmitter.addListener("userPresenceChanged", handlePresenceEvent);
+    const unsubLive = subscribeLiveStatus(() => {
+      // Re-render when liveStatus maps update
+      setConversations((prev) => [...prev]);
+      setRecommendedUsers((prev) => [...prev]);
     });
-    return unsub;
+
+    return () => {
+      unsubWs();
+      subEmitter.remove();
+      unsubLive();
+    };
   }, []);
 
   const handleAvatarPress = useCallback(
@@ -381,6 +405,9 @@ export default function ChatTab() {
         getUserLiveRoomId(user);
 
       if (inRoom && targetRoomId) {
+        if (checkAndShowRoomRestrictionAlert(targetRoomId)) {
+          return;
+        }
         router.push({
           pathname: "/voice-party",
           params: { roomId: String(targetRoomId) },
@@ -609,13 +636,16 @@ export default function ChatTab() {
       const rowDecorationBadge =
         item.userId != null ? decorationsByUserId[String(item.userId)] : null;
       const rowCountryFlag = resolveCountryFlag(item);
-      const isInRoom = Boolean(item?.isInRoom || isUserInRoom(item));
-      const isOnline = Boolean(
-        (item?.isOnline !== undefined
-          ? item.isOnline
-          : item?.online !== undefined
-            ? item.online
-            : isUserOnline(item)) || isInRoom
+      const isOfficial = Boolean(
+        item.officialSender ||
+        item.name === "Tuk Tuk Team" ||
+        item.senderName === "Tuk Tuk Team" ||
+        String(item.userId ?? "") === "100005"
+      );
+      const isInRoom = !isOfficial && Boolean(isUserInRoom(item) || item?.isInRoom);
+      const isOnline = !isOfficial && Boolean(
+        isInRoom ||
+        isUserOnline(item)
       );
       return (
       <TouchableOpacity
@@ -639,6 +669,7 @@ export default function ChatTab() {
               user={item}
               isLive={false}
               isOnline={false}
+              showLiveBadge={false}
               avatarSource={resolveAvatarSource(item.avatar)}
               frameSource={item.vipProfileFrameUrl}
               size={52}
@@ -1000,6 +1031,7 @@ export default function ChatTab() {
                           user={user}
                           isLive={false}
                           isOnline={false}
+                          showLiveBadge={false}
                           avatarSource={resolveAvatarSource(user.avatar)}
                           frameSource={user.vipProfileFrameUrl}
                           size={46}
@@ -1018,13 +1050,13 @@ export default function ChatTab() {
                             : {})}
                         />
                       </LinearGradient>
-                      {Boolean(user?.isInRoom || isUserInRoom(user)) && (
+                      {Boolean(!user?.officialSender && (user?.isInRoom || isUserInRoom(user))) && (
                         <View style={styles.contactLiveRoomBadge} pointerEvents="none">
                           <Home size={9} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
                           <Text style={styles.contactLiveRoomText}>Live</Text>
                         </View>
                       )}
-                      {Boolean((user?.online ?? user?.isOnline ?? isUserOnline(user)) || user?.isInRoom || isUserInRoom(user)) && (
+                      {Boolean(!user?.officialSender && (isUserInRoom(user) || isUserOnline(user))) && (
                         <View style={styles.onlineDot} pointerEvents="none" />
                       )}
                     </TouchableOpacity>
@@ -1186,7 +1218,7 @@ export default function ChatTab() {
                 const recommendDecorationBadge =
                   user.userId != null ? decorationsByUserId[String(user.userId)] : null;
                 const userInRoom = Boolean(user?.isInRoom || isUserInRoom(user));
-                const userOnline = Boolean((user?.online ?? user?.isOnline ?? isUserOnline(user)) || userInRoom);
+                const userOnline = Boolean(userInRoom || isUserOnline(user));
                 return (
                 <TouchableOpacity
                   key={user.id}
@@ -1205,6 +1237,7 @@ export default function ChatTab() {
                         user={user}
                         isLive={false}
                         isOnline={false}
+                        showLiveBadge={false}
                         avatarSource={resolveAvatarSource(user.avatar)}
                         frameSource={user.vipProfileFrameUrl}
                         size={66}
@@ -1764,11 +1797,11 @@ const styles = StyleSheet.create({
     width: 13,
     height: 13,
     borderRadius: 6.5,
-    backgroundColor: "#14d2c8",
+    backgroundColor: "#00e676",
     borderWidth: 2,
     borderColor: "#ffffff",
     zIndex: 12,
-    shadowColor: "#14d2c8",
+    shadowColor: "#00e676",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.4,
     shadowRadius: 2,
@@ -1822,7 +1855,7 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: "#14d2c8",
+    backgroundColor: "#00e676",
     borderWidth: 2,
     borderColor: "#ffffff",
     zIndex: 12,

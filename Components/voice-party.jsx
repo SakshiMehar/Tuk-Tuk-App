@@ -213,6 +213,12 @@ import {
 import { ms, s, useResponsive, vs } from "../src/utils/responsive";
 import { getAppUserId } from "../src/utils/sessionUser";
 import { isGifMedia, resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
+import {
+  clearRoomRestriction,
+  getRoomRestriction,
+  isRoomRestricted,
+  setRoomRestriction,
+} from "../src/utils/roomRestriction";
 import { extractVipProfileFrameUrl } from "../src/utils/vipProfileFrame";
 import { resolveVoiceUidForUserId } from "../src/utils/voiceUid";
 import DiamondRechargeModal from "./DiamondRechargeModal";
@@ -2088,6 +2094,8 @@ export default function VoiceParty() {
   const isRandomParty = params.party === "true";
 
   const [roomLoading, setRoomLoading] = useState(true);
+  const [roomInitFailed, setRoomInitFailed] = useState(false);
+  const initFailedRef = useRef(false);
   const [roomId, setRoomId] = useState(roomIdParam);
   const [roomInfo, setRoomInfo] = useState(null);
   const [seats, setSeats] = useState(micSeats);
@@ -4411,8 +4419,38 @@ export default function VoiceParty() {
     // };
 
     const initRoom = async () => {
+      initFailedRef.current = false;
+      setRoomInitFailed(false);
       setRoomLoading(true);
       exitedRef.current = false;
+
+      const targetRoomId = String(roomIdParam || "").trim();
+      if (targetRoomId && isRoomRestricted(targetRoomId)) {
+        initFailedRef.current = true;
+        setRoomInitFailed(true);
+        const restriction = getRoomRestriction(targetRoomId);
+        const handleExitImmediately = () => {
+          exitedRef.current = true;
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/(tabs)/party");
+          }
+        };
+        Alert.alert(
+          isRandomParty ? "Could not join party room" : "Could not join room",
+          restriction?.message || "You are temporarily restricted from joining this room.",
+          [
+            {
+              text: "OK",
+              onPress: handleExitImmediately,
+            },
+          ],
+          { cancelable: false },
+        );
+        return;
+      }
+
       await refreshTokenCache();
 
       // ── Cosmetics: run in parallel, never block the room from showing ──
@@ -4620,14 +4658,43 @@ export default function VoiceParty() {
         connectRoomAudio(); // intentionally not awaited
       } catch (err) {
         if (!cancelled) {
+          initFailedRef.current = true;
+          setRoomInitFailed(true);
+          const rawMessage = err?.message || "Please try again.";
+          const isRestricted =
+            /restricted|kicked/i.test(rawMessage) ||
+            err?.status === 403 ||
+            err?.responseData?.code === "ROOM_RESTRICTED" ||
+            err?.responseData?.code === "USER_KICKED";
+
+          const activeRoomId = String(roomIdParam || "").trim();
+          if (isRestricted && activeRoomId) {
+            setRoomRestriction(activeRoomId, rawMessage, err?.responseData);
+          }
+
+          const handleExitImmediately = () => {
+            exitedRef.current = true;
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(tabs)/party");
+            }
+          };
+
           Alert.alert(
             isRandomParty ? "Could not join party room" : "Could not join room",
-            err?.message || "Please try again.",
+            rawMessage,
+            [
+              {
+                text: "OK",
+                onPress: handleExitImmediately,
+              },
+            ],
+            { cancelable: false },
           );
-          router.back();
         }
       } finally {
-        if (!cancelled) setRoomLoading(false);
+        if (!cancelled && !initFailedRef.current) setRoomLoading(false);
       }
     };
     initRoom();
@@ -5302,13 +5369,7 @@ export default function VoiceParty() {
           isGift: true,
         });
         if (!normalized.text) return;
-        setMessages((prev) => {
-          const exists = prev.some(
-            (m) => String(m.id) === String(normalized.id),
-          );
-          if (exists) return prev;
-          return [...prev, normalized];
-        });
+        setMessages((prev) => upsertChatMessage(prev, normalized));
         setTimeout(
           () => scrollRef.current?.scrollToEnd({ animated: true }),
           100,
@@ -5639,13 +5700,17 @@ export default function VoiceParty() {
             if (kickedUserId) {
               const currentSelfId = myUserIdRef.current || myUserId;
               if (currentSelfId && isSameUser(kickedUserId, currentSelfId)) {
+                setRoomRestriction(
+                  roomIdRef.current || roomId,
+                  payload?.duration || "THIRTY_MINUTES",
+                  payload,
+                );
                 Alert.alert(
                   "Removed from Room",
                   "You have been removed from this room by the host or an administrator.",
                   [{ text: "OK", onPress: () => handleExitRoom() }],
                   { cancelable: false },
                 );
-                handleExitRoom();
                 return;
               }
 
@@ -5700,13 +5765,17 @@ export default function VoiceParty() {
 
       const currentSelfId = myUserIdRef.current || myUserId;
       if (currentSelfId && isSameUser(kickedUserId, currentSelfId)) {
+        setRoomRestriction(
+          roomIdRef.current || roomId,
+          payload?.duration || "THIRTY_MINUTES",
+          payload,
+        );
         Alert.alert(
           "Removed from Room",
           "You have been removed from this room by the host or an administrator.",
           [{ text: "OK", onPress: () => handleExitRoom() }],
           { cancelable: false },
         );
-        handleExitRoom();
         return;
       }
 
@@ -5764,13 +5833,17 @@ export default function VoiceParty() {
                 : null;
           if (!kickedUserId) return;
           if (myUserId && kickedUserId === String(myUserId)) {
+            setRoomRestriction(
+              roomIdRef.current || roomId,
+              payload?.duration || "THIRTY_MINUTES",
+              payload,
+            );
             Alert.alert(
               "Removed from Room",
               "You have been removed from this room by the host or an administrator.",
               [{ text: "OK", onPress: () => handleExitRoom() }],
               { cancelable: false },
             );
-            handleExitRoom();
             return;
           }
 
@@ -5836,13 +5909,17 @@ export default function VoiceParty() {
         const kickedRoomId =
           payload.roomId != null ? String(payload.roomId) : null;
         if (!kickedRoomId || kickedRoomId === String(roomId)) {
+          setRoomRestriction(
+            kickedRoomId || roomIdRef.current || roomId,
+            payload?.duration || "THIRTY_MINUTES",
+            payload,
+          );
           Alert.alert(
             "Removed from Room",
             "You have been removed from this room by the host or an administrator.",
             [{ text: "OK", onPress: () => handleExitRoom() }],
             { cancelable: false },
           );
-          handleExitRoom();
         }
       },
     );
@@ -6064,7 +6141,11 @@ export default function VoiceParty() {
     setShowPowerMenu(false);
     isNavigatingToInboxRef.current = false;
     if (exitedRef.current) {
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(tabs)/party");
+      }
       return;
     }
     exitedRef.current = true;
@@ -6082,7 +6163,11 @@ export default function VoiceParty() {
     setMySeatNumber(null);
 
     // Navigate back immediately so the UI is responsive on the first click
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/party");
+    }
 
     // Perform room and voice teardown in background
     (async () => {
@@ -6163,6 +6248,15 @@ export default function VoiceParty() {
   useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (initFailedRef.current) {
+        exitedRef.current = true;
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace("/(tabs)/party");
+        }
+        return true;
+      }
       if (isInPipMode) {
         return true;
       }
@@ -7912,11 +8006,11 @@ export default function VoiceParty() {
             userId: myUserId,
             diamonds: Number(g.price ?? 0) * qty,
             isGift: true,
-            pending: false,
+            pending: true,
           },
         });
 
-        setMessages((prev) => [...prev, localMsg]);
+        setMessages((prev) => upsertChatMessage(prev, localMsg));
 
         if (roomId) {
           mySentGiftTextsRef.current.set(giftText, Date.now());
@@ -8575,6 +8669,7 @@ export default function VoiceParty() {
               setRemovingKickedUserId(String(targetUserId));
               try {
                 await removeKickedUser(activeRoomId, targetUserId);
+                clearRoomRestriction(activeRoomId);
                 setKickedUsersList((prev) =>
                   prev.filter((u) => String(u.userId || u.id) !== String(targetUserId)),
                 );
@@ -12607,10 +12702,19 @@ export default function VoiceParty() {
         initialTab={rechargeInitialTab}
       />
 
-      {roomLoading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#a78bfa" />
-          <Text style={styles.loadingText}>Joining room...</Text>
+      {(roomLoading || roomInitFailed) && (
+        <View
+          style={[
+            styles.loadingOverlay,
+            roomInitFailed && { backgroundColor: "#0b0c1b", zIndex: 9999 },
+          ]}
+        >
+          {!roomInitFailed && (
+            <>
+              <ActivityIndicator size="large" color="#a78bfa" />
+              <Text style={styles.loadingText}>Joining room...</Text>
+            </>
+          )}
         </View>
       )}
 

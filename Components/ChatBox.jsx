@@ -51,6 +51,7 @@ import { formatChatTime, loadChatHistory, markChatAsRead } from "../src/services
 import { fetchUserDecorations } from "../src/services/decorationsService";
 import { getActiveRoomId } from "../src/services/partyVoiceService";
 import { wsService } from "../src/services/websocket";
+import { checkAndShowRoomRestrictionAlert } from "../src/utils/roomRestriction";
 import { parseRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import { openUserProfile } from "../src/utils/profileNavigation";
 import { getAppUserId } from "../src/utils/sessionUser";
@@ -318,6 +319,9 @@ export default function ChatBox({ user = {}, onBack }) {
   const handleJoinRoomInvite = (inviteInfo) => {
     if (!inviteInfo?.roomId || isJoiningRoom) return;
     const targetRoomId = String(inviteInfo.roomId);
+    if (checkAndShowRoomRestrictionAlert(targetRoomId)) {
+      return;
+    }
     const activeRoomId = getActiveRoomId?.();
 
     if (activeRoomId && String(activeRoomId) === targetRoomId) {

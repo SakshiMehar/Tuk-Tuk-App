@@ -59,6 +59,7 @@ import LevelGateModal from "./LevelGateModal";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import { isUserLive } from "../src/utils/liveStatus";
 import { wsService } from "../src/services/websocket";
+import { checkAndShowRoomRestrictionAlert } from "../src/utils/roomRestriction";
 
 const MIN_CREATE_ROOM_LEVEL = 5;
 
@@ -546,6 +547,9 @@ export default function PartyExplore() {
   const openRoom = (roomId) => {
     if (!roomId) {
       console.warn("[PartyExplore] openRoom called with empty roomId — skipping navigation");
+      return;
+    }
+    if (checkAndShowRoomRestrictionAlert(roomId)) {
       return;
     }
     router.push({ pathname: "/voice-party", params: { roomId: String(roomId) } });

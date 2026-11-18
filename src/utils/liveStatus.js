@@ -133,13 +133,57 @@ export const setUserLiveStatus = (userId, isLiveOrStatus, roomId = null) => {
 };
 
 /**
+ * Robustly resolve the target user's ID from any object (User, Peer, Conversation row, or primitive)
+ */
+export const resolveTargetUserId = (user) => {
+  if (!user) return null;
+  if (typeof user === "string" || typeof user === "number") {
+    const s = String(user).trim();
+    return s && !s.includes("_") ? s : s;
+  }
+  const candidates = [
+    user.userId,
+    user.peerId,
+    user.receiverId,
+    user.otherUserId,
+    user.peer?.id,
+    user.peer?.userId,
+    user.user?.id,
+    user.user?.userId,
+    user.id,
+    user.uid,
+    user._id,
+  ];
+  for (const c of candidates) {
+    if (c != null) {
+      const s = String(c).trim();
+      // Skip conversation composite IDs like "100_101" if an actual userId is available
+      if (s.length > 0 && !s.includes("_")) {
+        return s;
+      }
+    }
+  }
+  return user.id != null ? String(user.id).trim() : null;
+};
+
+/**
  * Utility to determine if a user is currently in an active voice room
  */
 export const isUserInRoom = (user) => {
   if (!user) return false;
 
-  const userId = user.id ?? user.userId ?? user.uid ?? user._id;
-  const userKey = userId != null ? String(userId).trim() : null;
+  if (
+    user.officialSender ||
+    user.isOfficial ||
+    user.official ||
+    user.name === "Tuk Tuk Team" ||
+    user.senderName === "Tuk Tuk Team"
+  ) {
+    return false;
+  }
+
+  const userKey = resolveTargetUserId(user);
+  if (userKey === "100005") return false;
 
   // Real-time live status override from WebSocket
   if (userKey && liveUsersMap.has(userKey)) {
@@ -158,7 +202,7 @@ export const isUserInRoom = (user) => {
   }
 
   // Check status string
-  const rawStatus = user.status || user.liveStatus || "";
+  const rawStatus = user.liveStatus || user.userStatus || user.peer?.status || user.user?.status || "";
   const status = String(rawStatus).trim().toUpperCase();
   if (status === "ONLINE_IN_ROOM" || status === "IN_ROOM" || status === "IN_PARTY" || status === "VOICE_LIVE") {
     return true;
@@ -175,8 +219,7 @@ export const isUserInRoom = (user) => {
 export const isUserLive = (user) => {
   if (!user) return false;
 
-  const userId = user.id ?? user.userId ?? user.uid ?? user._id;
-  const userKey = userId ? String(userId).trim() : null;
+  const userKey = resolveTargetUserId(user);
 
   // Check real-time live override if tracked
   if (userKey && liveUsersMap.has(userKey)) {
@@ -202,9 +245,9 @@ export const isUserLive = (user) => {
   }
 
   // Explicit status string indicating offline/inactive
-  const rawStatus = user.status || user.liveStatus || "";
+  const rawStatus = user.status || user.liveStatus || user.peer?.status || user.user?.status || "";
   const status = String(rawStatus).trim().toUpperCase();
-  if (status === "OFFLINE" || status === "INACTIVE" || status === "IDLE" || status === "NONE") {
+  if (status === "OFFLINE" || status === "INACTIVE" || status === "IDLE" || status === "NONE" || status === "BANNED") {
     return false;
   }
 
@@ -238,6 +281,8 @@ export const isUserLive = (user) => {
     user.joinedRoomId,
     user.room?.id,
     user.room?.roomId,
+    user.peer?.roomId,
+    user.user?.roomId,
   ];
 
   for (const rId of candidateRoomIds) {
@@ -270,8 +315,18 @@ export const isUserLive = (user) => {
 export const getUserLiveRoomId = (user) => {
   if (!user) return null;
 
-  const userId = user.id ?? user.userId ?? user.uid ?? user._id;
-  const userKey = userId ? String(userId).trim() : null;
+  if (
+    user.officialSender ||
+    user.isOfficial ||
+    user.official ||
+    user.name === "Tuk Tuk Team" ||
+    user.senderName === "Tuk Tuk Team"
+  ) {
+    return null;
+  }
+
+  const userKey = resolveTargetUserId(user);
+  if (userKey === "100005") return null;
 
   if (userKey && liveUsersMap.has(userKey)) {
     const override = liveUsersMap.get(userKey);
@@ -281,15 +336,17 @@ export const getUserLiveRoomId = (user) => {
   }
 
   const candidateRoomIds = [
-    user.roomId,
-    user.currentRoomId,
     user.liveRoomId,
     user.partyRoomId,
     user.activeRoomId,
     user.voiceRoomId,
     user.joinedRoomId,
+    user.currentRoomId,
     user.room?.id,
     user.room?.roomId,
+    user.peer?.roomId,
+    user.user?.roomId,
+    user.peer ? user.roomId : null,
   ];
 
   for (const rId of candidateRoomIds) {
@@ -310,8 +367,21 @@ export const getUserLiveRoomId = (user) => {
 export const isUserOnline = (user) => {
   if (!user) return false;
 
-  const userId = user.id ?? user.userId ?? user.uid ?? user._id;
-  const userKey = userId != null ? String(userId).trim() : null;
+  // Bot/official account check
+  if (
+    user.officialSender ||
+    user.isOfficial ||
+    user.official ||
+    user.name === "Tuk Tuk Team" ||
+    user.senderName === "Tuk Tuk Team"
+  ) {
+    return false;
+  }
+
+  const userKey = resolveTargetUserId(user);
+  if (userKey === "100005") {
+    return false;
+  }
 
   // Local user check: if this user is the active user on this device
   if (userKey && currentLocalUserId && userKey === currentLocalUserId) {
@@ -323,6 +393,26 @@ export const isUserOnline = (user) => {
     return Boolean(onlineUsersMap.get(userKey));
   }
 
+  // Check status string
+  const rawStatus =
+    user.peer?.status ||
+    user.user?.status ||
+    user.liveStatus ||
+    user.userStatus ||
+    user.status ||
+    "";
+  const status = String(rawStatus).trim().toUpperCase();
+  if (
+    status === "OFFLINE" ||
+    status === "INACTIVE" ||
+    status === "IDLE" ||
+    status === "NONE" ||
+    status === "BANNED" ||
+    status === "ACTIVE" // Database account status 'ACTIVE' is not online presence
+  ) {
+    return false;
+  }
+
   // Explicit false flags
   if (
     user.online === false ||
@@ -330,15 +420,10 @@ export const isUserOnline = (user) => {
     user.online === 0 ||
     user.isOnline === 0 ||
     user.online === "false" ||
-    user.isOnline === "false"
+    user.isOnline === "false" ||
+    user.peer?.online === false ||
+    user.peer?.isOnline === false
   ) {
-    return false;
-  }
-
-  // Explicit status string indicating offline/inactive
-  const rawStatus = user.status || user.liveStatus || user.userStatus || "";
-  const status = String(rawStatus).trim().toUpperCase();
-  if (status === "OFFLINE" || status === "INACTIVE" || status === "IDLE" || status === "NONE") {
     return false;
   }
 
@@ -351,7 +436,9 @@ export const isUserOnline = (user) => {
     user.isOnline === true ||
     user.isOnline === 1 ||
     user.isOnline === "true" ||
-    user.isOnline === "1"
+    user.isOnline === "1" ||
+    user.peer?.online === true ||
+    user.peer?.isOnline === true
   ) {
     return true;
   }
@@ -373,8 +460,7 @@ export const isUserOnline = (user) => {
  */
 export const isUserOnlineOrLive = (user) => {
   if (!user) return false;
-  const userId = user.id ?? user.userId ?? user.uid ?? user._id;
-  const userKey = userId != null ? String(userId).trim() : null;
+  const userKey = resolveTargetUserId(user);
 
   // Local user check
   if (userKey && currentLocalUserId && userKey === currentLocalUserId) {
@@ -395,8 +481,19 @@ export const isUserOnlineOrLive = (user) => {
 export const useUserLiveStatus = (user, explicitIsLive, explicitIsOnline) => {
   const evaluate = () => {
     if (!user) return false;
-    const userId = user.id ?? user.userId ?? user.uid ?? user._id;
-    const userKey = userId != null ? String(userId).trim() : null;
+
+    // Explicit false overrides take precedence when caller specifically disables them
+    if (explicitIsLive === false && explicitIsOnline === false) {
+      return false;
+    }
+    if (explicitIsOnline === false && (explicitIsLive === false || explicitIsLive == null)) {
+      return false;
+    }
+    if (explicitIsLive === false && (explicitIsOnline === false || explicitIsOnline == null)) {
+      return false;
+    }
+
+    const userKey = resolveTargetUserId(user);
 
     // Local user check
     if (userKey && currentLocalUserId && userKey === currentLocalUserId) {
@@ -419,6 +516,7 @@ export const useUserLiveStatus = (user, explicitIsLive, explicitIsOnline) => {
       }
       return Boolean(explicitIsLive) && isUserOnline(user);
     }
+
     return isUserOnlineOrLive(user);
   };
 
