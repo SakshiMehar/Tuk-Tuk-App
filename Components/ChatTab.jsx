@@ -1,7 +1,7 @@
 import { useFocusEffect, useScrollToTop } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AlignJustify, Check, ChevronDown, Plus, Search, X } from "lucide-react-native";
+import { AlignJustify, Check, ChevronDown, Home, Plus, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -45,7 +45,7 @@ import ComingSoonModal from "./ComingSoonModal";
 import FamilyChatModal from "./FamilyChatModal";
 import ProfileAvatarWithFrame from "./ProfileAvatarWithFrame";
 import ProfileConnectionsModal from "./ProfileConnectionsModal";
-import { isUserLive } from "../src/utils/liveStatus";
+import { isUserInRoom, getUserLiveRoomId, isUserLive, isUserOnline } from "../src/utils/liveStatus";
 import { getActiveRoomId } from "../src/services/partyVoiceService";
 
 const RECOMMEND_RING_COLORS = ["#333333", "#888888"];
@@ -325,6 +325,14 @@ export default function ChatTab() {
       if (!event || event.userId == null) return;
       const targetId = String(event.userId);
       const isOnline = Boolean(event.isOnline ?? event.online);
+      const isInRoom = isOnline && Boolean(
+        event.isInRoom ??
+        event.inRoom ??
+        (event.roomId != null && String(event.roomId).trim() !== "" && String(event.roomId).trim() !== "null")
+      );
+      const roomId = isInRoom && event.roomId != null && String(event.roomId).trim() !== "" && String(event.roomId).trim() !== "null"
+        ? String(event.roomId).trim()
+        : null;
 
       setRecommendedUsers((prev) =>
         prev.map((user) => {
@@ -334,7 +342,9 @@ export default function ChatTab() {
               ...user,
               isOnline,
               online: isOnline,
-              status: isOnline ? "ONLINE" : "OFFLINE",
+              isInRoom,
+              roomId,
+              status: isOnline ? (isInRoom ? "IN_ROOM" : "ONLINE") : "OFFLINE",
             };
           }
           return user;
@@ -349,7 +359,9 @@ export default function ChatTab() {
               ...item,
               isOnline,
               online: isOnline,
-              status: isOnline ? "ONLINE" : "OFFLINE",
+              isInRoom,
+              roomId,
+              status: isOnline ? (isInRoom ? "IN_ROOM" : "ONLINE") : "OFFLINE",
             };
           }
           return item;
@@ -358,6 +370,28 @@ export default function ChatTab() {
     });
     return unsub;
   }, []);
+
+  const handleAvatarPress = useCallback(
+    (user) => {
+      const inRoom = Boolean(user?.isInRoom || isUserInRoom(user));
+      const targetRoomId =
+        user?.roomId ||
+        user?.currentRoomId ||
+        user?.liveRoomId ||
+        getUserLiveRoomId(user);
+
+      if (inRoom && targetRoomId) {
+        router.push({
+          pathname: "/voice-party",
+          params: { roomId: String(targetRoomId) },
+        });
+        return;
+      }
+
+      openUserProfile(router, user);
+    },
+    [router]
+  );
 
   const handleOpenUserChat = (user) => {
     if (isShareMode) {
@@ -575,6 +609,14 @@ export default function ChatTab() {
       const rowDecorationBadge =
         item.userId != null ? decorationsByUserId[String(item.userId)] : null;
       const rowCountryFlag = resolveCountryFlag(item);
+      const isInRoom = Boolean(item?.isInRoom || isUserInRoom(item));
+      const isOnline = Boolean(
+        (item?.isOnline !== undefined
+          ? item.isOnline
+          : item?.online !== undefined
+            ? item.online
+            : isUserOnline(item)) || isInRoom
+      );
       return (
       <TouchableOpacity
         key={String(item.userId ?? item.id ?? idx)}
@@ -585,7 +627,7 @@ export default function ChatTab() {
         <TouchableOpacity
           style={styles.chatAvatarWrap}
           activeOpacity={0.8}
-          onPress={() => openUserProfile(router, item)}
+          onPress={() => handleAvatarPress(item)}
         >
           <LinearGradient
             colors={item.vipProfileFrameUrl ? ["white", "white"] : ["#7c4dff", "#4a6cf7"]}
@@ -595,7 +637,8 @@ export default function ChatTab() {
           >
             <ProfileAvatarWithFrame
               user={item}
-              isLive={isUserLive(item)}
+              isLive={false}
+              isOnline={false}
               avatarSource={resolveAvatarSource(item.avatar)}
               frameSource={item.vipProfileFrameUrl}
               size={52}
@@ -614,6 +657,19 @@ export default function ChatTab() {
                 : {})}
             />
           </LinearGradient>
+
+          {/* Live box with home icon in center/bottom of profile when user is active in a room */}
+          {isInRoom && (
+            <View style={styles.chatLiveRoomBadge} pointerEvents="none">
+              <Home size={10} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
+              <Text style={styles.chatLiveRoomText}>Live</Text>
+            </View>
+          )}
+
+          {/* Green dot indicator when user is online */}
+          {isOnline && (
+            <View style={styles.chatOnlineDot} pointerEvents="none" />
+          )}
         </TouchableOpacity>
 
         <View style={styles.chatContent}>
@@ -931,14 +987,19 @@ export default function ChatTab() {
                     onPress={() => handleOpenUserChat(user)}
                   >
                     {/* Avatar */}
-                    <View style={styles.contactAvatarWrap}>
+                    <TouchableOpacity
+                      style={styles.contactAvatarWrap}
+                      activeOpacity={0.8}
+                      onPress={() => handleAvatarPress(user)}
+                    >
                       <LinearGradient
                         colors={["#7c4dff", "#4a6cf7"]}
                         style={styles.contactAvatarRing}
                       >
                         <ProfileAvatarWithFrame
                           user={user}
-                          isLive={isUserLive(user)}
+                          isLive={false}
+                          isOnline={false}
                           avatarSource={resolveAvatarSource(user.avatar)}
                           frameSource={user.vipProfileFrameUrl}
                           size={46}
@@ -957,8 +1018,16 @@ export default function ChatTab() {
                             : {})}
                         />
                       </LinearGradient>
-                      {user.online && <View style={styles.onlineDot} />}
-                    </View>
+                      {Boolean(user?.isInRoom || isUserInRoom(user)) && (
+                        <View style={styles.contactLiveRoomBadge} pointerEvents="none">
+                          <Home size={9} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
+                          <Text style={styles.contactLiveRoomText}>Live</Text>
+                        </View>
+                      )}
+                      {Boolean((user?.online ?? user?.isOnline ?? isUserOnline(user)) || user?.isInRoom || isUserInRoom(user)) && (
+                        <View style={styles.onlineDot} pointerEvents="none" />
+                      )}
+                    </TouchableOpacity>
 
                         {/* Info */}
                         <View style={styles.contactInfo}>
@@ -1116,40 +1185,54 @@ export default function ChatTab() {
                 const recommendVipLogo = recommendVipTier != null ? VIP_LOGO_BY_TIER[recommendVipTier] : null;
                 const recommendDecorationBadge =
                   user.userId != null ? decorationsByUserId[String(user.userId)] : null;
+                const userInRoom = Boolean(user?.isInRoom || isUserInRoom(user));
+                const userOnline = Boolean((user?.online ?? user?.isOnline ?? isUserOnline(user)) || userInRoom);
                 return (
                 <TouchableOpacity
                   key={user.id}
                   style={styles.recommendCard}
                   activeOpacity={0.8}
-                  onPress={() => handleOpenUserChat(user)}
+                  onPress={() => (userInRoom ? handleAvatarPress(user) : handleOpenUserChat(user))}
                 >
-                  <LinearGradient
-                    colors={RECOMMEND_RING_COLORS}
-                    style={styles.recommendRing}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <ProfileAvatarWithFrame
-                      user={user}
-                      isLive={isUserLive(user)}
-                      avatarSource={resolveAvatarSource(user.avatar)}
-                      frameSource={user.vipProfileFrameUrl}
-                      size={66}
-                      avatarStyle={{ borderRadius: 34, borderWidth: 2, borderColor: "white" }}
-                      placeholderInitial={user.name?.[0]?.toUpperCase() ?? "?"}
-                      {...(user.vipProfileFrameUrl
-                        ? {
-                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
-                            frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
-                            frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
-                            frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
-                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
-                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
-                            avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
-                          }
-                        : {})}
-                    />
-                  </LinearGradient>
+                  <View style={styles.recommendAvatarWrap}>
+                    <LinearGradient
+                      colors={RECOMMEND_RING_COLORS}
+                      style={styles.recommendRing}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <ProfileAvatarWithFrame
+                        user={user}
+                        isLive={false}
+                        isOnline={false}
+                        avatarSource={resolveAvatarSource(user.avatar)}
+                        frameSource={user.vipProfileFrameUrl}
+                        size={66}
+                        avatarStyle={{ borderRadius: 34, borderWidth: 2, borderColor: "white" }}
+                        placeholderInitial={user.name?.[0]?.toUpperCase() ?? "?"}
+                        {...(user.vipProfileFrameUrl
+                          ? {
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
+                          : {})}
+                      />
+                    </LinearGradient>
+                    {userInRoom && (
+                      <View style={styles.recommendLiveRoomBadge} pointerEvents="none">
+                        <Home size={10} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
+                        <Text style={styles.recommendLiveRoomText}>Live</Text>
+                      </View>
+                    )}
+                    {userOnline && (
+                      <View style={styles.recommendOnlineDot} pointerEvents="none" />
+                    )}
+                  </View>
                   <View style={styles.recommendNameRow}>
                     <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
                     {user.level != null && (
@@ -1646,6 +1729,51 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800",
   },
+  chatLiveRoomBadge: {
+    position: "absolute",
+    bottom: -3,
+    left: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1e88e5",
+    paddingHorizontal: 5.5,
+    paddingVertical: 1.5,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#ffffff",
+    gap: 2.5,
+    zIndex: 12,
+    shadowColor: "#1e88e5",
+    shadowOffset: { width: 0, height: 1.5 },
+    shadowOpacity: 0.35,
+    shadowRadius: 2.5,
+    elevation: 4,
+  },
+  chatLiveRoomText: {
+    color: "#ffffff",
+    fontSize: 9.5,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    lineHeight: 12,
+  },
+  chatOnlineDot: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    backgroundColor: "#14d2c8",
+    borderWidth: 2,
+    borderColor: "#ffffff",
+    zIndex: 12,
+    shadowColor: "#14d2c8",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.4,
+    shadowRadius: 2,
+    elevation: 3,
+  },
   liveBadge: {
     position: "absolute",
     bottom: -2,
@@ -1661,6 +1789,67 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   liveBadgeText: { color: "white", fontSize: 9, fontWeight: "800" },
+  recommendAvatarWrap: {
+    position: "relative",
+  },
+  recommendLiveRoomBadge: {
+    position: "absolute",
+    bottom: -3,
+    left: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1e88e5",
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#ffffff",
+    gap: 3,
+    zIndex: 12,
+    elevation: 4,
+  },
+  recommendLiveRoomText: {
+    color: "#ffffff",
+    fontSize: 9.5,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  recommendOnlineDot: {
+    position: "absolute",
+    bottom: 1,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#14d2c8",
+    borderWidth: 2,
+    borderColor: "#ffffff",
+    zIndex: 12,
+  },
+  contactLiveRoomBadge: {
+    position: "absolute",
+    bottom: -3,
+    left: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1e88e5",
+    paddingHorizontal: 4.5,
+    paddingVertical: 1,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: "#ffffff",
+    gap: 2,
+    zIndex: 12,
+    elevation: 4,
+  },
+  contactLiveRoomText: {
+    color: "#ffffff",
+    fontSize: 8.5,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
   chatContent: {
     flex: 1,
     gap: 5,

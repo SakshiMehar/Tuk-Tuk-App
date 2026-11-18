@@ -83,6 +83,9 @@ export interface PresencePayload {
   userId: string | number;
   isOnline?: boolean;
   online?: boolean;
+  isInRoom?: boolean;
+  inRoom?: boolean;
+  roomId?: string | number | null;
   lastSeen?: string;
   [key: string]: unknown;
 }
@@ -639,16 +642,25 @@ class WebSocketService {
           console.log("[WS] Received user presence event from /topic/presence:", payload);
           const userId = payload?.userId != null ? String(payload.userId) : null;
           const isOnline = Boolean(payload?.isOnline ?? payload?.online);
+          const isInRoom = isOnline && Boolean(
+            payload?.isInRoom ??
+            payload?.inRoom ??
+            (payload?.roomId != null && String(payload.roomId).trim() !== "" && String(payload.roomId).trim() !== "null")
+          );
+          const roomId = isInRoom && payload?.roomId != null && String(payload.roomId).trim() !== "" && String(payload.roomId).trim() !== "null"
+            ? String(payload.roomId).trim()
+            : null;
 
           if (userId) {
             setUserOnlineStatus(userId, isOnline);
+            setUserLiveStatus(userId, isInRoom, roomId);
             if (!isOnline) {
-              setUserLiveStatus(userId, false);
+              setUserLiveStatus(userId, false, null);
             }
-            DeviceEventEmitter.emit('userPresenceChanged', { userId, isOnline });
+            DeviceEventEmitter.emit('userPresenceChanged', { userId, isOnline, isInRoom, roomId });
           }
           this.presenceHandlers.forEach((h) =>
-            h({ ...payload, userId: userId ?? '', online: isOnline, isOnline })
+            h({ ...payload, userId: userId ?? '', online: isOnline, isOnline, isInRoom, roomId })
           );
         } catch (error) {
           console.error("[WS] Failed to parse presence event:", error);

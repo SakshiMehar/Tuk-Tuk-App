@@ -171,6 +171,24 @@ const normalizeRecommendedUser = (user) => {
       )) ?? null,
     isOnline: onlineCheck,
     online: onlineCheck,
+    isInRoom: Boolean(
+      user?.isInRoom ??
+      profile?.isInRoom ??
+      user?.inRoom ??
+      profile?.inRoom ??
+      (user?.roomId != null && String(user.roomId).trim() !== "") ??
+      (profile?.roomId != null && String(profile.roomId).trim() !== "")
+    ),
+    roomId: firstValue(
+      user?.roomId,
+      profile?.roomId,
+      user?.currentRoomId,
+      profile?.currentRoomId,
+      user?.activeRoomId,
+      profile?.activeRoomId,
+      user?.room?.id,
+      profile?.room?.id
+    ),
     vipProfileFrameUrl: extractVipProfileFrameUrl(user) ?? extractVipProfileFrameUrl(profile),
     // Explicit fallback chain (not just the `...user` spread above) so this
     // survives whichever of the raw top-level/nested `profile` shapes the

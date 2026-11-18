@@ -111,7 +111,29 @@ const normalizeConversation = (conversation) => {
     time: formatChatTime(lastAt) || firstText(conversation?.time) || "",
     unread: Number(conversation?.unread ?? conversation?.unreadCount ?? 0) || 0,
     verifiedBadgeUrl: firstText(conversation?.verifiedBadgeUrl, peer?.verifiedBadgeUrl),
-    live: Boolean(conversation?.live ?? conversation?.isLive ?? peer?.isLive),
+    live: Boolean(conversation?.live ?? conversation?.isLive ?? peer?.isLive ?? conversation?.isInRoom ?? peer?.isInRoom),
+    isInRoom: Boolean(
+      conversation?.isInRoom ??
+      peer?.isInRoom ??
+      conversation?.inRoom ??
+      peer?.inRoom ??
+      conversation?.live ??
+      peer?.live ??
+      (conversation?.roomId != null && String(conversation.roomId).trim() !== "") ??
+      (peer?.roomId != null && String(peer.roomId).trim() !== "")
+    ),
+    roomId: firstValue(
+      conversation?.roomId,
+      peer?.roomId,
+      conversation?.currentRoomId,
+      peer?.currentRoomId,
+      conversation?.activeRoomId,
+      peer?.activeRoomId,
+      conversation?.room?.id,
+      peer?.room?.id
+    ),
+    isOnline: Boolean(conversation?.isOnline ?? conversation?.online ?? peer?.isOnline ?? peer?.online),
+    online: Boolean(conversation?.online ?? conversation?.isOnline ?? peer?.online ?? peer?.isOnline),
     liked: Boolean(conversation?.liked),
     vipProfileFrameUrl: extractVipProfileFrameUrl(conversation) ?? extractVipProfileFrameUrl(peer),
     level: firstNumber(conversation?.level, peer?.level),

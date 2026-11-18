@@ -330,13 +330,22 @@ export const normalizeChatMessage = (msg, index = 0) => {
     msg?.avatarUrl,
     msg?.senderAvatar,
     msg?.senderAvatarUrl,
+    msg?.profileImage,
+    msg?.profileImageUrl,
     msg?.senderProfilePic,
     msg?.senderProfileImageUrl,
     msg?.profilePicUrl,
+    msg?.fromUserAvatar,
+    msg?.fromUser?.avatar,
+    msg?.fromUser?.profileImageUrl,
+    msg?.fromUser?.profilePicUrl,
     msg?.sender?.avatar,
     msg?.sender?.avatarUrl,
     msg?.sender?.profilePicUrl,
     msg?.sender?.profileImageUrl,
+    msg?.user?.avatar,
+    msg?.user?.profileImageUrl,
+    msg?.user?.profilePicUrl,
     msg?.message?.avatar,
     msg?.message?.senderAvatar,
     msg?.data?.avatar,
@@ -357,6 +366,8 @@ export const normalizeChatMessage = (msg, index = 0) => {
     msg?.data?.profileFrameUrl,
   );
 
+  const resolvedText = resolveChatText(msg);
+
   return {
     id: firstValue(
       msg?.id,
@@ -371,17 +382,30 @@ export const normalizeChatMessage = (msg, index = 0) => {
       firstValue(
         msg?.senderId,
         msg?.userId,
+        msg?.fromUserId,
+        msg?.fromId,
         msg?.sender?.id,
         msg?.sender?.userId,
+        msg?.user?.id,
+        msg?.user?.userId,
+        msg?.from?.id,
+        msg?.from,
         msg?.message?.senderId,
         msg?.data?.senderId,
       ) ?? null,
     user:
       firstText(
         msg?.senderName,
+        msg?.userName,
+        msg?.fromUserName,
+        msg?.user?.name,
+        msg?.user?.username,
+        msg?.sender?.name,
+        msg?.sender?.username,
+        msg?.fromUser?.name,
         msg?.user,
         msg?.username,
-        msg?.sender?.name,
+        msg?.name,
         msg?.message?.senderName,
         msg?.data?.senderName,
       ) ?? "User",
@@ -389,11 +413,32 @@ export const normalizeChatMessage = (msg, index = 0) => {
     vipProfileFrameUrl: rawVipProfileFrame
       ? (resolveRemoteProfilePicUrl(rawVipProfileFrame) ?? rawVipProfileFrame)
       : null,
-    text: resolveChatText(msg),
+    text: resolvedText,
     level: msg?.level ?? msg?.senderLevel ?? 1,
     coins: msg?.coins ?? 0,
     diamonds: msg?.diamonds ?? 0,
-    isGift: Boolean(msg?.isGift),
+    isGift: Boolean(
+      msg?.isGift ||
+      /(?:^|\s)sent\s+(\S+)\s+(.+?)(?:\s+×\d+)?(?:\s+to\s+.+)?$/u.test(
+        String(resolvedText || "")
+      )
+    ),
+    receiverId:
+      firstValue(
+        msg?.receiverId,
+        msg?.toUserId,
+        msg?.targetUserId,
+        msg?.receiver?.id,
+        msg?.toUser?.id,
+      ) ?? null,
+    receiverName:
+      firstText(
+        msg?.receiverName,
+        msg?.receiver,
+        msg?.toUserName,
+        msg?.toUser?.name,
+        msg?.targetUserName,
+      ) ?? null,
     pending: Boolean(msg?.pending),
     verifiedBadgeUrl: firstText(msg?.verifiedBadgeUrl, msg?.sender?.verifiedBadgeUrl),
   };

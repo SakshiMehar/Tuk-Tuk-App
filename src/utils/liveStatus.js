@@ -102,8 +102,13 @@ export const setUserLiveStatus = (userId, isLiveOrStatus, roomId = null) => {
         changed = true;
       }
     }
-    if (isLiveOrStatus.isLive !== undefined || isLiveOrStatus.live !== undefined) {
-      const liveVal = Boolean(isLiveOrStatus.isLive ?? isLiveOrStatus.live);
+    const liveCandidate =
+      isLiveOrStatus.isInRoom ??
+      isLiveOrStatus.inRoom ??
+      isLiveOrStatus.isLive ??
+      isLiveOrStatus.live;
+    if (liveCandidate !== undefined) {
+      const liveVal = Boolean(liveCandidate);
       const rId = liveVal && (isLiveOrStatus.roomId || roomId) ? String(isLiveOrStatus.roomId || roomId).trim() : null;
       const prev = liveUsersMap.get(key);
       if (!prev || prev.isLive !== liveVal || prev.roomId !== rId) {
@@ -128,6 +133,43 @@ export const setUserLiveStatus = (userId, isLiveOrStatus, roomId = null) => {
 };
 
 /**
+ * Utility to determine if a user is currently in an active voice room
+ */
+export const isUserInRoom = (user) => {
+  if (!user) return false;
+
+  const userId = user.id ?? user.userId ?? user.uid ?? user._id;
+  const userKey = userId != null ? String(userId).trim() : null;
+
+  // Real-time live status override from WebSocket
+  if (userKey && liveUsersMap.has(userKey)) {
+    const override = liveUsersMap.get(userKey);
+    if (override?.isLive !== undefined) {
+      return Boolean(override.isLive && override.roomId);
+    }
+  }
+
+  // Explicit boolean
+  if (user.isInRoom === true || user.inRoom === true) {
+    return true;
+  }
+  if (user.isInRoom === false || user.inRoom === false) {
+    return false;
+  }
+
+  // Check status string
+  const rawStatus = user.status || user.liveStatus || "";
+  const status = String(rawStatus).trim().toUpperCase();
+  if (status === "ONLINE_IN_ROOM" || status === "IN_ROOM" || status === "IN_PARTY" || status === "VOICE_LIVE") {
+    return true;
+  }
+
+  // Active room ID check
+  const rId = getUserLiveRoomId(user);
+  return Boolean(rId);
+};
+
+/**
  * Utility to determine if a user is currently live / active in a room session
  */
 export const isUserLive = (user) => {
@@ -149,6 +191,8 @@ export const isUserLive = (user) => {
     user.isLive === false ||
     user.live === false ||
     user.inLive === false ||
+    user.isInRoom === false ||
+    user.inRoom === false ||
     user.isLive === 0 ||
     user.live === 0 ||
     user.isLive === "false" ||
@@ -176,7 +220,9 @@ export const isUserLive = (user) => {
     user.live === "1" ||
     user.inLive === true ||
     user.inLive === 1 ||
-    user.inLive === "true"
+    user.inLive === "true" ||
+    user.isInRoom === true ||
+    user.inRoom === true
   ) {
     return true;
   }

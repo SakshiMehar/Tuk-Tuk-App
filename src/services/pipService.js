@@ -19,6 +19,64 @@ export const isPipSupported = async () => {
 };
 
 /**
+ * Check whether Picture-in-Picture permission is granted in Android settings.
+ * @returns {Promise<boolean>}
+ */
+export const hasPipPermission = async () => {
+  if (Platform.OS !== "android" || !PipModule) {
+    return false;
+  }
+  try {
+    if (typeof PipModule.hasPipPermission === "function") {
+      return Boolean(await PipModule.hasPipPermission());
+    }
+    return Boolean(await PipModule.isPipSupported());
+  } catch (err) {
+    console.warn("[PipService] hasPipPermission check failed:", err);
+    return false;
+  }
+};
+
+/**
+ * Open the Android Picture-in-Picture settings screen for the app.
+ * @returns {Promise<boolean>}
+ */
+export const openPipSettings = async () => {
+  if (Platform.OS !== "android" || !PipModule) {
+    return false;
+  }
+  try {
+    if (typeof PipModule.openPipSettings === "function") {
+      return Boolean(await PipModule.openPipSettings());
+    }
+    return false;
+  } catch (err) {
+    console.warn("[PipService] openPipSettings failed:", err);
+    return false;
+  }
+};
+
+/**
+ * Enable or disable automatic PiP handling (e.g. while in a voice room).
+ * @param {boolean} enabled
+ * @returns {Promise<boolean>}
+ */
+export const setPipEnabled = async (enabled) => {
+  if (Platform.OS !== "android" || !PipModule) {
+    return false;
+  }
+  try {
+    if (typeof PipModule.setPipEnabled === "function") {
+      return Boolean(await PipModule.setPipEnabled(Boolean(enabled)));
+    }
+    return false;
+  } catch (err) {
+    console.warn("[PipService] setPipEnabled failed:", err);
+    return false;
+  }
+};
+
+/**
  * Check whether the app is currently in Picture-in-Picture mode.
  * @returns {Promise<boolean>}
  */
@@ -94,6 +152,9 @@ export const subscribePipModeChanged = (callback) => {
 
 export default {
   isPipSupported,
+  hasPipPermission,
+  openPipSettings,
+  setPipEnabled,
   isInPipMode,
   enterPipMode,
   maximizePip,

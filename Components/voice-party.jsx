@@ -47,6 +47,7 @@ import {
   BackHandler,
   DeviceEventEmitter,
   Dimensions,
+  FlatList,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -10446,22 +10447,24 @@ export default function VoiceParty() {
           <TouchableOpacity activeOpacity={1} style={styles.playCenterBox}>
             <Text style={styles.playCenterTitle}>Play center</Text>
             <View style={styles.playCenterRow}>
-              {/* Music */}
-              <TouchableOpacity
-                style={styles.playCenterItem}
-                activeOpacity={0.75}
-                onPress={() => {
-                  setShowPlayCenter(false);
-                  setTimeout(() => {
-                    handleToggleMusic();
-                  }, 400);
-                }}
-              >
-                <View style={styles.playCenterIconWrap}>
-                  <Text style={styles.playCenterEmoji}>🎵</Text>
-                </View>
-                <Text style={styles.playCenterLabel}>Music</Text>
-              </TouchableOpacity>
+              {/* Music — visible only to Room Owner or Admin */}
+              {(isHostSelf || isViewerAdmin) && (
+                <TouchableOpacity
+                  style={styles.playCenterItem}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    setShowPlayCenter(false);
+                    setTimeout(() => {
+                      handleToggleMusic();
+                    }, 400);
+                  }}
+                >
+                  <View style={styles.playCenterIconWrap}>
+                    <Text style={styles.playCenterEmoji}>🎵</Text>
+                  </View>
+                  <Text style={styles.playCenterLabel}>Music</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Lucky bag */}
               <TouchableOpacity
@@ -10495,41 +10498,36 @@ export default function VoiceParty() {
                 <Text style={styles.playCenterLabel}>Ranking</Text>
               </TouchableOpacity>
 
-              {/* PK — visible to normal users as well as host/admin */}
-              <TouchableOpacity
-                style={styles.playCenterItem}
-                activeOpacity={0.75}
-                onPress={async () => {
-                  setShowPlayCenter(false);
-                  if (!isHostSelf && !isViewerAdmin) {
-                    Alert.alert(
-                      "PK Battle",
-                      "Only the room host or an admin can start a PK battle.",
+              {/* PK — visible only to Room Owner or Admin */}
+              {(isHostSelf || isViewerAdmin) && (
+                <TouchableOpacity
+                  style={styles.playCenterItem}
+                  activeOpacity={0.75}
+                  onPress={async () => {
+                    setShowPlayCenter(false);
+                    // Re-check with the server instead of trusting local state
+                    const fresh = await loadActivePkBattle(pkPollRoomId).catch(
+                      () => activePkBattle,
                     );
-                    return;
-                  }
-                  // Re-check with the server instead of trusting local state
-                  const fresh = await loadActivePkBattle(pkPollRoomId).catch(
-                    () => activePkBattle,
-                  );
-                  setActivePkBattle(fresh);
-                  if (isPkBattlePending(fresh) || isPkBattleLive(fresh)) {
-                    Alert.alert(
-                      "PK battle in progress",
-                      "This room already has an active PK battle. Wait for it to finish before starting a new one.",
-                    );
-                    return;
-                  }
-                  setTimeout(() => {
-                    setShowPkBattle(true);
-                  }, 400);
-                }}
-              >
-                <View style={styles.playCenterIconWrap}>
-                  <Text style={styles.playCenterEmoji}>⚔️</Text>
-                </View>
-                <Text style={styles.playCenterLabel}>PK</Text>
-              </TouchableOpacity>
+                    setActivePkBattle(fresh);
+                    if (isPkBattlePending(fresh) || isPkBattleLive(fresh)) {
+                      Alert.alert(
+                        "PK battle in progress",
+                        "This room already has an active PK battle. Wait for it to finish before starting a new one.",
+                      );
+                      return;
+                    }
+                    setTimeout(() => {
+                      setShowPkBattle(true);
+                    }, 400);
+                  }}
+                >
+                  <View style={styles.playCenterIconWrap}>
+                    <Text style={styles.playCenterEmoji}>⚔️</Text>
+                  </View>
+                  <Text style={styles.playCenterLabel}>PK</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Kicked users — visible ONLY to the Room Owner */}
               {isHostSelf && (
