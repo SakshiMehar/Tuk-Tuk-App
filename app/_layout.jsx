@@ -97,6 +97,23 @@ export default function RootLayout() {
         if (type && type.startsWith('CALL_')) {
           return;
         }
+
+        // Suppress gift received modal/alert in any category (normal gift, PK, etc.)
+        const lowerTitle = String(title || "").toLowerCase();
+        const lowerBody = String(body || "").toLowerCase();
+        const category = String(data?.category || "").toLowerCase();
+        const isGiftNotification =
+          type === "GIFT_RECEIVED" ||
+          type.includes("GIFT") ||
+          category === "gift" ||
+          Boolean(data?.giftName) ||
+          lowerTitle.includes("gift received") ||
+          lowerTitle.includes("gift") ||
+          lowerBody.includes("sent you a gift") ||
+          lowerBody.includes("sent you");
+        if (isGiftNotification) {
+          return;
+        }
         
         // title defaults to "Tuk-Tuk" in service, so body check is more reliable
         // Sometimes backends send " " (space) to force a push, so we trim it.

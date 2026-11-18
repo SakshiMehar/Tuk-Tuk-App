@@ -43,6 +43,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   BackHandler,
   DeviceEventEmitter,
   Dimensions,
@@ -93,6 +94,7 @@ import {
   deleteRoomChatMessages,
   followRoom,
   getClaimedSeats,
+  getKickedUsers,
   getRoomAdmins,
   getRoomBadges,
   getRoomChatMessages,
@@ -101,6 +103,7 @@ import {
   lockSeat,
   postRoomHeartbeat,
   postSeatHeartbeat,
+  removeKickedUser,
   removeRoomAdmin,
   reportRoomUser,
   unfollowRoom,
@@ -2298,11 +2301,22 @@ export default function VoiceParty() {
         setShowTreasureAnimation(false);
         setShowVideoModal(false);
         setShowMusicPlaylist(false);
+        setShowKickDurationModal(false);
+        setShowKickedUsersModal(false);
       }
     });
     return unsub;
   }, []);
   const [claimedRewardModal, setClaimedRewardModal] = useState(null);
+  const [showKickDurationModal, setShowKickDurationModal] = useState(false);
+  const [kickTargetUser, setKickTargetUser] = useState(null);
+  const [selectedKickDuration, setSelectedKickDuration] = useState("THIRTY_MINUTES");
+  const [kickSubmitting, setKickSubmitting] = useState(false);
+  const [showKickedUsersModal, setShowKickedUsersModal] = useState(false);
+  const [kickedUsersList, setKickedUsersList] = useState([]);
+  const [kickedUsersLoading, setKickedUsersLoading] = useState(false);
+  const [kickedUsersError, setKickedUsersError] = useState(null);
+  const [removingKickedUserId, setRemovingKickedUserId] = useState(null);
   const [showActiveUsersModal, setShowActiveUsersModal] = useState(false);
   const [showFollowModal, setShowFollowModal] = useState(false);
   const [showRoomProfileModal, setShowRoomProfileModal] = useState(false);
@@ -6045,14 +6059,15 @@ export default function VoiceParty() {
     }
   }, [musicPlaylist, currentMusicIndex]);
 
-  const handleExitRoom = useCallback(async () => {
+  const handleExitRoom = useCallback(() => {
     setShowPowerMenu(false);
     isNavigatingToInboxRef.current = false;
-    if (!roomId || exitedRef.current) {
+    if (exitedRef.current) {
       router.back();
       return;
     }
     exitedRef.current = true;
+    const activeRoomId = roomIdRef.current || roomId;
     const seatToLeave =
       mySeatNumberRef.current ||
       mySeatNumber ||
@@ -6060,25 +6075,31 @@ export default function VoiceParty() {
       (seatsRef.current || []).find((s) => s?.user && isSameUser(s.user.id ?? s.user.userId, myUserId))?.id ||
       null;
 
-    try {
-      await flushListenRewardProgress(roomId);
-    } catch {
-      // Non-blocking for room exit
-    }
-    try {
-      if (seatToLeave != null) {
-        await partyVoice.leaveMic(String(roomId), seatToLeave).catch(() => {});
-      }
-      await partyVoice.teardownVoice(seatToLeave);
-      await exitRoomSession(String(roomId), seatToLeave, localSessionUser);
-    } catch {
-      // APIs logged in partyApi
-    }
     onMicRef.current = false;
     mySeatNumberRef.current = null;
     setOnMic(false);
     setMySeatNumber(null);
+
+    // Navigate back immediately so the UI is responsive on the first click
     router.back();
+
+    // Perform room and voice teardown in background
+    (async () => {
+      try {
+        if (activeRoomId) {
+          await flushListenRewardProgress(activeRoomId).catch(() => {});
+        }
+      } catch {}
+      try {
+        if (activeRoomId && seatToLeave != null) {
+          await partyVoice.leaveMic(String(activeRoomId), seatToLeave).catch(() => {});
+        }
+        await partyVoice.teardownVoice(seatToLeave).catch(() => {});
+        if (activeRoomId) {
+          await exitRoomSession(String(activeRoomId), seatToLeave, localSessionUser).catch(() => {});
+        }
+      } catch {}
+    })();
   }, [roomId, router, flushListenRewardProgress, mySeatNumber, myUserId, localSessionUser]);
 
   const promptExitConfirmation = useCallback(() => {
@@ -6111,29 +6132,27 @@ export default function VoiceParty() {
       try {
         const supported = await pipService.isPipSupported();
         if (supported) {
-          // Allow the modal dismiss transition to finish before entering PiP
+          // Allow the modal dismiss transition to complete before requesting PiP
           setTimeout(async () => {
             try {
-              await pipService.enterPipMode({ width: 9, height: 16 });
+              const entered = await pipService.enterPipMode({ width: 9, height: 16 });
+              if (!entered) {
+                console.warn("[VoiceParty] enterPipMode returned false");
+              }
             } catch (err) {
               console.warn("[VoiceParty] enterPipMode failed:", err);
             }
-          }, 120);
+          }, 250);
           return;
         } else {
           Alert.alert(
-            "PiP Not Supported",
-            "Picture-in-Picture mode is not supported on this device.",
+            "PiP Permission Required",
+            "Picture-in-Picture is disabled in Android settings. Please enable 'Picture-in-picture' permission for Tuk-Tuk in Settings to use Keep mode.",
           );
         }
       } catch (err) {
-        console.warn("[VoiceParty] Failed to enter PiP mode:", err);
+        console.warn("[VoiceParty] Failed to check PiP mode:", err);
       }
-    } else {
-      Alert.alert(
-        "PiP Not Supported",
-        "Picture-in-Picture is only supported on Android devices.",
-      );
     }
   }, []);
 
@@ -6185,6 +6204,15 @@ export default function VoiceParty() {
       }
       if (showPowerMenu) {
         setShowPowerMenu(false);
+        return true;
+      }
+      if (showKickDurationModal) {
+        setShowKickDurationModal(false);
+        setKickTargetUser(null);
+        return true;
+      }
+      if (showKickedUsersModal) {
+        setShowKickedUsersModal(false);
         return true;
       }
       if (showRoomProfileModal) {
@@ -6259,6 +6287,8 @@ export default function VoiceParty() {
     showTreasureBox,
     showPlayCenter,
     showPowerMenu,
+    showKickDurationModal,
+    showKickedUsersModal,
     showFollowModal,
     showActiveUsersModal,
     showMoreMenu,
@@ -6362,6 +6392,84 @@ export default function VoiceParty() {
     const interval = setInterval(ping, 25_000);
     return () => clearInterval(interval);
   }, [roomId]);
+
+  // Handle AppState changes (background / active) to preserve seat and voice in background
+  useEffect(() => {
+    const handleAppState = async (nextState) => {
+      const activeRoom = roomIdRef.current || roomId;
+      const currentSeat = mySeatNumberRef.current || mySeatNumber;
+      if (!activeRoom) return;
+
+      if (nextState === "active") {
+        // User resumed app from background:
+        // 1. Immediately send heartbeats
+        if (currentSeat) {
+          try {
+            if (wsService.connected) {
+              wsService.sendSeatHeartbeat(String(activeRoom), currentSeat);
+            } else {
+              await postSeatHeartbeat(String(activeRoom), currentSeat);
+            }
+          } catch {}
+        }
+        try {
+          if (wsService.connected) {
+            wsService.sendRoomHeartbeat(String(activeRoom));
+          } else {
+            await postRoomHeartbeat(String(activeRoom));
+          }
+        } catch {}
+
+        // 2. Re-verify room state and reconcile seats with profile
+        try {
+          const freshState = await getRoomState(String(activeRoom));
+          if (freshState) {
+            const freshSeats = parseSeats(freshState?.seats, freshState);
+            const freshOnline = parseOnlineUsers(freshState, null);
+            if (freshOnline.length > 0) {
+              setOnlineUsers(freshOnline);
+              setOnlineCount(freshOnline.length);
+            }
+            let reconciledSeats = freshSeats;
+            if (currentSeat) {
+              reconciledSeats = await enrichSeatsWithMyProfile(freshSeats, currentSeat);
+            }
+            setSeats(
+              reconcileSeatAssignments(reconciledSeats, {
+                onlineUsers: freshOnline.length > 0 ? freshOnline : null,
+                myUserId: myUserIdRef.current || myUserId,
+                mySeatNumber: currentSeat,
+                staleSeatTracker: staleSeatTrackerRef.current,
+                activeVoiceUids: activeVoiceUidsRef.current,
+                knownMuteStates: knownMuteStatesRef.current,
+              }),
+            );
+          }
+        } catch {}
+      } else if (nextState === "background" || nextState === "inactive") {
+        // App is backgrounding: send an immediate heartbeat so backend has fresh timestamp
+        if (currentSeat) {
+          try {
+            if (wsService.connected) {
+              wsService.sendSeatHeartbeat(String(activeRoom), currentSeat);
+            }
+            postSeatHeartbeat(String(activeRoom), currentSeat).catch(() => {});
+          } catch {}
+        }
+        try {
+          if (wsService.connected) {
+            wsService.sendRoomHeartbeat(String(activeRoom));
+          }
+          postRoomHeartbeat(String(activeRoom)).catch(() => {});
+        } catch {}
+      }
+    };
+
+    const sub = AppState.addEventListener("change", handleAppState);
+    return () => {
+      sub.remove();
+    };
+  }, [roomId, mySeatNumber, myUserId]);
 
   // Belt-and-braces poll for the room's PK card — the `pk` WS topic should
   // push every create/accept/reject/score/finish, but if the backend only
@@ -8316,63 +8424,11 @@ export default function VoiceParty() {
         return;
       }
 
-      Alert.alert(
-        "Kick out user?",
-        `Are you sure you want to remove ${targetName} from the room?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Kick Out",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                // Call POST /api/v1/tuktuk/rooms/{roomId}/kick
-                await kickRoomUser(String(roomId), targetId);
-
-                // 1. Clear from mic seats if seated
-                setSeats((prev) =>
-                  prev.map((seat) => {
-                    if (
-                      seat?.user &&
-                      isSameUser(seat.user.id ?? seat.user.userId, targetId)
-                    ) {
-                      return { ...seat, user: null };
-                    }
-                    return seat;
-                  }),
-                );
-
-                // 2. Remove from online audience
-                setOnlineUsers((prev) =>
-                  prev.filter((u) => !isSameUser(u?.id ?? u?.userId, targetId)),
-                );
-                setOnlineCount((prev) => Math.max(0, prev - 1));
-
-                // 3. Broadcast removal to room chat
-                if (roomId) {
-                  wsService.sendRoomMessage(
-                    String(roomId),
-                    `🚪 ${targetName} was removed from the room.`,
-                  );
-                }
-
-                closeProfilePopup();
-                Alert.alert(
-                  "User Kicked",
-                  `${targetName} has been removed from the room.`,
-                );
-              } catch (err) {
-                const errMsg =
-                  err?.response?.data?.message ||
-                  err?.response?.data?.error ||
-                  err?.message ||
-                  "Could not kick user from room.";
-                Alert.alert("Kick Failed", errMsg);
-              }
-            },
-          },
-        ],
-      );
+      // Close profile popup and open Kick Duration Selection Modal
+      closeProfilePopup();
+      setKickTargetUser(targetUser);
+      setSelectedKickDuration("THIRTY_MINUTES");
+      setShowKickDurationModal(true);
     },
     [
       roomId,
@@ -8383,6 +8439,164 @@ export default function VoiceParty() {
       roomAdminIds,
       closeProfilePopup,
     ],
+  );
+
+  const handleConfirmKickout = useCallback(async () => {
+    if (!kickTargetUser) return;
+    const targetId = String(kickTargetUser.id ?? kickTargetUser.userId ?? "");
+    const targetName =
+      kickTargetUser.name || kickTargetUser.username || "User";
+    if (!targetId || !roomId) return;
+
+    setKickSubmitting(true);
+    try {
+      await kickRoomUser(
+        String(roomId),
+        targetId,
+        selectedKickDuration,
+        "Misbehaving in room",
+      );
+
+      // 1. Clear from mic seats if seated
+      setSeats((prev) =>
+        prev.map((seat) => {
+          if (
+            seat?.user &&
+            isSameUser(seat.user.id ?? seat.user.userId, targetId)
+          ) {
+            return { ...seat, user: null };
+          }
+          return seat;
+        }),
+      );
+
+      // 2. Remove from online audience
+      setOnlineUsers((prev) =>
+        prev.filter((u) => !isSameUser(u?.id ?? u?.userId, targetId)),
+      );
+      setOnlineCount((prev) => Math.max(0, prev - 1));
+
+      // 3. Broadcast removal to room chat
+      if (roomId) {
+        wsService.sendRoomMessage(
+          String(roomId),
+          `🚪 ${targetName} was removed from the room.`,
+        );
+      }
+
+      setShowKickDurationModal(false);
+      setKickTargetUser(null);
+      Alert.alert(
+        "User Kicked",
+        `${targetName} has been removed from the room.`,
+      );
+    } catch (err) {
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Could not kick user from room.";
+      Alert.alert("Kick Failed", errMsg);
+    } finally {
+      setKickSubmitting(false);
+    }
+  }, [kickTargetUser, roomId, selectedKickDuration]);
+
+  const handleOpenKickedUsers = useCallback(async () => {
+    if (!isHostSelf) {
+      Alert.alert("Access Denied", "Only the room owner can manage kicked users.");
+      return;
+    }
+    setShowPlayCenter(false);
+    setShowKickedUsersModal(true);
+    setKickedUsersLoading(true);
+    setKickedUsersError(null);
+
+    const activeRoomId = String(roomIdRef.current || roomId || "").trim();
+    if (!activeRoomId) {
+      setKickedUsersError("Room ID is unavailable.");
+      setKickedUsersLoading(false);
+      return;
+    }
+
+    try {
+      const rawList = await getKickedUsers(activeRoomId);
+      const list = Array.isArray(rawList) ? rawList : [];
+
+      // Enrich with user profile details
+      const enriched = await Promise.all(
+        list.map(async (item) => {
+          const uid = String(item.userId || item.id);
+          try {
+            const profile = await loadUserDetail(uid);
+            return {
+              ...item,
+              name: profile?.name || profile?.username || `User ${uid}`,
+              avatar: profile?.avatarUrl || profile?.avatar || null,
+            };
+          } catch {
+            return {
+              ...item,
+              name: `User ${uid}`,
+              avatar: null,
+            };
+          }
+        }),
+      );
+
+      setKickedUsersList(enriched);
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to load kicked users.";
+      setKickedUsersError(msg);
+    } finally {
+      setKickedUsersLoading(false);
+    }
+  }, [isHostSelf, roomId]);
+
+  const handleRemoveKickedUser = useCallback(
+    (targetUserId, targetName = "User") => {
+      const activeRoomId = String(roomIdRef.current || roomId || "").trim();
+      if (!activeRoomId || !targetUserId) return;
+
+      Alert.alert(
+        "Remove Restriction?",
+        `Allow ${targetName} to rejoin this room?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Remove",
+            style: "destructive",
+            onPress: async () => {
+              setRemovingKickedUserId(String(targetUserId));
+              try {
+                await removeKickedUser(activeRoomId, targetUserId);
+                setKickedUsersList((prev) =>
+                  prev.filter((u) => String(u.userId || u.id) !== String(targetUserId)),
+                );
+                Alert.alert(
+                  "Restriction Removed",
+                  `${targetName} can now rejoin this room.`,
+                );
+              } catch (err) {
+                const msg =
+                  err?.response?.data?.message ||
+                  err?.response?.data?.error ||
+                  err?.message ||
+                  "Failed to remove restriction.";
+                Alert.alert("Error", msg);
+              } finally {
+                setRemovingKickedUserId(null);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [roomId],
   );
 
   const handleUserAvatarPress = (userLike) => {
@@ -10233,23 +10447,21 @@ export default function VoiceParty() {
             <Text style={styles.playCenterTitle}>Play center</Text>
             <View style={styles.playCenterRow}>
               {/* Music */}
-              {(isHostSelf || isViewerAdmin) && (
-                <TouchableOpacity
-                  style={styles.playCenterItem}
-                  activeOpacity={0.75}
-                  onPress={() => {
-                    setShowPlayCenter(false);
-                    setTimeout(() => {
-                      handleToggleMusic();
-                    }, 400);
-                  }}
-                >
-                  <View style={styles.playCenterIconWrap}>
-                    <Text style={styles.playCenterEmoji}>🎵</Text>
-                  </View>
-                  <Text style={styles.playCenterLabel}>Music</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                style={styles.playCenterItem}
+                activeOpacity={0.75}
+                onPress={() => {
+                  setShowPlayCenter(false);
+                  setTimeout(() => {
+                    handleToggleMusic();
+                  }, 400);
+                }}
+              >
+                <View style={styles.playCenterIconWrap}>
+                  <Text style={styles.playCenterEmoji}>🎵</Text>
+                </View>
+                <Text style={styles.playCenterLabel}>Music</Text>
+              </TouchableOpacity>
 
               {/* Lucky bag */}
               <TouchableOpacity
@@ -10283,7 +10495,7 @@ export default function VoiceParty() {
                 <Text style={styles.playCenterLabel}>Ranking</Text>
               </TouchableOpacity>
 
-              {/* PK — opens the PK battle setup sheet */}
+              {/* PK — visible to normal users as well as host/admin */}
               <TouchableOpacity
                 style={styles.playCenterItem}
                 activeOpacity={0.75}
@@ -10291,16 +10503,12 @@ export default function VoiceParty() {
                   setShowPlayCenter(false);
                   if (!isHostSelf && !isViewerAdmin) {
                     Alert.alert(
-                      "Permission Denied",
-                      "Only the room owner or admin can start a PK battle.",
+                      "PK Battle",
+                      "Only the room host or an admin can start a PK battle.",
                     );
                     return;
                   }
-                  // Re-check with the server instead of trusting local state —
-                  // the initial room-join fetch may still be in flight, or a
-                  // websocket drop could have left `activePkBattle` stale,
-                  // and either way opening the sheet on stale info just gets
-                  // rejected by the backend with a 409 on Confirm.
+                  // Re-check with the server instead of trusting local state
                   const fresh = await loadActivePkBattle(pkPollRoomId).catch(
                     () => activePkBattle,
                   );
@@ -10322,6 +10530,20 @@ export default function VoiceParty() {
                 </View>
                 <Text style={styles.playCenterLabel}>PK</Text>
               </TouchableOpacity>
+
+              {/* Kicked users — visible ONLY to the Room Owner */}
+              {isHostSelf && (
+                <TouchableOpacity
+                  style={styles.playCenterItem}
+                  activeOpacity={0.75}
+                  onPress={handleOpenKickedUsers}
+                >
+                  <View style={styles.playCenterIconWrap}>
+                    <Text style={styles.playCenterEmoji}>🚫</Text>
+                  </View>
+                  <Text style={styles.playCenterLabel}>Kicked users</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -10360,7 +10582,7 @@ export default function VoiceParty() {
                 activeOpacity={0.75}
                 onPress={() => {
                   setShowPowerMenu(false);
-                  promptExitConfirmation();
+                  handleExitRoom();
                 }}
               >
                 <View
@@ -13696,6 +13918,283 @@ export default function VoiceParty() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* ── KICK DURATION SELECTION MODAL ── */}
+      <Modal
+        visible={showKickDurationModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!kickSubmitting) {
+            setShowKickDurationModal(false);
+            setKickTargetUser(null);
+          }
+        }}
+      >
+        <TouchableOpacity
+          style={styles.kickModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!kickSubmitting) {
+              setShowKickDurationModal(false);
+              setKickTargetUser(null);
+            }
+          }}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.kickModalCard}>
+            <View style={styles.kickModalHeader}>
+              <View style={styles.kickModalTitleRow}>
+                <Ban size={20} color="#ef4444" style={{ marginRight: 8 }} />
+                <Text style={styles.kickModalTitle}>Kick Out User</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!kickSubmitting) {
+                    setShowKickDurationModal(false);
+                    setKickTargetUser(null);
+                  }
+                }}
+                disabled={kickSubmitting}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <X size={20} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.kickModalSubtitle}>
+              Select kickout duration for{" "}
+              <Text style={{ color: "#f3f4f6", fontWeight: "700" }}>
+                {kickTargetUser?.name || kickTargetUser?.username || "User"}
+              </Text>
+              :
+            </Text>
+
+            <View style={styles.kickOptionsContainer}>
+              {[
+                { label: "30 Minutes", value: "THIRTY_MINUTES", desc: "Cannot rejoin for 30 minutes" },
+                { label: "7 Days", value: "SEVEN_DAYS", desc: "Cannot rejoin for 7 days" },
+                { label: "Permanent", value: "PERMANENT", desc: "Blocked until unbanned by owner" },
+              ].map((opt) => {
+                const isSelected = selectedKickDuration === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[
+                      styles.kickOptionItem,
+                      isSelected && styles.kickOptionItemSelected,
+                    ]}
+                    activeOpacity={0.7}
+                    onPress={() => setSelectedKickDuration(opt.value)}
+                    disabled={kickSubmitting}
+                  >
+                    <View style={styles.kickOptionRadioOuter}>
+                      {isSelected && <View style={styles.kickOptionRadioInner} />}
+                    </View>
+                    <View style={styles.kickOptionTextContainer}>
+                      <Text
+                        style={[
+                          styles.kickOptionLabel,
+                          isSelected && styles.kickOptionLabelSelected,
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                      <Text style={styles.kickOptionDesc}>{opt.desc}</Text>
+                    </View>
+                    {isSelected && (
+                      <Check size={18} color="#a855f7" style={{ marginLeft: "auto" }} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.kickModalActions}>
+              <TouchableOpacity
+                style={styles.kickCancelButton}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setShowKickDurationModal(false);
+                  setKickTargetUser(null);
+                }}
+                disabled={kickSubmitting}
+              >
+                <Text style={styles.kickCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.kickConfirmButton,
+                  kickSubmitting && styles.kickConfirmButtonDisabled,
+                ]}
+                activeOpacity={0.8}
+                onPress={handleConfirmKickout}
+                disabled={kickSubmitting}
+              >
+                {kickSubmitting ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.kickConfirmButtonText}>Confirm Kickout</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── KICKED USERS MODAL ── */}
+      <Modal
+        visible={showKickedUsersModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowKickedUsersModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.kickedUsersOverlay}
+          activeOpacity={1}
+          onPress={() => setShowKickedUsersModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.kickedUsersCard}>
+            {/* Header */}
+            <View style={styles.kickedUsersHeader}>
+              <View style={styles.kickedUsersTitleRow}>
+                <Users size={20} color="#a855f7" style={{ marginRight: 8 }} />
+                <Text style={styles.kickedUsersTitle}>Kicked Users</Text>
+                {kickedUsersList.length > 0 && (
+                  <View style={styles.kickedUsersBadge}>
+                    <Text style={styles.kickedUsersBadgeText}>
+                      {kickedUsersList.length}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowKickedUsersModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <X size={20} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Content states */}
+            {kickedUsersLoading ? (
+              <View style={styles.kickedUsersStateContainer}>
+                <ActivityIndicator size="large" color="#a855f7" />
+                <Text style={styles.kickedUsersStateText}>Loading kicked users...</Text>
+              </View>
+            ) : kickedUsersError ? (
+              <View style={styles.kickedUsersStateContainer}>
+                <AlertCircle size={32} color="#ef4444" />
+                <Text style={styles.kickedUsersErrorText}>{kickedUsersError}</Text>
+                <TouchableOpacity
+                  style={styles.kickedUsersRetryBtn}
+                  onPress={handleOpenKickedUsers}
+                >
+                  <Text style={styles.kickedUsersRetryBtnText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            ) : kickedUsersList.length === 0 ? (
+              <View style={styles.kickedUsersStateContainer}>
+                <Text style={{ fontSize: 36, marginBottom: 8 }}>🛡️</Text>
+                <Text style={styles.kickedUsersEmptyTitle}>No Kicked Users</Text>
+                <Text style={styles.kickedUsersEmptySubtitle}>
+                  There are currently no restricted or kicked users in this room.
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={kickedUsersList}
+                keyExtractor={(item) => String(item.userId || item.id)}
+                style={styles.kickedUsersList}
+                contentContainerStyle={{ paddingVertical: 8 }}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => {
+                  const targetUid = String(item.userId || item.id);
+                  const isRemoving = removingKickedUserId === targetUid;
+                  const durationLabel =
+                    item.duration === "THIRTY_MINUTES"
+                      ? "30 Mins"
+                      : item.duration === "SEVEN_DAYS"
+                      ? "7 Days"
+                      : item.duration === "PERMANENT"
+                      ? "Permanent"
+                      : item.duration || "Kicked";
+
+                  return (
+                    <View style={styles.kickedUserRow}>
+                      {/* Avatar */}
+                      <View style={styles.kickedUserAvatarWrap}>
+                        {item.avatar ? (
+                          <ExpoImage
+                            source={{ uri: item.avatar }}
+                            style={styles.kickedUserAvatar}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <View style={styles.kickedUserAvatarPlaceholder}>
+                            <Text style={styles.kickedUserAvatarInitial}>
+                              {(item.name || "U")[0]?.toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Info */}
+                      <View style={styles.kickedUserInfo}>
+                        <View style={styles.kickedUserNameRow}>
+                          <Text style={styles.kickedUserName} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          <View
+                            style={[
+                              styles.kickedDurationPill,
+                              item.duration === "PERMANENT"
+                                ? styles.kickedDurationPillPerm
+                                : styles.kickedDurationPillTemp,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.kickedDurationPillText,
+                                item.duration === "PERMANENT"
+                                  ? styles.kickedDurationPillTextPerm
+                                  : styles.kickedDurationPillTextTemp,
+                              ]}
+                            >
+                              {durationLabel}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.kickedUserIdText}>ID: {targetUid}</Text>
+                        {Boolean(item.reason) && (
+                          <Text style={styles.kickedUserReason} numberOfLines={1}>
+                            {item.reason}
+                          </Text>
+                        )}
+                      </View>
+
+                      {/* Remove/Delete Button */}
+                      <TouchableOpacity
+                        style={styles.kickedUserRemoveBtn}
+                        activeOpacity={0.7}
+                        onPress={() => handleRemoveKickedUser(targetUid, item.name)}
+                        disabled={isRemoving}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        {isRemoving ? (
+                          <ActivityIndicator size="small" color="#ef4444" />
+                        ) : (
+                          <Trash2 size={18} color="#ef4444" />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  );
+                }}
+              />
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
@@ -17963,5 +18462,317 @@ const styles = StyleSheet.create({
     color: "#e9d5ff",
     fontSize: 9.5,
     fontWeight: "600",
+  },
+
+  /* ── Kick Duration Selection Modal ── */
+  kickModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  kickModalCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#1e1338",
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "rgba(168, 85, 247, 0.25)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
+    elevation: 12,
+  },
+  kickModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  kickModalTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  kickModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  kickModalSubtitle: {
+    fontSize: 13,
+    color: "#9ca3af",
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  kickOptionsContainer: {
+    gap: 10,
+    marginBottom: 20,
+  },
+  kickOptionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  kickOptionItemSelected: {
+    backgroundColor: "rgba(168, 85, 247, 0.15)",
+    borderColor: "#a855f7",
+  },
+  kickOptionRadioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#a855f7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  kickOptionRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#a855f7",
+  },
+  kickOptionTextContainer: {
+    flex: 1,
+  },
+  kickOptionLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#d1d5db",
+  },
+  kickOptionLabelSelected: {
+    color: "#ffffff",
+    fontWeight: "700",
+  },
+  kickOptionDesc: {
+    fontSize: 11,
+    color: "#6b7280",
+    marginTop: 2,
+  },
+  kickModalActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  kickCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  kickCancelButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#9ca3af",
+  },
+  kickConfirmButton: {
+    flex: 1.5,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#ef4444",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  kickConfirmButtonDisabled: {
+    opacity: 0.6,
+  },
+  kickConfirmButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+
+  /* ── Kicked Users Modal ── */
+  kickedUsersOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    justifyContent: "flex-end",
+  },
+  kickedUsersCard: {
+    maxHeight: "75%",
+    minHeight: 340,
+    backgroundColor: "#160b29",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 28,
+    borderTopWidth: 1,
+    borderColor: "rgba(168, 85, 247, 0.3)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  kickedUsersHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.08)",
+  },
+  kickedUsersTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  kickedUsersTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  kickedUsersBadge: {
+    marginLeft: 8,
+    backgroundColor: "rgba(168, 85, 247, 0.25)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  kickedUsersBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#c084fc",
+  },
+  kickedUsersList: {
+    flex: 1,
+  },
+  kickedUsersStateContainer: {
+    paddingVertical: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  kickedUsersStateText: {
+    marginTop: 12,
+    fontSize: 13,
+    color: "#9ca3af",
+  },
+  kickedUsersErrorText: {
+    marginTop: 10,
+    fontSize: 13,
+    color: "#f87171",
+    textAlign: "center",
+    paddingHorizontal: 20,
+  },
+  kickedUsersRetryBtn: {
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "rgba(168, 85, 247, 0.2)",
+    borderRadius: 8,
+  },
+  kickedUsersRetryBtnText: {
+    color: "#a855f7",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  kickedUsersEmptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#e5e7eb",
+    marginTop: 6,
+  },
+  kickedUsersEmptySubtitle: {
+    fontSize: 13,
+    color: "#9ca3af",
+    textAlign: "center",
+    marginTop: 4,
+    paddingHorizontal: 24,
+    lineHeight: 18,
+  },
+  kickedUserRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.04)",
+  },
+  kickedUserAvatarWrap: {
+    marginRight: 12,
+  },
+  kickedUserAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+  },
+  kickedUserAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#3b1d6e",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  kickedUserAvatarInitial: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#c084fc",
+  },
+  kickedUserInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  kickedUserNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  kickedUserName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#ffffff",
+    maxWidth: "70%",
+  },
+  kickedDurationPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  kickedDurationPillTemp: {
+    backgroundColor: "rgba(234, 179, 8, 0.15)",
+  },
+  kickedDurationPillPerm: {
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+  },
+  kickedDurationPillText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  kickedDurationPillTextTemp: {
+    color: "#facc15",
+  },
+  kickedDurationPillTextPerm: {
+    color: "#f87171",
+  },
+  kickedUserIdText: {
+    fontSize: 11,
+    color: "#6b7280",
+    marginTop: 2,
+  },
+  kickedUserReason: {
+    fontSize: 11,
+    color: "#9ca3af",
+    fontStyle: "italic",
+    marginTop: 1,
+  },
+  kickedUserRemoveBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.25)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

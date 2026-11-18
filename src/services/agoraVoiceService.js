@@ -206,7 +206,7 @@ const configureAudioSession = async (isSpeaker) => {
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: isSpeaker,
       playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
+      staysActiveInBackground: true,
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
     });

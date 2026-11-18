@@ -50,7 +50,10 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.USE_FULL_SCREEN_INTENT"
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",

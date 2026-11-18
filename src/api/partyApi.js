@@ -603,14 +603,23 @@ export const unfollowRoom = async (roomId) => {
 };
 
 /** POST /api/v1/tuktuk/rooms/{roomId}/kick — kick out user from room */
-export const kickRoomUser = async (roomId, targetUserId, reason = "") => {
+export const kickRoomUser = async (
+  roomId,
+  targetUserId,
+  duration = "THIRTY_MINUTES",
+  reason = "Misbehaving in room",
+) => {
   if (!roomId) throw new Error("Room ID is required to kick user");
   if (!targetUserId) throw new Error("Target user ID is required");
   const path = `/api/v1/tuktuk/rooms/${roomId}/kick`;
+  const validDuration =
+    duration === "SEVEN_DAYS" || duration === "PERMANENT"
+      ? duration
+      : "THIRTY_MINUTES";
   const payload = {
-    targetUserId: String(targetUserId),
-    userId: String(targetUserId),
-    ...(reason ? { reason: String(reason) } : {}),
+    targetUserId: Number(targetUserId) || String(targetUserId),
+    duration: validDuration,
+    reason: String(reason || "Misbehaving in room"),
   };
   logRequest("POST", path, payload);
   try {
@@ -619,6 +628,37 @@ export const kickRoomUser = async (roomId, targetUserId, reason = "") => {
     return response.data;
   } catch (error) {
     logError("POST", path, error);
+    throw error;
+  }
+};
+
+/** GET /api/rooms/{roomId}/kicked-users — fetch kicked users list (owner only) */
+export const getKickedUsers = async (roomId) => {
+  if (!roomId) throw new Error("Room ID is required to fetch kicked users");
+  const path = `/api/rooms/${roomId}/kicked-users`;
+  logRequest("GET", path);
+  try {
+    const response = await API.get(path, await authRequestConfig());
+    logResponse("GET", path, response.data);
+    return response.data?.kickedUsers ?? response.data ?? [];
+  } catch (error) {
+    logError("GET", path, error);
+    throw error;
+  }
+};
+
+/** DELETE /api/rooms/{roomId}/kicked-users/{userId} — unban / remove kick restriction */
+export const removeKickedUser = async (roomId, targetUserId) => {
+  if (!roomId) throw new Error("Room ID is required");
+  if (!targetUserId) throw new Error("Target user ID is required");
+  const path = `/api/rooms/${roomId}/kicked-users/${targetUserId}`;
+  logRequest("DELETE", path);
+  try {
+    const response = await API.delete(path, await authRequestConfig());
+    logResponse("DELETE", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("DELETE", path, error);
     throw error;
   }
 };
