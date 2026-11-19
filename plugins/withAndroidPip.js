@@ -10,10 +10,15 @@ const path = require("path");
 const PIP_MODULE_KT_CONTENT = `package tuk.tuk.app
 
 import android.app.Activity
+import android.app.AppOpsManager
 import android.app.PictureInPictureParams
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.Process
+import android.provider.Settings
 import android.util.Rational
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -30,10 +35,60 @@ class PipModule(private val reactContext: ReactApplicationContext) :
     companion object {
         private var instance: PipModule? = null
         private var lastKnownInPip: Boolean = false
+        @Volatile
+        var autoPipEnabled: Boolean = false
 
         fun onPipModeChanged(isInPipMode: Boolean) {
             lastKnownInPip = isInPipMode
             instance?.sendPipEvent(isInPipMode)
+        }
+
+        fun hasPipPermissionInternal(context: Context): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                return false
+            }
+            if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                return false
+            }
+            return try {
+                val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager
+                if (appOps == null) {
+                    true
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    appOps.unsafeCheckOpNoThrow(
+                        AppOpsManager.OPSTR_PICTURE_IN_PICTURE,
+                        Process.myUid(),
+                        context.packageName
+                    ) == AppOpsManager.MODE_ALLOWED
+                } else {
+                    appOps.checkOpNoThrow(
+                        AppOpsManager.OPSTR_PICTURE_IN_PICTURE,
+                        Process.myUid(),
+                        context.packageName
+                    ) == AppOpsManager.MODE_ALLOWED
+                }
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        fun onUserLeaveHint(activity: Activity) {
+            if (!autoPipEnabled) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    return
+                }
+                try {
+                    if (activity.isInPictureInPictureMode) return
+                    if (hasPipPermissionInternal(activity)) {
+                        val rational = Rational(9, 16)
+                        val builder = PictureInPictureParams.Builder().apply {
+                            setAspectRatio(rational)
+                        }
+                        activity.enterPictureInPictureMode(builder.build())
+                    }
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -51,7 +106,6 @@ class PipModule(private val reactContext: ReactApplicationContext) :
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                 .emit("onPipModeChanged", params)
         } catch (_: Exception) {
-            // React instance might be detached or transitioning
         }
     }
 
@@ -63,6 +117,82 @@ class PipModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(supported)
         } catch (_: Exception) {
             promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun hasPipPermission(promise: Promise) {
+        try {
+            val context: Context = reactContext.currentActivity ?: reactContext
+            val allowed = hasPipPermissionInternal(context)
+            promise.resolve(allowed)
+        } catch (_: Exception) {
+            promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun openPipSettings(promise: Promise) {
+        val activity: Activity? = reactContext.currentActivity
+        val context: Context = activity ?: reactContext
+        try {
+            var opened = false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    val intent = Intent("android.settings.PICTURE_IN_PICTURE_SETTINGS").apply {
+                        data = Uri.parse("package:\${reactContext.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                    opened = true
+                } catch (_: Exception) {
+                }
+            }
+            if (!opened) {
+                try {
+                    val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:\${reactContext.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(appDetailsIntent)
+                    opened = true
+                } catch (_: Exception) {
+                    val generalSettingsIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(generalSettingsIntent)
+                    opened = true
+                }
+            }
+            promise.resolve(opened)
+        } catch (e: Exception) {
+            promise.reject("OPEN_SETTINGS_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun setPipEnabled(enabled: Boolean, promise: Promise) {
+        autoPipEnabled = enabled
+        val activity: Activity? = reactContext.currentActivity
+        if (activity == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            promise.resolve(false)
+            return
+        }
+        activity.runOnUiThread {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val rational = Rational(9, 16)
+                    val builder = PictureInPictureParams.Builder().apply {
+                        setAspectRatio(rational)
+                        setAutoEnterEnabled(enabled)
+                        setSeamlessResizeEnabled(true)
+                    }
+                    activity.setPictureInPictureParams(builder.build())
+                }
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.resolve(false)
+            }
         }
     }
 
@@ -94,12 +224,16 @@ class PipModule(private val reactContext: ReactApplicationContext) :
             return
         }
 
+        if (!hasPipPermissionInternal(activity)) {
+            promise.reject("PERMISSION_DENIED", "Picture-in-Picture permission is not granted")
+            return
+        }
+
         activity.runOnUiThread {
             try {
                 var num = if (aspectRatioNumerator > 0) aspectRatioNumerator else 9
                 var den = if (aspectRatioDenominator > 0) aspectRatioDenominator else 16
 
-                // Android limits aspect ratio between 1:2.39 (0.41841) and 2.39:1 (2.39)
                 val ratio = num.toFloat() / den.toFloat()
                 if (ratio < 0.41841f) {
                     num = 100
@@ -114,6 +248,7 @@ class PipModule(private val reactContext: ReactApplicationContext) :
                     setAspectRatio(rational)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         setSeamlessResizeEnabled(true)
+                        setAutoEnterEnabled(true)
                     }
                 }
 
@@ -159,7 +294,10 @@ import com.facebook.react.uimanager.ViewManager
 
 class PipPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-        return listOf(PipModule(reactContext))
+        return listOf(
+            PipModule(reactContext),
+            RoomAudioModule(reactContext)
+        )
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<View, ReactShadowNode<*>>> {
@@ -275,6 +413,23 @@ module.exports = function withAndroidPip(config) {
 
       const merged = Array.from(new Set([...current, ...requiredConfigChanges]));
       mainActivity.$["android:configChanges"] = merged.join("|");
+    }
+
+    const application = modConfig.modResults.manifest.application?.[0];
+    if (application) {
+      if (!application.service) application.service = [];
+      const hasAudioService = application.service.some(
+        (s) => s.$ && s.$["android:name"] === ".RoomAudioForegroundService"
+      );
+      if (!hasAudioService) {
+        application.service.push({
+          $: {
+            "android:name": ".RoomAudioForegroundService",
+            "android:exported": "false",
+            "android:foregroundServiceType": "microphone|mediaPlayback",
+          },
+        });
+      }
     }
 
     return modConfig;

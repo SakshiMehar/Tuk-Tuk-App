@@ -438,6 +438,21 @@ export const postRoomHeartbeat = async (roomId) => {
   return response.data;
 };
 
+/** POST .../background-heartbeat — keep room attendance and seat alive while backgrounded */
+export const postBackgroundHeartbeat = async (roomId, seatNumber = null) => {
+  const path = `/api/v1/tuktuk/rooms/${roomId}/background-heartbeat`;
+  const payload = seatNumber != null ? { seatNumber: Number(seatNumber) } : {};
+  logRequest("POST", path, payload);
+  try {
+    const response = await API.post(path, payload, await authRequestConfig());
+    logResponse("POST", path, response.data);
+    return response.data;
+  } catch (error) {
+    logError("POST", path, error);
+    throw error;
+  }
+};
+
 /** POST .../seat/{seatNumber}/lock — host locks an empty seat */
 export const lockSeat = async (roomId, seatNumber) => {
   const path = `/api/v1/tuktuk/rooms/${roomId}/seat/${seatNumber}/lock`;
@@ -617,16 +632,31 @@ export const kickRoomUser = async (
       ? duration
       : "THIRTY_MINUTES";
   const payload = {
+    userId: Number(targetUserId) || String(targetUserId),
     targetUserId: Number(targetUserId) || String(targetUserId),
+    roomId: Number(roomId) || String(roomId),
     duration: validDuration,
     reason: String(reason || "Misbehaving in room"),
   };
   logRequest("POST", path, payload);
+  console.log(`${LOG_TAG} [KICK_REQUEST] POST ${path}`, {
+    roomId,
+    payload,
+  });
   try {
     const response = await API.post(path, payload, await authRequestConfig());
+    console.log(`${LOG_TAG} [KICK_RESPONSE] POST ${path}`, {
+      status: response?.status,
+      data: response?.data,
+    });
     logResponse("POST", path, response.data);
     return response.data;
   } catch (error) {
+    console.error(`${LOG_TAG} [KICK_ERROR] POST ${path}`, {
+      status: error?.response?.status,
+      data: error?.response?.data,
+      message: error?.message,
+    });
     logError("POST", path, error);
     throw error;
   }

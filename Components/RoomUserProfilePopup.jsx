@@ -137,14 +137,14 @@ export default function RoomUserProfilePopup({
     isOwner || user?.isOwner || role?.toLowerCase() === "owner"
   );
   const isUserAdmin = Boolean(
-    targetIsAdmin ||
-    user?.isRoomAdmin ||
-    user?.isAdmin ||
-    role?.toLowerCase() === "admin"
+    typeof targetIsAdmin === "boolean"
+      ? targetIsAdmin
+      : user?.isRoomAdmin || user?.isAdmin || role?.toLowerCase() === "admin"
   );
-  // An admin cannot kick out another admin (kickout is disabled on other admins).
-  // The room owner (viewerOwner) can kick out anyone (except themselves).
-  const isKickoutDisabled = Boolean(!isViewerOwner && isUserAdmin);
+  // When target user is an admin, kickout button is disabled (even for the room owner).
+  // The room owner must remove admin privileges first before kicking out.
+  // Once the user becomes a normal user, kickout is enabled like any other normal user profile.
+  const isKickoutDisabled = Boolean(isUserAdmin);
   const displayRole =
     role ?? (isUserOwner ? "Owner" : isUserAdmin ? "Admin" : "Member");
   const flagUrl = user?.flagUrl ?? null;
@@ -321,7 +321,7 @@ export default function RoomUserProfilePopup({
     if (isKickoutDisabled) {
       Alert.alert(
         "Action Not Allowed",
-        "Admins cannot kick out other admins. Only the room owner can kick out an admin.",
+        "Admins cannot be kicked out. Remove admin privileges first to kick out this user.",
       );
       return;
     }

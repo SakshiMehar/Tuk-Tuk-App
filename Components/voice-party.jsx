@@ -202,6 +202,7 @@ import {
   refreshWalletBalance,
 } from "../src/store/walletStore";
 import * as pipService from "../src/services/pipService";
+import * as roomAudioService from "../src/services/roomAudioService";
 import { openUserChat } from "../src/utils/chatNavigation";
 import { createRoomInviteMessage } from "../src/utils/deepLinkUtils";
 import { resolveLocalLevelBadge } from "../src/utils/levelBadge";
@@ -1699,12 +1700,18 @@ export const resolveGiftVisual = (giftOrPayload, catalog = null) => {
 // Room chat is the one channel every device in the room reliably receives,
 // so other clients parse this line to show the same gift banner as the sender.
 const GIFT_CHAT_PATTERN =
-  /(?:^|\s)sent\s+(\S+)\s+(.+?)\s+×(\d+)(?:\s+to\s+(.+))?$/u;
+  /(?:^|\s)(?:.+?\s+)?sent\s+(\S+)\s+(.+?)(?:\s+×(\d+))?(?:\s+to\s+(.+))?$/u;
 
-export const buildGiftChatText = ({ emoji, name, quantity, receiverName }) => {
+export const buildGiftChatText = ({ emoji, name, quantity, receiverName, senderName }) => {
   const qty = Math.max(1, Number(quantity) || 1);
-  const base = `sent ${emoji || "🎁"} ${name || "Gift"} ×${qty}`;
-  return receiverName ? `${base} to ${receiverName}` : base;
+  const qtyStr = qty > 1 ? ` ×${qty}` : "";
+  const base = `sent ${emoji || "🎁"} ${name || "Gift"}${qtyStr}`;
+  const withReceiver = receiverName && receiverName !== "Select person" && receiverName !== "User"
+    ? `${base} to ${receiverName}`
+    : base;
+  return senderName && senderName !== "User"
+    ? `${senderName} ${withReceiver}`
+    : withReceiver;
 };
 
 export const parseGiftChatText = (text) => {
@@ -2258,6 +2265,8 @@ export default function VoiceParty() {
   // Current name/avatar fetched per-userId for chat senders who aren't in the
   // room's live participant/seat lists — see resolveChatSenderName/Avatar below.
   const [userProfileCache, setUserProfileCache] = useState({});
+  const userProfileCacheRef = useRef(userProfileCache);
+  userProfileCacheRef.current = userProfileCache;
   const avatarLookupAttemptedRef = useRef(new Set());
   const [inputText, setInputText] = useState("");
   const [showTagPicker, setShowTagPicker] = useState(false);
@@ -2275,6 +2284,7 @@ export default function VoiceParty() {
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showPowerMenu, setShowPowerMenu] = useState(false);
   const [isInPipMode, setIsInPipMode] = useState(false);
+  const pendingPipOnResumeRef = useRef(false);
 
   useEffect(() => {
     pipService
@@ -2321,6 +2331,9 @@ export default function VoiceParty() {
   const [kickTargetUser, setKickTargetUser] = useState(null);
   const [selectedKickDuration, setSelectedKickDuration] = useState("THIRTY_MINUTES");
   const [kickSubmitting, setKickSubmitting] = useState(false);
+  const kickSubmittingRef = useRef(false);
+  const hasShownKickAlertRef = useRef(false);
+  const triggerUserKickedAlertRef = useRef(null);
   const [showKickedUsersModal, setShowKickedUsersModal] = useState(false);
   const [kickedUsersList, setKickedUsersList] = useState([]);
   const [kickedUsersLoading, setKickedUsersLoading] = useState(false);
@@ -2450,6 +2463,17 @@ export default function VoiceParty() {
   const exitedRef = useRef(false);
   const onMicRef = useRef(false);
   const mySeatNumberRef = useRef(null);
+  const isMicMutedRef = useRef(isMicMuted);
+  const isAppBackgroundedRef = useRef(false);
+
+  useEffect(() => {
+    isMicMutedRef.current = isMicMuted;
+    roomAudioService.updateBackgroundRoomSession({
+      seatNumber: mySeatNumberRef.current,
+      isMuted: isMicMuted,
+      isAppBackgrounded: isAppBackgroundedRef.current,
+    });
+  }, [isMicMuted]);
   // Tracks consecutive presence-list misses per userId (see reconcileSeatAssignments).
   const staleSeatTrackerRef = useRef(new Map());
   // Agora uids with a live remote audio stream right now (kept in sync from
@@ -2480,6 +2504,11 @@ export default function VoiceParty() {
     if (typeof partyVoice.setActiveSeatNumber === "function") {
       partyVoice.setActiveSeatNumber(mySeatNumber);
     }
+    roomAudioService.updateBackgroundRoomSession({
+      seatNumber: mySeatNumber,
+      isMuted: isMicMutedRef.current,
+      isAppBackgrounded: isAppBackgroundedRef.current,
+    });
   }, [mySeatNumber]);
 
   const { keyboardHeight, safeBottom, idleBottom, composerBottom, isKeyboardVisible } = useKeyboardInset();
@@ -3307,6 +3336,82 @@ export default function VoiceParty() {
       return userProfileCache[idStr]?.name ?? fallbackName;
     },
     [onlineUsers, seats, userProfileCache],
+  );
+
+  const resolveRoomMemberInfo = useCallback(
+    (userId, fallbackName, fallbackAvatar) => {
+      const idStr = userId != null ? String(userId) : null;
+      const currentOnline = onlineUsersRef.current || [];
+      const currentSeats = seatsRef.current || [];
+      const currentCache = userProfileCacheRef.current || {};
+
+      let matched = null;
+      if (idStr) {
+        if (myUserId != null && isSameUser(idStr, myUserId)) {
+          matched = {
+            name: localSessionUser?.name || myDisplayNameRef.current || "You",
+            avatar: myAvatar || localSessionUser?.avatar || null,
+          };
+        } else {
+          matched =
+            currentOnline.find((u) => isSameUser(u?.id ?? u?.userId, idStr)) ||
+            currentSeats.find(
+              (s) => s.user && isSameUser(s.user.id ?? s.user.userId, idStr),
+            )?.user ||
+            (hostId && isSameUser(idStr, hostId)
+              ? { name: roomInfo?.name ?? "Host", avatar: roomInfo?.avatar ?? null }
+              : null) ||
+            currentCache[idStr] ||
+            null;
+        }
+      }
+
+      const validFallbackName =
+        typeof fallbackName === "string" &&
+        fallbackName.trim().length > 0 &&
+        fallbackName.trim().toLowerCase() !== "user"
+          ? fallbackName.trim()
+          : null;
+
+      const name =
+        validFallbackName ||
+        matched?.name ||
+        matched?.username ||
+        matched?.displayName ||
+        (idStr && hostId && isSameUser(idStr, hostId) ? (roomInfo?.name ?? "Host") : null) ||
+        (idStr && myUserId != null && isSameUser(idStr, myUserId)
+          ? (localSessionUser?.name || "You")
+          : null) ||
+        "User";
+
+      const avatar =
+        fallbackAvatar ||
+        matched?.avatar ||
+        matched?.avatarUrl ||
+        matched?.profilePicUrl ||
+        matched?.profileImageUrl ||
+        (idStr && myUserId != null && isSameUser(idStr, myUserId) ? myAvatar : null) ||
+        null;
+
+      if (idStr && !matched && !avatarLookupAttemptedRef.current?.has(idStr)) {
+        avatarLookupAttemptedRef.current?.add(idStr);
+        loadUserDetail(idStr)
+          .then((detail) => {
+            if (!detail) return;
+            setUserProfileCache((prev) => ({
+              ...prev,
+              [idStr]: {
+                name: detail.name || detail.username || name,
+                avatarUrl: detail.avatarUrl || detail.profilePicUrl || avatar,
+              },
+            }));
+          })
+          .catch(() => {});
+      }
+
+      return { id: idStr, name, avatar };
+    },
+    [myUserId, localSessionUser, myAvatar, hostId, roomInfo],
   );
 
   // For any chat sender not currently in the room's live participant/seat lists —
@@ -4843,6 +4948,10 @@ export default function VoiceParty() {
   const recentGiftBannersRef = useRef(new Map());
   // Chat lines this device just sent as gifts — the server echoes them back.
   const mySentGiftTextsRef = useRef(new Map());
+  // Gift notification deduplication tracker to prevent duplicate gift chat messages
+  const processedGiftTrackerRef = useRef(new Map());
+  // Tracks locally sent gift details so sender/receiver names are accurately correlated on echo
+  const recentLocalSentGiftRef = useRef(null);
   const myDisplayNameRef = useRef("");
   useEffect(() => {
     myDisplayNameRef.current = String(
@@ -4954,6 +5063,187 @@ export default function VoiceParty() {
       }
     }
   }, []);
+
+  const handleIncomingGiftEvent = useCallback(
+    (payload, sourceTopic) => {
+      if (!payload) return;
+
+      const senderId =
+        payload?.senderId ??
+        payload?.userId ??
+        payload?.fromUserId ??
+        payload?.from ??
+        payload?.sender?.id ??
+        payload?.fromUser?.id;
+
+      const rawSenderName =
+        payload?.senderName ??
+        payload?.sender ??
+        payload?.userName ??
+        payload?.username ??
+        payload?.user?.name ??
+        payload?.fromUser?.name ??
+        payload?.nickname;
+
+      const rawSenderAvatar =
+        payload?.senderAvatar ??
+        payload?.avatar ??
+        payload?.profileImage ??
+        payload?.profileImageUrl ??
+        payload?.profilePicUrl ??
+        payload?.user?.avatar;
+
+      // Check if self recently sent a gift locally
+      const recentLocal = recentLocalSentGiftRef.current;
+      const isRecentLocalMatch =
+        recentLocal &&
+        Date.now() - recentLocal.time < 5000 &&
+        (isSameUser(senderId, myUserId) ||
+          (senderId == null && isSameUser(recentLocal.senderId, myUserId)));
+
+      const resolvedSender = resolveRoomMemberInfo(
+        senderId || (isRecentLocalMatch ? myUserId : null),
+        isRecentLocalMatch ? recentLocal.senderName : rawSenderName,
+        isRecentLocalMatch ? recentLocal.senderAvatar : rawSenderAvatar,
+      );
+
+      const receiverId =
+        payload?.receiverId ??
+        payload?.toUserId ??
+        payload?.targetUserId ??
+        payload?.recipientId ??
+        payload?.toUser?.id ??
+        payload?.receiver?.id ??
+        (isRecentLocalMatch ? recentLocal.receiverId : null);
+
+      const rawReceiverName =
+        payload?.receiverName ??
+        payload?.receiver ??
+        payload?.toUserName ??
+        payload?.toUser?.name ??
+        payload?.targetUserName ??
+        (isRecentLocalMatch ? recentLocal.receiverName : null);
+
+      const resolvedReceiver = resolveRoomMemberInfo(
+        receiverId,
+        rawReceiverName,
+        null,
+      );
+
+      const receiverDisplayName =
+        (rawReceiverName &&
+        rawReceiverName !== "User" &&
+        rawReceiverName !== "Select person"
+          ? rawReceiverName
+          : null) ||
+        (resolvedReceiver?.name &&
+        resolvedReceiver.name !== "User" &&
+        resolvedReceiver.name !== "Select person"
+          ? resolvedReceiver.name
+          : null) ||
+        (isRecentLocalMatch &&
+        recentLocal.receiverName &&
+        recentLocal.receiverName !== "Select person"
+          ? recentLocal.receiverName
+          : null) ||
+        (receiverId && isSameUser(receiverId, hostId)
+          ? (roomInfo?.name ?? "Host")
+          : null);
+
+      const giftName =
+        payload?.giftName ??
+        payload?.name ??
+        payload?.gift?.name ??
+        (isRecentLocalMatch ? recentLocal.giftName : null) ??
+        "a gift";
+
+      const qty = Math.max(
+        1,
+        Number(
+          payload?.quantity ??
+            payload?.qty ??
+            (isRecentLocalMatch ? recentLocal.quantity : 1),
+        ),
+      );
+
+      const emoji = payload?.emoji || "🎁";
+
+      // Deduplication check: key based on sender + giftName + receiver + qty
+      const dedupeKey = `${resolvedSender.id || resolvedSender.name}_${giftName}_${receiverId || receiverDisplayName || ""}_${qty}`.toLowerCase();
+      const now = Date.now();
+      const lastSeen = processedGiftTrackerRef.current.get(dedupeKey);
+      if (lastSeen && now - lastSeen < 4000) {
+        // Skip duplicate gift notification from multiple websocket topics
+        return;
+      }
+      processedGiftTrackerRef.current.set(dedupeKey, now);
+
+      if (processedGiftTrackerRef.current.size > 100) {
+        for (const [k, t] of processedGiftTrackerRef.current.entries()) {
+          if (now - t > 10000) processedGiftTrackerRef.current.delete(k);
+        }
+      }
+
+      const receiverIsMe = Boolean(
+        (receiverId != null && isSameUser(receiverId, myUserId)) ||
+          (receiverDisplayName &&
+            myDisplayNameRef.current &&
+            receiverDisplayName.toLowerCase() ===
+              myDisplayNameRef.current.toLowerCase()),
+      );
+
+      // Trigger gift banner animation
+      revealGiftAnimation(
+        {
+          ...payload,
+          senderName: resolvedSender.name,
+          senderAvatar: resolvedSender.avatar,
+          receiverName: receiverDisplayName,
+          giftName,
+          quantity: qty,
+          emoji,
+          receiverIsMe,
+        },
+        {
+          senderName: resolvedSender.name,
+          senderAvatar: resolvedSender.avatar,
+          receiverName: receiverDisplayName,
+          name: giftName,
+          quantity: qty,
+        },
+      );
+
+      // Format: "Sender Name" sent "Gift Name" to "Receiver Name"
+      const qtyStr = qty > 1 ? ` ×${qty}` : "";
+      const toPart = receiverDisplayName ? ` to ${receiverDisplayName}` : "";
+      const fullGiftChatText = `${resolvedSender.name} sent ${emoji} ${giftName}${qtyStr}${toPart}`;
+
+      const normalized = normalizeChatMessage({
+        id:
+          payload?.id ??
+          `ws-gift-${now}-${Math.random().toString(36).slice(2, 6)}`,
+        message: fullGiftChatText,
+        text: fullGiftChatText,
+        senderName: resolvedSender.name,
+        user: resolvedSender.name,
+        userId: resolvedSender.id,
+        avatar: resolvedSender.avatar,
+        receiverId: receiverId ?? null,
+        receiverName: receiverDisplayName ?? null,
+        isGift: true,
+      });
+
+      setMessages((prev) => upsertChatMessage(prev, normalized));
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    },
+    [
+      resolveRoomMemberInfo,
+      revealGiftAnimation,
+      myUserId,
+      hostId,
+      roomInfo,
+    ],
+  );
 
   useEffect(() => {
     if (!roomId) return undefined;
@@ -5284,96 +5574,7 @@ export default function VoiceParty() {
     const unsubGiftAnimation = wsService.onRoomGiftAnimation(
       String(roomId),
       (payload) => {
-        const senderId =
-          payload?.senderId ??
-          payload?.userId ??
-          payload?.fromUserId ??
-          payload?.from;
-        let matchedUser = null;
-        if (senderId) {
-          matchedUser =
-            onlineUsers.find(
-              (u) => String(u.id || u.userId) === String(senderId),
-            ) ||
-            seats.find(
-              (s) =>
-                s.user &&
-                String(s.user.id || s.user.userId) === String(senderId),
-            )?.user;
-        }
-
-        const senderName =
-          payload?.senderName ??
-          payload?.sender ??
-          payload?.userName ??
-          payload?.username ??
-          payload?.user?.name ??
-          payload?.fromUser?.name ??
-          payload?.nickname ??
-          matchedUser?.name ??
-          matchedUser?.username ??
-          "User";
-
-        const senderAvatar =
-          payload?.senderAvatar ??
-          payload?.avatar ??
-          payload?.user?.avatar ??
-          payload?.profileImageUrl ??
-          payload?.profilePicUrl ??
-          matchedUser?.profileImageUrl ??
-          matchedUser?.avatar ??
-          null;
-
-        const receiverId = payload?.receiverId ?? payload?.toUserId;
-        let matchedReceiver = null;
-        if (receiverId) {
-          matchedReceiver =
-            onlineUsers.find(
-              (u) => String(u.id || u.userId) === String(receiverId),
-            ) ||
-            seats.find(
-              (s) =>
-                s.user &&
-                String(s.user.id || s.user.userId) === String(receiverId),
-            )?.user ||
-            (isSameUser(receiverId, hostId)
-              ? { name: roomInfo?.name ?? "Host" }
-              : null);
-        }
-
-        const receiverName =
-          payload?.receiverName ??
-          payload?.receiver ??
-          payload?.toUser?.name ??
-          matchedReceiver?.name ??
-          (isSameUser(receiverId, hostId) ? "Host" : null);
-
-        const enrichedPayload = {
-          ...payload,
-          senderName,
-          senderAvatar,
-          receiverName,
-        };
-
-        revealGiftAnimation(enrichedPayload);
-        const giftName =
-          payload?.giftName ?? payload?.name ?? payload?.gift?.name ?? "a gift";
-        const qty = Math.max(1, Number(payload?.quantity ?? payload?.qty ?? 1));
-        const giftText = `sent ${payload?.emoji ?? "🎁"} ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
-        const normalized = normalizeChatMessage({
-          id: payload?.id ?? `gift-ws-${Date.now()}`,
-          message: `${senderName} ${giftText}`,
-          senderName,
-          avatar: senderAvatar,
-          text: `${senderName} ${giftText}`,
-          isGift: true,
-        });
-        if (!normalized.text) return;
-        setMessages((prev) => upsertChatMessage(prev, normalized));
-        setTimeout(
-          () => scrollRef.current?.scrollToEnd({ animated: true }),
-          100,
-        );
+        handleIncomingGiftEvent(payload, "gift-animation");
       },
     );
     // The room's live PK card — pushed on create/accept/reject/score
@@ -5533,45 +5734,7 @@ export default function VoiceParty() {
 
           case "GIFT_SENT":
           case "GIFT": {
-            const giftName = payload.giftName || payload.name || "a gift";
-            const qty = Math.max(
-              1,
-              Number(payload.quantity || payload.qty || 1),
-            );
-            const receiverName =
-              payload.receiverName || payload.receiver || null;
-            revealGiftAnimation(
-              {
-                ...payload,
-                senderName: uName,
-                senderAvatar: uAvatar,
-                receiverName,
-                giftName,
-                quantity: qty,
-              },
-              {
-                senderName: uName,
-                senderAvatar: uAvatar,
-                receiverName,
-                name: giftName,
-                quantity: qty,
-              },
-            );
-
-            const giftChatText = `sent 🎁 ${giftName}${qty > 1 ? ` ×${qty}` : ""}`;
-            const normalized = normalizeChatMessage({
-              id: payload.id ?? `ws-gift-${Date.now()}`,
-              message: `${uName} ${giftChatText}`,
-              text: `${uName} ${giftChatText}`,
-              senderName: uName,
-              avatar: uAvatar,
-              isGift: true,
-            });
-            setMessages((prev) => upsertChatMessage(prev, normalized));
-            setTimeout(
-              () => scrollRef.current?.scrollToEnd({ animated: true }),
-              100,
-            );
+            handleIncomingGiftEvent(payload, "notifications");
             break;
           }
 
@@ -5698,19 +5861,13 @@ export default function VoiceParty() {
                   ? String(payload.targetUserId)
                   : null;
             if (kickedUserId) {
-              const currentSelfId = myUserIdRef.current || myUserId;
+              const currentSelfId =
+                myUserIdRef.current ||
+                myUserId ||
+                localSessionUser?.id ||
+                localSessionUser?.userId;
               if (currentSelfId && isSameUser(kickedUserId, currentSelfId)) {
-                setRoomRestriction(
-                  roomIdRef.current || roomId,
-                  payload?.duration || "THIRTY_MINUTES",
-                  payload,
-                );
-                Alert.alert(
-                  "Removed from Room",
-                  "You have been removed from this room by the host or an administrator.",
-                  [{ text: "OK", onPress: () => handleExitRoom() }],
-                  { cancelable: false },
-                );
+                triggerUserKickedAlertRef.current?.(payload?.duration, payload);
                 return;
               }
 
@@ -5719,7 +5876,7 @@ export default function VoiceParty() {
                 prev.map((seat) => {
                   if (
                     seat.user &&
-                    String(seat.user.id ?? seat.user.userId) === kickedUserId
+                    isSameUser(seat.user.id ?? seat.user.userId, kickedUserId)
                   ) {
                     return { ...seat, user: null };
                   }
@@ -5727,7 +5884,9 @@ export default function VoiceParty() {
                 }),
               );
               setOnlineUsers((prev) =>
-                prev.filter((u) => String(u?.id ?? u?.userId) !== kickedUserId),
+                prev.filter(
+                  (u) => !isSameUser(u?.id ?? u?.userId, kickedUserId),
+                ),
               );
               setOnlineCount((prev) => Math.max(0, prev - 1));
 
@@ -5763,19 +5922,13 @@ export default function VoiceParty() {
         payload.userName || payload.targetUserName || payload.name || "User";
       if (!kickedUserId) return;
 
-      const currentSelfId = myUserIdRef.current || myUserId;
+      const currentSelfId =
+        myUserIdRef.current ||
+        myUserId ||
+        localSessionUser?.id ||
+        localSessionUser?.userId;
       if (currentSelfId && isSameUser(kickedUserId, currentSelfId)) {
-        setRoomRestriction(
-          roomIdRef.current || roomId,
-          payload?.duration || "THIRTY_MINUTES",
-          payload,
-        );
-        Alert.alert(
-          "Removed from Room",
-          "You have been removed from this room by the host or an administrator.",
-          [{ text: "OK", onPress: () => handleExitRoom() }],
-          { cancelable: false },
-        );
+        triggerUserKickedAlertRef.current?.(payload?.duration, payload);
         return;
       }
 
@@ -5783,7 +5936,7 @@ export default function VoiceParty() {
         prev.map((seat) => {
           if (
             seat.user &&
-            String(seat.user.id ?? seat.user.userId) === kickedUserId
+            isSameUser(seat.user.id ?? seat.user.userId, kickedUserId)
           ) {
             return { ...seat, user: null };
           }
@@ -5791,7 +5944,7 @@ export default function VoiceParty() {
         }),
       );
       setOnlineUsers((prev) =>
-        prev.filter((u) => String(u?.id ?? u?.userId) !== kickedUserId),
+        prev.filter((u) => !isSameUser(u?.id ?? u?.userId, kickedUserId)),
       );
       setOnlineCount((prev) => Math.max(0, prev - 1));
 
@@ -5832,18 +5985,13 @@ export default function VoiceParty() {
                 ? String(payload.targetUserId)
                 : null;
           if (!kickedUserId) return;
-          if (myUserId && kickedUserId === String(myUserId)) {
-            setRoomRestriction(
-              roomIdRef.current || roomId,
-              payload?.duration || "THIRTY_MINUTES",
-              payload,
-            );
-            Alert.alert(
-              "Removed from Room",
-              "You have been removed from this room by the host or an administrator.",
-              [{ text: "OK", onPress: () => handleExitRoom() }],
-              { cancelable: false },
-            );
+          const currentSelfId =
+            myUserIdRef.current ||
+            myUserId ||
+            localSessionUser?.id ||
+            localSessionUser?.userId;
+          if (currentSelfId && isSameUser(kickedUserId, currentSelfId)) {
+            triggerUserKickedAlertRef.current?.(payload?.duration, payload);
             return;
           }
 
@@ -5851,7 +5999,7 @@ export default function VoiceParty() {
             prev.map((seat) => {
               if (
                 seat.user &&
-                String(seat.user.id ?? seat.user.userId) === kickedUserId
+                isSameUser(seat.user.id ?? seat.user.userId, kickedUserId)
               ) {
                 return { ...seat, user: null };
               }
@@ -5859,7 +6007,7 @@ export default function VoiceParty() {
             }),
           );
           setOnlineUsers((prev) =>
-            prev.filter((u) => String(u?.id ?? u?.userId) !== kickedUserId),
+            prev.filter((u) => !isSameUser(u?.id ?? u?.userId, kickedUserId)),
           );
           setOnlineCount((prev) => Math.max(0, prev - 1));
         }
@@ -5909,17 +6057,7 @@ export default function VoiceParty() {
         const kickedRoomId =
           payload.roomId != null ? String(payload.roomId) : null;
         if (!kickedRoomId || kickedRoomId === String(roomId)) {
-          setRoomRestriction(
-            kickedRoomId || roomIdRef.current || roomId,
-            payload?.duration || "THIRTY_MINUTES",
-            payload,
-          );
-          Alert.alert(
-            "Removed from Room",
-            "You have been removed from this room by the host or an administrator.",
-            [{ text: "OK", onPress: () => handleExitRoom() }],
-            { cancelable: false },
-          );
+          triggerUserKickedAlertRef.current?.(payload?.duration, payload);
         }
       },
     );
@@ -6161,6 +6299,7 @@ export default function VoiceParty() {
     mySeatNumberRef.current = null;
     setOnMic(false);
     setMySeatNumber(null);
+    roomAudioService.stopBackgroundRoomAudio();
 
     // Navigate back immediately so the UI is responsive on the first click
     if (router.canGoBack()) {
@@ -6188,6 +6327,47 @@ export default function VoiceParty() {
     })();
   }, [roomId, router, flushListenRewardProgress, mySeatNumber, myUserId, localSessionUser]);
 
+  const handleExitRoomRef = useRef(handleExitRoom);
+  handleExitRoomRef.current = handleExitRoom;
+  useEffect(() => {
+    handleExitRoomRef.current = handleExitRoom;
+  }, [handleExitRoom]);
+
+  const triggerUserKickedAlert = useCallback(
+    (duration, payload) => {
+      if (hasShownKickAlertRef.current || exitedRef.current) return;
+      hasShownKickAlertRef.current = true;
+      roomAudioService.stopBackgroundRoomAudio();
+      setRoomRestriction(
+        roomIdRef.current || roomId,
+        duration || "THIRTY_MINUTES",
+        payload,
+      );
+      Alert.alert(
+        "Removed from Room",
+        "You have been removed from this room by the host or an administrator.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              if (typeof handleExitRoomRef.current === "function") {
+                handleExitRoomRef.current();
+              } else if (typeof handleExitRoom === "function") {
+                handleExitRoom();
+              }
+            },
+          },
+        ],
+        { cancelable: false },
+      );
+    },
+    [roomId, handleExitRoom],
+  );
+  triggerUserKickedAlertRef.current = triggerUserKickedAlert;
+  useEffect(() => {
+    triggerUserKickedAlertRef.current = triggerUserKickedAlert;
+  }, [triggerUserKickedAlert]);
+
   const promptExitConfirmation = useCallback(() => {
     Alert.alert(
       "Leave Room?",
@@ -6212,35 +6392,98 @@ export default function VoiceParty() {
     );
   }, [handleExitRoom]);
 
-  const handleKeepPress = useCallback(async () => {
-    setShowPowerMenu(false);
-    if (Platform.OS === "android") {
+  const requestEnterPip = useCallback((delayMs = 250) => {
+    setTimeout(async () => {
       try {
-        const supported = await pipService.isPipSupported();
-        if (supported) {
-          // Allow the modal dismiss transition to complete before requesting PiP
-          setTimeout(async () => {
-            try {
-              const entered = await pipService.enterPipMode({ width: 9, height: 16 });
-              if (!entered) {
-                console.warn("[VoiceParty] enterPipMode returned false");
-              }
-            } catch (err) {
-              console.warn("[VoiceParty] enterPipMode failed:", err);
-            }
-          }, 250);
-          return;
-        } else {
+        const entered = await pipService.enterPipMode({ width: 9, height: 16 });
+        if (!entered) {
+          console.warn("[VoiceParty] enterPipMode returned false");
+        }
+      } catch (err) {
+        console.warn("[VoiceParty] enterPipMode failed:", err);
+        const errMsg = String(err?.message || err || "");
+        if (errMsg.includes("PERMISSION_DENIED")) {
           Alert.alert(
             "PiP Permission Required",
             "Picture-in-Picture is disabled in Android settings. Please enable 'Picture-in-picture' permission for Tuk-Tuk in Settings to use Keep mode.",
+            [
+              {
+                text: "Cancel",
+                style: "cancel",
+                onPress: () => {
+                  pendingPipOnResumeRef.current = false;
+                },
+              },
+              {
+                text: "Open Settings",
+                style: "default",
+                onPress: async () => {
+                  pendingPipOnResumeRef.current = true;
+                  await pipService.openPipSettings();
+                },
+              },
+            ],
+            { cancelable: true },
           );
         }
-      } catch (err) {
-        console.warn("[VoiceParty] Failed to check PiP mode:", err);
       }
-    }
+    }, delayMs);
   }, []);
+
+  const handleKeepPress = useCallback(async () => {
+    setShowPowerMenu(false);
+    if (Platform.OS !== "android") {
+      return;
+    }
+    try {
+      // 1. Check if the device hardware and Android OS support Picture-in-Picture
+      const supported = await pipService.isPipSupported();
+      if (!supported) {
+        // Graceful fallback for unsupported devices (e.g. low-RAM devices or Android < 8.0)
+        Alert.alert(
+          "Keep Mode Unavailable",
+          "Picture-in-Picture is not supported on this device. You will remain in the room.",
+          [{ text: "OK", style: "default" }],
+        );
+        return;
+      }
+
+      // 2. Check if PiP permission is granted in Android settings for Tuk-Tuk
+      const hasPermission = await pipService.hasPipPermission();
+      if (hasPermission) {
+        // Permission is granted: directly enter PiP mode
+        requestEnterPip(250);
+        return;
+      }
+
+      // 3. PiP is supported, but disabled in Android settings:
+      // Show improved modal with "Open Settings" and "Cancel"
+      Alert.alert(
+        "PiP Permission Required",
+        "Picture-in-Picture is disabled in Android settings. Please enable 'Picture-in-picture' permission for Tuk-Tuk in Settings to use Keep mode.",
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => {
+              pendingPipOnResumeRef.current = false;
+            },
+          },
+          {
+            text: "Open Settings",
+            style: "default",
+            onPress: async () => {
+              pendingPipOnResumeRef.current = true;
+              await pipService.openPipSettings();
+            },
+          },
+        ],
+        { cancelable: true },
+      );
+    } catch (err) {
+      console.warn("[VoiceParty] Failed to check PiP mode:", err);
+    }
+  }, [requestEnterPip]);
 
   // Intercept Android hardware back button — close any open chat input /
   // pickers / modals in order; show confirmation popup before leaving room.
@@ -6428,6 +6671,7 @@ export default function VoiceParty() {
     if (!onMic || !mySeatNumber || !roomId) return;
 
     const ping = async () => {
+      if (isAppBackgroundedRef.current) return;
       try {
         if (__DEV__) {
           console.log('[HEARTBEAT] Seat heartbeat ping', {
@@ -6454,7 +6698,9 @@ export default function VoiceParty() {
 
     // Send immediate heartbeat on WebSocket reconnection if still on mic
     const unsubReconnect = wsService.onReconnect(() => {
-      ping();
+      if (!isAppBackgroundedRef.current) {
+        ping();
+      }
     });
 
     return () => {
@@ -6472,6 +6718,7 @@ export default function VoiceParty() {
     if (!roomId) return;
 
     const ping = async () => {
+      if (isAppBackgroundedRef.current) return;
       try {
         if (wsService.connected) {
           wsService.sendRoomHeartbeat(String(roomId));
@@ -6488,6 +6735,36 @@ export default function VoiceParty() {
     return () => clearInterval(interval);
   }, [roomId]);
 
+  // Background voice-room audio & heartbeat service lifecycle
+  useEffect(() => {
+    if (!roomId) return;
+
+    // Start background room audio service with initial state
+    roomAudioService.startBackgroundRoomAudio({
+      roomId: String(roomId),
+      seatNumber: mySeatNumberRef.current ?? mySeatNumber,
+      isMuted: isMicMutedRef.current ?? isMicMuted,
+      isAppBackgrounded: isAppBackgroundedRef.current,
+    });
+
+    // Listen for 409 session invalid event emitted by RoomAudioModule
+    const unsubSessionInvalid = roomAudioService.subscribeBackgroundSessionInvalid(() => {
+      if (__DEV__) {
+        console.log("[VoiceParty] Received 409 background session invalid, exiting room");
+      }
+      if (typeof handleExitRoomRef.current === "function") {
+        handleExitRoomRef.current();
+      } else if (typeof handleExitRoom === "function") {
+        handleExitRoom();
+      }
+    });
+
+    return () => {
+      unsubSessionInvalid?.();
+      roomAudioService.stopBackgroundRoomAudio();
+    };
+  }, [roomId]);
+
   // Handle AppState changes (background / active) to preserve seat and voice in background
   useEffect(() => {
     const handleAppState = async (nextState) => {
@@ -6497,6 +6774,13 @@ export default function VoiceParty() {
 
       if (nextState === "active") {
         // User resumed app from background:
+        isAppBackgroundedRef.current = false;
+        roomAudioService.updateBackgroundRoomSession({
+          seatNumber: currentSeat,
+          isMuted: isMicMutedRef.current,
+          isAppBackgrounded: false,
+        });
+
         // 1. Immediately send heartbeats
         if (currentSeat) {
           try {
@@ -6541,22 +6825,27 @@ export default function VoiceParty() {
             );
           }
         } catch {}
-      } else if (nextState === "background" || nextState === "inactive") {
-        // App is backgrounding: send an immediate heartbeat so backend has fresh timestamp
-        if (currentSeat) {
+
+        // 3. If returning from Android Settings where user was prompted to enable PiP, re-check and enter PiP
+        if (Platform.OS === "android" && pendingPipOnResumeRef.current) {
+          pendingPipOnResumeRef.current = false;
           try {
-            if (wsService.connected) {
-              wsService.sendSeatHeartbeat(String(activeRoom), currentSeat);
+            const hasPermission = await pipService.hasPipPermission();
+            if (hasPermission) {
+              requestEnterPip(350);
             }
-            postSeatHeartbeat(String(activeRoom), currentSeat).catch(() => {});
-          } catch {}
-        }
-        try {
-          if (wsService.connected) {
-            wsService.sendRoomHeartbeat(String(activeRoom));
+          } catch (err) {
+            console.warn("[VoiceParty] Failed to re-check PiP permission on resume:", err);
           }
-          postRoomHeartbeat(String(activeRoom)).catch(() => {});
-        } catch {}
+        }
+      } else if (nextState === "background" || nextState === "inactive") {
+        // App is backgrounding: notify native background audio service to start background heartbeat
+        isAppBackgroundedRef.current = true;
+        roomAudioService.updateBackgroundRoomSession({
+          seatNumber: currentSeat,
+          isMuted: isMicMutedRef.current,
+          isAppBackgrounded: true,
+        });
       }
     };
 
@@ -6564,7 +6853,7 @@ export default function VoiceParty() {
     return () => {
       sub.remove();
     };
-  }, [roomId, mySeatNumber, myUserId]);
+  }, [roomId, mySeatNumber, myUserId, requestEnterPip]);
 
   // Belt-and-braces poll for the room's PK card — the `pk` WS topic should
   // push every create/accept/reject/score/finish, but if the backend only
@@ -7610,6 +7899,20 @@ export default function VoiceParty() {
       };
       const response = await API.post(`/api/v1/tuktuk/rooms/${roomId}/buy/and/send/gift`, payload);
 
+      recentLocalSentGiftRef.current = {
+        senderId: myUserId,
+        senderName: localSessionUser?.name || myDisplayNameRef.current || "You",
+        senderAvatar: myAvatar || localSessionUser?.avatar || null,
+        receiverId: Number(giftReceiverId),
+        receiverName:
+          giftReceiverName && giftReceiverName !== "Select person"
+            ? giftReceiverName
+            : null,
+        giftName: purchaseGift.name,
+        quantity: Number(sendGiftQuantity),
+        time: Date.now(),
+      };
+
       if (response?.data?.wallet) {
         applyWalletFromSources({ walletData: response.data.wallet });
       } else {
@@ -7967,7 +8270,22 @@ export default function VoiceParty() {
           name: g.name,
           quantity: qty,
           receiverName: receiverDisplayName,
+          senderName,
         });
+
+        recentLocalSentGiftRef.current = {
+          senderId: myUserId,
+          senderName,
+          senderAvatar,
+          receiverId: Number(receiverId),
+          receiverName: receiverDisplayName,
+          giftName: g.name,
+          quantity: qty,
+          time: Date.now(),
+        };
+
+        const dedupeKey = `${myUserId || senderName}_${g.name}_${receiverId || receiverDisplayName || ""}_${qty}`.toLowerCase();
+        processedGiftTrackerRef.current.set(dedupeKey, Date.now());
 
         const result = await sendPartyRoomGift({
           roomId,
@@ -8409,6 +8727,9 @@ export default function VoiceParty() {
             next.delete(targetId);
             return next;
           });
+          setProfilePopupUser((prev) =>
+            prev ? { ...prev, isRoomAdmin: false, isAdmin: false } : prev,
+          );
           if (roomId) {
             await wsService
               .sendRoomAdminChanged(String(roomId), targetId, false, targetName)
@@ -8426,6 +8747,9 @@ export default function VoiceParty() {
             next.add(targetId);
             return next;
           });
+          setProfilePopupUser((prev) =>
+            prev ? { ...prev, isRoomAdmin: true, isAdmin: true } : prev,
+          );
           if (roomId) {
             await wsService
               .sendRoomAdminChanged(String(roomId), targetId, true, targetName)
@@ -8511,10 +8835,10 @@ export default function VoiceParty() {
         (targetUser?.id != null && roomAdminIds.has(String(targetUser.id))) ||
         (targetUser?.userId != null && roomAdminIds.has(String(targetUser.userId)));
 
-      if (!isHostSelf && isTargetAdmin) {
+      if (isTargetAdmin) {
         Alert.alert(
           "Action Not Allowed",
-          "Admins cannot kick out other admins. Only the room owner can.",
+          "Admins cannot be kicked out. Remove admin privileges first to kick out this user.",
         );
         return;
       }
@@ -8537,20 +8861,57 @@ export default function VoiceParty() {
   );
 
   const handleConfirmKickout = useCallback(async () => {
-    if (!kickTargetUser) return;
+    if (!kickTargetUser || kickSubmittingRef.current) return;
     const targetId = String(kickTargetUser.id ?? kickTargetUser.userId ?? "");
     const targetName =
       kickTargetUser.name || kickTargetUser.username || "User";
     if (!targetId || !roomId) return;
 
+    kickSubmittingRef.current = true;
     setKickSubmitting(true);
+    console.log("[voice-party] [KICK_ACTION_START]", {
+      roomId: String(roomId),
+      targetId,
+      targetName,
+      selectedKickDuration,
+    });
     try {
-      await kickRoomUser(
-        String(roomId),
-        targetId,
-        selectedKickDuration,
-        "Misbehaving in room",
-      );
+      try {
+        await kickRoomUser(
+          String(roomId),
+          targetId,
+          selectedKickDuration,
+          "Misbehaving in room",
+        );
+      } catch (kickApiErr) {
+        const isConflict =
+          kickApiErr?.status === 409 ||
+          kickApiErr?.response?.status === 409 ||
+          /already\s+kicked|conflict/i.test(
+            kickApiErr?.response?.data?.message || kickApiErr?.message || "",
+          );
+        if (isConflict) {
+          console.warn(
+            "[voice-party] User already kicked on backend (409 Conflict), proceeding with broadcast & removal:",
+            kickApiErr,
+          );
+        } else {
+          throw kickApiErr;
+        }
+      }
+
+      // Broadcast user kicked event across WebSocket topics so kicked user's app receives it immediately
+      await wsService
+        .sendRoomUserKicked(
+          String(roomId),
+          targetId,
+          selectedKickDuration,
+          targetName,
+          "Misbehaving in room",
+        )
+        .catch((e) => {
+          console.warn("[voice-party] sendRoomUserKicked failed:", e);
+        });
 
       // 1. Clear from mic seats if seated
       setSeats((prev) =>
@@ -8586,6 +8947,11 @@ export default function VoiceParty() {
         `${targetName} has been removed from the room.`,
       );
     } catch (err) {
+      console.error("[voice-party] [KICK_ACTION_ERROR]", {
+        status: err?.response?.status,
+        data: err?.response?.data,
+        message: err?.message,
+      });
       const errMsg =
         err?.response?.data?.message ||
         err?.response?.data?.error ||
@@ -8593,6 +8959,7 @@ export default function VoiceParty() {
         "Could not kick user from room.";
       Alert.alert("Kick Failed", errMsg);
     } finally {
+      kickSubmittingRef.current = false;
       setKickSubmitting(false);
     }
   }, [kickTargetUser, roomId, selectedKickDuration]);
@@ -10506,10 +10873,9 @@ export default function VoiceParty() {
         isViewerAdmin={isViewerAdmin}
         canManage={canManageRoomUsers}
         targetIsAdmin={Boolean(
-          profilePopupUser?.isRoomAdmin ??
-          (profilePopupUser &&
+          profilePopupUser &&
             (roomAdminIds.has(String(profilePopupUser.id)) ||
-             roomAdminIds.has(String(profilePopupUser.userId))))
+             roomAdminIds.has(String(profilePopupUser.userId)))
         )}
         countryFlag={
           isSameUser(profilePopupUser?.id, myUserId) ? myCountryFlag : null

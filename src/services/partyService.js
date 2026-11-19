@@ -491,7 +491,9 @@ const extractGiftSignature = (msg) => {
 
 const getGiftCore = (msg) => {
   const sig = extractGiftSignature(msg);
-  return sig ? sig.split(":")[1] : null;
+  if (!sig) return null;
+  const part = sig.split(":")[1] || "";
+  return part.split(/\s+to\s+/i)[0].replace(/×\d+/g, "").trim();
 };
 
 /** Append or replace a pending local echo when the server message arrives. */
@@ -549,9 +551,12 @@ export const upsertChatMessage = (prev, payload) => {
       const mSig = extractGiftSignature(m);
       if (!mSig || mSig !== giftSig) {
         if (giftCore && getGiftCore(m) === giftCore) {
-          const mUser = String(m.user || "").toLowerCase();
-          const nUser = String(normalized.user || "").toLowerCase();
-          if (mUser && nUser && (mUser === nUser || mUser === "you" || nUser === "you")) {
+          const mUser = String(m.user || m.senderName || "").toLowerCase();
+          const nUser = String(normalized.user || normalized.senderName || "").toLowerCase();
+          const isSameSender =
+            (normalized.userId != null && m.userId != null && String(normalized.userId) === String(m.userId)) ||
+            (mUser && nUser && (mUser === nUser || mUser === "you" || nUser === "you" || mUser === "user" || nUser === "user"));
+          if (isSameSender) {
             return true;
           }
         }
@@ -560,6 +565,22 @@ export const upsertChatMessage = (prev, payload) => {
       return true;
     });
     if (recentGiftIdx >= 0) {
+      const existing = prev.slice(-15)[recentGiftIdx];
+      const existingIdx = prev.indexOf(existing);
+      const existingUser = String(existing.user || existing.senderName || "").toLowerCase();
+      const newUser = String(normalized.user || normalized.senderName || "").toLowerCase();
+      const existingHasReceiver = /\s+to\s+/i.test(existing.text || "");
+      const newHasReceiver = /\s+to\s+/i.test(normalized.text || "");
+      if (
+        existingIdx >= 0 &&
+        ((existingUser === "user" && newUser !== "user") ||
+          (!existingHasReceiver && newHasReceiver) ||
+          (!existing.avatar && normalized.avatar))
+      ) {
+        const next = [...prev];
+        next[existingIdx] = { ...normalized, id: existing.id };
+        return next;
+      }
       return prev; // Ignore duplicate gift message
     }
   }

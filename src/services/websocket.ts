@@ -1076,6 +1076,96 @@ class WebSocketService {
     }
   }
 
+  async sendRoomUserKicked(
+    roomId: string,
+    targetUserId: string | number,
+    duration?: string,
+    targetName?: string,
+    reason?: string,
+  ): Promise<void> {
+    if (!roomId || !targetUserId) return;
+    const targetRoomId = String(roomId).trim();
+    const tUserId = String(targetUserId).trim();
+    const uName = targetName || 'User';
+    const kickDuration = duration || 'THIRTY_MINUTES';
+    const kickReason = reason || 'Misbehaving in room';
+
+    if (!this.connected) {
+      await this.connect().catch(() => {});
+    }
+    if (!this.connected || !this.client) {
+      console.warn('[WS] Cannot broadcast user kicked: client not connected');
+      return;
+    }
+
+    const payload = {
+      type: 'USER_KICKED',
+      eventType: 'USER_KICKED',
+      action: 'KICK',
+      roomId: targetRoomId,
+      userId: tUserId,
+      targetUserId: tUserId,
+      userName: uName,
+      targetUserName: uName,
+      name: uName,
+      duration: kickDuration,
+      reason: kickReason,
+      timestamp: new Date().toISOString(),
+    };
+    const body = JSON.stringify(payload);
+
+    // 1. Publish to room notifications topic
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/notifications`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish user kick to /topic/room/.../notifications:', e);
+    }
+
+    // 2. Publish to room kicked topic
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/kicked`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish user kick to /topic/room/.../kicked:', e);
+    }
+
+    // 3. Publish to user-specific kicked topic
+    try {
+      this.client.publish({
+        destination: `/topic/users/${tUserId}/kicked`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish user kick to /topic/users/.../kicked:', e);
+    }
+
+    // 4. Publish to room moderation topic
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/moderation`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish user kick to /topic/room/.../moderation:', e);
+    }
+
+    // 5. Optional application fallback destination
+    try {
+      this.client.publish({
+        destination: `/app/room/${targetRoomId}/notifications`,
+        body,
+      });
+    } catch {
+      // Optional fallback
+    }
+  }
+
+
   sendSpeakingStatus(roomId: string, isSpeaking: boolean, isMuted?: boolean): void {
     if (!this.connected || !this.client) return;
     const destination = `/app/room/${roomId}/speaking`;

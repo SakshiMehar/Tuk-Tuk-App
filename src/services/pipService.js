@@ -37,21 +37,32 @@ export const hasPipPermission = async () => {
   }
 };
 
-/**
- * Open the Android Picture-in-Picture settings screen for the app.
- * @returns {Promise<boolean>}
- */
 export const openPipSettings = async () => {
-  if (Platform.OS !== "android" || !PipModule) {
+  if (Platform.OS !== "android") {
     return false;
   }
   try {
-    if (typeof PipModule.openPipSettings === "function") {
-      return Boolean(await PipModule.openPipSettings());
+    if (PipModule && typeof PipModule.openPipSettings === "function") {
+      const opened = await PipModule.openPipSettings();
+      if (opened) return true;
+    }
+    const { Linking } = require("react-native");
+    if (Linking && typeof Linking.openSettings === "function") {
+      await Linking.openSettings();
+      return true;
     }
     return false;
   } catch (err) {
-    console.warn("[PipService] openPipSettings failed:", err);
+    console.warn("[PipService] openPipSettings failed, falling back to Linking:", err);
+    try {
+      const { Linking } = require("react-native");
+      if (Linking && typeof Linking.openSettings === "function") {
+        await Linking.openSettings();
+        return true;
+      }
+    } catch (linkErr) {
+      console.warn("[PipService] Linking.openSettings failed:", linkErr);
+    }
     return false;
   }
 };
