@@ -2809,6 +2809,12 @@ export default function VoiceParty() {
     myUserIdRef.current = myUserId;
   }, [myUserId]);
   const [localSessionUser, setLocalSessionUser] = useState(null);
+  const myAvatar =
+    localSessionUser?.avatar ||
+    localSessionUser?.avatarUrl ||
+    localSessionUser?.profilePicUrl ||
+    localSessionUser?.profileImageUrl ||
+    null;
   const myCountryFlag = useMyCountryFlag();
   const hostId =
     roomInfo?.hostId ?? roomInfo?.creatorId ?? roomInfo?.ownerId ?? null;
