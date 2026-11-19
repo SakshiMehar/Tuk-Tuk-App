@@ -29,6 +29,11 @@ import { checkAndShowRoomRestrictionAlert } from "../src/utils/roomRestriction";
 import DeviceBlockedModal from "../Components/DeviceBlockedModal";
 import { getDeviceHeaders } from "../src/utils/deviceHeaders";
 import { CallProvider } from "../src/context/CallContext";
+import {
+  VoicePartyProvider,
+  VoicePartyOverlayHost,
+} from "../src/context/VoicePartyContext";
+import FloatingVoiceParty from "../src/components/FloatingVoiceParty";
 LogBox.ignoreAllLogs();
 // ── Global font-scale guard ────────────────────────────────────────────────
 
@@ -205,33 +210,37 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <CallProvider>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: Colors.background },
-            animation: "slide_from_right",
-          }}
-        >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="login" options={{ gestureEnabled: false }} />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="enter-mobile" />
-        <Stack.Screen name="verify-otp" />
-        <Stack.Screen name="terms-of-use" />
-        <Stack.Screen name="privacy-policy" />
-        <Stack.Screen name="settings" />
-        <Stack.Screen name="account" />
-        <Stack.Screen name="voice-party" />
-        <Stack.Screen name="find-friends" />
-        <Stack.Screen name="nearby" />
-        <Stack.Screen name="chat-box" />
-        <Stack.Screen name="user-profile" />
-        <Stack.Screen name="blocked-accounts" />
-        <Stack.Screen name="message-notification" />
-        <Stack.Screen name="personality-test" />
-        <Stack.Screen name="room/[roomId]" />
-        </Stack>
-        <DeviceBlockedModal />
+        <VoicePartyProvider>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: Colors.background },
+              animation: "slide_from_right",
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="login" options={{ gestureEnabled: false }} />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="enter-mobile" />
+            <Stack.Screen name="verify-otp" />
+            <Stack.Screen name="terms-of-use" />
+            <Stack.Screen name="privacy-policy" />
+            <Stack.Screen name="settings" />
+            <Stack.Screen name="account" />
+            <Stack.Screen name="voice-party" />
+            <Stack.Screen name="find-friends" />
+            <Stack.Screen name="nearby" />
+            <Stack.Screen name="chat-box" />
+            <Stack.Screen name="user-profile" />
+            <Stack.Screen name="blocked-accounts" />
+            <Stack.Screen name="message-notification" />
+            <Stack.Screen name="personality-test" />
+            <Stack.Screen name="room/[roomId]" />
+          </Stack>
+          <VoicePartyOverlayHost />
+          <FloatingVoiceParty />
+          <DeviceBlockedModal />
+        </VoicePartyProvider>
       </CallProvider>
     </SafeAreaProvider>
   );

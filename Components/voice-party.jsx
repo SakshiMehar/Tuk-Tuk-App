@@ -2094,14 +2094,18 @@ const FloatingSeatEmojiOverlay = ({ item, onComplete }) => {
 };
 
 
-export default function VoiceParty() {
+export default function VoiceParty(props) {
   useKeepAwake();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  // const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams();
-  const roomIdParam = params.roomId ?? params.id ?? null;
-  const isRandomParty = params.party === "true";
+  const searchParams = useLocalSearchParams();
+  const params = props?.initialParams || searchParams || {};
+  const roomIdParam = props?.roomId ?? params?.roomId ?? params?.id ?? null;
+  const isRandomParty = props?.party === "true" || params?.party === "true";
+  const isMinimized = Boolean(props?.isMinimized);
+  const onMinimize = props?.onMinimize;
+  const onClose = props?.onClose;
+  const onUpdateMeta = props?.onUpdateMeta;
 
   const [roomLoading, setRoomLoading] = useState(true);
   const [roomInitFailed, setRoomInitFailed] = useState(false);
@@ -2278,6 +2282,41 @@ export default function VoiceParty() {
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [onMic, setOnMic] = useState(false);
   const [mySeatNumber, setMySeatNumber] = useState(null);
+  const isMinimizedRef = useRef(Boolean(isMinimized));
+  useEffect(() => {
+    isMinimizedRef.current = Boolean(isMinimized);
+  }, [isMinimized]);
+
+  const isKeepModeRef = useRef(false);
+  const prevMetaRef = useRef({});
+
+  useEffect(() => {
+    if (typeof onUpdateMeta === "function") {
+      const isSpeaking =
+        (speakingUserIds && speakingUserIds.size > 0) || Boolean(onMic);
+      const name = roomInfo?.name || "Voice Room";
+      const image = roomInfo?.profileImageUrl || null;
+      if (
+        prevMetaRef.current.name !== name ||
+        prevMetaRef.current.image !== image ||
+        prevMetaRef.current.isSpeaking !== isSpeaking
+      ) {
+        prevMetaRef.current = { name, image, isSpeaking };
+        onUpdateMeta({
+          roomName: name,
+          profileImageUrl: image,
+          coverImage: image,
+          isSpeaking,
+        });
+      }
+    }
+  }, [
+    roomInfo?.name,
+    roomInfo?.profileImageUrl,
+    speakingUserIds?.size,
+    onMic,
+    onUpdateMeta,
+  ]);
   const [voiceConnecting, setVoiceConnecting] = useState(false);
   const [voiceListenStatus, setVoiceListenStatus] = useState("idle");
   const [voiceDiagnostics, setVoiceDiagnostics] = useState(null);
@@ -4803,8 +4842,8 @@ export default function VoiceParty() {
         (typeof partyVoice.getActiveSeatNumber === "function" ? partyVoice.getActiveSeatNumber() : null) ||
         (seatsRef.current || []).find((s) => s?.user && isSameUser(s.user.id ?? s.user.userId, myUserId))?.id ||
         null;
-      if (isNavigatingToInboxRef.current) {
-        // User opened Inbox/Chat — keep room session & audio alive
+      if (isKeepModeRef.current || isNavigatingToInboxRef.current) {
+        // User tapped Keep or opened Inbox/Chat — keep room session & audio alive
         return;
       }
       if (activeRoomId && !exitedRef.current) {
@@ -6177,7 +6216,7 @@ export default function VoiceParty() {
       unsubModeration();
       subUserKicked.remove();
       unsubReconnect();
-      if (!isNavigatingToInboxRef.current) {
+      if (!isKeepModeRef.current && !isNavigatingToInboxRef.current) {
         wsService.leaveRoom(activeRoomId);
       }
     };
@@ -6269,11 +6308,19 @@ export default function VoiceParty() {
   const handleExitRoom = useCallback(() => {
     setShowPowerMenu(false);
     isNavigatingToInboxRef.current = false;
+    isKeepModeRef.current = false;
+    if (typeof onClose === "function") {
+      onClose();
+    }
     if (exitedRef.current) {
-      if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace("/(tabs)/party");
+      try {
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace("/(tabs)/party");
+        }
+      } catch (e) {
+        console.warn("[VoiceParty] Exit navigation failed:", e);
       }
       return;
     }
@@ -6294,10 +6341,14 @@ export default function VoiceParty() {
     roomAudioService.stopBackgroundRoomAudio();
 
     // Navigate back immediately so the UI is responsive on the first click
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace("/(tabs)/party");
+    try {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(tabs)/party");
+      }
+    } catch (e) {
+      console.warn("[VoiceParty] Exit navigation failed:", e);
     }
 
     // Perform room and voice teardown in background
@@ -6317,7 +6368,7 @@ export default function VoiceParty() {
         }
       } catch {}
     })();
-  }, [roomId, router, flushListenRewardProgress, mySeatNumber, myUserId, localSessionUser]);
+  }, [roomId, router, flushListenRewardProgress, mySeatNumber, myUserId, localSessionUser, onClose]);
 
   const handleExitRoomRef = useRef(handleExitRoom);
   handleExitRoomRef.current = handleExitRoom;
@@ -6422,60 +6473,51 @@ export default function VoiceParty() {
     }, delayMs);
   }, []);
 
-  const handleKeepPress = useCallback(async () => {
+  const handleKeepPress = useCallback(() => {
     setShowPowerMenu(false);
-    if (Platform.OS !== "android") {
-      return;
-    }
-    try {
-      // 1. Check if the device hardware and Android OS support Picture-in-Picture
-      const supported = await pipService.isPipSupported();
-      if (!supported) {
-        // Graceful fallback for unsupported devices (e.g. low-RAM devices or Android < 8.0)
-        Alert.alert(
-          "Keep Mode Unavailable",
-          "Picture-in-Picture is not supported on this device. You will remain in the room.",
-          [{ text: "OK", style: "default" }],
-        );
-        return;
-      }
+    isKeepModeRef.current = true;
+    const activeRoom = String(roomIdRef.current || roomId || "");
+    const activeSeat =
+      mySeatNumberRef.current ||
+      mySeatNumber ||
+      (typeof partyVoice.getActiveSeatNumber === "function"
+        ? partyVoice.getActiveSeatNumber()
+        : null) ||
+      null;
 
-      // 2. Check if PiP permission is granted in Android settings for Tuk-Tuk
-      const hasPermission = await pipService.hasPipPermission();
-      if (hasPermission) {
-        // Permission is granted: directly enter PiP mode
-        requestEnterPip(250);
-        return;
-      }
+    // Start native background audio service so Agora and REST heartbeats continue
+    roomAudioService.updateBackgroundRoomSession({
+      roomId: activeRoom,
+      seatNumber: activeSeat,
+      isMuted: isMicMutedRef.current,
+      isAppBackgrounded: false,
+    });
 
-      // 3. PiP is supported, but disabled in Android settings:
-      // Show improved modal with "Open Settings" and "Cancel"
-      Alert.alert(
-        "PiP Permission Required",
-        "Picture-in-Picture is disabled in Android settings. Please enable 'Picture-in-picture' permission for Tuk-Tuk in Settings to use Keep mode.",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-            onPress: () => {
-              pendingPipOnResumeRef.current = false;
-            },
-          },
-          {
-            text: "Open Settings",
-            style: "default",
-            onPress: async () => {
-              pendingPipOnResumeRef.current = true;
-              await pipService.openPipSettings();
-            },
-          },
-        ],
-        { cancelable: true },
-      );
-    } catch (err) {
-      console.warn("[VoiceParty] Failed to check PiP mode:", err);
+    if (typeof onMinimize === "function") {
+      onMinimize({
+        roomId: activeRoom,
+        roomName: roomInfo?.name || "Voice Room",
+        profileImageUrl: roomInfo?.profileImageUrl || null,
+        coverImage: roomInfo?.profileImageUrl || null,
+        isSpeaking:
+          (speakingUserIds && speakingUserIds.size > 0) || Boolean(onMic),
+      });
+    } else {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(tabs)/party");
+      }
     }
-  }, [requestEnterPip]);
+  }, [
+    onMinimize,
+    roomId,
+    roomInfo,
+    speakingUserIds?.size,
+    onMic,
+    router,
+    mySeatNumber,
+  ]);
 
   // Intercept Android hardware back button — close any open chat input /
   // pickers / modals in order; show confirmation popup before leaving room.
@@ -6483,6 +6525,9 @@ export default function VoiceParty() {
   useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (isMinimizedRef.current || isMinimized) {
+        return false;
+      }
       if (initFailedRef.current) {
         exitedRef.current = true;
         if (router.canGoBack()) {
@@ -6633,6 +6678,7 @@ export default function VoiceParty() {
     micPermWarning,
     showWelcomeEdit,
     closeProfilePopup,
+    isMinimized,
   ]));
 
   // Listen Rewards — tick every second while in the room.
