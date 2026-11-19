@@ -1,6 +1,7 @@
 import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
 import { API_BASE_URL } from "../config/env";
 import { getBearerToken } from "../api/axios";
+import { getDeviceHeaders } from "../utils/deviceHeaders";
 
 const { RoomAudioModule } = NativeModules;
 
@@ -19,6 +20,8 @@ export const startBackgroundRoomAudio = async ({
   }
   try {
     const token = await getBearerToken().catch(() => null);
+    const headers = await getDeviceHeaders().catch(() => ({}));
+    const deviceId = headers?.["X-Device-Id"] || "";
     const success = await RoomAudioModule.startBackgroundRoomAudio({
       roomId: String(roomId || ""),
       seatNumber: seatNumber != null ? Number(seatNumber) : null,
@@ -26,6 +29,7 @@ export const startBackgroundRoomAudio = async ({
       isAppBackgrounded: Boolean(isAppBackgrounded),
       apiBaseUrl: API_BASE_URL,
       authToken: token || "",
+      deviceId,
     });
     return Boolean(success);
   } catch (err) {
@@ -38,6 +42,7 @@ export const startBackgroundRoomAudio = async ({
  * Update the background voice session state (seatNumber, mute state, background state).
  */
 export const updateBackgroundRoomSession = async ({
+  roomId,
   seatNumber,
   isMuted,
   isAppBackgrounded,
@@ -47,7 +52,12 @@ export const updateBackgroundRoomSession = async ({
   }
   try {
     const token = await getBearerToken().catch(() => null);
+    const headers = await getDeviceHeaders().catch(() => ({}));
+    const deviceId = headers?.["X-Device-Id"] || "";
     const payload = {};
+    if (roomId !== undefined && roomId !== null) {
+      payload.roomId = String(roomId);
+    }
     if (seatNumber !== undefined) {
       payload.seatNumber = seatNumber != null ? Number(seatNumber) : null;
     }
@@ -60,6 +70,10 @@ export const updateBackgroundRoomSession = async ({
     if (token) {
       payload.authToken = token;
     }
+    if (deviceId) {
+      payload.deviceId = deviceId;
+    }
+    payload.apiBaseUrl = API_BASE_URL;
     const success = await RoomAudioModule.updateBackgroundRoomSession(payload);
     return Boolean(success);
   } catch (err) {

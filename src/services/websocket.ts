@@ -1165,6 +1165,61 @@ class WebSocketService {
     }
   }
 
+  async sendRoomUserUnbanned(
+    roomId: string,
+    targetUserId: string | number,
+    targetName?: string,
+  ): Promise<void> {
+    if (!roomId || !targetUserId) return;
+    const targetRoomId = String(roomId).trim();
+    const tUserId = String(targetUserId).trim();
+    const uName = targetName || 'User';
+
+    if (!this.connected) {
+      await this.connect().catch(() => {});
+    }
+    if (!this.connected || !this.client) return;
+
+    const payload = {
+      type: 'USER_UNBANNED',
+      eventType: 'USER_UNBANNED',
+      action: 'UNBAN',
+      roomId: targetRoomId,
+      userId: tUserId,
+      targetUserId: tUserId,
+      userName: uName,
+      targetUserName: uName,
+      name: uName,
+      timestamp: new Date().toISOString(),
+    };
+    const body = JSON.stringify(payload);
+
+    try {
+      this.client.publish({
+        destination: `/topic/users/${tUserId}/kicked`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish unban to /topic/users/.../kicked:', e);
+    }
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/kicked`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish unban to /topic/room/.../kicked:', e);
+    }
+    try {
+      this.client.publish({
+        destination: `/topic/room/${targetRoomId}/notifications`,
+        body,
+      });
+    } catch (e) {
+      console.warn('[WS] Failed to publish unban to /topic/room/.../notifications:', e);
+    }
+  }
+
 
   sendSpeakingStatus(roomId: string, isSpeaking: boolean, isMuted?: boolean): void {
     if (!this.connected || !this.client) return;

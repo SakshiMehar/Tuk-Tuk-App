@@ -42,6 +42,13 @@ export const parseRestrictionUntil = (messageOrDuration, responseData) => {
     if (!isNaN(t) && t > 0) return t;
   }
 
+  if (responseData?.duration) {
+    const dStr = String(responseData.duration).trim();
+    if (/permanent/i.test(dStr)) return Infinity;
+    if (/seven_days|7_days|7 days/i.test(dStr)) return Date.now() + 7 * 24 * 60 * 60 * 1000;
+    if (/thirty_minutes|30_minutes|30 mins|30 min/i.test(dStr)) return Date.now() + 30 * 60 * 1000;
+  }
+
   const str = String(messageOrDuration || "").trim();
   if (!str) return Date.now() + 30 * 60 * 1000;
 
@@ -70,6 +77,75 @@ export const parseRestrictionUntil = (messageOrDuration, responseData) => {
 
   // Fallback: 30 minutes from now (standard default kickout duration)
   return Date.now() + 30 * 60 * 1000;
+};
+
+/**
+ * Formats finite restriction timestamp into:
+ * "You are temporarily restricted until 19 Nov 2026 at 01:45 pm"
+ */
+export const formatRestrictionUntilTime = (blockedUntil) => {
+  if (blockedUntil === Infinity) {
+    return "You are permanently restricted from this room";
+  }
+  const date = new Date(blockedUntil);
+  if (isNaN(date.getTime())) {
+    return "You are permanently restricted from this room";
+  }
+
+  const day = date.getDate();
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  ];
+  const month = months[date.getMonth()];
+  const year = date.getFullYear();
+
+  let hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "pm" : "am";
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const formattedHours = String(hours).padStart(2, "0");
+
+  return `You are temporarily restricted until ${day} ${month} ${year} at ${formattedHours}:${minutes} ${ampm}`;
+};
+
+/**
+ * Returns formatted restriction message strictly conforming to:
+ * - "You are permanently restricted from this room" (if permanent)
+ * - "You are temporarily restricted until ..." (if 30 mins, 7 days, etc.)
+ * NEVER returns raw reasons like "Misbehaving in room".
+ */
+export const getRestrictionDisplayMessage = (messageOrDuration, responseData = null) => {
+  const data = responseData ?? {};
+  const str = String(
+    messageOrDuration ||
+    data?.duration ||
+    data?.message ||
+    data?.reason ||
+    ""
+  ).trim();
+
+  // If already matches "You are temporarily restricted until ..."
+  if (/^You are temporarily restricted until/i.test(str)) {
+    return str;
+  }
+  // If permanently restricted
+  if (
+    /^You are permanently restricted/i.test(str) ||
+    /permanent/i.test(str) ||
+    /permanent/i.test(String(data?.duration || "")) ||
+    /permanent/i.test(String(data?.message || ""))
+  ) {
+    return "You are permanently restricted from this room";
+  }
+
+  const blockedUntil = parseRestrictionUntil(messageOrDuration, data);
+  if (blockedUntil === Infinity) {
+    return "You are permanently restricted from this room";
+  }
+
+  return formatRestrictionUntilTime(blockedUntil);
 };
 
 /**
@@ -109,8 +185,9 @@ export const initRoomRestrictions = async () => {
           roomId: id,
           blockedUntil,
           message:
-            item.message ||
-            "You are temporarily restricted from joining this room.",
+            item.message && !/misbehaving/i.test(item.message)
+              ? item.message
+              : formatRestrictionUntilTime(blockedUntil),
           restrictedAt: item.restrictedAt || now,
         });
       });
@@ -139,18 +216,12 @@ export const setRoomRestriction = (
   if (!id) return;
 
   const blockedUntil = parseRestrictionUntil(messageOrDuration, responseData);
-  const rawMsg =
-    typeof messageOrDuration === "string" &&
-    !/^(THIRTY_MINUTES|SEVEN_DAYS|PERMANENT)$/i.test(messageOrDuration)
-      ? messageOrDuration
-      : responseData?.message ||
-        responseData?.reason ||
-        "You are temporarily restricted from joining this room.";
+  const displayMsg = getRestrictionDisplayMessage(messageOrDuration, responseData);
 
   const record = {
     roomId: id,
     blockedUntil,
-    message: rawMsg,
+    message: displayMsg,
     restrictedAt: Date.now(),
   };
 
@@ -225,29 +296,14 @@ export const getRoomRestriction = (roomId) => {
 };
 
 /**
- * Checks if the room is restricted. If restricted, immediately shows
- * the native restriction alert on the current screen and returns true (blocking navigation).
- * If not restricted, returns false (allowing navigation).
+ * Checks if the room is restricted.
+ * Does NOT prematurely block navigation so that the backend database is
+ * always checked as the authoritative source of truth.
  */
 export const checkAndShowRoomRestrictionAlert = (
   roomId,
   title = "Could not join room",
 ) => {
-  const id = normalizeRoomId(roomId);
-  if (!id) return false;
-
-  const restriction = getRoomRestriction(id);
-  if (restriction) {
-    Alert.alert(
-      title,
-      restriction.message ||
-        "You are temporarily restricted from joining this room.",
-      [{ text: "OK" }],
-      { cancelable: false },
-    );
-    return true;
-  }
-
   return false;
 };
 

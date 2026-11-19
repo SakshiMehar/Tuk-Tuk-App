@@ -1,5 +1,6 @@
 import { Audio } from "expo-av";
 import {
+  AudioScenarioType,
   ChannelProfileType,
   ClientRoleType,
   ConnectionStateType,
@@ -207,7 +208,7 @@ const configureAudioSession = async (isSpeaker) => {
       allowsRecordingIOS: isSpeaker,
       playsInSilentModeIOS: true,
       staysActiveInBackground: true,
-      shouldDuckAndroid: true,
+      shouldDuckAndroid: false,
       playThroughEarpieceAndroid: false,
     });
   } catch {
@@ -258,6 +259,7 @@ const ensureEngine = (appId) => {
   engine.initialize({
     appId,
     channelProfile: ChannelProfileType.ChannelProfileLiveBroadcasting,
+    audioScenario: AudioScenarioType.AudioScenarioGameStreaming,
   });
 
   engine.registerEventHandler({

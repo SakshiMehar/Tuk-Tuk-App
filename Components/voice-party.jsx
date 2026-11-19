@@ -102,6 +102,7 @@ import {
   getRoomState,
   kickRoomUser,
   lockSeat,
+  postBackgroundHeartbeat,
   postRoomHeartbeat,
   postSeatHeartbeat,
   removeKickedUser,
@@ -111,6 +112,7 @@ import {
   unlockSeat,
   updateRoom,
 } from "../src/api/partyApi";
+import { setLocalUserLive } from "../src/utils/liveStatus";
 import { reportUser } from "../src/api/postApi";
 import { getUserUiAssets } from "../src/api/uiAssetsApi";
 import { getUserProfile } from "../src/api/userApi";
@@ -216,6 +218,7 @@ import { getAppUserId } from "../src/utils/sessionUser";
 import { isGifMedia, resolveImageSource, resolveVideoSource } from "../src/utils/videoSource";
 import {
   clearRoomRestriction,
+  getRestrictionDisplayMessage,
   getRoomRestriction,
   isRoomRestricted,
   setRoomRestriction,
@@ -4535,33 +4538,6 @@ export default function VoiceParty() {
       setRoomLoading(true);
       exitedRef.current = false;
 
-      const targetRoomId = String(roomIdParam || "").trim();
-      if (targetRoomId && isRoomRestricted(targetRoomId)) {
-        initFailedRef.current = true;
-        setRoomInitFailed(true);
-        const restriction = getRoomRestriction(targetRoomId);
-        const handleExitImmediately = () => {
-          exitedRef.current = true;
-          if (router.canGoBack()) {
-            router.back();
-          } else {
-            router.replace("/(tabs)/party");
-          }
-        };
-        Alert.alert(
-          isRandomParty ? "Could not join party room" : "Could not join room",
-          restriction?.message || "You are temporarily restricted from joining this room.",
-          [
-            {
-              text: "OK",
-              onPress: handleExitImmediately,
-            },
-          ],
-          { cancelable: false },
-        );
-        return;
-      }
-
       await refreshTokenCache();
 
       // ── Cosmetics: run in parallel, never block the room from showing ──
@@ -4610,6 +4586,7 @@ export default function VoiceParty() {
 
         setRoomId(session.roomId);
         roomIdRef.current = session.roomId;
+        clearRoomRestriction(session.roomId);
         setRoomInfo(session.room);
         if (session.room?.body) setWelcomeMessage(session.room.body);
         fetchRoomAnnouncement(session.roomId)
@@ -4771,16 +4748,24 @@ export default function VoiceParty() {
         if (!cancelled) {
           initFailedRef.current = true;
           setRoomInitFailed(true);
-          const rawMessage = err?.message || "Please try again.";
+          const responseData = err?.response?.data || err?.responseData;
+          const rawMessage =
+            responseData?.message ||
+            responseData?.reason ||
+            err?.message ||
+            "Please try again.";
           const isRestricted =
-            /restricted|kicked/i.test(rawMessage) ||
+            /restricted|kicked|misbehaving/i.test(rawMessage) ||
             err?.status === 403 ||
-            err?.responseData?.code === "ROOM_RESTRICTED" ||
-            err?.responseData?.code === "USER_KICKED";
+            err?.response?.status === 403 ||
+            responseData?.code === "ROOM_RESTRICTED" ||
+            responseData?.code === "USER_KICKED";
 
           const activeRoomId = String(roomIdParam || "").trim();
+          let displayAlertMessage = rawMessage;
           if (isRestricted && activeRoomId) {
-            setRoomRestriction(activeRoomId, rawMessage, err?.responseData);
+            displayAlertMessage = getRestrictionDisplayMessage(rawMessage, responseData);
+            setRoomRestriction(activeRoomId, displayAlertMessage, responseData);
           }
 
           const handleExitImmediately = () => {
@@ -4794,7 +4779,7 @@ export default function VoiceParty() {
 
           Alert.alert(
             isRandomParty ? "Could not join party room" : "Could not join room",
-            rawMessage,
+            displayAlertMessage,
             [
               {
                 text: "OK",
@@ -6305,6 +6290,7 @@ export default function VoiceParty() {
     mySeatNumberRef.current = null;
     setOnMic(false);
     setMySeatNumber(null);
+    setLocalUserLive(null, false);
     roomAudioService.stopBackgroundRoomAudio();
 
     // Navigate back immediately so the UI is responsive on the first click
@@ -6670,14 +6656,13 @@ export default function VoiceParty() {
     return () => clearInterval(interval);
   }, []);
 
-  // Mic-seat heartbeat — fires every 15 s while user is on a seat.
+  // Mic seat heartbeat — fires every 15 s while the local user is ON a mic seat
   // Backend removes the seat automatically after 30 s of silence.
   // Uses WebSocket publish when connected, REST POST as fallback.
   useEffect(() => {
     if (!onMic || !mySeatNumber || !roomId) return;
 
     const ping = async () => {
-      if (isAppBackgroundedRef.current) return;
       try {
         if (__DEV__) {
           console.log('[HEARTBEAT] Seat heartbeat ping', {
@@ -6704,9 +6689,7 @@ export default function VoiceParty() {
 
     // Send immediate heartbeat on WebSocket reconnection if still on mic
     const unsubReconnect = wsService.onReconnect(() => {
-      if (!isAppBackgroundedRef.current) {
-        ping();
-      }
+      ping();
     });
 
     return () => {
@@ -6724,7 +6707,6 @@ export default function VoiceParty() {
     if (!roomId) return;
 
     const ping = async () => {
-      if (isAppBackgroundedRef.current) return;
       try {
         if (wsService.connected) {
           wsService.sendRoomHeartbeat(String(roomId));
@@ -6744,6 +6726,9 @@ export default function VoiceParty() {
   // Background voice-room audio & heartbeat service lifecycle
   useEffect(() => {
     if (!roomId) return;
+
+    // Register active room in live status so presenceService does not mark user offline on background
+    setLocalUserLive(roomId, true);
 
     // Start background room audio service with initial state
     roomAudioService.startBackgroundRoomAudio({
@@ -6767,6 +6752,7 @@ export default function VoiceParty() {
 
     return () => {
       unsubSessionInvalid?.();
+      setLocalUserLive(null, false);
       roomAudioService.stopBackgroundRoomAudio();
     };
   }, [roomId]);
@@ -6782,6 +6768,7 @@ export default function VoiceParty() {
         // User resumed app from background:
         isAppBackgroundedRef.current = false;
         roomAudioService.updateBackgroundRoomSession({
+          roomId: String(activeRoom),
           seatNumber: currentSeat,
           isMuted: isMicMutedRef.current,
           isAppBackgrounded: false,
@@ -6847,7 +6834,18 @@ export default function VoiceParty() {
       } else if (nextState === "background" || nextState === "inactive") {
         // App is backgrounding: notify native background audio service to start background heartbeat
         isAppBackgroundedRef.current = true;
+        // 1. Immediately send REST heartbeats before JS thread suspends
+        if (currentSeat) {
+          postBackgroundHeartbeat(String(activeRoom), currentSeat).catch(() => {});
+          postSeatHeartbeat(String(activeRoom), currentSeat).catch(() => {});
+        } else {
+          postBackgroundHeartbeat(String(activeRoom)).catch(() => {});
+        }
+        postRoomHeartbeat(String(activeRoom)).catch(() => {});
+
+        // 2. Update native background audio service
         roomAudioService.updateBackgroundRoomSession({
+          roomId: String(activeRoom),
           seatNumber: currentSeat,
           isMuted: isMicMutedRef.current,
           isAppBackgrounded: true,
@@ -9043,6 +9041,11 @@ export default function VoiceParty() {
               try {
                 await removeKickedUser(activeRoomId, targetUserId);
                 clearRoomRestriction(activeRoomId);
+                try {
+                  if (wsService.connected) {
+                    await wsService.sendRoomUserUnbanned(activeRoomId, targetUserId, targetName).catch(() => {});
+                  }
+                } catch {}
                 setKickedUsersList((prev) =>
                   prev.filter((u) => String(u.userId || u.id) !== String(targetUserId)),
                 );
