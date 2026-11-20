@@ -18,6 +18,7 @@ import {
     searchRooms as searchRoomsApi,
     updateRoom as updateRoomApi,
     updateRoomAnnouncement as updateRoomAnnouncementApi,
+    updateRoomBackgroundImage as updateRoomBackgroundImageApi,
 } from "../api/partyApi";
 import { resolveBundledAvatarId } from "../data/avatarOptions";
 import { syncUserFromToken, getAppUserId } from "../utils/sessionUser";
@@ -106,14 +107,40 @@ export const normalizeRoom = (rawRoom) => {
     body: firstText(room?.body, room?.description, room?.subtitle, rawRoom?.body) ?? "",
     thumbnail: firstText(
       room?.profileImageUrl,
+      room?.profilePicUrl,
+      room?.roomImageUrl,
       room?.thumbnail,
       room?.coverImage,
       room?.imageUrl,
       room?.avatarUrl,
       rawRoom?.profileImageUrl,
+      rawRoom?.profilePicUrl,
+      rawRoom?.roomImageUrl,
       rawRoom?.thumbnail,
       rawRoom?.avatarUrl,
     ),
+    profileImageUrl: firstText(
+      room?.profileImageUrl,
+      room?.profilePicUrl,
+      room?.roomImageUrl,
+      room?.thumbnail,
+      room?.coverImage,
+      room?.imageUrl,
+      rawRoom?.profileImageUrl,
+      rawRoom?.profilePicUrl,
+      rawRoom?.roomImageUrl,
+      rawRoom?.thumbnail,
+    ) ?? null,
+    backgroundImageUrl: firstText(
+      room?.backgroundImageUrl,
+      room?.background_image_url,
+      room?.roomBackgroundImageUrl,
+      room?.backgroundUrl,
+      rawRoom?.backgroundImageUrl,
+      rawRoom?.background_image_url,
+      rawRoom?.roomBackgroundImageUrl,
+      rawRoom?.backgroundUrl,
+    ) ?? null,
     participantCount:
       room?.userCount ?? room?.onlineCount ?? room?.participantCount ?? rawRoom?.userCount ?? 0,
     hasChat: room?.hasChat !== false,
@@ -894,6 +921,28 @@ export const updateRoomCoverPhoto = async (
   );
 };
 
+/** Uploads a background photo via POST/PATCH /api/v1/tuktuk/rooms/{roomId}/background-image */
+export const updateRoomBackgroundImage = async (
+  roomId,
+  { uri, imageUri, mimeType, fileName } = {},
+) => {
+  const actualUri = uri || imageUri;
+  const updated = await updateRoomBackgroundImageApi(roomId, {
+    imageUri: actualUri,
+    mimeType,
+    fileName: fileName ?? "room-background.jpg",
+  });
+  return firstText(
+    updated?.backgroundImageUrl,
+    updated?.background_image_url,
+    updated?.room?.backgroundImageUrl,
+    updated?.room?.background_image_url,
+    updated?.data?.backgroundImageUrl,
+    updated?.data?.background_image_url,
+    typeof updated === "string" ? updated : null,
+  );
+};
+
 /** Update room name, cover photo, and other fields via PATCH /api/v1/tuktuk/rooms/{roomId} */
 export const updateRoomDetails = async (
   roomId,
@@ -961,9 +1010,11 @@ export const enterRoomSession = async (roomId) => {
 
   track(`GET /api/v1/tuktuk/rooms/${roomId}/state`);
   track(`GET /api/v1/tuktuk/rooms/${roomId}/chat/messages`);
-  let [stateData, chatData] = await Promise.all([
+  track(`GET /api/v1/tuktuk/rooms/${roomId}`);
+  let [stateData, chatData, roomDetails] = await Promise.all([
     getRoomState(roomId).catch(() => null),
     getRoomChatMessages(roomId).catch(() => []),
+    getRoomById(roomId).catch(() => null),
   ]);
 
   // Join as spectator only — never claim a seat here. Seat claim happens
@@ -973,7 +1024,12 @@ export const enterRoomSession = async (roomId) => {
   await wsService.connect();
   wsService.joinRoom(String(roomId));
 
-  const room = joinData?.room ?? {};
+  const rawJoinRoom = joinData?.room ?? joinData?.data ?? (joinData && typeof joinData === "object" ? joinData : {});
+  const rawDetailsRoom = roomDetails?.room ?? roomDetails?.data ?? (roomDetails && typeof roomDetails === "object" ? roomDetails : {});
+  const room = {
+    ...rawDetailsRoom,
+    ...rawJoinRoom,
+  };
   const onlineUsers = parseOnlineUsers(stateData, joinData);
   const messages = normalizeChatMessages(chatData);
 
@@ -988,11 +1044,26 @@ export const enterRoomSession = async (roomId) => {
   return {
     roomId,
     room: {
-      id: firstValue(room?.id, roomId),
-      name: firstText(room?.name) ?? "Voice Room",
-      title: firstText(room?.title),
-      body: firstText(room?.body),
-      profileImageUrl: firstText(room?.profileImageUrl),
+      id: firstValue(room?.id, room?.roomId, roomId),
+      name: firstText(room?.name, room?.title) ?? "Voice Room",
+      title: firstText(room?.title, room?.name),
+      body: firstText(room?.body, room?.description),
+      profileImageUrl: firstText(
+        room?.profileImageUrl,
+        room?.profilePicUrl,
+        room?.roomImageUrl,
+        room?.imageUrl,
+        roomDetails?.profileImageUrl,
+        roomDetails?.profilePicUrl,
+      ),
+      backgroundImageUrl: firstText(
+        room?.backgroundImageUrl,
+        room?.background_image_url,
+        room?.roomBackgroundImageUrl,
+        room?.backgroundUrl,
+        roomDetails?.backgroundImageUrl,
+        roomDetails?.background_image_url,
+      ) ?? null,
       hostId: firstValue(room?.creatorId, room?.hostId),
       category: room?.category,
     },

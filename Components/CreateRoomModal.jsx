@@ -23,6 +23,7 @@ import {
   createAndEnterPartyRoom,
   saveRoomAnnouncement,
   updateRoomCoverPhoto,
+  updateRoomBackgroundImage,
 } from "../src/services/partyService";
 import { getUser } from "../src/store/authStore";
 import { refreshWalletBalance } from "../src/store/walletStore";
@@ -58,6 +59,7 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
   const [roomName, setRoomName] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const [roomPhotoUri, setRoomPhotoUri] = useState(null);
+  const [roomBackgroundUri, setRoomBackgroundUri] = useState(null);
   const [userId, setUserId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [showPhotoRequired, setShowPhotoRequired] = useState(false);
@@ -67,6 +69,7 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
     setRoomName("");
     setAnnouncement("");
     setRoomPhotoUri(null);
+    setRoomBackgroundUri(null);
     setShowPhotoRequired(false);
     setValidationType(null);
   }, []);
@@ -112,6 +115,26 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
     if (!result.canceled && result.assets?.[0]) {
       setRoomPhotoUri(result.assets[0].uri);
       setShowPhotoRequired(false);
+    }
+  };
+
+  const handlePickRoomBackground = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission needed",
+        "Gallery access is required to set a room background.",
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [9, 16],
+      quality: 0.85,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setRoomBackgroundUri(result.assets[0].uri);
     }
   };
 
@@ -176,13 +199,40 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
         );
       }
 
+      const updatedRoom = {
+        ...(session.room || {}),
+        profileImageUrl: roomPhotoUri || session.room?.profileImageUrl,
+      };
+
       if (roomPhotoUri) {
         try {
-          await updateRoomCoverPhoto(targetRoomId, {
+          const photoRes = await updateRoomCoverPhoto(targetRoomId, {
             uri: roomPhotoUri,
           });
+          if (photoRes) {
+            updatedRoom.profileImageUrl =
+              photoRes?.profileImageUrl ||
+              photoRes?.imageUrl ||
+              photoRes?.room?.profileImageUrl ||
+              roomPhotoUri;
+          }
         } catch (uploadErr) {
           console.warn("[CreateRoomModal] Cover photo upload failed:", uploadErr);
+        }
+      }
+
+      if (roomBackgroundUri) {
+        try {
+          const bgRes = await updateRoomBackgroundImage(targetRoomId, {
+            uri: roomBackgroundUri,
+          });
+          updatedRoom.backgroundImageUrl =
+            bgRes?.backgroundImageUrl ||
+            bgRes?.background_image_url ||
+            bgRes?.room?.backgroundImageUrl ||
+            roomBackgroundUri;
+        } catch (bgUploadErr) {
+          console.warn("[CreateRoomModal] Background image upload failed:", bgUploadErr);
         }
       }
 
@@ -190,7 +240,7 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
 
       onClose();
 
-      onEntered?.(targetRoomId, session.room);
+      onEntered?.(targetRoomId, updatedRoom);
     } catch (err) {
       const msg = err?.message || "Please try again.";
 
@@ -256,51 +306,101 @@ export default function CreateRoomModal({ visible, onClose, onEntered }) {
               </TouchableOpacity>
             </View>
 
-            {/* Room photo picker — centered upload button */}
-            <View style={styles.photoSection}>
-              <TouchableOpacity
-                style={styles.photoPickerWrap}
-                activeOpacity={0.8}
-                onPress={handlePickRoomPhoto}
-              >
-                <View
-                  style={[
-                    styles.photoPicker,
-                    !roomPhotoUri && showPhotoRequired
-                      ? styles.photoPickerError
-                      : null,
-                  ]}
+            {/* Room photos: Profile Picture (Required) and Background Image (Optional) */}
+            <View style={styles.photosRow}>
+              {/* Profile Photo */}
+              <View style={styles.photoCol}>
+                <TouchableOpacity
+                  style={styles.photoPickerWrap}
+                  activeOpacity={0.8}
+                  onPress={handlePickRoomPhoto}
                 >
-                  {roomPhotoUri ? (
-                    <Image
-                      source={{ uri: roomPhotoUri }}
-                      style={styles.photoImage}
-                    />
-                  ) : (
-                    <View style={styles.photoPlaceholder}>
-                      <LinearGradient
-                        colors={GRADIENT_ACCENT}
-                        style={styles.uploadIconCircle}
-                      >
-                        <Upload size={17} color="#FFFFFF" />
-                      </LinearGradient>
-                      <Text style={styles.uploadText}>Upload</Text>
-                    </View>
+                  <View
+                    style={[
+                      styles.photoPicker,
+                      !roomPhotoUri && showPhotoRequired
+                        ? styles.photoPickerError
+                        : null,
+                    ]}
+                  >
+                    {roomPhotoUri ? (
+                      <Image
+                        source={{ uri: roomPhotoUri }}
+                        style={styles.photoImage}
+                      />
+                    ) : (
+                      <View style={styles.photoPlaceholder}>
+                        <LinearGradient
+                          colors={GRADIENT_ACCENT}
+                          style={styles.uploadIconCircle}
+                        >
+                          <Upload size={17} color="#FFFFFF" />
+                        </LinearGradient>
+                        <Text style={styles.uploadText}>Upload</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <LinearGradient
+                    colors={GRADIENT_ACCENT}
+                    style={styles.photoBadge}
+                  >
+                    <Camera size={11} color="#FFFFFF" />
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                <Text style={styles.profileTitle}>Profile Picture *</Text>
+                <Text style={styles.photoHint}>Required</Text>
+              </View>
+
+              {/* Background Photo (Optional) */}
+              <View style={styles.photoCol}>
+                <TouchableOpacity
+                  style={styles.photoPickerWrap}
+                  activeOpacity={0.8}
+                  onPress={handlePickRoomBackground}
+                >
+                  <View style={[styles.photoPicker, styles.bgPhotoPicker]}>
+                    {roomBackgroundUri ? (
+                      <Image
+                        source={{ uri: roomBackgroundUri }}
+                        style={styles.bgPhotoImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={[styles.photoPlaceholder, styles.bgPhotoPlaceholder]}>
+                        <LinearGradient
+                          colors={GRADIENT_ACCENT}
+                          style={styles.uploadIconCircle}
+                        >
+                          <Upload size={17} color="#FFFFFF" />
+                        </LinearGradient>
+                        <Text style={styles.uploadText}>Upload</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <LinearGradient
+                    colors={GRADIENT_ACCENT}
+                    style={styles.photoBadge}
+                  >
+                    <Camera size={11} color="#FFFFFF" />
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                <View style={styles.bgTitleRow}>
+                  <Text style={styles.profileTitle}>Background</Text>
+                  {roomBackgroundUri && (
+                    <TouchableOpacity
+                      onPress={() => setRoomBackgroundUri(null)}
+                      hitSlop={8}
+                    >
+                      <X size={12} color={THEME.danger} />
+                    </TouchableOpacity>
                   )}
                 </View>
-
-                <LinearGradient
-                  colors={GRADIENT_ACCENT}
-                  style={styles.photoBadge}
-                >
-                  <Camera size={11} color="#FFFFFF" />
-                </LinearGradient>
-              </TouchableOpacity>
-
-              <Text style={styles.profileTitle}>Room Profile Picture *</Text>
-              <Text style={styles.photoHint}>
-                Add a picture to create your room
-              </Text>
+                <Text style={styles.photoHint}>Optional</Text>
+              </View>
             </View>
 
             <View style={styles.divider} />
@@ -517,6 +617,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 10,
+  },
+  photosRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    marginBottom: 10,
+    paddingHorizontal: 12,
+  },
+  photoCol: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bgPhotoPicker: {
+    borderRadius: 16,
+  },
+  bgPhotoImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    backgroundColor: THEME.cardAlt,
+  },
+  bgPhotoPlaceholder: {
+    borderRadius: 16,
+  },
+  bgTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 3,
   },
   photoPickerWrap: {
     alignItems: "center",

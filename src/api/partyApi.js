@@ -135,7 +135,7 @@ const sendRoomMultipart = async (
   method,
   path,
   fields = {},
-  { imageUri, mimeType, fileName } = {},
+  { imageUri, backgroundImageUri, mimeType, fileName, fileField = "image" } = {},
 ) => {
   await refreshTokenCache();
   const token = await getBearerToken();
@@ -143,14 +143,28 @@ const sendRoomMultipart = async (
 
   const form = new FormData();
   if (imageUri) {
-    form.append("image", {
+    const filePayload = {
       uri: imageUri,
       type: mimeType ?? fallbackMimeType(imageUri),
       name: fileName ?? "room-cover.jpg",
+    };
+    form.append(fileField, filePayload);
+    // If fileField is backgroundImage, also append it as backgroundImage explicitly
+    if (fileField === "backgroundImage") {
+      // already appended
+    } else if (fileField !== "image") {
+      form.append("image", filePayload);
+    }
+  }
+  if (backgroundImageUri) {
+    form.append("backgroundImage", {
+      uri: backgroundImageUri,
+      type: fallbackMimeType(backgroundImageUri),
+      name: "room-background.jpg",
     });
   }
   Object.entries(fields).forEach(([key, value]) => {
-    if (value != null) form.append(key, String(value));
+    if (value != null && key !== "backgroundImageUri") form.append(key, String(value));
   });
 
   const headers = {
@@ -158,7 +172,8 @@ const sendRoomMultipart = async (
   };
 
   logRequest(method, path, {
-    ...(imageUri ? { image: fileName ?? imageUri } : {}),
+    ...(imageUri ? { [fileField]: fileName ?? imageUri } : {}),
+    ...(backgroundImageUri ? { backgroundImage: backgroundImageUri } : {}),
     ...fields,
   });
   try {
@@ -185,10 +200,10 @@ const sendRoomMultipart = async (
 };
 
 export const createRoom = async (body = {}) => {
-  const { imageUri, mimeType, fileName, ...fields } = body;
+  const { imageUri, backgroundImageUri, mimeType, fileName, ...fields } = body;
   const path = "/api/v1/tuktuk/rooms/create";
 
-  if (!imageUri) {
+  if (!imageUri && !backgroundImageUri) {
     logRequest("POST", path, fields);
     try {
       const response = await API.post(path, fields, await authRequestConfig());
@@ -200,15 +215,15 @@ export const createRoom = async (body = {}) => {
     }
   }
 
-  return sendRoomMultipart("POST", path, fields, { imageUri, mimeType, fileName });
+  return sendRoomMultipart("POST", path, fields, { imageUri, backgroundImageUri, mimeType, fileName });
 };
 
 /** POST /api/v1/tuktuk/rooms/{roomId}/create — user-scoped room create (room id = user id) */
 export const createRoomForUser = async (roomId, body = {}) => {
-  const { imageUri, mimeType, fileName, ...fields } = body;
+  const { imageUri, backgroundImageUri, mimeType, fileName, ...fields } = body;
   const path = `/api/v1/tuktuk/rooms/${roomId}/create`;
 
-  if (!imageUri) {
+  if (!imageUri && !backgroundImageUri) {
     logRequest("POST", path, fields);
     try {
       const response = await API.post(path, fields, await authRequestConfig());
@@ -220,7 +235,7 @@ export const createRoomForUser = async (roomId, body = {}) => {
     }
   }
 
-  return sendRoomMultipart("POST", path, fields, { imageUri, mimeType, fileName });
+  return sendRoomMultipart("POST", path, fields, { imageUri, backgroundImageUri, mimeType, fileName });
 };
 
 /**
@@ -236,6 +251,27 @@ export const updateRoom = async (
     imageUri,
     mimeType,
     fileName,
+  });
+};
+
+/**
+ * Update room background image via:
+ * PATCH /api/v1/tuktuk/rooms/{roomId}/background-image
+ */
+export const updateRoomBackgroundImage = async (
+  roomId,
+  { imageUri, uri, mimeType, fileName } = {},
+) => {
+  const cleanId = String(roomId).trim();
+  const actualUri = imageUri || uri;
+  if (!actualUri) return null;
+
+  const path = `/api/v1/tuktuk/rooms/${encodeURIComponent(cleanId)}/background-image`;
+  return sendRoomMultipart("PATCH", path, {}, {
+    imageUri: actualUri,
+    mimeType,
+    fileName: fileName ?? "room-background.jpg",
+    fileField: "backgroundImage",
   });
 };
 

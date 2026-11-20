@@ -111,6 +111,7 @@ import {
   unfollowRoom,
   unlockSeat,
   updateRoom,
+  updateRoomBackgroundImage,
 } from "../src/api/partyApi";
 import { setLocalUserLive } from "../src/utils/liveStatus";
 import { reportUser } from "../src/api/postApi";
@@ -2394,6 +2395,8 @@ export default function VoiceParty(props) {
   const [editRoomName, setEditRoomName] = useState("");
   const [editRoomImageUri, setEditRoomImageUri] = useState(null);
   const [editRoomImageAsset, setEditRoomImageAsset] = useState(null);
+  const [editRoomBgImageUri, setEditRoomBgImageUri] = useState(null);
+  const [editRoomBgImageAsset, setEditRoomBgImageAsset] = useState(null);
   const [isSavingRoomDetails, setIsSavingRoomDetails] = useState(false);
   const [isUpdatingRoomPhoto, setIsUpdatingRoomPhoto] = useState(false);
   const {
@@ -4169,6 +4172,8 @@ export default function VoiceParty(props) {
       roomInfo?.profileImageUrl || hostProfileDetails?.avatarUrl || null,
     );
     setEditRoomImageAsset(null);
+    setEditRoomBgImageUri(roomInfo?.backgroundImageUrl || null);
+    setEditRoomBgImageAsset(null);
     setShowEditRoomModal(true);
   };
 
@@ -4196,6 +4201,33 @@ export default function VoiceParty(props) {
       }
     } catch (err) {
       console.warn("[voice-party] Pick image failed:", err);
+    }
+  };
+
+  const handlePickRoomBgImageForEdit = async () => {
+    if (!canEditRoom) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission needed",
+          "Gallery access is required to select a room background.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images ?? ["images"],
+        allowsEditing: true,
+        aspect: [9, 16],
+        quality: 0.85,
+      });
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        setEditRoomBgImageUri(asset.uri);
+        setEditRoomBgImageAsset(asset);
+      }
+    } catch (err) {
+      console.warn("[voice-party] Pick background image failed:", err);
     }
   };
 
@@ -4238,12 +4270,41 @@ export default function VoiceParty(props) {
         res?.data?.name ||
         trimmedName;
 
+      let newBgImageUrl =
+        res?.backgroundImageUrl ||
+        res?.background_image_url ||
+        res?.room?.backgroundImageUrl ||
+        res?.room?.background_image_url ||
+        res?.data?.backgroundImageUrl;
+
+      // If user also changed/picked a background image:
+      if (editRoomBgImageAsset) {
+        try {
+          const bgRes = await updateRoomBackgroundImage(targetRoomId, {
+            imageUri: editRoomBgImageAsset.uri,
+            mimeType: editRoomBgImageAsset.mimeType,
+            fileName: editRoomBgImageAsset.fileName ?? "room-background.jpg",
+          });
+          newBgImageUrl =
+            bgRes?.backgroundImageUrl ||
+            bgRes?.background_image_url ||
+            bgRes?.room?.backgroundImageUrl ||
+            bgRes?.room?.background_image_url ||
+            bgRes?.data?.backgroundImageUrl ||
+            (typeof bgRes === "string" ? bgRes : null) ||
+            editRoomBgImageAsset.uri;
+        } catch (bgErr) {
+          console.warn("[voice-party] Update background image failed:", bgErr);
+        }
+      }
+
       setRoomInfo((prev) => ({
         ...prev,
         ...(res && typeof res === "object" ? res : {}),
         name: newName,
         title: newName,
         profileImageUrl: newImageUrl || prev?.profileImageUrl,
+        backgroundImageUrl: newBgImageUrl || prev?.backgroundImageUrl,
       }));
 
       setShowEditRoomModal(false);
@@ -4306,6 +4367,12 @@ export default function VoiceParty(props) {
           ...prev,
           ...(res && typeof res === "object" ? res : {}),
           profileImageUrl: newImageUrl,
+          backgroundImageUrl:
+            res?.backgroundImageUrl ||
+            res?.background_image_url ||
+            res?.room?.backgroundImageUrl ||
+            prev?.backgroundImageUrl ||
+            null,
         }));
 
         Alert.alert("Success", "Room photo updated successfully!");
@@ -12068,42 +12135,78 @@ export default function VoiceParty(props) {
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.editRoomScrollContent}
             >
-              {/* Room Avatar Picker inside Modal */}
+              {/* Room Cover Photo & Background Image Pickers inside Modal */}
               <View
                 style={[
-                  styles.editRoomAvatarSection,
-                  editRoomKeyboardHeight > 0 && styles.editRoomAvatarSectionCompact,
+                  styles.editRoomImagesRow,
+                  editRoomKeyboardHeight > 0 && styles.editRoomImagesRowCompact,
                 ]}
               >
-                <TouchableOpacity
-                  style={[
-                    styles.editRoomAvatarWrap,
-                    editRoomKeyboardHeight > 0 && styles.editRoomAvatarWrapCompact,
-                  ]}
-                  onPress={handlePickRoomImageForEdit}
-                  activeOpacity={0.8}
-                  disabled={isSavingRoomDetails}
-                >
-                  {editRoomImageUri ? (
-                    <Image
-                      source={{ uri: editRoomImageUri }}
-                      style={styles.editRoomAvatarImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.editRoomAvatarPlaceholder}>
-                      <Ionicons
-                        name="image-outline"
-                        size={editRoomKeyboardHeight > 0 ? 26 : 34}
-                        color="#9ca3af"
+                {/* Cover Photo */}
+                <View style={styles.editRoomImageItem}>
+                  <TouchableOpacity
+                    style={[
+                      styles.editRoomAvatarWrap,
+                      editRoomKeyboardHeight > 0 && styles.editRoomAvatarWrapCompact,
+                    ]}
+                    onPress={handlePickRoomImageForEdit}
+                    activeOpacity={0.8}
+                    disabled={isSavingRoomDetails}
+                  >
+                    {editRoomImageUri ? (
+                      <Image
+                        source={{ uri: editRoomImageUri }}
+                        style={styles.editRoomAvatarImage}
+                        resizeMode="cover"
                       />
+                    ) : (
+                      <View style={styles.editRoomAvatarPlaceholder}>
+                        <Ionicons
+                          name="image-outline"
+                          size={editRoomKeyboardHeight > 0 ? 26 : 34}
+                          color="#9ca3af"
+                        />
+                      </View>
+                    )}
+                    <View style={styles.editRoomAvatarCameraBadge}>
+                      <Ionicons name="camera" size={13} color="#ffffff" />
                     </View>
-                  )}
-                  <View style={styles.editRoomAvatarCameraBadge}>
-                    <Ionicons name="camera" size={13} color="#ffffff" />
-                  </View>
-                </TouchableOpacity>
-                <Text style={styles.editRoomAvatarHint}>Tap to change cover photo</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.editRoomAvatarHint}>Cover Photo</Text>
+                </View>
+
+                {/* Background Image */}
+                <View style={styles.editRoomImageItem}>
+                  <TouchableOpacity
+                    style={[
+                      styles.editRoomAvatarWrap,
+                      editRoomKeyboardHeight > 0 && styles.editRoomAvatarWrapCompact,
+                    ]}
+                    onPress={handlePickRoomBgImageForEdit}
+                    activeOpacity={0.8}
+                    disabled={isSavingRoomDetails}
+                  >
+                    {editRoomBgImageUri ? (
+                      <Image
+                        source={{ uri: editRoomBgImageUri }}
+                        style={styles.editRoomAvatarImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.editRoomAvatarPlaceholder}>
+                        <Ionicons
+                          name="color-palette-outline"
+                          size={editRoomKeyboardHeight > 0 ? 26 : 34}
+                          color="#9ca3af"
+                        />
+                      </View>
+                    )}
+                    <View style={styles.editRoomAvatarCameraBadge}>
+                      <Ionicons name="camera" size={13} color="#ffffff" />
+                    </View>
+                  </TouchableOpacity>
+                  <Text style={styles.editRoomAvatarHint}>Background</Text>
+                </View>
               </View>
 
               {/* Room Name Input */}
@@ -13160,7 +13263,8 @@ export default function VoiceParty(props) {
       <Image
         source={{
           uri:
-            roomInfo?.profileImageUrl ??
+            roomInfo?.backgroundImageUrl ||
+            roomInfo?.profileImageUrl ||
             "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400",
         }}
         style={styles.bgImage}
@@ -18193,6 +18297,20 @@ const styles = StyleSheet.create({
   },
   editRoomAvatarSectionCompact: {
     marginBottom: 10,
+  },
+  editRoomImagesRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    marginBottom: 18,
+    paddingHorizontal: 16,
+  },
+  editRoomImagesRowCompact: {
+    marginBottom: 10,
+  },
+  editRoomImageItem: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   editRoomAvatarWrap: {
     position: "relative",

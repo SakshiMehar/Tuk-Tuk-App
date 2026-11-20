@@ -691,9 +691,11 @@ export default function ChatTab() {
 
           {/* Live box with home icon in center/bottom of profile when user is active in a room */}
           {isInRoom && (
-            <View style={styles.chatLiveRoomBadge} pointerEvents="none">
-              <Home size={10} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
-              <Text style={styles.chatLiveRoomText}>Live</Text>
+            <View style={styles.chatLiveRoomBadgeWrap} pointerEvents="none">
+              <View style={styles.chatLiveRoomBadge}>
+                <Home size={10} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
+                <Text style={styles.chatLiveRoomText}>Live</Text>
+              </View>
             </View>
           )}
 
@@ -1051,9 +1053,11 @@ export default function ChatTab() {
                         />
                       </LinearGradient>
                       {Boolean(!user?.officialSender && (user?.isInRoom || isUserInRoom(user))) && (
-                        <View style={styles.contactLiveRoomBadge} pointerEvents="none">
-                          <Home size={9} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
-                          <Text style={styles.contactLiveRoomText}>Live</Text>
+                        <View style={styles.contactLiveRoomBadgeWrap} pointerEvents="none">
+                          <View style={styles.contactLiveRoomBadge}>
+                            <Home size={9} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
+                            <Text style={styles.contactLiveRoomText}>Live</Text>
+                          </View>
                         </View>
                       )}
                       {Boolean(!user?.officialSender && (isUserInRoom(user) || isUserOnline(user))) && (
@@ -1257,9 +1261,11 @@ export default function ChatTab() {
                       />
                     </LinearGradient>
                     {userInRoom && (
-                      <View style={styles.recommendLiveRoomBadge} pointerEvents="none">
-                        <Home size={10} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
-                        <Text style={styles.recommendLiveRoomText}>Live</Text>
+                      <View style={styles.recommendLiveRoomBadgeWrap} pointerEvents="none">
+                        <View style={styles.recommendLiveRoomBadge}>
+                          <Home size={10} color="#FFFFFF" strokeWidth={2.4} fill="#FFFFFF" />
+                          <Text style={styles.recommendLiveRoomText}>Live</Text>
+                        </View>
                       </View>
                     )}
                     {userOnline && (
@@ -1738,6 +1744,7 @@ const styles = StyleSheet.create({
   chatItemFirst: {},
   chatAvatarWrap: {
     position: "relative",
+    overflow: "visible",
   },
   chatAvatarRing: {
     width: 56,
@@ -1762,10 +1769,16 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800",
   },
-  chatLiveRoomBadge: {
+  chatLiveRoomBadgeWrap: {
     position: "absolute",
-    bottom: -3,
-    left: 1,
+    bottom: -4,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 14,
+  },
+  chatLiveRoomBadge: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1776,7 +1789,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#ffffff",
     gap: 2.5,
-    zIndex: 12,
     shadowColor: "#1e88e5",
     shadowOffset: { width: 0, height: 1.5 },
     shadowOpacity: 0.35,
@@ -1792,20 +1804,20 @@ const styles = StyleSheet.create({
   },
   chatOnlineDot: {
     position: "absolute",
-    bottom: 0,
-    right: 0,
+    bottom: 12,
+    right: -1,
     width: 13,
     height: 13,
     borderRadius: 6.5,
     backgroundColor: "#00e676",
     borderWidth: 2,
     borderColor: "#ffffff",
-    zIndex: 12,
+    zIndex: 15,
     shadowColor: "#00e676",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.4,
     shadowRadius: 2,
-    elevation: 3,
+    elevation: 5,
   },
   liveBadge: {
     position: "absolute",
@@ -1824,11 +1836,18 @@ const styles = StyleSheet.create({
   liveBadgeText: { color: "white", fontSize: 9, fontWeight: "800" },
   recommendAvatarWrap: {
     position: "relative",
+    overflow: "visible",
+  },
+  recommendLiveRoomBadgeWrap: {
+    position: "absolute",
+    bottom: -5,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 14,
   },
   recommendLiveRoomBadge: {
-    position: "absolute",
-    bottom: -3,
-    left: 4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1850,20 +1869,26 @@ const styles = StyleSheet.create({
   },
   recommendOnlineDot: {
     position: "absolute",
-    bottom: 1,
-    right: 2,
+    bottom: 14,
+    right: 0,
     width: 14,
     height: 14,
     borderRadius: 7,
     backgroundColor: "#00e676",
     borderWidth: 2,
     borderColor: "#ffffff",
-    zIndex: 12,
+    zIndex: 15,
+  },
+  contactLiveRoomBadgeWrap: {
+    position: "absolute",
+    bottom: -4,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 14,
   },
   contactLiveRoomBadge: {
-    position: "absolute",
-    bottom: -3,
-    left: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -2061,7 +2086,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(124,77,255,0.08)",
   },
-  contactAvatarWrap: { position: "relative" },
+  contactAvatarWrap: { position: "relative", overflow: "visible" },
   contactAvatarRing: {
     width: 50,
     height: 50,
@@ -2087,14 +2112,15 @@ const styles = StyleSheet.create({
   },
   onlineDot: {
     position: "absolute",
-    bottom: 1,
-    right: 1,
+    bottom: 10,
+    right: -1,
     width: 11,
     height: 11,
     borderRadius: 6,
     backgroundColor: "#00c853",
     borderWidth: 2,
     borderColor: "white",
+    zIndex: 15,
   },
   contactInfo: { flex: 1, gap: 3 },
   contactNameRow: { flexDirection: "row", alignItems: "center", gap: 5 },
