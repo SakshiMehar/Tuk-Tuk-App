@@ -11,6 +11,7 @@ import { getToken } from "../store/authStore";
 import { buildSeatProfile, syncUserFromToken } from "../utils/sessionUser";
 import { getVoiceUid } from "../utils/voiceUid";
 import * as agoraVoice from "./agoraVoiceService";
+import * as roomAudioService from "./roomAudioService";
 import { runVoicePreflightChecks } from "./voice/voiceHealthChecks";
 import { unwrapVoiceTokenResponse } from "./voice/voiceTokenUtils";
 import { wsService } from "./websocket";
@@ -176,6 +177,18 @@ export const takeMic = async (roomId, seatNumber) => {
   const voice = await activateMicOnSeat(roomId, seatNumber);
   activeRoomId = String(roomId);
   activeSeatNumber = Number(seatNumber);
+
+  try {
+    await roomAudioService.startBackgroundRoomAudio({
+      roomId: String(roomId),
+      seatNumber: Number(seatNumber),
+      isMuted: false,
+      isAppBackgrounded: false,
+    });
+  } catch (err) {
+    console.warn("[partyVoice] Failed to start native background room audio:", err?.message || err);
+  }
+
   return { ...reserved, ...voice };
 };
 
@@ -192,6 +205,16 @@ export const leaveMic = async (roomId, seatNumber) => {
   }
   activeSeatNumber = null;
   wsService.sendSpeakingStatus(String(roomId), false);
+
+  try {
+    await roomAudioService.updateBackgroundRoomSession({
+      roomId: String(roomId),
+      seatNumber: null,
+      isMuted: true,
+    });
+  } catch (err) {
+    console.warn("[partyVoice] Failed to clear seat from native background session:", err?.message || err);
+  }
 
   const uid = await getVoiceUid();
   const tokenData = await fetchVoiceToken(roomId, uid, false).catch(() => null);
@@ -214,6 +237,17 @@ export const toggleMicMute = async (roomId, seatNumber, muted) => {
   await agoraVoice.toggleLocalMute(muted);
   await toggleSeatMute(roomId, seatNumber, muted);
   wsService.sendSpeakingStatus(String(roomId), !muted, muted);
+
+  try {
+    const targetSeat = seatNumber != null ? Number(seatNumber) : activeSeatNumber;
+    await roomAudioService.updateBackgroundRoomSession({
+      roomId: String(roomId),
+      seatNumber: targetSeat,
+      isMuted: Boolean(muted),
+    });
+  } catch (err) {
+    console.warn("[partyVoice] Failed to update mute state on native background service:", err?.message || err);
+  }
 };
 
 export const getVoiceSessionStatus = () => agoraVoice.getVoiceDiagnostics();
@@ -246,6 +280,12 @@ export const teardownVoice = async (seatNumberToLeave = null) => {
     } catch {
       // Ignored during teardown
     }
+  }
+
+  try {
+    await roomAudioService.stopBackgroundRoomAudio();
+  } catch (err) {
+    console.warn("[partyVoice] Failed to stop native background room audio during teardown:", err?.message || err);
   }
 
   await agoraVoice.leaveVoiceChannel();

@@ -6820,18 +6820,27 @@ export default function VoiceParty(props) {
   useEffect(() => {
     const handleAppState = async (nextState) => {
       const activeRoom = roomIdRef.current || roomId;
-      const currentSeat = mySeatNumberRef.current || mySeatNumber;
+      const currentSeat =
+        mySeatNumberRef.current ||
+        mySeatNumber ||
+        (typeof partyVoice.getActiveSeatNumber === "function"
+          ? partyVoice.getActiveSeatNumber()
+          : null);
       if (!activeRoom) return;
 
       if (nextState === "active") {
         // User resumed app from background:
         isAppBackgroundedRef.current = false;
-        roomAudioService.updateBackgroundRoomSession({
-          roomId: String(activeRoom),
-          seatNumber: currentSeat,
-          isMuted: isMicMutedRef.current,
-          isAppBackgrounded: false,
-        });
+        try {
+          await roomAudioService.updateBackgroundRoomSession({
+            roomId: String(activeRoom),
+            seatNumber: currentSeat,
+            isMuted: Boolean(isMicMutedRef.current),
+            isAppBackgrounded: false,
+          });
+        } catch (err) {
+          console.warn("[VoiceParty] Failed to update background audio session on active:", err?.message || err);
+        }
 
         // 1. Immediately send heartbeats
         if (currentSeat) {
@@ -6903,12 +6912,16 @@ export default function VoiceParty(props) {
         postRoomHeartbeat(String(activeRoom)).catch(() => {});
 
         // 2. Update native background audio service
-        roomAudioService.updateBackgroundRoomSession({
-          roomId: String(activeRoom),
-          seatNumber: currentSeat,
-          isMuted: isMicMutedRef.current,
-          isAppBackgrounded: true,
-        });
+        try {
+          await roomAudioService.updateBackgroundRoomSession({
+            roomId: String(activeRoom),
+            seatNumber: currentSeat,
+            isMuted: Boolean(isMicMutedRef.current),
+            isAppBackgrounded: true,
+          });
+        } catch (err) {
+          console.warn("[VoiceParty] Failed to update background audio session on background:", err?.message || err);
+        }
       }
     };
 

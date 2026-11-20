@@ -1,6 +1,6 @@
 import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
 import { API_BASE_URL } from "../config/env";
-import { getBearerToken } from "../api/axios";
+import { getValidAuthToken } from "../api/axios";
 import { getDeviceHeaders } from "../utils/deviceHeaders";
 
 const { RoomAudioModule } = NativeModules;
@@ -19,7 +19,7 @@ export const startBackgroundRoomAudio = async ({
     return false;
   }
   try {
-    const token = await getBearerToken().catch(() => null);
+    const token = await getValidAuthToken().catch(() => null);
     const headers = await getDeviceHeaders().catch(() => ({}));
     const deviceId = headers?.["X-Device-Id"] || "";
     const success = await RoomAudioModule.startBackgroundRoomAudio({
@@ -51,7 +51,7 @@ export const updateBackgroundRoomSession = async ({
     return false;
   }
   try {
-    const token = await getBearerToken().catch(() => null);
+    const token = await getValidAuthToken().catch(() => null);
     const headers = await getDeviceHeaders().catch(() => ({}));
     const deviceId = headers?.["X-Device-Id"] || "";
     const payload = {};
@@ -67,9 +67,7 @@ export const updateBackgroundRoomSession = async ({
     if (isAppBackgrounded !== undefined) {
       payload.isAppBackgrounded = Boolean(isAppBackgrounded);
     }
-    if (token) {
-      payload.authToken = token;
-    }
+    payload.authToken = token || "";
     if (deviceId) {
       payload.deviceId = deviceId;
     }
@@ -112,3 +110,5 @@ export const subscribeBackgroundSessionInvalid = (callback) => {
     sub.remove();
   };
 };
+
+export { RoomAudioModule };
