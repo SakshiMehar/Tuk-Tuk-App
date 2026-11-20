@@ -4809,12 +4809,22 @@ export default function VoiceParty(props) {
 
           const handleExitImmediately = () => {
             exitedRef.current = true;
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace("/(tabs)/party");
+            if (typeof onClose === "function") {
+              onClose();
+            }
+            try {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)/party");
+              }
+            } catch (e) {
+              console.warn("[VoiceParty] Exit immediately navigation failed:", e);
             }
           };
+
+          // Exit room and pop back immediately so the previous/current screen is shown behind the alert
+          handleExitImmediately();
 
           Alert.alert(
             isRandomParty ? "Could not join party room" : "Could not join room",
@@ -6530,6 +6540,9 @@ export default function VoiceParty(props) {
       }
       if (initFailedRef.current) {
         exitedRef.current = true;
+        if (typeof onClose === "function") {
+          onClose();
+        }
         if (router.canGoBack()) {
           router.back();
         } else {
@@ -13123,19 +13136,10 @@ export default function VoiceParty(props) {
         initialTab={rechargeInitialTab}
       />
 
-      {(roomLoading || roomInitFailed) && (
-        <View
-          style={[
-            styles.loadingOverlay,
-            roomInitFailed && { backgroundColor: "#0b0c1b", zIndex: 9999 },
-          ]}
-        >
-          {!roomInitFailed && (
-            <>
-              <ActivityIndicator size="large" color="#a78bfa" />
-              <Text style={styles.loadingText}>Joining room...</Text>
-            </>
-          )}
+      {roomLoading && !roomInitFailed && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#a78bfa" />
+          <Text style={styles.loadingText}>Joining room...</Text>
         </View>
       )}
 

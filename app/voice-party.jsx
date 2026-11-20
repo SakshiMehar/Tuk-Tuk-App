@@ -1,9 +1,10 @@
 import React, { useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useVoiceParty } from "../src/context/VoicePartyContext";
 
 export default function VoicePartyRouteScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams();
   const roomId = params.roomId ?? params.id;
   const { activeRoomId, openRoom, setIsMinimized } = useVoiceParty();
@@ -25,12 +26,28 @@ export default function VoicePartyRouteScreen() {
     }
   }, [roomId]);
 
+  // If the active room is closed, exited, kicked, or failed to init, navigate back immediately
+  useEffect(() => {
+    if (hasInitializedRef.current && !activeRoomId) {
+      try {
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace("/(tabs)/party");
+        }
+      } catch (e) {
+        console.warn("[VoicePartyRouteScreen] Auto-exit navigation back failed:", e);
+      }
+    }
+  }, [activeRoomId]);
+
   return <View style={styles.container} />;
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#090B14",
+    backgroundColor: "transparent",
   },
 });
+

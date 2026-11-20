@@ -298,7 +298,9 @@ export const getRoomRestriction = (roomId) => {
 /**
  * Checks if the room is restricted.
  * Does NOT prematurely block navigation so that the backend database is
- * always checked as the authoritative source of truth.
+ * always checked as the authoritative source of truth. If the room owner
+ * removes the user from the kickout user list, this allows the user to
+ * immediately rejoin the room upon API call.
  */
 export const checkAndShowRoomRestrictionAlert = (
   roomId,
@@ -313,8 +315,13 @@ DeviceEventEmitter.addListener("userKickedFromRoom", (event) => {
   const targetRoomId = event?.roomId != null ? String(event.roomId) : null;
   if (!targetRoomId) return;
 
-  const action = String(event.action || event.type || "").toUpperCase();
-  if (action === "UNBAN" || action === "REMOVE" || action === "RESTRICTION_REMOVED") {
+  const action = String(event.action || event.type || event.eventType || "").toUpperCase();
+  if (
+    action === "UNBAN" ||
+    action === "REMOVE" ||
+    action === "RESTRICTION_REMOVED" ||
+    action === "USER_UNBANNED"
+  ) {
     clearRoomRestriction(targetRoomId);
   } else {
     setRoomRestriction(
