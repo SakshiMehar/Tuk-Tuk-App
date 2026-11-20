@@ -17,12 +17,20 @@ import Svg, { Defs, Polygon, Stop, LinearGradient as SvgGradient, Text as SvgTex
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const CARD_WIDTH = 190;
-const MIN_X = 8;
-const MAX_X = SCREEN_WIDTH - CARD_WIDTH - 8;
-const MIN_Y = 70;
-const MAX_Y = SCREEN_HEIGHT - 200;
+const CARD_HEIGHT = 135;
+const MIN_X = 6;
+const MAX_X = SCREEN_WIDTH - CARD_WIDTH - 6;
+const MIN_Y = 50;
+// Allow placing anywhere at bottom without snapping/clamping upwards prematurely
+const MAX_Y = Math.max(MIN_Y, SCREEN_HEIGHT - 70);
 const INITIAL_X = Math.round((SCREEN_WIDTH - CARD_WIDTH) / 2);
 const INITIAL_Y = 130;
+
+let savedPkPos = null;
+
+export const resetPkBannerPosition = () => {
+  savedPkPos = null;
+};
 
 const computeRemaining = (endsAt) => {
   if (!endsAt) return null;
@@ -113,19 +121,19 @@ export default function PkLiveBanner({
 }) {
   const remaining = useCountdown(battle?.endsAt);
 
-  const pan = useRef(new Animated.ValueXY({ x: INITIAL_X, y: topOffset })).current;
-  const currentPos = useRef({ x: INITIAL_X, y: topOffset });
+  const initialPos = savedPkPos || { x: INITIAL_X, y: topOffset };
+  const pan = useRef(new Animated.ValueXY(initialPos)).current;
+  const currentPos = useRef(initialPos);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const hasPositioned = useRef(false);
+  const userMovedRef = useRef(Boolean(savedPkPos));
 
+  // Only set to initial top position if user has never dragged/placed it
   useEffect(() => {
-    if (battle && !hasPositioned.current) {
-      hasPositioned.current = true;
+    if (battle && !userMovedRef.current && !savedPkPos) {
       pan.setValue({ x: INITIAL_X, y: topOffset });
       currentPos.current = { x: INITIAL_X, y: topOffset };
     }
-    if (!battle) hasPositioned.current = false;
-  }, [battle, pan, topOffset]);
+  }, [battle?.id]);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -154,8 +162,11 @@ export default function PkLiveBanner({
         onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
         onPanResponderRelease: () => {
           pan.flattenOffset();
+          userMovedRef.current = true;
           const clampedX = Math.min(Math.max(currentPos.current.x, MIN_X), MAX_X);
           const clampedY = Math.min(Math.max(currentPos.current.y, MIN_Y), MAX_Y);
+          savedPkPos = { x: clampedX, y: clampedY };
+          currentPos.current = { x: clampedX, y: clampedY };
           Animated.spring(pan, {
             toValue: { x: clampedX, y: clampedY },
             useNativeDriver: false,
