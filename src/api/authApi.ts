@@ -1,28 +1,62 @@
-import { apiClient } from '@shared/network/apiClient';
+import API, { authRequestConfig } from './axios';
+import { getDeviceHeaders } from '../utils/deviceHeaders';
 
-export const googleLogin = async (idToken: string, name?: string) => {
-  try {
-    const res = await apiClient.post('/api/auth/google-login', { idToken, name });
-    return res?.data ?? res;
-  } catch {
+const postAuthWithFallback = async (
+  paths: string[],
+  body: any,
+  extraHeaders: Record<string, string> = {}
+) => {
+  let lastError: any;
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  for (const path of paths) {
     try {
-      const fallback = await apiClient.post('/auth/google', { idToken, name });
-      return fallback?.data ?? fallback;
-    } catch {
-      // Dev simulation fallback
-      return {
-        user: {
-          id: 'usr_google_' + Date.now(),
-          name: name || 'Tuk-Tuk Google User',
-          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-          diamonds: 28961.4,
-          level: 1,
-          isVip: true,
+      const response = await API.post(path, body, {
+        headers: {
+          ...deviceHeaders,
+          ...extraHeaders,
         },
-        token: 'jwt_google_' + Date.now(),
-      };
+      });
+      return response.data;
+    } catch (error: any) {
+      lastError = error;
+      const status = error?.status ?? error?.response?.status;
+      if (status !== 404 || path === paths[paths.length - 1]) {
+        throw error;
+      }
     }
   }
+  throw lastError;
+};
+
+export const guestLogin = async () => {
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await API.post(
+    '/api/auth/guest',
+    {},
+    {
+      headers: deviceHeaders,
+    }
+  );
+  return response.data;
+};
+
+export const googleLogin = async (idToken: string, name?: string) => {
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await API.post(
+    '/api/auth/google-login',
+    { idToken, name },
+    { headers: deviceHeaders }
+  );
+  return response.data;
+};
+
+export const appleLogin = async (identityToken: string, name?: string) => {
+  const body = { identityToken, ...(name ? { name } : {}) };
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await API.post('/api/auth/apple-login', body, {
+    headers: deviceHeaders,
+  });
+  return response.data;
 };
 
 export const firebasePhoneAuth = async (
@@ -31,33 +65,16 @@ export const firebasePhoneAuth = async (
   name?: string
 ) => {
   const body = { idToken, phoneNumber, ...(name ? { name } : {}) };
-  try {
-    const res = await apiClient.post('/api/auth/firebase-phone', body);
-    return res?.data ?? res;
-  } catch {
-    try {
-      const fallback = await apiClient.post('/auth/phone', body);
-      return fallback?.data ?? fallback;
-    } catch {
-      return {
-        user: {
-          id: 'usr_phone_' + Date.now(),
-          name: name || `User ${phoneNumber.slice(-4)}`,
-          phoneNumber,
-          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-          diamonds: 28961.4,
-          level: 1,
-          isVip: true,
-        },
-        token: 'jwt_phone_' + Date.now(),
-      };
-    }
-  }
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await API.post('/api/auth/firebase-phone', body, {
+    headers: deviceHeaders,
+  });
+  return response.data;
 };
 
 export const firebaseFacebookAuth = async (
   idToken: string,
-  phoneNumber?: string,
+  phoneNumber?: string | null,
   name?: string,
   avatar?: string
 ) => {
@@ -67,39 +84,72 @@ export const firebaseFacebookAuth = async (
     ...(name ? { name } : {}),
     ...(avatar ? { avatar } : {}),
   };
-  try {
-    const res = await apiClient.post('/api/auth/firebase-facebook', body);
-    return res?.data ?? res;
-  } catch {
-    try {
-      const fallback = await apiClient.post('/api/auth/facebook-login', body);
-      return fallback?.data ?? fallback;
-    } catch {
-      return {
-        user: {
-          id: 'usr_fb_' + Date.now(),
-          name: name || 'Tuk-Tuk Facebook User',
-          avatar: avatar || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-          diamonds: 28961.4,
-          level: 1,
-          isVip: true,
-        },
-        token: 'jwt_fb_' + Date.now(),
-      };
-    }
-  }
+  return postAuthWithFallback(
+    ['/api/auth/firebase-facebook', '/api/auth/facebook-login'],
+    body
+  );
 };
 
 export const facebookLogin = async (accessToken: string) => {
-  return firebaseFacebookAuth(accessToken);
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await API.post(
+    '/api/auth/facebook-login',
+    { accessToken },
+    { headers: deviceHeaders }
+  );
+  return response.data;
+};
+
+export const refreshToken = async (refreshTokenValue: any) => {
+  const token =
+    typeof refreshTokenValue === 'string'
+      ? refreshTokenValue
+      : refreshTokenValue?.refreshToken;
+  const body = { refreshToken: token };
+  const deviceHeaders = await getDeviceHeaders().catch(() => ({}));
+  const response = await (API as any).post('/api/auth/refresh-token', body, {
+    _skipAuthRefresh: true,
+    headers: deviceHeaders,
+  });
+  return response.data;
+};
+
+export const logout = async (payload: any = {}) => {
+  const refreshTokenValue =
+    typeof payload === 'string' ? payload : payload?.refreshToken;
+  const body = refreshTokenValue ? { refreshToken: refreshTokenValue } : {};
+  return postAuthWithFallback(
+    ['/api/app/users/logout', '/api/auth/logout'],
+    body
+  );
+};
+
+export const deleteAccount = async ({
+  reason,
+  additionalComment,
+}: { reason?: string; additionalComment?: string } = {}) => {
+  const body = {
+    reason: String(reason ?? '').trim(),
+    additionalComment: String(additionalComment ?? '').trim(),
+  };
+
+  const response = await API.delete('/api/auth/account', {
+    ...(await authRequestConfig()),
+    data: body,
+  });
+  return response.data;
 };
 
 export const authApi = {
+  guestLogin,
   googleLogin,
+  appleLogin,
   firebasePhoneAuth,
   firebaseFacebookAuth,
   facebookLogin,
-  logout: () => apiClient.post('/api/auth/logout', {}),
+  refreshToken,
+  logout,
+  deleteAccount,
 };
 
 export default authApi;

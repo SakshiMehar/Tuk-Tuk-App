@@ -1,0 +1,51 @@
+/**
+ * App environment — values from `.env` (EXPO_PUBLIC_*).
+ * Restart Expo after changing .env: `npx expo start --clear`
+ */
+
+const trimTrailingSlash = (url) => (url ?? '').replace(/\/+$/, '');
+
+/** Backend REST API origin (no trailing slash). */
+export const API_BASE_URL = trimTrailingSlash(
+  process.env.EXPO_PUBLIC_API_BASE_URL ??
+    process.env.API_BASE_URL ??
+    'https://skydiver-trapdoor-sagging.ngrok-free.dev'
+);
+
+export const API_TIMEOUT_MS = Number(
+  process.env.EXPO_PUBLIC_API_TIMEOUT_MS ?? 15000
+);
+
+/** Wraps a remote image URI in a source object. */
+export const toRemoteImageSource = (uri) => {
+  if (!uri) return null;
+  return { uri };
+};
+
+/** Agora App ID — fallback if voice-token API does not return appId. */
+export const AGORA_APP_ID = process.env.EXPO_PUBLIC_AGORA_APP_ID ?? '';
+
+/** Base URL for user-facing shareable deep links (separate from API_BASE_URL). */
+export const ROOM_SHARE_BASE_URL = trimTrailingSlash(
+  process.env.EXPO_PUBLIC_ROOM_SHARE_URL ??
+    process.env.EXPO_PUBLIC_APP_URL ??
+    'https://tuktuk.live'
+);
+
+/** Generates a shareable deep-link using the HTTPS room link.
+ *  This opens the Tuk-Tuk app directly via Universal Links (iOS) and App Links (Android),
+ *  while providing standard clickable hyperlinks in WhatsApp, SMS, Facebook, Instagram, etc.
+ */
+export const getRoomShareUrl = (roomId) => {
+  if (!roomId) return '';
+  return `${ROOM_SHARE_BASE_URL}/room/${encodeURIComponent(String(roomId))}`;
+};
+
+export default {
+  API_BASE_URL,
+  API_TIMEOUT_MS,
+  toRemoteImageSource,
+  AGORA_APP_ID,
+  ROOM_SHARE_BASE_URL,
+  getRoomShareUrl,
+};

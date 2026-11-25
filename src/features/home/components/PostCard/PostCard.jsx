@@ -10,61 +10,151 @@ import {
 } from 'react-native';
 import { ThumbsUp } from 'lucide-react-native';
 import { vs, ms } from '@shared/utils/responsive';
+import { API_BASE_URL } from '@/config/env';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const toAbsoluteUrl = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  if (
+    trimmed.startsWith('file://') ||
+    trimmed.startsWith('content://') ||
+    trimmed.startsWith('ph://')
+  ) {
+    return trimmed;
+  }
+
+  if (
+    trimmed.includes('.ngrok-free.dev') ||
+    trimmed.includes('.ngrok.io') ||
+    trimmed.includes('localhost:') ||
+    trimmed.includes('127.0.0.1:') ||
+    trimmed.includes('10.0.2.2:')
+  ) {
+    try {
+      const match = trimmed.match(/^https?:\/\/[^\/]+(\/.*)$/);
+      if (match && match[1]) {
+        return `${API_BASE_URL}${match[1]}`;
+      }
+    } catch {}
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('/')) return `${API_BASE_URL}${trimmed}`;
+  return `${API_BASE_URL}/${trimmed}`;
+};
 
 export const PostCard = memo(function PostCard({
   post,
   isLiked = false,
   isFollowing = false,
+  currentUserId,
   onLikeToggle,
   onFollowToggle,
   onCommentPress,
   onMorePress,
   onImagePress,
+  onAvatarPress,
 }) {
   const [isTextExpanded, setIsTextExpanded] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [galleryWidth, setGalleryWidth] = useState(SCREEN_WIDTH - 32);
+  const [imgFailed, setImgFailed] = useState(false);
 
+  // Normalize image gallery URLs from various API response shapes
   const galleryUrls = useMemo(() => {
-    if (post.imageUrls && post.imageUrls.length > 0) return post.imageUrls;
-    if (post.imageUrl) return [post.imageUrl];
-    return [];
-  }, [post.imageUrls, post.imageUrl]);
+    const single =
+      post?.imageUrl ||
+      post?.mediaUrl ||
+      post?.image ||
+      post?._localMediaUri ||
+      null;
 
-  const isGallery = galleryUrls.length > 1;
-  const hasImage = galleryUrls.length === 1;
+    const rawList = post?.imageUrls?.length
+      ? post.imageUrls
+      : post?.mediaUrls?.length
+        ? post.mediaUrls
+        : post?.images?.length
+          ? post.images
+          : single
+            ? [single]
+            : [];
+    return rawList
+      .map((item) => (typeof item === 'string' ? item : item?.url || item?.imageUrl || item?.mediaUrl))
+      .filter(Boolean)
+      .map(toAbsoluteUrl);
+  }, [post?.imageUrls, post?.imageUrl, post?.mediaUrls, post?.mediaUrl, post?.images, post?.image, post?._localMediaUri]);
+
+  const avatarUrl = useMemo(() => {
+    return toAbsoluteUrl(post?.avatar || post?.avatarUrl || post?.profileImage || post?.userAvatar);
+  }, [post?.avatar, post?.avatarUrl, post?.profileImage, post?.userAvatar]);
+
+  const hasVideo = Boolean(
+    post?.hasVideo ||
+    post?.videoUrl ||
+    post?.mediaType === 'video' ||
+    post?._mediaType === 'video'
+  );
+
+  const isGallery = !hasVideo && galleryUrls.length > 1;
+  const hasImage = !hasVideo && galleryUrls.length >= 1 && !isGallery;
+
+  const isOwnPost = Boolean(
+    post?._isOwn === true ||
+    (currentUserId && post?.userId && String(post.userId) === String(currentUserId))
+  );
 
   const handleTextToggle = useCallback(() => {
     setIsTextExpanded((prev) => !prev);
   }, []);
+
+  const handleAuthorPress = useCallback(() => {
+    if (onAvatarPress) {
+      onAvatarPress(post);
+    }
+  }, [onAvatarPress, post]);
+
+  const authorName = post?.name || post?.username || post?.authorName || 'User';
+  const authorInitial = (authorName || '?')[0].toUpperCase();
+  const captionText = post?.text || post?.caption || post?.content || '';
+  const likeCount = Number(post?.likeCount ?? post?.likes ?? 0);
 
   return (
     <View style={styles.postOuter}>
       <View style={styles.postCard}>
         {/* Header */}
         <View style={styles.postHeader}>
-          <View style={styles.authorRow}>
-            {post.avatar ? (
-              <Image source={{ uri: post.avatar }} style={styles.postAvatar} />
+          <TouchableOpacity
+            style={styles.authorRow}
+            activeOpacity={0.8}
+            onPress={handleAuthorPress}
+          >
+            {avatarUrl && !imgFailed ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                style={styles.postAvatar}
+                onError={() => setImgFailed(true)}
+              />
             ) : (
               <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
-                <Text style={styles.avatarLetter}>
-                  {(post.name || '?')[0].toUpperCase()}
-                </Text>
+                <Text style={styles.avatarLetter}>{authorInitial}</Text>
               </View>
             )}
             <View style={styles.authorMeta}>
-              <Text style={styles.postName}>{post.name || 'User'}</Text>
+              <Text style={styles.postName} numberOfLines={1}>
+                {authorName}
+              </Text>
             </View>
-          </View>
+          </TouchableOpacity>
 
           <View style={styles.headerRight}>
-            {!post._isOwn && (
+            {!isOwnPost && (
               <TouchableOpacity
                 style={[styles.followBtn, isFollowing && styles.followBtnActive]}
-                onPress={() => onFollowToggle && onFollowToggle(post.userId)}
+                onPress={() => onFollowToggle && onFollowToggle(post?.userId)}
                 activeOpacity={0.75}
               >
                 <Text
@@ -81,6 +171,7 @@ export const PostCard = memo(function PostCard({
             <TouchableOpacity
               style={styles.moreBtn}
               onPress={() => onMorePress && onMorePress(post)}
+              activeOpacity={0.7}
             >
               <Text style={styles.moreBtnText}>⋯</Text>
             </TouchableOpacity>
@@ -88,15 +179,15 @@ export const PostCard = memo(function PostCard({
         </View>
 
         {/* Text / Caption */}
-        {!!post.text && (
+        {!!captionText && (
           <View style={styles.captionContainer}>
             <Text
               style={styles.postText}
               numberOfLines={isTextExpanded ? undefined : 3}
             >
-              {post.text}
+              {captionText}
             </Text>
-            {post.text.length > 120 && (
+            {captionText.length > 120 && (
               <TouchableOpacity onPress={handleTextToggle} activeOpacity={0.7}>
                 <Text style={styles.moreText}>
                   {isTextExpanded ? 'Less' : 'More'}
@@ -106,11 +197,46 @@ export const PostCard = memo(function PostCard({
           </View>
         )}
 
+        {/* Video Player Box */}
+        {hasVideo && (
+          <TouchableOpacity
+            activeOpacity={0.92}
+            onPress={() =>
+              onImagePress &&
+              onImagePress({ post, imageUrls: galleryUrls, startIndex: 0 })
+            }
+            style={styles.videoBox}
+          >
+            {galleryUrls[0] ? (
+              <Image
+                source={{ uri: galleryUrls[0] }}
+                style={styles.postImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.videoPlaceholder} />
+            )}
+            <View style={styles.playOverlay}>
+              <View style={styles.playBtn}>
+                <Text style={styles.playIcon}>▶</Text>
+              </View>
+            </View>
+            {post?.duration && (
+              <View style={styles.videoDurationBadge}>
+                <Text style={styles.videoDurationText}>{post.duration}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
+
         {/* Single Image */}
         {hasImage && (
           <TouchableOpacity
             activeOpacity={0.94}
-            onPress={() => onImagePress && onImagePress({ post, imageUrls: galleryUrls, startIndex: 0 })}
+            onPress={() =>
+              onImagePress &&
+              onImagePress({ post, imageUrls: galleryUrls, startIndex: 0 })
+            }
             style={styles.singleImageWrap}
           >
             <Image
@@ -176,15 +302,15 @@ export const PostCard = memo(function PostCard({
         {/* Footer */}
         <View style={styles.postFooter}>
           <View style={styles.postFooterLeft}>
-            {(post.likeCount || 0) > 0 && (
-              <Text style={styles.postLikeCount}>👍 {post.likeCount}</Text>
+            {likeCount > 0 && (
+              <Text style={styles.postLikeCount}>👍 {likeCount}</Text>
             )}
           </View>
 
           <View style={styles.postFooterRight}>
             <TouchableOpacity
               style={[styles.postActionBtn, isLiked && styles.postActionBtnLiked]}
-              onPress={() => onLikeToggle && onLikeToggle(post.id)}
+              onPress={() => onLikeToggle && onLikeToggle(post?.id)}
               activeOpacity={0.75}
             >
               <ThumbsUp
@@ -199,7 +325,7 @@ export const PostCard = memo(function PostCard({
 
             <TouchableOpacity
               style={styles.postActionBtn}
-              onPress={() => onCommentPress && onCommentPress(post.id)}
+              onPress={() => onCommentPress && onCommentPress(post?.id)}
               activeOpacity={0.75}
             >
               <Text style={styles.postActionEmoji}>💬</Text>
@@ -241,6 +367,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flex: 1,
   },
   postAvatar: {
     width: 42,
@@ -260,6 +387,7 @@ const styles = StyleSheet.create({
   },
   authorMeta: {
     gap: 2,
+    flex: 1,
   },
   postName: {
     fontSize: ms(14),
@@ -323,6 +451,53 @@ const styles = StyleSheet.create({
   postImage: {
     width: '100%',
     height: '100%',
+  },
+  videoBox: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#0F172A',
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#1E1B4B',
+  },
+  playOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  playBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: 'white',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playIcon: {
+    color: 'white',
+    fontSize: 18,
+    marginLeft: 3,
+  },
+  videoDurationBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  videoDurationText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
   },
   galleryContainer: {
     width: '100%',

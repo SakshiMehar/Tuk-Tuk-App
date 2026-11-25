@@ -33,7 +33,10 @@ export const ROUTES = {
     WALLET: 'Wallet',
     EDIT_PROFILE: 'EditProfile',
     NOTIFICATIONS: 'Notifications',
+    MESSAGE_NOTIFICATION: 'MessageNotification',
     SETTINGS: 'Settings',
+    PERSONALITY_TEST: 'PersonalityTest',
+    TERMS_OF_USE: 'TermsOfUse',
   },
 };
 

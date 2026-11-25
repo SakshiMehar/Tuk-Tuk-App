@@ -1,4 +1,5 @@
 import { Dimensions } from 'react-native';
+import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -18,4 +19,10 @@ export const hp = (percentage: number | string): number => {
   return (value * SCREEN_HEIGHT) / 100;
 };
 
-export default { wp, hp };
+export const s = scale;
+export const vs = verticalScale;
+export const ms = moderateScale;
+
+export { scale, verticalScale, moderateScale };
+export default { wp, hp, s, vs, ms, scale, verticalScale, moderateScale };
+

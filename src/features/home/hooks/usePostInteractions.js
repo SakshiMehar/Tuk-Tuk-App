@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { Share, Linking } from 'react-native';
 import { useHomeStore } from '../store/homeStore';
 import { homeApi } from '../api/homeApi';
+import { followUser, unfollowUser } from '@/api/relationshipApi';
 
 export function usePostInteractions() {
   const toggleLikePost = useHomeStore((s) => s.toggleLikePost);
@@ -12,11 +13,18 @@ export function usePostInteractions() {
 
   const handleLike = useCallback(
     async (postId) => {
+      const wasLiked = useHomeStore.getState().likedPostIds.includes(postId);
       toggleLikePost(postId);
       try {
-        await homeApi.likePost(postId);
-      } catch {
-        // optimistic toggle already handled
+        if (wasLiked) {
+          await homeApi.unlikePost(postId);
+        } else {
+          await homeApi.likePost(postId);
+        }
+      } catch (err) {
+        console.warn('[usePostInteractions] like/unlike failed:', err?.message);
+        // revert optimistic change
+        toggleLikePost(postId);
       }
     },
     [toggleLikePost]
@@ -24,7 +32,21 @@ export function usePostInteractions() {
 
   const handleFollow = useCallback(
     async (userId) => {
-      toggleFollowUser(userId);
+      if (!userId) return;
+      const targetId = String(userId);
+      const wasFollowing = useHomeStore.getState().followingUserIds.includes(targetId);
+      toggleFollowUser(targetId);
+      try {
+        if (wasFollowing) {
+          await unfollowUser(targetId);
+        } else {
+          await followUser(targetId);
+        }
+      } catch (err) {
+        console.warn('[usePostInteractions] follow/unfollow failed:', err?.message);
+        // revert optimistic change
+        toggleFollowUser(targetId);
+      }
     },
     [toggleFollowUser]
   );

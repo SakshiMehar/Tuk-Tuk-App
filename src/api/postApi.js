@@ -1,0 +1,290 @@
+import API, { authRequestConfig, getBearerToken, refreshTokenCache } from './axios';
+import { API_BASE_URL } from '../config/env';
+
+// ── Create a post (text only or with media) ──────────────────
+// POST /api/posts
+// Body (JSON):  { caption }
+// Body (form):  caption + mediaType + media file + available asset metadata
+const extensionFromUri = (uri) => {
+  const cleanUri = uri?.split('?')?.[0] ?? '';
+  const match = cleanUri.match(/\.([a-zA-Z0-9]+)$/);
+  return match?.[1]?.toLowerCase() ?? null;
+};
+
+const fallbackMimeType = (uri, mediaType) => {
+  const ext = extensionFromUri(uri);
+  if (mediaType === 'video') {
+    if (ext === 'mov') return 'video/quicktime';
+    if (ext === 'webm') return 'video/webm';
+    return 'video/mp4';
+  }
+
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'heic') return 'image/heic';
+  if (ext === 'heif') return 'image/heif';
+  return 'image/jpeg';
+};
+
+const fallbackFileName = (uri, mediaType) => {
+  const fileName = uri?.split('/')?.pop()?.split('?')?.[0];
+  if (fileName?.includes('.')) return fileName;
+
+  const ext = mediaType === 'video' ? 'mp4' : 'jpg';
+  return `upload.${ext}`;
+};
+
+const appendIfPresent = (form, key, value) => {
+  if (value !== undefined && value !== null && value !== '') {
+    form.append(key, String(value));
+  }
+};
+
+const parseCreatePostResponse = async (response) => {
+  const text = await response.text();
+  let data = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  if (!response.ok) {
+    const message =
+      data?.message ||
+      data?.error ||
+      `Create post failed with status ${response.status}`;
+    const error = new Error(message);
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+
+  return data;
+};
+
+const buildAuthHeaders = async (contentType) => {
+  await refreshTokenCache();
+  const token = await getBearerToken();
+  if (!token) {
+    throw new Error('Please log in again to create a post.');
+  }
+
+  const authConfig = await authRequestConfig();
+  const headers = {
+    ...authConfig.headers,
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+  };
+
+  if (contentType) {
+    headers['Content-Type'] = contentType;
+  } else {
+    delete headers['Content-Type'];
+  }
+
+  return { token, headers };
+};
+
+// `photos` is an array of picked image assets (1+) for a multi-photo post;
+// `video` is a single video asset. The two are mutually exclusive — a post
+// is either photos or a video, never both. Legacy single-file callers can still pass `mediaUri`/`media`.
+export const createPost = async ({ caption, photos, video, mediaType, mediaUri, media }) => {
+  const photoList = photos?.length ? photos : (mediaUri && mediaType !== 'video' ? [media ?? { uri: mediaUri }] : []);
+  const videoAsset = video ?? (mediaUri && mediaType === 'video' ? (media ?? { uri: mediaUri }) : null);
+
+  if (videoAsset?.uri) {
+    const mimeType = videoAsset.mimeType ?? fallbackMimeType(videoAsset.uri, 'video');
+    const fileName = videoAsset.fileName ?? fallbackFileName(videoAsset.uri, 'video');
+
+    const form = new FormData();
+    form.append('caption', caption ?? '');
+    form.append('mediaType', 'video');
+    form.append('file', {
+      uri: videoAsset.uri,
+      type: mimeType,
+      name: fileName,
+    });
+
+    appendIfPresent(form, 'duration', videoAsset.duration);
+    appendIfPresent(form, 'width', videoAsset.width);
+    appendIfPresent(form, 'height', videoAsset.height);
+    appendIfPresent(form, 'fileSize', videoAsset.fileSize);
+
+    const { token, headers } = await buildAuthHeaders();
+    form.append('token', token);
+
+    const response = await fetch(`${API_BASE_URL}/api/posts`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    return parseCreatePostResponse(response);
+  }
+
+  if (photoList.length > 0) {
+    const form = new FormData();
+    form.append('caption', caption ?? '');
+    form.append('mediaType', 'photo');
+
+    const isMultiple = photoList.length > 1;
+    photoList.forEach((asset, idx) => {
+      const mimeType = asset.mimeType ?? fallbackMimeType(asset.uri, 'photo');
+      const fileName = asset.fileName ?? fallbackFileName(asset.uri, 'photo');
+      const filePayload = {
+        uri: asset.uri,
+        type: mimeType,
+        name: fileName,
+      };
+
+      if (isMultiple) {
+        form.append('files', filePayload);
+      } else {
+        form.append('file', filePayload);
+      }
+
+      if (idx === 0) {
+        appendIfPresent(form, 'width', asset.width);
+        appendIfPresent(form, 'height', asset.height);
+        appendIfPresent(form, 'fileSize', asset.fileSize);
+      }
+    });
+
+    const { token, headers } = await buildAuthHeaders();
+    form.append('token', token);
+
+    const response = await fetch(`${API_BASE_URL}/api/posts`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    return parseCreatePostResponse(response);
+  }
+
+  const { token, headers } = await buildAuthHeaders('application/json');
+  const response = await API.post(
+    '/api/posts',
+    { caption: caption ?? '', token },
+    { headers }
+  );
+  return response.data;
+};
+
+// ── Delete a post ────────────────────────────────────────────
+// DELETE /api/posts/{postId}
+export const deletePost = async (postId) => {
+  const response = await API.delete(`/api/posts/${postId}`);
+  return response.data;
+};
+
+// ── Like a post ──────────────────────────────────────────────
+// POST /api/posts/{postId}/like
+export const likePost = async (postId) => {
+  const response = await API.post(`/api/posts/${postId}/like`);
+  return response.data;
+};
+
+// ── Unlike a post ────────────────────────────────────────────
+// DELETE /api/posts/{postId}/like
+export const unlikePost = async (postId) => {
+  const response = await API.delete(`/api/posts/${postId}/like`);
+  return response.data;
+};
+
+// ── Get comments on a post ───────────────────────────────────
+// GET /api/posts/{postId}/comments?page=0&size=20
+export const getPostComments = async (postId, page = 0, size = 20) => {
+  const response = await API.get(`/api/posts/${postId}/comments?page=${page}&size=${size}`);
+  return response.data;
+};
+
+// ── Add a comment ────────────────────────────────────────────
+// POST /api/posts/{postId}/comments
+export const addComment = async (postId, text) => {
+  const response = await API.post(`/api/posts/${postId}/comments`, { text });
+  return response.data;
+};
+
+// ── Mark user as Interested ───────────────────────────────────
+// POST /api/home/users/{targetUserId}/interested
+export const markInterested = async (targetUserId) => {
+  const response = await API.post(`/api/home/users/${targetUserId}/interested`);
+  return response.data;
+};
+
+// ── Mark user as Not Interested ───────────────────────────────
+// POST /api/home/users/{targetUserId}/not-interested
+export const markNotInterested = async (targetUserId) => {
+  const response = await API.post(`/api/home/users/${targetUserId}/not-interested`);
+  return response.data;
+};
+
+// ── Report a user ─────────────────────────────────────────────
+// POST /api/home/users/{targetUserId}/report
+export const reportUser = async (targetUserId, reason) => {
+  const cleanId = encodeURIComponent(String(targetUserId || '').trim());
+  const response = await API.post(`/api/home/users/${cleanId}/report`, {
+    reason: String(reason || '').trim(),
+  });
+  return response.data;
+};
+
+// ── Share a user's post ───────────────────────────────────────
+// POST /api/home/users/{targetUserId}/share
+export const shareUser = async (targetUserId) => {
+  const response = await API.post(`/api/home/users/${targetUserId}/share`);
+  return response.data;
+};
+
+// ── Home tab feeds (Online / Following / New / Discover) ──────
+// GET /api/posts/online?page=0&size=10
+export const getOnlinePosts = async (page = 0, size = 10) => {
+  const response = await API.get(`/api/posts/online?page=${page}&size=${size}`);
+  return response.data;
+};
+
+// GET /api/posts/following?page=0&size=10
+export const getFollowingPosts = async (page = 0, size = 10) => {
+  const response = await API.get(`/api/posts/following?page=${page}&size=${size}`);
+  return response.data;
+};
+
+// GET /api/posts/discover?page=0&size=10
+export const getDiscoverPosts = async (page = 0, size = 10) => {
+  const response = await API.get(`/api/posts/discover?page=${page}&size=${size}`);
+  return response.data;
+};
+
+// GET /api/posts/me/profile — current user's posts
+export const getMyProfilePosts = async (page = 1, limit = 20) => {
+  const url = `/api/posts/me/profile?page=${page}&limit=${limit}`;
+  const response = await API.get(url, await authRequestConfig());
+  return response.data;
+};
+
+// PATCH /api/posts/{postId}
+export const updatePostCaption = async (postId, text) => {
+  const { token, headers } = await buildAuthHeaders('application/json');
+  const body = { text, description: text, token };
+  const response = await API.patch(`/api/posts/${postId}`, body, { headers });
+  return response.data;
+};
+
+export default {
+  createPost,
+  deletePost,
+  likePost,
+  unlikePost,
+  getPostComments,
+  addComment,
+  markInterested,
+  markNotInterested,
+  reportUser,
+  shareUser,
+  getOnlinePosts,
+  getFollowingPosts,
+  getDiscoverPosts,
+  getMyProfilePosts,
+  updatePostCaption,
+};

@@ -30,7 +30,12 @@ export const HomeHeader = memo(function HomeHeader({
           maximumFractionDigits: 1,
         })
       : '28,961.4';
-  const formattedActive = String(activeUsers || 1);
+  const formattedActive =
+    activeUsers != null && Number(activeUsers) > 0
+      ? Number(activeUsers) > 999
+        ? `${(Number(activeUsers) / 1000).toFixed(Number(activeUsers) >= 10000 ? 0 : 1).replace(/\.0$/, '')}K`
+        : String(activeUsers)
+      : '1';
 
   return (
     <View style={styles.container}>

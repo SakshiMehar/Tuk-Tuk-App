@@ -1,0 +1,2094 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
+  Keyboard,
+  Modal,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import {
+  AlertCircle,
+  ArrowLeft,
+  Home,
+  MessageCircle,
+  Mic,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react-native';
+import { getRoomUserCount } from '../src/api/partyApi';
+import { APP_BG, APP_TEXT, APP_TEXT_DIM, APP_TEXT_MUTED } from '../src/constants/theme';
+import {
+  VIP_PROFILE_FRAME_LAYOUT,
+  VIP_TIER_THRESHOLDS,
+  resolveVipTierFromAssetUrl,
+} from '../src/constants/vip';
+import exploreData from '../src/data/partyExploreData.json';
+import { fetchUserDecorations } from '../src/services/decorationsService';
+import { getRecommendedUsers, RecommendedUser } from '../src/services/homeService';
+import {
+  loadFamilies,
+  loadFollowingRooms,
+  loadManagedRooms,
+  loadPartyRanking,
+  loadRecentlyRooms,
+  loadRoomRecommendations,
+  normalizeRoom,
+  searchRoomById,
+} from '../src/services/partyService';
+import { resolveCountryFlag } from '../src/services/userCountryService';
+import { syncUserLevelForSession } from '../src/services/userLevelService';
+import { openUserChat } from '../src/utils/chatNavigation';
+import { resolveLocalLevelBadge } from '../src/utils/levelBadge';
+import AppBackground from './AppBackground';
+import ComingSoonModal from './ComingSoonModal';
+import CreateRoomModal from './CreateRoomModal';
+import LevelGateModal from './LevelGateModal';
+import ProfileAvatarWithFrame from './ProfileAvatarWithFrame';
+import { isUserLive } from '../src/utils/liveStatus';
+import { wsService } from '../src/services/websocket';
+import { ROUTES } from '../src/navigation/navigationConstants';
+
+const MIN_CREATE_ROOM_LEVEL = 5;
+
+const VIP_LOGO_BY_TIER: Record<string, string | null> = Object.fromEntries(
+  VIP_TIER_THRESHOLDS.map(({ tier, assets }) => [tier, assets?.logo ?? null])
+);
+const BADGE_ASPECT = { level: 142 / 149, verified: 438 / 179 };
+
+const { width: W } = Dimensions.get('window');
+
+const FEATURE_CARD_GAP = 10;
+const FEATURE_CARD_W = (W - 32 - FEATURE_CARD_GAP * 2) / 3;
+const FEATURE_CARD_H = 78;
+const FEATURE_ICON_H = 58;
+const FEATURE_ICON_INSET = 22;
+const FEATURE_ICON_ASPECT = 16 / 9;
+
+const getFeatureIconLayout = (card: any) => {
+  const glyphTop = card.glyphTop ?? 0;
+  const glyphRatio = (card.glyphBottom ?? 1) - glyphTop;
+  const glyphHeight = FEATURE_ICON_H * (card.iconScale ?? 1);
+  const imageWidth = (glyphHeight * FEATURE_ICON_ASPECT) / glyphRatio;
+  const imageHeight = imageWidth / FEATURE_ICON_ASPECT;
+  return {
+    glyphHeight: glyphHeight + 2,
+    imageWidth,
+    imageHeight,
+    offsetTop: 1 - glyphTop * imageHeight,
+    offsetLeft: (FEATURE_CARD_W - imageWidth) / 2,
+  };
+};
+
+const RANKING_PERIODS = [
+  { id: 'daily', label: 'Daily' },
+  { id: 'weekly', label: 'Weekly' },
+  { id: 'monthly', label: 'Monthly' },
+];
+
+const PODIUM_STYLE: Record<number, { ring: [string, string]; medal: string; size: number }> = {
+  1: { ring: ['#ffd700', '#ffaa00'], medal: '🥇', size: 84 },
+  2: { ring: ['#c0c0c0', '#9aa0a6'], medal: '🥈', size: 72 },
+  3: { ring: ['#cd7f32', '#a0522d'], medal: '🥉', size: 72 },
+};
+
+const THEME = {
+  bg: APP_BG,
+  header: ['transparent', 'transparent'] as [string, string],
+  card: 'rgba(124,77,255,0.08)',
+  cardBorder: 'rgba(167,139,250,0.15)',
+  purple: '#7c4dff',
+  purpleLight: '#a78bfa',
+  text: APP_TEXT,
+  textMuted: APP_TEXT_MUTED,
+  textDim: APP_TEXT_DIM,
+  recommendRing: ['#333333', '#888888'] as [string, string],
+};
+
+const TOP_TABS = exploreData.topTabs;
+const RELATED_SUB_TABS = exploreData.relatedSubTabs;
+const FILTER_CHIPS = exploreData.filterChips;
+const FEATURE_CARDS = exploreData.featureCards;
+const RELATED_TAB_LOADERS: Record<string, () => Promise<any[]>> = {
+  Recently: loadRecentlyRooms,
+  Following: loadFollowingRooms,
+  Managed: loadManagedRooms,
+};
+
+const FILTER_CATEGORY_MAP: Record<string, string | null> = {
+  Recommend: null,
+  New: 'new',
+  Game: 'game',
+  'Blind date': 'blind_date',
+  Official: 'official',
+};
+
+const matchesFilter = (room: any, filter: string) => {
+  const categoryKey = FILTER_CATEGORY_MAP[filter];
+  if (!categoryKey) return true;
+  if (categoryKey === 'official') {
+    return Boolean(
+      room.category === 'official' ||
+      room.isOfficial === true ||
+      room.official === true ||
+      room.roomType?.toLowerCase() === 'official' ||
+      room.type?.toLowerCase() === 'official' ||
+      room.title?.toLowerCase()?.includes('official') ||
+      room.name?.toLowerCase()?.includes('official') ||
+      (Array.isArray(room.tags) && room.tags.some((t: any) => String(t).toLowerCase() === 'official'))
+    );
+  }
+  return room.category === categoryKey;
+};
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIllustration}>
+        <LinearGradient
+          colors={['rgba(124,77,255,0.25)', 'rgba(74,108,247,0.1)']}
+          style={styles.emptyHill}
+        >
+          <View style={styles.emptyHouse}>
+            <Home size={28} color={THEME.purpleLight} />
+          </View>
+        </LinearGradient>
+        <Text style={styles.emptyLeaf}>🍃</Text>
+        <Text style={[styles.emptyLeaf, styles.emptyLeaf2]}>🍃</Text>
+      </View>
+      <Text style={styles.emptyText}>{message}</Text>
+    </View>
+  );
+}
+
+function useRoomUserCount(roomId: string | number) {
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!roomId) return;
+    let cancelled = false;
+
+    const fetchCount = () => {
+      getRoomUserCount(roomId)
+        .then((c) => {
+          if (cancelled) return;
+          if (typeof c === 'number') setCount(c);
+        })
+        .catch(() => {});
+    };
+
+    fetchCount();
+    const interval = setInterval(fetchCount, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [roomId]);
+
+  return count;
+}
+
+function ExploreRoomItem({ room, onPress }: { room: any; onPress: () => void }) {
+  const userCount = useRoomUserCount(room.id);
+  const countryFlag = resolveCountryFlag(room);
+
+  return (
+    <TouchableOpacity style={styles.exploreRoomCard} activeOpacity={0.8} onPress={onPress}>
+      {room.thumbnail ? (
+        <Image source={{ uri: room.thumbnail }} style={styles.roomThumb} resizeMode="cover" />
+      ) : (
+        <View style={[styles.roomThumb, styles.roomThumbPlaceholder]}>
+          <Mic size={22} color={THEME.purpleLight} />
+        </View>
+      )}
+      <View style={styles.roomInfo}>
+        <Text style={styles.roomName} numberOfLines={1}>{room.name}</Text>
+        {!!room.roomTypeLabel && (
+          <View style={styles.roomTypeChip}>
+            <Text style={styles.roomTypeText}>{room.roomTypeLabel}</Text>
+          </View>
+        )}
+      </View>
+      <View style={styles.roomMeta}>
+        {countryFlag ? (
+          <Text style={styles.roomFlagEmoji}>{countryFlag}</Text>
+        ) : (
+          <MessageCircle size={16} color={THEME.textMuted} />
+        )}
+        <View style={styles.roomCount}>
+          <Image
+            source={{ uri: 'https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png' }}
+            style={styles.roomCountIcon}
+            resizeMode="contain"
+          />
+          <Text style={styles.roomCountText}>{userCount ?? ''}</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function RelatedRoomItem({
+  room,
+  onPress,
+  showFollow,
+}: {
+  room: any;
+  onPress: () => void;
+  showFollow?: boolean;
+}) {
+  const [followed, setFollowed] = useState(false);
+  const userCount = useRoomUserCount(room.id);
+
+  return (
+    <TouchableOpacity style={styles.relatedRoomCard} activeOpacity={0.8} onPress={onPress}>
+      {room.thumbnail ? (
+        <Image source={{ uri: room.thumbnail }} style={styles.roomThumb} resizeMode="cover" />
+      ) : (
+        <View style={[styles.roomThumb, styles.roomThumbPlaceholder]}>
+          <Mic size={22} color={THEME.purpleLight} />
+        </View>
+      )}
+      <View style={styles.roomInfo}>
+        <Text style={styles.roomName} numberOfLines={1}>{room.name ?? room.title}</Text>
+        {room.badges?.length > 0 && (
+          <View style={styles.badgeRow}>
+            {room.badges.map((b: string, i: number) => (
+              <Text key={i} style={styles.badgeEmoji}>{b}</Text>
+            ))}
+          </View>
+        )}
+        {room.hasChat && (
+          <View style={styles.chatTag}>
+            <MessageCircle size={11} color={THEME.purpleLight} />
+            <Text style={styles.chatTagText}>Chat</Text>
+          </View>
+        )}
+      </View>
+      <View style={styles.roomMeta}>
+        {room.statusIcons?.map((icon: string, i: number) => (
+          <Text key={i} style={styles.statusIcon}>{icon}</Text>
+        ))}
+        {showFollow ? (
+          <TouchableOpacity
+            style={[styles.followBtn, followed && styles.followBtnActive]}
+            activeOpacity={0.8}
+            onPress={() => setFollowed((v) => !v)}
+          >
+            <Text style={[styles.followBtnText, followed && styles.followBtnTextActive]}>
+              {followed ? 'Following' : 'Follow'}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.roomCount}>
+            <Image
+              source={{ uri: 'https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/user.png' }}
+              style={styles.roomCountIcon}
+              resizeMode="contain"
+            />
+            <Text style={styles.roomCountText}>{userCount ?? ''}</Text>
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+export interface PartyExploreProps {
+  navigation?: any;
+  route?: any;
+}
+
+export default function PartyExplore({ navigation }: PartyExploreProps) {
+  const router = useRouter();
+  const scrollRef = useRef<any>(null);
+  (useScrollToTop as any)(scrollRef);
+  const [activeTopTab, setActiveTopTab] = useState('Explore');
+  const [activeRelatedTab, setActiveRelatedTab] = useState('Recently');
+  const [activeFilter, setActiveFilter] = useState('Recommend');
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [roomsLoading, setRoomsLoading] = useState(true);
+  const [relatedRooms, setRelatedRooms] = useState<any[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [recommendedUsers, setRecommendedUsers] = useState<RecommendedUser[]>([]);
+  const [recommendDecorations, setRecommendDecorations] = useState<Record<string, string>>({});
+  const recommendDecorationFetchedIds = useRef(new Set<string>());
+
+  // ── Search ──
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResult, setSearchResult] = useState<any>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  const handleSearchRoom = async (textToSearch?: string) => {
+    const q = String(textToSearch ?? searchQuery ?? '').trim();
+    if (!q) {
+      setSearchResult(null);
+      return;
+    }
+    Keyboard.dismiss();
+    setSearchLoading(true);
+    try {
+      const res = await searchRoomById(q);
+      setSearchResult(res);
+    } catch (err: any) {
+      setSearchResult({
+        success: false,
+        status: 'ERROR',
+        message: err?.message || 'Room is not live or does not exist',
+        room: null,
+      });
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  // ── Ranking modal ──
+  const [rankingVisible, setRankingVisible] = useState(false);
+  const [rankingPeriod, setRankingPeriod] = useState('daily');
+  const [rankingList, setRankingList] = useState<any[]>([]);
+  const [rankingLoading, setRankingLoading] = useState(false);
+
+  // ── Family modal ──
+  const [familyVisible, setFamilyVisible] = useState(false);
+  const [familyList, setFamilyList] = useState<any[]>([]);
+  const [familyLoading, setFamilyLoading] = useState(false);
+
+  // ── Coming soon modal ──
+  const [comingSoonFeature, setComingSoonFeature] = useState<string | null>(null);
+
+  // ── Create room modal ──
+  const [createRoomVisible, setCreateRoomVisible] = useState(false);
+
+  // ── Level gate (create room requires MIN_CREATE_ROOM_LEVEL) ──
+  const [levelGateVisible, setLevelGateVisible] = useState(false);
+  const [myLevel, setMyLevel] = useState(1);
+
+  // Bumped every time this screen regains focus
+  const [focusTick, setFocusTick] = useState(0);
+  const isFirstFocusRef = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocusRef.current) {
+        isFirstFocusRef.current = false;
+        return;
+      }
+      setFocusTick((v) => v + 1);
+    }, [])
+  );
+
+  useEffect(() => {
+    if (activeTopTab !== 'Explore') return;
+    let cancelled = false;
+    setRoomsLoading(true);
+    loadRoomRecommendations()
+      .then((apiRooms) => {
+        if (!cancelled) setRooms(apiRooms);
+      })
+      .catch((err) => {
+        console.error('[PartyExplore] loadRoomRecommendations failed:', err?.response?.status, err?.message ?? err);
+        if (!cancelled) setRooms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRoomsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTopTab, focusTick]);
+
+  useEffect(() => {
+    if (activeTopTab !== 'Related') return;
+    const loader = RELATED_TAB_LOADERS[activeRelatedTab];
+    if (!loader) {
+      setRelatedRooms([]);
+      return;
+    }
+
+    let cancelled = false;
+    setRelatedLoading(true);
+    loader()
+      .then((apiRooms) => {
+        if (!cancelled) setRelatedRooms(apiRooms);
+      })
+      .catch((err) => {
+        console.error(`[PartyExplore] ${activeRelatedTab} rooms failed:`, err?.response?.status, err?.message ?? err);
+        if (!cancelled) setRelatedRooms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRelatedLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTopTab, activeRelatedTab, focusTick]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRecommendedUsers()
+      .then((users) => {
+        if (!cancelled) {
+          setRecommendedUsers(users);
+          (users ?? []).forEach((u) => {
+            const uid = u?.id != null ? String(u.id) : u?.userId != null ? String(u.userId) : null;
+            if (!uid || recommendDecorationFetchedIds.current.has(uid)) return;
+            recommendDecorationFetchedIds.current.add(uid);
+            fetchUserDecorations(uid)
+              .then(({ badgeUrl }) => {
+                if (badgeUrl && !cancelled) {
+                  setRecommendDecorations((prev) => ({ ...prev, [uid]: badgeUrl }));
+                }
+              })
+              .catch(() => {});
+          });
+        }
+      })
+      .catch((err) => {
+        console.error('[PartyExplore] Failed to fetch recommended users list:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Real-time presence updates for recommended users
+  useEffect(() => {
+    if (typeof wsService?.onPresence !== 'function') return;
+    const unsub = wsService.onPresence((event: any) => {
+      if (!event || event.userId == null) return;
+      const targetId = String(event.userId);
+      const isOnline = Boolean(event.isOnline ?? event.online);
+      setRecommendedUsers((prev) =>
+        prev.map((user) => {
+          const uid = String(user?.id ?? user?.userId ?? '');
+          if (uid === targetId) {
+            return {
+              ...user,
+              isOnline,
+              online: isOnline,
+              status: isOnline ? 'ONLINE' : 'OFFLINE',
+            };
+          }
+          return user;
+        })
+      );
+    });
+    return unsub;
+  }, []);
+
+  // Load ranking whenever modal opens or period changes
+  useEffect(() => {
+    if (!rankingVisible) return;
+    let cancelled = false;
+    setRankingLoading(true);
+    loadPartyRanking(rankingPeriod)
+      .then((list) => {
+        if (!cancelled) setRankingList(list);
+      })
+      .catch((err) => {
+        console.error('[PartyExplore] Failed to fetch party ranking users list:', err);
+        if (!cancelled) setRankingList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRankingLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rankingVisible, rankingPeriod]);
+
+  // Load families when family modal opens
+  useEffect(() => {
+    if (!familyVisible) return;
+    let cancelled = false;
+    setFamilyLoading(true);
+    loadFamilies()
+      .then((list) => {
+        if (!cancelled) setFamilyList(list);
+      })
+      .catch(() => {
+        if (!cancelled) setFamilyList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFamilyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [familyVisible]);
+
+  const handleFeatureCardPress = (card: any) => {
+    if (card.id === 'ranking') {
+      setRankingVisible(true);
+    } else if (card.id === 'family') {
+      setFamilyVisible(true);
+    } else if (card.id === 'game') {
+      setComingSoonFeature('Game');
+    } else {
+      setComingSoonFeature(card.label);
+    }
+  };
+
+  const filteredRooms = useMemo(
+    () => rooms.filter((room) => matchesFilter(room, activeFilter)),
+    [rooms, activeFilter]
+  );
+
+  const podium = useMemo(() => rankingList.slice(0, 3), [rankingList]);
+  const restRanking = useMemo(() => rankingList.slice(3), [rankingList]);
+
+  const openRoom = (roomId: string | number) => {
+    if (!roomId) {
+      console.warn('[PartyExplore] openRoom called with empty roomId — skipping navigation');
+      return;
+    }
+    const cleanRoomId = String(roomId);
+    if (navigation?.navigate) {
+      navigation.navigate(ROUTES.SCREENS.VOICE_PARTY, { roomId: cleanRoomId });
+    } else {
+      router.push({ pathname: '/voice-party', params: { roomId: cleanRoomId } });
+    }
+  };
+
+  const openCreateRoomModal = async () => {
+    const { level } = await syncUserLevelForSession();
+    const resolvedLevel = level ?? 1;
+    if (resolvedLevel < MIN_CREATE_ROOM_LEVEL) {
+      setMyLevel(resolvedLevel);
+      setLevelGateVisible(true);
+      return;
+    }
+
+    try {
+      const managedRooms = await loadManagedRooms();
+      if (managedRooms.length > 0) {
+        Alert.alert(
+          'You already have a room',
+          'You cannot create a room because you already have one.'
+        );
+        return;
+      }
+    } catch {
+      // Fall through
+    }
+
+    setCreateRoomVisible(true);
+  };
+
+  const handleCreateRoomEntered = (roomId: string | number, room?: any) => {
+    setCreateRoomVisible(false);
+
+    if (room) {
+      const normalized = normalizeRoom({ ...room, id: room.id ?? roomId, roomId: room.id ?? roomId });
+      const upsert = (prev: any[]) => [
+        normalized,
+        ...prev.filter((r) => String(r.id) !== String(normalized.id)),
+      ];
+      setRooms(upsert);
+      if (activeRelatedTab === 'Managed' || activeRelatedTab === 'Recently') {
+        setRelatedRooms(upsert);
+      }
+    }
+
+    const cleanRoomId = String(roomId);
+    if (navigation?.navigate) {
+      navigation.navigate(ROUTES.SCREENS.VOICE_PARTY, { roomId: cleanRoomId });
+    } else {
+      router.push({
+        pathname: '/voice-party',
+        params: { roomId: cleanRoomId },
+      });
+    }
+  };
+
+  const renderRelatedContent = () => {
+    if (relatedLoading) {
+      return <ActivityIndicator color={THEME.purple} style={{ marginVertical: 24 }} />;
+    }
+
+    if (relatedRooms.length === 0) {
+      const emptyMessages: Record<string, string> = {
+        Recently: 'No recently visited rooms.',
+        Following: 'You have not followed any rooms.',
+        Managed: 'No managed rooms yet.',
+      };
+      return <EmptyState message={emptyMessages[activeRelatedTab] ?? 'No rooms found.'} />;
+    }
+
+    return relatedRooms.map((room) => (
+      <RelatedRoomItem
+        key={String(room.id)}
+        room={room}
+        onPress={() => openRoom(room.id)}
+      />
+    ));
+  };
+
+  return (
+    <View style={styles.root}>
+      <AppBackground />
+      <StatusBar barStyle="dark-content" />
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        {/* ── TOP TABS + ACTIONS ── */}
+        <LinearGradient colors={THEME.header} style={styles.topBar}>
+          <View style={styles.topTabsRow}>
+            {TOP_TABS.map((tab) => (
+              <TouchableOpacity
+                key={tab}
+                style={styles.topTabBtn}
+                activeOpacity={0.8}
+                onPress={() => setActiveTopTab(tab)}
+              >
+                <Text style={[styles.topTabText, activeTopTab === tab && styles.topTabTextActive]}>
+                  {tab}
+                </Text>
+                {activeTopTab === tab && <View style={styles.topTabUnderline} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.topActions}>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              activeOpacity={0.8}
+              onPress={() => {
+                setSearchQuery('');
+                setSearchResult(null);
+                setSearchVisible(true);
+              }}
+            >
+              <LinearGradient colors={['rgba(124,77,255,0.2)', 'rgba(74,108,247,0.2)']} style={styles.iconBtnGrad}>
+                <Image
+                  source={{ uri: 'https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/search.png' }}
+                  style={styles.searchIcon}
+                  resizeMode="contain"
+                />
+              </LinearGradient>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={openCreateRoomModal}>
+              <View style={styles.homeIconWrap}>
+                <Image
+                  source={{ uri: 'https://tuk-tuk-storage-352306493926.s3.ap-south-1.amazonaws.com/icons/home.png' }}
+                  style={styles.homeIcon}
+                  resizeMode="contain"
+                />
+                <View style={styles.createRoomPlus}>
+                  <Plus size={9} color="white" strokeWidth={3} />
+                </View>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+
+        <ScrollView ref={scrollRef} style={styles.body} showsVerticalScrollIndicator={false}>
+          {/* ══════════ RELATED TAB ══════════ */}
+          {activeTopTab === 'Related' && (
+            <>
+              {/* Create My Room */}
+              <TouchableOpacity
+                style={styles.createCard}
+                activeOpacity={0.85}
+                onPress={openCreateRoomModal}
+              >
+                <LinearGradient colors={['#7c4dff', '#4a6cf7']} style={styles.createIconWrap}>
+                  <Home size={22} color="white" />
+                  <View style={styles.createIconPlus}>
+                    <Plus size={10} color={THEME.purple} strokeWidth={3} />
+                  </View>
+                </LinearGradient>
+                <Text style={styles.createCardText}>Create My Room</Text>
+                <Mic
+                  size={64}
+                  color="rgba(124,77,255,0.12)"
+                  style={styles.createWatermark}
+                />
+              </TouchableOpacity>
+
+              {/* Sub-tabs */}
+              <View style={styles.subTabsRow}>
+                {RELATED_SUB_TABS.map((tab, idx) => (
+                  <View key={tab} style={styles.subTabWrap}>
+                    {idx > 0 && <View style={styles.subTabDivider} />}
+                    <TouchableOpacity
+                      style={styles.subTabBtn}
+                      activeOpacity={0.8}
+                      onPress={() => setActiveRelatedTab(tab)}
+                    >
+                      <Text
+                        style={[
+                          styles.subTabText,
+                          activeRelatedTab === tab && styles.subTabTextActive,
+                        ]}
+                      >
+                        {tab}
+                      </Text>
+                      {activeRelatedTab === tab && <View style={styles.subTabUnderline} />}
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+
+              {/* Related content */}
+              <View style={styles.relatedList}>
+                {renderRelatedContent()}
+              </View>
+            </>
+          )}
+
+          {/* ══════════ EXPLORE TAB ══════════ */}
+          {activeTopTab === 'Explore' && (
+            <>
+              <View style={styles.featureRow}>
+                {FEATURE_CARDS.map((card) => {
+                  const icon = getFeatureIconLayout(card);
+                  return (
+                    <TouchableOpacity
+                      key={card.id}
+                      style={[styles.featureCardWrap, { shadowColor: card.shadowColor ?? '#aaa' }]}
+                      activeOpacity={0.85}
+                      onPress={() => handleFeatureCardPress(card)}
+                    >
+                      {/* Icon stands on platform */}
+                      <View style={[styles.featureIconClip, { height: icon.glyphHeight }]}>
+                        <Image
+                          source={{ uri: card.icon }}
+                          style={{
+                            width: icon.imageWidth,
+                            height: icon.imageHeight,
+                            marginLeft: icon.offsetLeft,
+                            marginTop: icon.offsetTop,
+                          }}
+                          resizeMode="contain"
+                        />
+                      </View>
+
+                      {/* Platform */}
+                      <LinearGradient
+                        colors={[
+                          card.tintStart ?? 'rgba(255,220,170,0.7)',
+                          card.tintEnd ?? 'rgba(240,160,80,0.22)',
+                        ]}
+                        start={{ x: 0.5, y: 0 }}
+                        end={{ x: 0.5, y: 1 }}
+                        style={styles.featurePlatform}
+                      >
+                        <View style={styles.featureSteps} pointerEvents="none">
+                          <View
+                            style={[
+                              styles.featureStepTop,
+                              { backgroundColor: card.stepColor ?? 'rgba(255,255,255,0.5)' },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.featureStepShine,
+                                { backgroundColor: card.stepHighlight ?? 'rgba(255,255,255,0.6)' },
+                              ]}
+                            />
+                          </View>
+                          <View
+                            style={[
+                              styles.featureStepMid,
+                              { backgroundColor: card.stepColor ?? 'rgba(255,255,255,0.4)' },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.featureStepShine,
+                                { backgroundColor: card.stepHighlight ?? 'rgba(255,255,255,0.5)' },
+                              ]}
+                            />
+                          </View>
+                          <View
+                            style={[
+                              styles.featureStepBase,
+                              { backgroundColor: card.stepColor ?? 'rgba(255,255,255,0.3)' },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.featureStepShine,
+                                { backgroundColor: card.stepHighlight ?? 'rgba(255,255,255,0.45)' },
+                              ]}
+                            />
+                          </View>
+                        </View>
+
+                        <Text style={[styles.featureLabel, { color: card.labelColor ?? '#7a3f00' }]}>
+                          {card.label}
+                        </Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsContent}
+                style={styles.chipsScroll}
+              >
+                {FILTER_CHIPS.map((chip) => {
+                  const active = activeFilter === chip;
+                  return (
+                    <TouchableOpacity key={chip} activeOpacity={0.8} onPress={() => setActiveFilter(chip)}>
+                      {active ? (
+                        <LinearGradient colors={['#7c4dff', '#4a6cf7']} style={styles.chipActive}>
+                          <Text style={styles.chipTextActive}>{chip}</Text>
+                        </LinearGradient>
+                      ) : (
+                        <View style={styles.chip}>
+                          <Text style={styles.chipText}>{chip}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              {roomsLoading ? (
+                <ActivityIndicator color={THEME.purple} style={{ marginVertical: 24 }} />
+              ) : filteredRooms.length === 0 ? (
+                <View style={styles.emptyRooms}>
+                  <Text style={styles.emptyRoomsText}>No rooms in this category</Text>
+                </View>
+              ) : (
+                filteredRooms.map((room) => (
+                  <ExploreRoomItem
+                    key={room.id}
+                    room={room}
+                    onPress={() => openRoom(room.id)}
+                  />
+                ))
+              )}
+
+              <View style={styles.recommendSection}>
+                <Text style={styles.recommendTitle}>Recommend user in the room</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.recommendContent}
+                >
+                  {recommendedUsers.map((user) => {
+                    return (
+                      <TouchableOpacity
+                        key={user.id}
+                        style={styles.recommendItem}
+                        activeOpacity={0.8}
+                        onPress={() => openUserChat(router, user)}
+                      >
+                        <LinearGradient
+                          colors={THEME.recommendRing}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.recommendRing}
+                        >
+                          <ProfileAvatarWithFrame
+                            user={user}
+                            isLive={isUserLive(user)}
+                            avatarSource={user.avatar ? { uri: user.avatar } : undefined}
+                            frameSource={user.vipProfileFrameUrl}
+                            size={53}
+                            avatarStyle={{ borderRadius: 26, borderWidth: 2, borderColor: THEME.bg }}
+                            placeholderInitial={user.name?.[0]?.toUpperCase() ?? '?'}
+                            {...(user.vipProfileFrameUrl
+                              ? {
+                                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                                }
+                              : {})}
+                          />
+                        </LinearGradient>
+                        <Text style={styles.recommendName} numberOfLines={1}>{user.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </>
+          )}
+
+          <View style={{ height: 24 }} />
+        </ScrollView>
+      </SafeAreaView>
+
+      {/* ══════════ RANKING MODAL ══════════ */}
+      <Modal
+        visible={rankingVisible}
+        animationType="slide"
+        onRequestClose={() => setRankingVisible(false)}
+      >
+        <View style={styles.modalRoot}>
+          <SafeAreaView style={styles.safe} edges={['top']}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🏆 Ranking</Text>
+              <TouchableOpacity
+                style={styles.modalClose}
+                onPress={() => setRankingVisible(false)}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Period tabs */}
+            <View style={styles.periodRow}>
+              {RANKING_PERIODS.map((p) => {
+                const active = rankingPeriod === p.id;
+                return (
+                  <TouchableOpacity
+                    key={p.id}
+                    activeOpacity={0.8}
+                    onPress={() => setRankingPeriod(p.id)}
+                    style={styles.periodBtnWrap}
+                  >
+                    {active ? (
+                      <LinearGradient colors={['#7c4dff', '#4a6cf7']} style={styles.periodBtnActive}>
+                        <Text style={styles.periodTextActive}>{p.label}</Text>
+                      </LinearGradient>
+                    ) : (
+                      <View style={styles.periodBtn}>
+                        <Text style={styles.periodText}>{p.label}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {rankingLoading ? (
+              <ActivityIndicator color={THEME.purple} style={{ marginTop: 40 }} />
+            ) : rankingList.length === 0 ? (
+              <EmptyState message="No ranking data yet." />
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+                {/* Podium top 3 */}
+                <View style={styles.podiumRow}>
+                  {podium.map((entry) => {
+                    const cfg = PODIUM_STYLE[entry.rank] ?? PODIUM_STYLE[3];
+                    return (
+                      <View
+                        key={String(entry.id)}
+                        style={[styles.podiumItem, entry.rank === 1 && styles.podiumFirst]}
+                      >
+                        <Text style={styles.podiumMedal}>{cfg.medal}</Text>
+                        <LinearGradient colors={cfg.ring} style={[styles.podiumRing, { width: cfg.size, height: cfg.size, borderRadius: cfg.size / 2 }]}>
+                          <ProfileAvatarWithFrame
+                            user={entry}
+                            isLive={isUserLive(entry)}
+                            avatarSource={entry.avatar ? { uri: entry.avatar } : undefined}
+                            frameSource={entry.vipProfileFrameUrl}
+                            size={cfg.size - 6}
+                            avatarStyle={{ borderRadius: 999, borderWidth: 2, borderColor: THEME.bg }}
+                            placeholderInitial={entry.name?.[0]?.toUpperCase() ?? '?'}
+                            {...(entry.vipProfileFrameUrl
+                              ? {
+                                  frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                                  frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                                  frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                                  frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                                  frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                                  avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                                  avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                                }
+                              : {})}
+                          />
+                        </LinearGradient>
+                        <Text style={styles.podiumName} numberOfLines={1}>{entry.name}</Text>
+                        <Text style={styles.podiumScore}>{entry.score} 💎</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* Rest of the list */}
+                {restRanking.map((entry) => (
+                  <View key={String(entry.id)} style={styles.rankRow}>
+                    <Text style={styles.rankNumber}>{entry.rank}</Text>
+                    <ProfileAvatarWithFrame
+                      user={entry}
+                      isLive={isUserLive(entry)}
+                      avatarSource={entry.avatar ? { uri: entry.avatar } : undefined}
+                      frameSource={entry.vipProfileFrameUrl}
+                      size={44}
+                      avatarStyle={styles.rankAvatar}
+                      placeholderInitial={entry.name?.[0]?.toUpperCase() ?? '?'}
+                      {...(entry.vipProfileFrameUrl
+                        ? {
+                            frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                            frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                            frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                            frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                            frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                            avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                            avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                          }
+                        : {})}
+                    />
+                    <View style={styles.rankInfo}>
+                      <Text style={styles.rankName} numberOfLines={1}>{entry.name}</Text>
+                      {entry.level != null && (
+                        <Text style={styles.rankLevel}>Lv {entry.level}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.rankScore}>{entry.score} 💎</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ══════════ FAMILY MODAL ══════════ */}
+      <Modal
+        visible={familyVisible}
+        animationType="slide"
+        onRequestClose={() => setFamilyVisible(false)}
+      >
+        <View style={styles.modalRoot}>
+          <SafeAreaView style={styles.safe} edges={['top']}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>👪 Family</Text>
+              <TouchableOpacity
+                style={styles.modalClose}
+                onPress={() => setFamilyVisible(false)}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {familyLoading ? (
+              <ActivityIndicator color={THEME.purple} style={{ marginTop: 40 }} />
+            ) : familyList.length === 0 ? (
+              <EmptyState message="No families yet. Be the first to create one!" />
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32, paddingHorizontal: 16 }}>
+                {familyList.map((family) => (
+                  <View key={String(family.id)} style={styles.familyCard}>
+                    <Text style={styles.familyRank}>#{family.rank}</Text>
+                    {family.avatar ? (
+                      <Image source={{ uri: family.avatar }} style={styles.familyAvatar} />
+                    ) : (
+                      <View style={[styles.familyAvatar, styles.familyEmojiWrap]}>
+                        <Text style={styles.familyEmoji}>{family.emoji}</Text>
+                      </View>
+                    )}
+                    <View style={styles.familyInfo}>
+                      <Text style={styles.familyName} numberOfLines={1}>{family.name}</Text>
+                      <View style={styles.familyMetaRow}>
+                        <Text style={styles.familyMeta}>Lv {family.level}</Text>
+                        <Text style={styles.familyMetaDot}>·</Text>
+                        <Text style={styles.familyMeta}>{family.memberCount} members</Text>
+                      </View>
+                    </View>
+                    <View style={styles.familyScoreWrap}>
+                      <Text style={styles.familyScore}>{family.score}</Text>
+                      <Text style={styles.familyScoreLabel}>prosperity</Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      <ComingSoonModal
+        feature={comingSoonFeature}
+        onClose={() => setComingSoonFeature(null)}
+      />
+
+      <CreateRoomModal
+        visible={createRoomVisible}
+        onClose={() => setCreateRoomVisible(false)}
+        onEntered={handleCreateRoomEntered}
+      />
+
+      <LevelGateModal
+        visible={levelGateVisible}
+        requiredLevel={MIN_CREATE_ROOM_LEVEL}
+        currentLevel={myLevel}
+        onClose={() => setLevelGateVisible(false)}
+      />
+
+      {/* ══════════ SEARCH ROOM MODAL ══════════ */}
+      <Modal
+        visible={searchVisible}
+        animationType="slide"
+        onRequestClose={() => setSearchVisible(false)}
+      >
+        <View style={styles.modalRoot}>
+          <SafeAreaView style={styles.safe} edges={['top']}>
+            {/* Header Search Bar */}
+            <View style={styles.searchHeader}>
+              <TouchableOpacity
+                style={styles.searchBackBtn}
+                onPress={() => setSearchVisible(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <ArrowLeft size={22} color={THEME.text} />
+              </TouchableOpacity>
+
+              <View style={styles.searchBarWrap}>
+                <Search size={18} color="#9ca3af" style={{ marginLeft: 10 }} />
+                <TextInput
+                  style={styles.searchBarInput}
+                  placeholder="Enter Room ID (e.g. 100014)"
+                  placeholderTextColor="#9ca3af"
+                  value={searchQuery}
+                  onChangeText={(text) => {
+                    setSearchQuery(text);
+                    if (!text.trim()) setSearchResult(null);
+                  }}
+                  onSubmitEditing={() => handleSearchRoom(searchQuery)}
+                  returnKeyType="search"
+                  autoFocus
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity
+                    style={{ padding: 6, marginRight: 4 }}
+                    onPress={() => {
+                      setSearchQuery('');
+                      setSearchResult(null);
+                    }}
+                  >
+                    <X size={16} color="#9ca3af" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={styles.searchActionBtn}
+                activeOpacity={0.8}
+                onPress={() => handleSearchRoom(searchQuery)}
+              >
+                <LinearGradient
+                  colors={['#7c4dff', '#4a6cf7']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.searchActionBtnGrad}
+                >
+                  <Text style={styles.searchActionBtnText}>Search</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+
+            {/* Results Area */}
+            <ScrollView
+              style={styles.searchResultsScroll}
+              contentContainerStyle={styles.searchResultsContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {searchLoading ? (
+                <View style={styles.searchStateContainer}>
+                  <ActivityIndicator color={THEME.purple} size="large" />
+                  <Text style={styles.searchStateText}>Searching room...</Text>
+                </View>
+              ) : searchResult ? (
+                searchResult.success && searchResult.room ? (
+                  <View style={styles.searchFoundSection}>
+                    <Text style={styles.searchSectionTitle}>Live Room Found</Text>
+                    <ExploreRoomItem
+                      room={searchResult.room}
+                      onPress={() => {
+                        setSearchVisible(false);
+                        openRoom(searchResult.room.id);
+                      }}
+                    />
+                  </View>
+                ) : (
+                  <View style={styles.searchStateContainer}>
+                    <View style={styles.searchErrorIconWrap}>
+                      <AlertCircle size={36} color="#ef4444" />
+                    </View>
+                    <Text style={styles.searchErrorTitle}>
+                      {searchResult.message || 'Room is not live or does not exist'}
+                    </Text>
+                    {searchQuery ? (
+                      <Text style={styles.searchErrorSubtitle}>
+                        Room ID: {searchQuery}
+                      </Text>
+                    ) : null}
+                  </View>
+                )
+              ) : (
+                <View style={styles.searchStateContainer}>
+                  <View style={styles.searchIntroIconWrap}>
+                    <Mic size={32} color={THEME.purpleLight} />
+                  </View>
+                  <Text style={styles.searchIntroTitle}>Search Party Room</Text>
+                  <Text style={styles.searchIntroSubtitle}>
+                    Enter a Room ID above to find and join live voice rooms instantly.
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  safe: {
+    flex: 1,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 8,
+    paddingLeft: 4,
+    paddingBottom: 8,
+    backgroundColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  topTabsRow: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingLeft: 8,
+  },
+  topTabBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  topTabText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#999',
+  },
+  topTabTextActive: {
+    color: '#1a1a2e',
+    fontWeight: '700',
+    fontSize: 17,
+  },
+  topTabUnderline: {
+    position: 'absolute',
+    bottom: 0,
+    width: 28,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: THEME.purple,
+  },
+  topActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchIcon: {
+    width: 40,
+    height: 30,
+  },
+  homeIcon: {
+    width: 32,
+    height: 32,
+  },
+  homeIconWrap: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBtnGrad: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+  createRoomPlus: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: THEME.purple,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  body: {
+    flex: 1,
+  },
+
+  // Create My Room card
+  createCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 14,
+    padding: 16,
+    backgroundColor: THEME.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    overflow: 'hidden',
+    gap: 14,
+  },
+  createIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createIconPlus: {
+    position: 'absolute',
+    right: 6,
+    bottom: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'white',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createCardText: {
+    color: THEME.purpleLight,
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
+  },
+  createWatermark: {
+    position: 'absolute',
+    right: 12,
+    opacity: 0.5,
+  },
+
+  // Sub-tabs
+  subTabsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingHorizontal: 16,
+  },
+  subTabWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  subTabDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: 'rgba(167,139,250,0.25)',
+    marginHorizontal: 4,
+  },
+  subTabBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  subTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: THEME.textMuted,
+  },
+  subTabTextActive: {
+    color: THEME.text,
+    fontWeight: '700',
+  },
+  subTabUnderline: {
+    position: 'absolute',
+    bottom: 0,
+    width: 20,
+    height: 2.5,
+    borderRadius: 2,
+    backgroundColor: THEME.purple,
+  },
+
+  relatedList: {
+    marginTop: 8,
+    paddingHorizontal: 16,
+  },
+  relatedRoomCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    padding: 10,
+    backgroundColor: THEME.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    gap: 12,
+  },
+
+  // Empty state
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 36,
+    paddingHorizontal: 24,
+  },
+  emptyIllustration: {
+    width: 140,
+    height: 100,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginBottom: 16,
+  },
+  emptyHill: {
+    width: 120,
+    height: 60,
+    borderTopLeftRadius: 60,
+    borderTopRightRadius: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyHouse: {
+    marginTop: -20,
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: 'rgba(124,77,255,0.2)',
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyLeaf: {
+    position: 'absolute',
+    fontSize: 16,
+    opacity: 0.5,
+    top: 10,
+    left: 20,
+  },
+  emptyLeaf2: {
+    left: undefined,
+    right: 24,
+    top: 20,
+  },
+  emptyText: {
+    color: THEME.textMuted,
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 4,
+    marginTop: 4,
+  },
+  badgeEmoji: { fontSize: 14 },
+  chatTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  chatTagText: {
+    color: THEME.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  statusIcon: { fontSize: 16 },
+  followBtn: {
+    marginTop: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#4a6cf7',
+  },
+  followBtnActive: {
+    borderColor: THEME.cardBorder,
+    backgroundColor: 'rgba(124,77,255,0.15)',
+  },
+  followBtnText: {
+    color: '#4a6cf7',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  followBtnTextActive: {
+    color: THEME.purpleLight,
+  },
+
+  featureRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    marginTop: 4,
+    gap: FEATURE_CARD_GAP,
+    alignItems: 'flex-end',
+  },
+  featureCardWrap: {
+    flex: 1,
+    alignItems: 'center',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  featureIconClip: {
+    width: '100%',
+    overflow: 'hidden',
+    zIndex: 2,
+    marginBottom: -FEATURE_ICON_INSET,
+  },
+  featurePlatform: {
+    width: '100%',
+    height: FEATURE_CARD_H,
+    borderRadius: 18,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 5,
+  },
+  featureSteps: {
+    position: 'absolute',
+    bottom: 24,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  featureStepTop: {
+    width: '34%',
+    height: 10,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  featureStepMid: {
+    width: '56%',
+    height: 10,
+    borderRadius: 4,
+    marginTop: 2,
+    overflow: 'hidden',
+  },
+  featureStepBase: {
+    width: '80%',
+    height: 11,
+    borderRadius: 4,
+    marginTop: 2,
+    overflow: 'hidden',
+  },
+  featureStepShine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '45%',
+    opacity: 0.8,
+  },
+  featureLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  chipsScroll: { marginTop: 14 },
+  chipsContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(124,77,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,77,255,0.2)',
+  },
+  chipActive: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+  },
+  chipTextActive: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  exploreRoomCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 10,
+    backgroundColor: THEME.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    gap: 12,
+  },
+  roomThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 10,
+    backgroundColor: 'rgba(124,77,255,0.15)',
+  },
+  roomThumbPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roomInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  roomName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: THEME.text,
+    lineHeight: 18,
+  },
+  roomTypeChip: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: 'rgba(124,77,255,0.2)',
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+  roomTypeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.purpleLight,
+  },
+  roomMeta: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  roomCount: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 0,
+  },
+  roomCountIcon: {
+    width: 35,
+    height: 35,
+    marginRight: -10,
+    marginTop: 1,
+  },
+  roomCountText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: THEME.purpleLight,
+  },
+  roomFlagEmoji: {
+    fontSize: 20,
+  },
+  emptyRooms: {
+    paddingVertical: 32,
+    alignItems: 'center',
+  },
+  emptyRoomsText: {
+    color: THEME.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  recommendSection: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(167,139,250,0.1)',
+    paddingBottom: 8,
+  },
+  recommendTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: THEME.text,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  recommendContent: {
+    paddingHorizontal: 16,
+    gap: 16,
+  },
+  recommendItem: {
+    alignItems: 'center',
+    width: 72,
+  },
+  recommendRing: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    padding: 2.5,
+  },
+  recommendName: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: '400',
+    color: 'black',
+    textAlign: 'center',
+    maxWidth: 72,
+  },
+
+  // ── Ranking / Family modals ──
+  modalRoot: {
+    flex: 1,
+    backgroundColor: THEME.bg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(167,139,250,0.12)',
+  },
+  modalTitle: {
+    color: THEME.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  modalClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(124,77,255,0.12)',
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+  modalCloseText: {
+    color: THEME.purpleLight,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  // Ranking period tabs
+  periodRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+  },
+  periodBtnWrap: {},
+  periodBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(124,77,255,0.12)',
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+  periodBtnActive: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  periodText: {
+    color: THEME.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  periodTextActive: {
+    color: THEME.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // Podium
+  podiumRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    gap: 14,
+    paddingTop: 18,
+    paddingBottom: 24,
+  },
+  podiumItem: {
+    alignItems: 'center',
+    width: 96,
+  },
+  podiumFirst: {
+    marginBottom: 16,
+  },
+  podiumMedal: {
+    fontSize: 22,
+    marginBottom: 6,
+  },
+  podiumRing: {
+    padding: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  podiumName: {
+    color: THEME.text,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
+    maxWidth: 90,
+  },
+  podiumScore: {
+    color: THEME.purpleLight,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+
+  // Ranking list rows
+  rankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: THEME.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    gap: 12,
+  },
+  rankNumber: {
+    width: 24,
+    textAlign: 'center',
+    color: THEME.purpleLight,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  rankAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(124,77,255,0.15)',
+  },
+  rankInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  rankName: {
+    color: THEME.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  rankLevel: {
+    color: THEME.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  rankScore: {
+    color: THEME.purpleLight,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+
+  // Family cards
+  familyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: THEME.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    gap: 12,
+  },
+  familyRank: {
+    width: 32,
+    textAlign: 'center',
+    color: THEME.purpleLight,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  familyAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: 'rgba(124,77,255,0.15)',
+  },
+  familyEmojiWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  familyEmoji: {
+    fontSize: 26,
+  },
+  familyInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  familyName: {
+    color: THEME.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  familyMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  familyMeta: {
+    color: THEME.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  familyMetaDot: {
+    color: THEME.textMuted,
+    fontSize: 12,
+  },
+  familyScoreWrap: {
+    alignItems: 'flex-end',
+  },
+  familyScore: {
+    color: THEME.purpleLight,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  familyScoreLabel: {
+    color: THEME.textDim,
+    fontSize: 9,
+    fontWeight: '600',
+  },
+
+  // ── Search modal styles ──
+  searchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(167,139,250,0.12)',
+  },
+  searchBackBtn: {
+    padding: 4,
+  },
+  searchBarWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(124,77,255,0.08)',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(124,77,255,0.25)',
+    height: 42,
+  },
+  searchBarInput: {
+    flex: 1,
+    fontSize: 14,
+    color: THEME.text,
+    paddingHorizontal: 8,
+    paddingVertical: 0,
+  },
+  searchActionBtn: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  searchActionBtnGrad: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  searchActionBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  searchResultsScroll: {
+    flex: 1,
+  },
+  searchResultsContent: {
+    paddingVertical: 20,
+  },
+  searchStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  searchStateText: {
+    marginTop: 14,
+    fontSize: 14,
+    fontWeight: '600',
+    color: THEME.textMuted,
+  },
+  searchFoundSection: {
+    paddingTop: 8,
+  },
+  searchSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: THEME.textMuted,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  searchErrorIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  searchErrorTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: THEME.text,
+    textAlign: 'center',
+  },
+  searchErrorSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: THEME.textMuted,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  searchIntroIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(124,77,255,0.12)',
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  searchIntroTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: THEME.text,
+    textAlign: 'center',
+  },
+  searchIntroSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: THEME.textMuted,
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+});

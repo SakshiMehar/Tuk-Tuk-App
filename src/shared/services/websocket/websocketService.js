@@ -56,6 +56,16 @@ class WebSocketService {
     this._setStatus(WS_STATUS.CONNECTING);
 
     try {
+      let targetUrl = ENV.WEBSOCKET_URL || this.url;
+      if (targetUrl.includes('/ws-stomp')) {
+        targetUrl = targetUrl.replace('/ws-stomp', '/ws-tuktuk-native');
+      }
+      if (targetUrl.includes('ngrok') && !targetUrl.includes('ngrok-skip-browser-warning')) {
+        const sep = targetUrl.includes('?') ? '&' : '?';
+        targetUrl = `${targetUrl}${sep}ngrok-skip-browser-warning=true`;
+      }
+      this.url = targetUrl;
+
       if (ENV.ENABLE_WEBSOCKET_LOGS) {
         logger.info('WebSocketService', `Connecting to ${this.url}`);
       }

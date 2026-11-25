@@ -1,4 +1,4 @@
-import React, { memo, useCallback } from 'react';
+import React, { memo } from 'react';
 import {
   Modal,
   View,
@@ -7,24 +7,48 @@ import {
   ScrollView,
   StyleSheet,
   Image,
+  ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from '@shared/components';
-import { useHomeStore } from '../store/homeStore';
 import { ms } from '@shared/utils/responsive';
+
+const resolveNotifIcon = (icon, type) => {
+  const str = String(type || '').toLowerCase();
+  if (
+    str.includes('message') ||
+    str.includes('chat') ||
+    str.includes('direct_message')
+  ) {
+    return '💬';
+  }
+  if (str.includes('gift')) return '🎁';
+  if (str.includes('like') || str.includes('heart')) return '👍';
+  if (str.includes('follow') || str.includes('friend')) return '👤';
+  if (str.includes('party') || str.includes('room') || str.includes('voice')) {
+    return '🎉';
+  }
+  if (
+    icon &&
+    typeof icon === 'string' &&
+    icon.trim().length > 0 &&
+    icon !== '🔔' &&
+    icon.length <= 4
+  ) {
+    return icon;
+  }
+  return '🔔';
+};
 
 export const NotificationsModal = memo(function NotificationsModal({
   visible,
   notifications = [],
+  unreadNotifications = [],
+  loading = false,
   onClose,
   onPressNotification,
+  onMarkAllRead,
 }) {
-  const unreadNotifications = useHomeStore((s) => s.unreadNotifications);
-  const setUnreadNotifications = useHomeStore((s) => s.setUnreadNotifications);
-
-  const handleMarkAllRead = useCallback(() => {
-    setUnreadNotifications([]);
-  }, [setUnreadNotifications]);
-
   if (!visible) return null;
 
   return (
@@ -34,223 +58,295 @@ export const NotificationsModal = memo(function NotificationsModal({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View style={styles.overlay}>
+      <View style={styles.notifOverlay}>
         <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          onPress={onClose}
+          style={styles.notifBackdrop}
           activeOpacity={1}
+          onPress={onClose}
         />
 
-        <View style={styles.panel}>
+        <SafeAreaView style={styles.notifPanel}>
           <LinearGradient
             colors={['#1a0a2e', '#16082a', '#0d0618']}
             style={StyleSheet.absoluteFill}
           />
 
           {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.title}>Notifications</Text>
-            <View style={styles.headerRight}>
-              <TouchableOpacity onPress={handleMarkAllRead} style={styles.markAllBtn}>
-                <Text style={styles.markAllTxt}>Mark all read</Text>
+          <View style={styles.notifHeader}>
+            <Text style={styles.notifTitle}>Notifications</Text>
+            <View style={styles.notifHeaderRight}>
+              <TouchableOpacity
+                style={styles.notifMarkAll}
+                onPress={onMarkAllRead}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.notifMarkAllText}>Mark all read</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                <Text style={styles.closeTxt}>✕</Text>
+              <TouchableOpacity
+                onPress={onClose}
+                style={styles.notifCloseBtn}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.notifCloseTxt}>✕</Text>
               </TouchableOpacity>
             </View>
           </View>
 
+          {/* Glowing divider */}
           <LinearGradient
             colors={['transparent', '#7c4dff', 'transparent']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={styles.divider}
+            style={styles.notifDivider}
           />
 
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listContent}
           >
-            {notifications.length === 0 ? (
-              <View style={styles.emptyBox}>
-                <Text style={styles.emptyEmoji}>🔔</Text>
-                <Text style={styles.emptyTitle}>No notifications yet</Text>
+            {loading ? (
+              <View style={styles.notifStateBox}>
+                <ActivityIndicator size="small" color="#7c4dff" />
+                <Text style={styles.notifStateText}>
+                  Loading notifications...
+                </Text>
+              </View>
+            ) : notifications.length === 0 ? (
+              <View style={styles.notifStateBox}>
+                <Text style={styles.notifStateEmoji}>🔔</Text>
+                <Text style={styles.notifStateText}>
+                  No notifications yet
+                </Text>
               </View>
             ) : (
-              notifications.map((item) => {
-                const isUnread = unreadNotifications.includes(item.id);
+              notifications.map((notif, index) => {
+                const notifId = notif.id ?? notif._id ?? `notif_${index}`;
+                const isUnread =
+                  unreadNotifications.includes(notifId) ||
+                  notif.unread === true ||
+                  notif.read === false ||
+                  notif.isRead === false;
+
+                const avatarUri =
+                  notif.avatar || notif.senderAvatar || notif.userAvatar;
+                const rightImageUri =
+                  notif.imageUrl || notif.image || notif.mediaUrl;
+                const displaySub =
+                  notif.message ?? notif.subtitle ?? notif.body ?? '';
+                const displayTime = notif.time ?? notif.createdAt ?? '';
+                const displayTitle =
+                  notif.title ?? notif.senderName ?? 'Tuk-Tuk';
+
                 return (
                   <TouchableOpacity
-                    key={item.id}
-                    style={[styles.notifItem, isUnread && styles.notifItemUnread]}
+                    key={String(notifId)}
+                    style={[
+                      styles.notifItem,
+                      isUnread && styles.notifItemUnread,
+                    ]}
                     activeOpacity={0.8}
-                    onPress={() => onPressNotification && onPressNotification(item)}
+                    onPress={() => onPressNotification && onPressNotification(notif)}
                   >
                     {isUnread && <View style={styles.unreadDot} />}
 
-                    <View style={styles.iconBox}>
+                    {/* Left: System icon related to notification */}
+                    <View style={styles.notifAvatarWrapper}>
                       <LinearGradient
                         colors={['#3d1a6e', '#7c4dff']}
-                        style={styles.iconGrad}
+                        style={styles.notifSystemIcon}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
                       >
-                        <Text style={{ fontSize: 20 }}>
-                          {item.type === 'party'
-                            ? '🎉'
-                            : item.type === 'gift'
-                            ? '🎁'
-                            : '👍'}
+                        <Text style={{ fontSize: 24 }}>
+                          {resolveNotifIcon(notif.icon, notif.type)}
                         </Text>
                       </LinearGradient>
                     </View>
 
-                    <View style={styles.metaCol}>
-                      <Text style={styles.notifTitle} numberOfLines={1}>
-                        {item.title}
+                    {/* Middle: Title, text message & timestamp */}
+                    <View style={styles.notifTextCol}>
+                      <Text style={styles.notifItemTitle} numberOfLines={1}>
+                        {displayTitle}
                       </Text>
-                      <Text style={styles.notifMessage} numberOfLines={2}>
-                        {item.message}
-                      </Text>
-                      <Text style={styles.notifTime}>{item.time}</Text>
+                      {displaySub ? (
+                        <Text style={styles.notifItemSub} numberOfLines={2}>
+                          {displaySub}
+                        </Text>
+                      ) : null}
+                      {displayTime ? (
+                        <Text style={styles.notifTime}>{displayTime}</Text>
+                      ) : null}
                     </View>
 
-                    {item.imageUrl && (
-                      <Image source={{ uri: item.imageUrl }} style={styles.previewThumb} />
-                    )}
+                    {/* Right: Small image preview thumbnail (like Instagram notifications) */}
+                    {rightImageUri ? (
+                      <View style={styles.notifRightImageWrap}>
+                        <Image
+                          source={{ uri: rightImageUri }}
+                          style={styles.notifRightImage}
+                          resizeMode="cover"
+                        />
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                 );
               })
             )}
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </View>
     </Modal>
   );
 });
 
 const styles = StyleSheet.create({
-  overlay: {
+  notifOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.65)',
   },
-  panel: {
-    height: '75%',
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
+  notifBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  notifPanel: {
+    height: '85%',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     overflow: 'hidden',
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    backgroundColor: '#0d0618',
   },
-  header: {
+  notifHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
   },
-  title: {
-    color: '#FFFFFF',
-    fontSize: ms(18),
+  notifTitle: {
+    color: '#ffffff',
+    fontSize: ms(20),
     fontWeight: '800',
   },
-  headerRight: {
+  notifHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  markAllBtn: {
+  notifMarkAll: {
     paddingVertical: 4,
     paddingHorizontal: 8,
   },
-  markAllTxt: {
-    color: '#B388FF',
-    fontSize: ms(12),
+  notifMarkAllText: {
+    color: '#b388ff',
+    fontSize: ms(13),
     fontWeight: '700',
   },
-  closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  notifCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  closeTxt: {
-    color: '#FFFFFF',
-    fontSize: 13,
+  notifCloseTxt: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: ms(14),
+    fontWeight: '700',
   },
-  divider: {
+  notifDivider: {
     height: 1,
-    marginBottom: 12,
+    width: '100%',
+    marginBottom: 8,
   },
   listContent: {
-    paddingBottom: 24,
+    paddingBottom: 40,
+    paddingHorizontal: 16,
   },
-  emptyBox: {
+  notifStateBox: {
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 60,
-    gap: 8,
+    gap: 10,
   },
-  emptyEmoji: {
-    fontSize: 40,
+  notifStateEmoji: {
+    fontSize: 44,
   },
-  emptyTitle: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: ms(15),
+  notifStateText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: ms(14),
     fontWeight: '600',
   },
   notifItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    marginBottom: 8,
+    position: 'relative',
     gap: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
   },
   notifItemUnread: {
-    backgroundColor: 'rgba(124,77,255,0.08)',
-    borderRadius: 14,
-    paddingHorizontal: 8,
+    backgroundColor: 'rgba(124,77,255,0.12)',
+    borderColor: 'rgba(124,77,255,0.3)',
   },
   unreadDot: {
+    position: 'absolute',
+    top: 14,
+    left: 6,
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#EC4899',
+    backgroundColor: '#7c4dff',
   },
-  iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  notifAvatarWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     overflow: 'hidden',
   },
-  iconGrad: {
-    flex: 1,
+  notifSystemIcon: {
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  metaCol: {
+  notifTextCol: {
     flex: 1,
-    gap: 2,
+    gap: 3,
   },
-  notifTitle: {
-    color: '#FFFFFF',
-    fontSize: ms(13.5),
+  notifItemTitle: {
+    color: '#ffffff',
+    fontSize: ms(14.5),
     fontWeight: '700',
   },
-  notifMessage: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: ms(12),
-    lineHeight: 17,
+  notifItemSub: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: ms(12.5),
+    lineHeight: ms(17),
   },
   notifTime: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 11,
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: ms(11),
     marginTop: 2,
   },
-  previewThumb: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
+  notifRightImageWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#1a0a2e',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  notifRightImage: {
+    width: '100%',
+    height: '100%',
   },
 });
 

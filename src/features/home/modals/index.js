@@ -8,3 +8,4 @@ export * from './GenderPickerModal';
 export * from './DiamondRechargeModal';
 export * from './ComingSoonModal';
 export * from './ReportReasonModal';
+export { default as MorningLoginRewardModal } from './MorningLoginRewardModal';

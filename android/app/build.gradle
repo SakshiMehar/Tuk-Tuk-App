@@ -79,7 +79,7 @@ android {
 
     namespace "com.tuktuk"
     defaultConfig {
-        applicationId "com.tuktuk"
+        applicationId "tuk.tuk.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

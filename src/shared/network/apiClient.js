@@ -30,6 +30,10 @@ class ApiClient {
       ...customHeaders,
     };
 
+    if (this.baseUrl && this.baseUrl.includes('ngrok')) {
+      headers['ngrok-skip-browser-warning'] = 'true';
+    }
+
     if (this.authToken) {
       headers.Authorization = `Bearer ${this.authToken}`;
     }
@@ -42,6 +46,13 @@ class ApiClient {
   }
 
   async _request(endpoint, options = {}) {
+    if (!this.deviceId) {
+      try {
+        const { getDeviceId } = require('../../utils/deviceHeaders');
+        this.deviceId = await getDeviceId();
+      } catch {}
+    }
+
     const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
     const timeout = options.timeout || this.defaultTimeout;
     const controller = new AbortController();

@@ -1,7 +1,16 @@
-import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
 import { Screen } from '@shared/components';
 import { colors, typography, spacing, radii } from '@shared/theme';
+import { getNotifications, markNotificationsRead } from '@/api/notificationApi';
 
 const MOCK_NOTIFS = [
   { id: 'n1', title: 'Gift Received!', body: 'Zoya Khan sent you a Super Rocket in Midnight Chill Lounge.', time: '10m ago', icon: '🚀' },
@@ -10,6 +19,52 @@ const MOCK_NOTIFS = [
 ];
 
 export function NotificationsScreen({ navigation }) {
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchNotifs = useCallback(async () => {
+    try {
+      const res = await getNotifications({ page: 0, size: 30 });
+      const list = res?.content ?? res?.data ?? (Array.isArray(res) ? res : []);
+      if (Array.isArray(list) && list.length > 0) {
+        setNotifications(
+          list.map((n) => ({
+            id: String(n.id || n.notificationId || `notif_${Date.now()}`),
+            title: n.title || n.senderName || 'Notification',
+            body: n.body || n.message || n.content || '',
+            time: n.time || (n.createdAt ? new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'),
+            icon: n.icon || (n.type === 'party' ? '🎉' : n.type === 'gift' ? '🎁' : '🔔'),
+          }))
+        );
+      } else {
+        setNotifications(MOCK_NOTIFS);
+      }
+    } catch {
+      setNotifications(MOCK_NOTIFS);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNotifs();
+  }, [fetchNotifs]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchNotifs();
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await markNotificationsRead('all');
+    } catch {
+      // ignore
+    }
+  };
+
   const renderItem = ({ item }) => (
     <View style={styles.card}>
       <View style={styles.iconBox}>
@@ -30,15 +85,30 @@ export function NotificationsScreen({ navigation }) {
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
-        <View style={{ width: 32 }} />
+        <TouchableOpacity onPress={handleMarkAllRead}>
+          <Text style={styles.markReadText}>Read All</Text>
+        </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={MOCK_NOTIFS}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.list}
-      />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator color={colors.brand.primary} size="large" />
+        </View>
+      ) : (
+        <FlatList
+          data={notifications}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.brand.primary}
+            />
+          }
+        />
+      )}
     </Screen>
   );
 }
@@ -64,26 +134,37 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.lg,
     fontWeight: typography.weights.bold,
   },
+  markReadText: {
+    color: colors.brand.primary,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   list: {
     padding: spacing.lg,
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   card: {
     flexDirection: 'row',
-    backgroundColor: colors.background.card,
-    borderRadius: radii.lg,
+    alignItems: 'flex-start',
+    backgroundColor: colors.background.secondary,
+    borderRadius: radii.md,
     padding: spacing.md,
+    gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.border.light,
   },
   iconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: radii.full,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.background.tertiary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.md,
   },
   icon: {
     fontSize: 20,
@@ -93,19 +174,18 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: colors.text.primary,
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.semibold,
   },
   body: {
     color: colors.text.secondary,
-    fontSize: typography.sizes.xs,
+    fontSize: typography.sizes.sm,
     marginTop: 2,
-    lineHeight: 16,
   },
   time: {
     color: colors.text.muted,
-    fontSize: 10,
-    marginTop: 4,
+    fontSize: typography.sizes.xs,
+    marginTop: spacing.xs,
   },
 });
 

@@ -7,8 +7,9 @@ import { ChatBoxScreen } from '@features/chat';
 import { CallScreen } from '@features/call';
 import { WalletScreen } from '@features/wallet';
 import { EditProfileScreen } from '@features/profile';
-import { NotificationsScreen } from '@features/notifications';
-import { SettingsScreen } from '@features/settings';
+import { NotificationsScreen, MessageNotificationScreen } from '@features/notifications';
+import { SettingsScreen, TermsOfUseScreen } from '@features/settings';
+import { PersonalityTestScreen } from '@features/personality';
 
 const Stack = createNativeStackNavigator();
 
@@ -36,7 +37,10 @@ export function MainNavigator() {
       <Stack.Screen name={ROUTES.SCREENS.WALLET} component={WalletScreen} />
       <Stack.Screen name={ROUTES.SCREENS.EDIT_PROFILE} component={EditProfileScreen} />
       <Stack.Screen name={ROUTES.SCREENS.NOTIFICATIONS} component={NotificationsScreen} />
+      <Stack.Screen name={ROUTES.SCREENS.MESSAGE_NOTIFICATION} component={MessageNotificationScreen} />
       <Stack.Screen name={ROUTES.SCREENS.SETTINGS} component={SettingsScreen} />
+      <Stack.Screen name={ROUTES.SCREENS.PERSONALITY_TEST} component={PersonalityTestScreen} />
+      <Stack.Screen name={ROUTES.SCREENS.TERMS_OF_USE} component={TermsOfUseScreen} />
     </Stack.Navigator>
   );
 }

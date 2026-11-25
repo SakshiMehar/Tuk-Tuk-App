@@ -66,7 +66,7 @@ export const LinearGradient = memo(function LinearGradient({
         pointerEvents="none"
         style={[
           StyleSheet.absoluteFill,
-          rx ? { borderRadius: rx, overflow: 'hidden' } : null,
+          rx ? { borderRadius: rx, overflow: 'hidden' } : { overflow: 'hidden' },
         ]}
       >
         <Svg
@@ -120,7 +120,6 @@ export const LinearGradient = memo(function LinearGradient({
 
 const styles = StyleSheet.create({
   container: {
-    overflow: 'hidden',
     position: 'relative',
   },
 });

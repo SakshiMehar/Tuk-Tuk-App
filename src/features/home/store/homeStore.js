@@ -13,6 +13,7 @@ export const useHomeStore = create((set) => ({
 
   selectedTab: 'For You',
   roomFilter: 'Trending',
+  roomLoading: false,
 
   bannerSlides: [],
   popularRooms: [],
@@ -23,7 +24,10 @@ export const useHomeStore = create((set) => ({
 
   likedPostIds: [],
   followingUserIds: [],
-  unreadNotifications: Array.from({ length: 20 }, (_, i) => `n_${i + 1}`),
+  notifications: [],
+  unreadNotifications: [],
+  unreadCount: 0,
+  notificationsLoading: false,
 
   // Active Modals & Overlays
   modals: {
@@ -47,6 +51,7 @@ export const useHomeStore = create((set) => ({
   setFeaturedUserAvatar: (featuredUserAvatar) => set({ featuredUserAvatar }),
   setSelectedTab: (selectedTab) => set({ selectedTab }),
   setRoomFilter: (roomFilter) => set({ roomFilter }),
+  setRoomLoading: (roomLoading) => set({ roomLoading }),
 
   setBannerSlides: (bannerSlides) => set({ bannerSlides }),
   setPopularRooms: (popularRooms) => set({ popularRooms }),
@@ -93,8 +98,12 @@ export const useHomeStore = create((set) => ({
       feedPosts: state.feedPosts.filter((p) => String(p.id) !== String(postId)),
     })),
 
+  setNotifications: (notifications) => set({ notifications }),
   setUnreadNotifications: (unreadNotifications) =>
     set({ unreadNotifications }),
+  setUnreadCount: (unreadCount) => set({ unreadCount }),
+  setNotificationsLoading: (notificationsLoading) =>
+    set({ notificationsLoading }),
 
   setModalVisible: (modalKey, value) =>
     set((state) => ({

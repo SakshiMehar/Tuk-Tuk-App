@@ -36,8 +36,56 @@ export function useRouter() {
       } else {
         (navigator as any).navigate(ROUTES.AUTH.MOBILE, params);
       }
-    } else if (pathname.includes('voice-party')) {
+    } else if (pathname === '/login') {
+      (navigator as any).navigate(ROUTES.AUTH.LOGIN, params);
+    } else if (pathname === '/verify-otp') {
+      (navigator as any).navigate(ROUTES.AUTH.OTP, params);
+    } else if (pathname.includes('voice-party') || pathname === '/party' || pathname === '/(tabs)/party') {
       (navigator as any).navigate(ROUTES.SCREENS.VOICE_PARTY, params);
+    } else if (pathname === '/(tabs)/chat' || pathname === '/chat') {
+      try {
+        (navigator as any).navigate(ROUTES.MAIN_STACK, {
+          screen: ROUTES.TABS.ROOT,
+          params: { screen: ROUTES.TABS.CHAT },
+        });
+      } catch {
+        (navigator as any).navigate(ROUTES.TABS.CHAT);
+      }
+    } else if (pathname.includes('chat-box')) {
+      (navigator as any).navigate(ROUTES.SCREENS.CHAT_BOX, params);
+    } else if (pathname === '/(tabs)/profile' || pathname === '/profile' || pathname === '/account') {
+      try {
+        (navigator as any).navigate(ROUTES.MAIN_STACK, {
+          screen: ROUTES.TABS.ROOT,
+          params: { screen: ROUTES.TABS.PROFILE },
+        });
+      } catch {
+        (navigator as any).navigate(ROUTES.TABS.PROFILE);
+      }
+    } else if (
+      pathname.includes('discovery') ||
+      pathname.includes('find-friends') ||
+      pathname.includes('nearby') ||
+      pathname.includes('blind-pick')
+    ) {
+      try {
+        (navigator as any).navigate(ROUTES.MAIN_STACK, {
+          screen: ROUTES.TABS.ROOT,
+          params: { screen: ROUTES.TABS.DISCOVERY },
+        });
+      } catch {
+        (navigator as any).navigate(ROUTES.TABS.DISCOVERY);
+      }
+    } else if (pathname === '/message-notification') {
+      (navigator as any).navigate(ROUTES.SCREENS.MESSAGE_NOTIFICATION, params);
+    } else if (pathname === '/notifications') {
+      (navigator as any).navigate(ROUTES.SCREENS.NOTIFICATIONS, params);
+    } else if (pathname === '/settings') {
+      (navigator as any).navigate(ROUTES.SCREENS.SETTINGS, params);
+    } else if (pathname === '/personality-test' || pathname.includes('personality')) {
+      (navigator as any).navigate(ROUTES.SCREENS.PERSONALITY_TEST, params);
+    } else if (pathname === '/wallet') {
+      (navigator as any).navigate(ROUTES.SCREENS.WALLET, params);
     } else if (pathname === '/(tabs)/home' || pathname.includes('home')) {
       try {
         (navigator as any).navigate(ROUTES.MAIN_STACK, {
@@ -47,7 +95,9 @@ export function useRouter() {
       } catch {
         (navigator as any).navigate(ROUTES.TABS.ROOT);
       }
-    } else if (pathname.includes('terms') || pathname.includes('privacy')) {
+    } else if (pathname === '/terms-of-use' || pathname === 'terms-of-use' || pathname.includes('terms')) {
+      (navigator as any).navigate(ROUTES.SCREENS.TERMS_OF_USE, params);
+    } else if (pathname.includes('privacy')) {
       (navigator as any).navigate(ROUTES.AUTH.LOGIN);
     } else {
       (navigator as any).navigate(pathname, params);
@@ -64,6 +114,12 @@ export function useRouter() {
     canGoBack: () => {
       const navigator = getNavigator();
       return navigator?.canGoBack ? navigator.canGoBack() : false;
+    },
+    dismissAll: () => {
+      const navigator = getNavigator();
+      if ((navigator as any)?.popToTop) {
+        (navigator as any).popToTop();
+      }
     },
   };
 }

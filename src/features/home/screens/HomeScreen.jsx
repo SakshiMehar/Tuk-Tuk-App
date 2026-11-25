@@ -1,9 +1,18 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { View, FlatList, ActivityIndicator, StyleSheet, StatusBar } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, FlatList, ActivityIndicator, StyleSheet, StatusBar, TouchableOpacity, Text } from 'react-native';
 import { colors } from '@shared/theme';
 import { Toast, EmptyState, AppBackground } from '@shared/components';
 import { ROUTES } from '@navigation/navigationConstants';
+import { useRouter } from '@shared/compat/expoRouter';
 import { homeApi } from '../api/homeApi';
+import {
+  fetchNotificationsData,
+  markAllNotificationsAsRead,
+  markNotificationsAsRead,
+  loadUnreadNotificationCount,
+} from '@/services/notificationService';
+import { navigateFromNotification } from '@/utils/notificationNavigation';
+import { websocketService } from '@shared/services/websocket/websocketService';
 
 // Feature components
 import {
@@ -29,7 +38,10 @@ import {
   DiamondRechargeModal,
   ComingSoonModal,
   ReportReasonModal,
+  MorningLoginRewardModal,
 } from '../modals';
+import { getMorningRewardStatus } from '../../../services/morningRewardService';
+import { refreshWalletBalance } from '../../../store/walletStore';
 
 // Feature hooks & store
 import { useHomeFeed, usePostInteractions } from '../hooks';
@@ -59,6 +71,8 @@ const TAB_EMPTY_COPY = {
 };
 
 export function HomeScreen({ navigation }) {
+  const router = useRouter();
+
   // 1. Data & Lifecycle
   const { refreshing, refresh, loadMore, loadTabPosts } = useHomeFeed();
   const { handleLike, handleFollow, handleDelete, handleCreatePost, handleShare } =
@@ -73,24 +87,167 @@ export function HomeScreen({ navigation }) {
   const setSelectedTab = useHomeStore((s) => s.setSelectedTab);
   const roomFilter = useHomeStore((s) => s.roomFilter);
   const setRoomFilter = useHomeStore((s) => s.setRoomFilter);
+  const roomLoading = useHomeStore((s) => s.roomLoading);
   const bannerSlides = useHomeStore((s) => s.bannerSlides);
   const popularRooms = useHomeStore((s) => s.popularRooms);
   const feedPosts = useHomeStore((s) => s.feedPosts);
   const feedLoading = useHomeStore((s) => s.feedLoading);
   const likedPostIds = useHomeStore((s) => s.likedPostIds);
   const followingUserIds = useHomeStore((s) => s.followingUserIds);
+  const notifications = useHomeStore((s) => s.notifications);
   const unreadNotifications = useHomeStore((s) => s.unreadNotifications);
+  const unreadCount = useHomeStore((s) => s.unreadCount);
+  const notificationsLoading = useHomeStore((s) => s.notificationsLoading);
+  const setNotifications = useHomeStore((s) => s.setNotifications);
+  const setUnreadNotifications = useHomeStore((s) => s.setUnreadNotifications);
+  const setUnreadCount = useHomeStore((s) => s.setUnreadCount);
+  const setNotificationsLoading = useHomeStore((s) => s.setNotificationsLoading);
   const modals = useHomeStore((s) => s.modals);
   const setModalVisible = useHomeStore((s) => s.setModalVisible);
 
   // 3. Local UI state
   const [activeBanner, setActiveBanner] = useState(0);
   const [toastMessage, setToastMessage] = useState('');
+  const [morningRewardVisible, setMorningRewardVisible] = useState(false);
+  const [morningRewardStatus, setMorningRewardStatus] = useState(null);
+  const morningRewardCheckedRef = React.useRef(false);
 
   const showToast = useCallback((msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(''), 3000);
   }, []);
+
+  // ── Morning Login Reward Check (5 AM – 10 AM) ──
+  useEffect(() => {
+    // Check morning login reward status when user opens the app
+    const timer = setTimeout(() => {
+      getMorningRewardStatus()
+        .then((status) => {
+          if (status?.eligible === true && !status?.alreadyClaimed) {
+            setMorningRewardStatus(status);
+            setMorningRewardVisible(true);
+          }
+        })
+        .catch((err) => {
+          console.warn('[HomeScreen] Morning reward check error:', err?.message || err);
+        });
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Fetch initial unread notification count
+  useEffect(() => {
+    loadUnreadNotificationCount()
+      .then((count) => {
+        if (typeof count === 'number') {
+          setUnreadCount(count);
+        }
+      })
+      .catch(() => {});
+  }, [setUnreadCount]);
+
+  // Dynamic active users count from backend and real-time presence updates
+  useEffect(() => {
+    let isMounted = true;
+    homeApi
+      .getActiveUsersCount()
+      .then((count) => {
+        if (isMounted && typeof count === 'number' && count > 0) {
+          useHomeStore.getState().setActiveUsers(count);
+        }
+      })
+      .catch(() => {});
+
+    const interval = setInterval(() => {
+      homeApi
+        .getActiveUsersCount()
+        .then((count) => {
+          if (isMounted && typeof count === 'number' && count > 0) {
+            useHomeStore.getState().setActiveUsers(count);
+          }
+        })
+        .catch(() => {});
+    }, 20000);
+
+    const unsubWs = websocketService.subscribe('/topic/presence', (payload) => {
+      if (isMounted && payload && payload.activeUsers != null) {
+        useHomeStore.getState().setActiveUsers(Number(payload.activeUsers));
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      if (typeof unsubWs === 'function') unsubWs();
+    };
+  }, []);
+
+  // Open notifications modal and fetch real-time notifications
+  const openNotif = useCallback(async () => {
+    setModalVisible('notifications', true);
+    setNotificationsLoading(true);
+    try {
+      const { content, unreadCount: count } = await fetchNotificationsData({
+        page: 0,
+        size: 30,
+      });
+      if (Array.isArray(content)) {
+        setNotifications(content);
+        const unreadIds = content
+          .filter(
+            (n) => n.unread === true || n.read === false || n.isRead === false
+          )
+          .map((n) => n.id ?? n._id);
+        setUnreadNotifications(unreadIds);
+      }
+      if (typeof count === 'number') {
+        setUnreadCount(count);
+      }
+    } catch (err) {
+      console.warn('[HomeScreen] Failed to load notifications on open:', err?.message);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, [setModalVisible, setNotifications, setUnreadNotifications, setUnreadCount, setNotificationsLoading]);
+
+  // Mark all notifications as read
+  const handleMarkAllRead = useCallback(async () => {
+    const prevUnread = unreadNotifications;
+    const prevCount = unreadCount;
+    setUnreadNotifications([]);
+    setUnreadCount(0);
+    try {
+      await markAllNotificationsAsRead();
+    } catch (error) {
+      console.error('[HomeScreen] markAllNotificationsAsRead failed:', error);
+      setUnreadNotifications(prevUnread);
+      setUnreadCount(prevCount);
+    }
+  }, [unreadNotifications, unreadCount, setUnreadNotifications, setUnreadCount]);
+
+  // Handle tapping a notification
+  const handleNotificationPress = useCallback(
+    async (notif) => {
+      if (!notif) return;
+      const notifId = notif.id ?? notif._id;
+      if (unreadNotifications.includes(notifId)) {
+        setUnreadNotifications(unreadNotifications.filter((id) => id !== notifId));
+        setUnreadCount(Math.max(0, unreadCount - 1));
+        markNotificationsAsRead([notifId]).catch(() => {});
+      }
+      setModalVisible('notifications', false);
+
+      setTimeout(async () => {
+        try {
+          await navigateFromNotification(router, notif);
+        } catch (navErr) {
+          console.error('[HomeScreen] Navigation error on notification tap:', navErr);
+        }
+      }, 150);
+    },
+    [unreadNotifications, unreadCount, router, setModalVisible, setUnreadNotifications, setUnreadCount]
+  );
 
   // 4. Tab selection handler
   const handleTabPress = useCallback(
@@ -105,13 +262,14 @@ export function HomeScreen({ navigation }) {
   const handleRoomFilterChange = useCallback(
     async (filter) => {
       setRoomFilter(filter);
+      useHomeStore.getState().setRoomLoading(true);
       try {
         const rooms = await homeApi.getPopularRooms(filter);
-        if (rooms) {
-          useHomeStore.getState().setPopularRooms(rooms);
-        }
-      } catch {
-        // ignore
+        useHomeStore.getState().setPopularRooms(rooms || []);
+      } catch (err) {
+        console.warn('[HomeScreen] handleRoomFilterChange error:', err);
+      } finally {
+        useHomeStore.getState().setRoomLoading(false);
       }
     },
     [setRoomFilter]
@@ -148,11 +306,17 @@ export function HomeScreen({ navigation }) {
           post={item}
           isLiked={likedPostIds.includes(item.id)}
           isFollowing={followingUserIds.includes(item.userId)}
+          currentUserId={userProfile?.id || userProfile?.userId}
           onLikeToggle={() => handleLike(item.id)}
           onFollowToggle={() => handleFollow(item.userId)}
           onCommentPress={() => setModalVisible('commentPostId', item.id)}
           onMorePress={() => setModalVisible('postMore', item)}
-          onImagePress={() => showToast('Viewing photo')}
+          onImagePress={(imgData) => showToast('Viewing photo')}
+          onAvatarPress={(post) => {
+            if (post?.userId) {
+              navigation.navigate(ROUTES.TABS.PROFILE, { userId: post.userId });
+            }
+          }}
         />
       );
     },
@@ -161,6 +325,8 @@ export function HomeScreen({ navigation }) {
       activeBanner,
       likedPostIds,
       followingUserIds,
+      userProfile?.id,
+      userProfile?.userId,
       handleLike,
       handleFollow,
       setModalVisible,
@@ -178,10 +344,10 @@ export function HomeScreen({ navigation }) {
           walletDiamonds={walletDiamonds}
           activeUsers={activeUsers}
           featuredUserAvatar={featuredUserAvatar}
-          unreadNotificationsCount={unreadNotifications.length}
+          unreadNotificationsCount={unreadCount > 0 ? unreadCount : unreadNotifications.length}
           onAvatarPress={() => navigation.navigate(ROUTES.TABS.PROFILE)}
           onDiamondRechargePress={() => setModalVisible('recharge', true)}
-          onNotificationPress={() => setModalVisible('notifications', true)}
+          onNotificationPress={openNotif}
           onJoinActivePress={() => navigation.navigate(ROUTES.TABS.CHAT)}
           onJoinVoicePartyPress={() =>
             navigation.navigate(ROUTES.SCREENS.VOICE_PARTY, { roomId: '101' })
@@ -204,16 +370,28 @@ export function HomeScreen({ navigation }) {
 
         <PlaySection
           onSeeAllPress={() => setModalVisible('comingSoon', 'Games')}
-          onItemPress={(item) => setModalVisible('comingSoon', item.label)}
+          onItemPress={(item) => {
+            if (
+              item.key === 'personality-test' ||
+              item.route === '/personality-test' ||
+              item.label === 'Personality Test'
+            ) {
+              navigation.navigate(ROUTES.SCREENS.PERSONALITY_TEST);
+            } else {
+              setModalVisible('comingSoon', item.label);
+            }
+          }}
         />
 
         <PopularRooms
           rooms={popularRooms}
           activeFilter={roomFilter}
+          loading={roomLoading}
           onFilterChange={handleRoomFilterChange}
-          onRoomPress={(room) =>
-            navigation.navigate(ROUTES.SCREENS.VOICE_PARTY, { roomId: room.id })
-          }
+          onRoomPress={(room) => {
+            const targetRoomId = String(room?.roomId || room?.id || '');
+            navigation.navigate(ROUTES.SCREENS.VOICE_PARTY, { roomId: targetRoomId, party: 'true' });
+          }}
         />
 
         <FeedTabs selectedTab={selectedTab} onTabPress={handleTabPress} />
@@ -224,15 +402,18 @@ export function HomeScreen({ navigation }) {
     walletDiamonds,
     activeUsers,
     featuredUserAvatar,
+    unreadCount,
     unreadNotifications.length,
     popularRooms,
     roomFilter,
+    roomLoading,
     selectedTab,
     setModalVisible,
     handleRoomFilterChange,
     handleTabPress,
     navigation,
     showToast,
+    openNotif,
   ]);
 
   const listEmpty = useMemo(() => {
@@ -323,14 +504,12 @@ export function HomeScreen({ navigation }) {
 
       <NotificationsModal
         visible={modals.notifications}
-        notifications={useHomeStore.getState().feedPosts}
+        notifications={notifications}
+        unreadNotifications={unreadNotifications}
+        loading={notificationsLoading}
         onClose={() => setModalVisible('notifications', false)}
-        onPressNotification={(notif) => {
-          setModalVisible('notifications', false);
-          if (notif.type === 'party') {
-            navigation.navigate(ROUTES.SCREENS.VOICE_PARTY, { roomId: '101' });
-          }
-        }}
+        onMarkAllRead={handleMarkAllRead}
+        onPressNotification={handleNotificationPress}
       />
 
       <DailyGiftsModal
@@ -375,6 +554,18 @@ export function HomeScreen({ navigation }) {
         }}
       />
 
+      {/* ── Morning Login Reward Modal (5 AM – 10 AM) ── */}
+      <MorningLoginRewardModal
+        visible={morningRewardVisible}
+        statusData={morningRewardStatus}
+        onClose={() => setMorningRewardVisible(false)}
+        onClaimSuccess={(awarded) => {
+          setMorningRewardStatus((prev) => (prev ? { ...prev, eligible: false, alreadyClaimed: true } : null));
+          showToast(`+${awarded} Diamonds credited to your wallet! 💎`);
+          refreshWalletBalance().catch(() => {});
+        }}
+      />
+
       <Toast message={toastMessage} />
     </View>
   );
@@ -393,6 +584,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
 });
 
 export default HomeScreen;

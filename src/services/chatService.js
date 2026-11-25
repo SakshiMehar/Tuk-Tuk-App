@@ -1,0 +1,249 @@
+import { getChats, getUserMessages, markUserMessagesRead } from "../api/chatApi";
+import { extractVipProfileFrameUrl } from "../utils/vipProfileFrame";
+import { isUserOnline, setUserOnlineStatus } from "../utils/liveStatus";
+
+const firstText = (...values) =>
+  values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
+
+const firstValue = (...values) =>
+  values.find((value) => value !== undefined && value !== null) ?? null;
+
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
+const listFrom = (value, key) => {
+  const target = key && value?.[key] !== undefined ? value[key] : value;
+  if (Array.isArray(target)) return target;
+  return target?.content ?? target?.data ?? target?.items ?? target?.chats ?? [];
+};
+
+const peerFrom = (conversation) =>
+  conversation?.peer ??
+  conversation?.otherUser ??
+  conversation?.user ??
+  conversation?.participant ??
+  null;
+
+export const formatChatTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayDiff = Math.round((startOfToday - startOfDate) / 86400000);
+
+  if (dayDiff === 0) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  if (dayDiff === 1) return "Yesterday";
+  if (dayDiff < 7) {
+    return date.toLocaleDateString([], { weekday: "short" });
+  }
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+};
+
+const normalizeConversation = (conversation) => {
+  const peer = peerFrom(conversation);
+  const lastMessage =
+    conversation?.lastMessage && typeof conversation.lastMessage === "object"
+      ? conversation.lastMessage
+      : null;
+  const lastAt = firstValue(
+    conversation?.lastMessageAt,
+    conversation?.lastMessageTime,
+    lastMessage?.sentAt,
+    lastMessage?.createdAt,
+    conversation?.updatedAt,
+    conversation?.time,
+    conversation?.sentAt
+  );
+
+  const targetUserId = firstValue(
+    conversation?.userId,
+    conversation?.peerId,
+    conversation?.receiverId,
+    conversation?.otherUserId,
+    peer?.id,
+    peer?.userId
+  );
+
+  const isOfficial = Boolean(
+    conversation?.officialSender ||
+    conversation?.isOfficial ||
+    conversation?.official ||
+    lastMessage?.officialSender ||
+    lastMessage?.isOfficial ||
+    peer?.officialSender ||
+    peer?.isOfficial ||
+    peer?.official ||
+    peer?.name === "Tuk Tuk Team" ||
+    peer?.senderName === "Tuk Tuk Team" ||
+    conversation?.name === "Tuk Tuk Team" ||
+    conversation?.title === "Tuk Tuk Team" ||
+    conversation?.senderName === "Tuk Tuk Team" ||
+    String(peer?.userId ?? peer?.id ?? conversation?.userId ?? conversation?.peerId ?? "") === "100005"
+  );
+
+  const peerStatus = firstText(
+    peer?.liveStatus,
+    peer?.userStatus,
+    peer?.status
+  ) || "";
+
+  const isStatusOnline =
+    peerStatus.toUpperCase() === "ONLINE" ||
+    peerStatus.toUpperCase() === "ONLINE_IN_ROOM" ||
+    peerStatus.toUpperCase() === "LIVE" ||
+    peerStatus.toUpperCase() === "IN_PARTY";
+
+  const explicitOnline = firstValue(
+    peer?.isOnline,
+    peer?.online
+  );
+
+  const isOnline = isOfficial
+    ? false
+    : explicitOnline !== null
+    ? Boolean(explicitOnline)
+    : (isUserOnline({ userId: targetUserId, status: peerStatus, peer }) || isStatusOnline);
+
+  const isInRoom = !isOfficial && Boolean(
+    conversation?.isInRoom ??
+    peer?.isInRoom ??
+    conversation?.inRoom ??
+    peer?.inRoom ??
+    (peer?.roomId != null && String(peer.roomId).trim() !== "" && String(peer.roomId).trim() !== "0" && String(peer.roomId).trim() !== "null")
+  );
+
+  return {
+    ...conversation,
+    id: firstValue(conversation?.id, conversation?.conversationId, conversation?._id, peer?.id),
+    userId: targetUserId,
+    name:
+      firstText(
+        conversation?.name,
+        conversation?.username,
+        conversation?.displayName,
+        peer?.name,
+        peer?.username
+      ) ?? "User",
+    avatar: firstText(
+      conversation?.avatar,
+      conversation?.avatarUrl,
+      conversation?.profileImage,
+      conversation?.profileImageUrl,
+      conversation?.profilePicUrl,
+      conversation?.photoUrl,
+      peer?.avatar,
+      peer?.avatarUrl,
+      peer?.profileImageUrl,
+      peer?.profilePicUrl,
+      peer?.profileImage
+    ),
+    lastMsg:
+      firstText(
+        conversation?.lastMsg,
+        typeof conversation?.lastMessage === "string" ? conversation.lastMessage : null,
+        lastMessage?.message,
+        lastMessage?.content,
+        lastMessage?.text,
+        lastMessage?.body,
+        conversation?.message,
+        conversation?.content,
+        conversation?.body
+      ) ?? "",
+    time: formatChatTime(lastAt) || firstText(conversation?.time) || "",
+    unread: Number(conversation?.unread ?? conversation?.unreadCount ?? 0) || 0,
+    verifiedBadgeUrl: firstText(conversation?.verifiedBadgeUrl, peer?.verifiedBadgeUrl),
+    live: isInRoom,
+    isInRoom,
+    roomId: firstValue(
+      peer?.roomId,
+      conversation?.currentRoomId,
+      peer?.currentRoomId,
+      conversation?.activeRoomId,
+      peer?.activeRoomId,
+      conversation?.room?.id,
+      peer?.room?.id
+    ),
+    status: isOfficial ? "OFFLINE" : peerStatus || (isOnline ? "ONLINE" : "OFFLINE"),
+    isOnline,
+    online: isOnline,
+    liked: Boolean(conversation?.liked),
+    vipProfileFrameUrl: extractVipProfileFrameUrl(conversation) ?? extractVipProfileFrameUrl(peer),
+    level: firstNumber(conversation?.level, peer?.level),
+    countryCode: firstText(conversation?.countryCode, peer?.countryCode),
+    countryName: firstText(
+      conversation?.countryName,
+      conversation?.country,
+      peer?.countryName,
+      peer?.country
+    ),
+    officialSender: isOfficial,
+  };
+};
+
+const normalizeMessage = (message) => {
+  const mediaList = Array.isArray(message?.media) ? message.media : [];
+  const imageMedia = mediaList.find((m) => m?.type === "IMAGE" || m?.mediaType === "IMAGE") ?? mediaList[0];
+  const audioMedia = mediaList.find((m) => m?.type === "AUDIO" || m?.mediaType === "AUDIO");
+
+  return {
+    ...message,
+    messageId: firstValue(message?.messageId, message?.id, message?._id),
+    senderId: firstValue(message?.senderId, message?.fromUserId),
+    receiverId: firstValue(message?.receiverId, message?.toUserId),
+    content: firstText(message?.content, message?.text, message?.message, message?.body) ?? "",
+    imageUrl:
+      firstText(
+        message?.imageUrl,
+        message?.image,
+        message?.mediaUrl,
+        imageMedia?.mediaUrl,
+        imageMedia?.url,
+        message?.attachmentUrl,
+        message?.attachment
+      ) ?? null,
+    audioUrl:
+      firstText(
+        message?.audioUrl,
+        message?.audio,
+        message?.voiceUrl,
+        audioMedia?.mediaUrl,
+        audioMedia?.url,
+        message?.voiceNoteUrl
+      ) ?? null,
+    audioDuration: firstNumber(message?.audioDuration, message?.duration, message?.audioDurationMs) ?? 0,
+    timestamp: firstText(message?.timestamp, message?.createdAt, message?.sentAt) ?? "",
+    status: message?.status ?? "MESSAGE_SENT",
+    officialSender: Boolean(message?.officialSender),
+  };
+};
+
+export const loadConversations = async () => {
+  const data = await getChats();
+  const conversations = Array.isArray(data) ? data : listFrom(data, "chats");
+  const list = conversations.map(normalizeConversation);
+
+  return list;
+};
+
+export const loadChatHistory = async (userId) => {
+  const data = await getUserMessages(userId);
+  const messages = Array.isArray(data) ? data : listFrom(data, "messages");
+  const list = messages.map(normalizeMessage);
+
+  return {
+    messages: list,
+    hasMore: data?.hasMore ?? false,
+  };
+};
+
+export const markChatAsRead = async (userId) => markUserMessagesRead(userId);

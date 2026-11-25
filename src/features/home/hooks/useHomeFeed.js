@@ -14,7 +14,9 @@ export function useHomeFeed() {
   const setWalletDiamonds = useHomeStore((s) => s.setWalletDiamonds);
   const setActiveUsers = useHomeStore((s) => s.setActiveUsers);
   const setFeaturedUserAvatar = useHomeStore((s) => s.setFeaturedUserAvatar);
+  const setNotifications = useHomeStore((s) => s.setNotifications);
   const setUnreadNotifications = useHomeStore((s) => s.setUnreadNotifications);
+  const setUnreadCount = useHomeStore((s) => s.setUnreadCount);
 
   const pageRef = useRef(1);
 
@@ -31,8 +33,12 @@ export function useHomeFeed() {
         if (data.popularRooms) setPopularRooms(data.popularRooms);
         if (data.feedPosts) setFeedPosts(data.feedPosts);
         if (data.notifications) {
+          setNotifications(data.notifications);
           const unread = data.notifications.filter((n) => n.unread).map((n) => n.id);
           setUnreadNotifications(unread);
+        }
+        if (typeof data.unreadCount === 'number') {
+          setUnreadCount(data.unreadCount);
         }
       }
     } finally {
@@ -43,10 +49,13 @@ export function useHomeFeed() {
     setUserProfile,
     setWalletDiamonds,
     setActiveUsers,
+    setFeaturedUserAvatar,
     setBannerSlides,
     setPopularRooms,
     setFeedPosts,
+    setNotifications,
     setUnreadNotifications,
+    setUnreadCount,
   ]);
 
   const loadTabPosts = useCallback(async (tab) => {

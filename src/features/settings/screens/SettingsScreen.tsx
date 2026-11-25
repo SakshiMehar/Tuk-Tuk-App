@@ -1,0 +1,2543 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  StatusBar,
+  Alert,
+  Modal,
+  Image,
+  Switch,
+  TextInput,
+  ActivityIndicator,
+  Linking,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+
+import {
+  logoutSession,
+  deleteAccountSession,
+} from '../../../services/authSessionService';
+import { getUser } from '../../../store/authStore';
+import {
+  loadUserSettings,
+  updateUserSettings,
+  loadMatchSwitch,
+  updateMatchSwitch,
+  clearAppCache,
+  checkForUpdate,
+  submitFeedback,
+  UserSettings,
+} from '../../../services/userSettingsService';
+import { ClearChatCacheModal } from '../components/ClearChatCacheModal';
+import { ProfileAvatarWithFrame } from '../../profile/components/ProfileAvatarWithFrame/ProfileAvatarWithFrame';
+import { loadMyVipAssets } from '../../../services/vipService';
+import { fetchUserDecorations } from '../../../services/decorationsService';
+import { VIP_PROFILE_FRAME_LAYOUT } from '../../../constants/vip';
+
+const DELETE_ACCOUNT_REASONS = [
+  'Privacy concerns',
+  'Not using the app anymore',
+  'Found another app',
+  'Too many notifications',
+  'Technical issues / bugs',
+  'Other',
+];
+
+interface SettingItem {
+  icon: string;
+  label: string;
+  type: 'route' | 'action';
+  route?: string;
+  subtitle?: string;
+}
+
+interface SettingSection {
+  id: string;
+  title?: string;
+  items: SettingItem[];
+}
+
+const settingSections: SettingSection[] = [
+  {
+    id: 'account',
+    items: [
+      { icon: 'person-circle-outline', label: 'Account', type: 'route', route: 'account' },
+      { icon: 'options-outline', label: 'Match switch', type: 'action' },
+      { icon: 'shield-checkmark-outline', label: 'Privacy', type: 'action' },
+      { icon: 'notifications-outline', label: 'Notifications', type: 'action' },
+      { icon: 'chatbubble-outline', label: 'Message Notification', type: 'action' },
+      { icon: 'person-remove-outline', label: 'Blocked list', type: 'action' },
+      { icon: 'language-outline', label: 'System language', type: 'action' },
+      { icon: 'earth-outline', label: 'Content Language', type: 'action' },
+      { icon: 'share-social-outline', label: 'Share app', type: 'action' },
+    ],
+  },
+  {
+    id: 'support',
+    title: 'Support',
+    items: [
+      { icon: 'refresh-circle-outline', label: 'Check for update', type: 'action' },
+      { icon: 'help-circle-outline', label: 'Help & feedback', type: 'action' },
+      { icon: 'document-text-outline', label: 'Privacy policy', type: 'route', route: 'privacy-policy' },
+      { icon: 'book-outline', label: 'Terms of use', type: 'route', route: 'terms-of-use' },
+      { icon: 'information-circle-outline', label: 'About', type: 'action' },
+    ],
+  },
+  {
+    id: 'cache',
+    title: 'Storage',
+    items: [
+      { icon: 'trash-outline', label: 'Clear cache', type: 'action', subtitle: '22.21M' },
+      { icon: 'chatbubbles-outline', label: 'Clear chat cache', type: 'action' },
+    ],
+  },
+];
+
+export function SettingsScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const scrollBottomPad = 24 + Math.max(insets.bottom, 16);
+  const sheetBottomPad = Math.max(insets.bottom, 12);
+
+  // Modal visibility states
+  const [matchSwitchVisible, setMatchSwitchVisible] = useState(false);
+  const [privacyVisible, setPrivacyVisible] = useState(false);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [notificationOption, setNotificationOption] = useState('All notifications');
+  const [systemLanguageVisible, setSystemLanguageVisible] = useState(false);
+  const [contentLanguageVisible, setContentLanguageVisible] = useState(false);
+  const [shareAppVisible, setShareAppVisible] = useState(false);
+
+  // Match switch state
+  const [matchSwitchEnabled, setMatchSwitchEnabled] = useState(false);
+
+  // Privacy settings states
+  const [preventFollowing, setPreventFollowing] = useState(false);
+  const [chatPermission, setChatPermission] = useState('Everyone');
+  const [mysteriousVisitor, setMysteriousVisitor] = useState(false);
+
+  // Language states
+  const [systemLanguage, setSystemLanguage] = useState('English');
+  const [contentLanguage, setContentLanguage] = useState('English');
+
+  const languages = ['English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Arabic', 'Hindi'];
+
+  // Support section modals
+  const [checkUpdateVisible, setCheckUpdateVisible] = useState(false);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateChecked, setUpdateChecked] = useState(false);
+  const [helpVisible, setHelpVisible] = useState(false);
+  const [aboutVisible, setAboutVisible] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [currentUserAvatar, setCurrentUserAvatar] = useState<string | null>(null);
+  const [vipProfileFrame, setVipProfileFrame] = useState<string | null>(null);
+  const [decorations, setDecorations] = useState<{ badgeUrl: string | null; frameUrl: string | null }>({
+    badgeUrl: null,
+    frameUrl: null,
+  });
+
+  const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteComment, setDeleteComment] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
+  const [clearChatCacheVisible, setClearChatCacheVisible] = useState(false);
+  const [settingsSnapshot, setSettingsSnapshot] = useState<UserSettings>({
+    matchSwitchEnabled: false,
+    notificationOption: 'All notifications',
+    preventFollowing: false,
+    chatPermission: 'Everyone',
+    mysteriousVisitor: false,
+    systemLanguage: 'English',
+    contentLanguage: 'English',
+  });
+
+  useEffect(() => {
+    getUser()
+      .then((u) => {
+        if (u) setCurrentUserAvatar(u.avatarUrl ?? u.avatar ?? (u as any).profileImage ?? null);
+        const id = u?.userId ?? u?.id ?? null;
+        if (id != null) {
+          fetchUserDecorations(String(id)).then(setDecorations).catch(() => {});
+        }
+      })
+      .catch(() => {});
+
+    loadMyVipAssets()
+      .then((vipAssets) => {
+        setVipProfileFrame(vipAssets?.unlocked ? vipAssets.profileFrame : null);
+      })
+      .catch(() => {});
+  }, []);
+
+  const applySettingsState = useCallback((settings: UserSettings) => {
+    setMatchSwitchEnabled(settings.matchSwitchEnabled);
+    setNotificationOption(settings.notificationOption);
+    setPreventFollowing(settings.preventFollowing);
+    setChatPermission(settings.chatPermission);
+    setMysteriousVisitor(settings.mysteriousVisitor);
+    setSystemLanguage(settings.systemLanguage);
+    setContentLanguage(settings.contentLanguage);
+    setSettingsSnapshot(settings);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadUserSettings()
+      .then((settings) => {
+        if (!cancelled) applySettingsState(settings);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setSettingsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applySettingsState]);
+
+  const persistSettings = async (updates: Partial<UserSettings>, applyLocal?: () => void) => {
+    if (settingsSaving) return;
+    applyLocal?.();
+    setSettingsSaving(true);
+
+    try {
+      const saved = await updateUserSettings(updates, settingsSnapshot);
+      applySettingsState(saved);
+    } catch (err: any) {
+      Alert.alert(
+        'Settings',
+        err?.message || 'Could not save your settings. Please try again.'
+      );
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const refreshMatchSwitch = async () => {
+    try {
+      const enabled = await loadMatchSwitch();
+      setMatchSwitchEnabled(enabled);
+      setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: enabled }));
+    } catch {}
+  };
+
+  const handleToggleMatchSwitch = async (value: boolean) => {
+    if (settingsSaving) return;
+    setMatchSwitchEnabled(value);
+    setSettingsSaving(true);
+
+    try {
+      const resolved = await updateMatchSwitch(value);
+      setMatchSwitchEnabled(resolved);
+      setSettingsSnapshot((prev) => ({ ...prev, matchSwitchEnabled: resolved }));
+    } catch (err: any) {
+      setMatchSwitchEnabled(!value);
+      Alert.alert(
+        'Match switch',
+        err?.message || 'Could not update Match switch. Please try again.'
+      );
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const faqs = [
+    {
+      id: 1,
+      q: 'How do I match with someone?',
+      a: 'Enable your Match switch in Settings and browse nearby profiles. Tap the heart icon to send a match request!',
+    },
+    {
+      id: 2,
+      q: 'Why is my location not working?',
+      a: 'Make sure location permissions are enabled for Tuk-Tuk in your device Settings > Apps > Tuk-Tuk > Permissions.',
+    },
+    {
+      id: 3,
+      q: 'How do I report a user?',
+      a: "Open the user's profile, tap the three-dot menu in the top right, then select 'Report'. We review all reports within 24 hours.",
+    },
+    {
+      id: 4,
+      q: 'Can I use Tuk-Tuk without sharing my location?',
+      a: 'Location is required for matching and nearby features. You can set your profile to private mode to limit visibility.',
+    },
+  ];
+
+  const handleCheckUpdate = async () => {
+    setUpdateChecking(true);
+    setUpdateChecked(false);
+
+    try {
+      await checkForUpdate();
+      setUpdateChecked(true);
+    } catch (err: any) {
+      Alert.alert(
+        'Check failed',
+        err?.message || 'Could not check for updates. Please try again.'
+      );
+    } finally {
+      setUpdateChecking(false);
+    }
+  };
+
+  const handleSendFeedback = async () => {
+    const text = feedbackText.trim();
+    if (!text || feedbackSubmitting) return;
+    setFeedbackSubmitting(true);
+
+    try {
+      await submitFeedback(text);
+      setFeedbackSent(true);
+      setFeedbackText('');
+      setTimeout(() => setFeedbackSent(false), 3000);
+    } catch (err: any) {
+      Alert.alert(
+        'Send failed',
+        err?.message || 'Could not send feedback. Please try again.'
+      );
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
+  const SUPPORT_EMAIL = 'support@tuktukapp.com';
+  const SUPPORT_WHATSAPP = '919784222556';
+
+  const handleEmailSupport = () => {
+    const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
+      'Tuk-Tuk Support Request'
+    )}&body=${encodeURIComponent('Hi Tuk-Tuk Support Team,\n\n')}`;
+    Linking.openURL(url).catch(() =>
+      Alert.alert('Email Support', `No email app found.\nPlease write to us at:\n${SUPPORT_EMAIL}`)
+    );
+  };
+
+  const handleWhatsAppSupport = () => {
+    const message = encodeURIComponent('Hi Tuk-Tuk Support, I need help with:');
+    const waDeepLink = `whatsapp://send?phone=${SUPPORT_WHATSAPP}&text=${message}`;
+    Linking.openURL(waDeepLink).catch(() => {
+      Linking.openURL(`https://wa.me/${SUPPORT_WHATSAPP}?text=${message}`).catch(() =>
+        Alert.alert('WhatsApp not found', 'Please install WhatsApp or contact us via Email Support.')
+      );
+    });
+  };
+
+  const resetDeleteAccountForm = () => {
+    setDeleteReason('');
+    setDeleteComment('');
+    setDeletingAccount(false);
+  };
+
+  const closeDeleteAccountModal = () => {
+    setDeleteAccountVisible(false);
+    resetDeleteAccountForm();
+  };
+
+  const handleLogout = () => {
+    Alert.alert('Log out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: async () => {
+          setLoggingOut(true);
+          try {
+            await logoutSession();
+            router.dismissAll?.();
+            router.replace('/login');
+          } catch (err: any) {
+            Alert.alert(
+              'Logout',
+              err?.message || 'Could not reach server. You have been signed out locally.'
+            );
+            router.dismissAll?.();
+            router.replace('/login');
+          } finally {
+            setLoggingOut(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    const reason = deleteReason.trim();
+    const additionalComment = deleteComment.trim();
+    if (!reason || !additionalComment) {
+      Alert.alert(
+        'Required fields',
+        'Please select a reason and add an additional comment before deleting your account.'
+      );
+      return;
+    }
+
+    setDeletingAccount(true);
+
+    try {
+      await deleteAccountSession({ reason, additionalComment });
+      closeDeleteAccountModal();
+      Alert.alert('Account deleted', 'Your account has been deleted.');
+      router.dismissAll?.();
+      router.replace('/login');
+    } catch (err: any) {
+      Alert.alert(
+        'Delete failed',
+        err?.message || 'Could not delete your account. Please try again.'
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const canSubmitDeleteAccount =
+    deleteReason.trim().length > 0 && deleteComment.trim().length > 0;
+
+  const handleClearCache = () => {
+    Alert.alert('Clear cache', 'Clear all app cache?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: async () => {
+          if (clearingCache) return;
+          setClearingCache(true);
+
+          try {
+            await clearAppCache();
+            Alert.alert('Clear cache', 'Cache cleared successfully.');
+          } catch (err: any) {
+            Alert.alert('Clear cache', err?.message || 'Could not clear cache. Please try again.');
+          } finally {
+            setClearingCache(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleClearChatCache = () => {
+    setClearChatCacheVisible(true);
+  };
+
+  const handleItemPress = (item: SettingItem) => {
+    if (item.type === 'route') {
+      if (item.route === 'privacy-policy') {
+        Linking.openURL('https://tuktukvoicechat.com/privacy').catch(() => {
+          Alert.alert('Privacy Policy', 'Please visit https://tuktukvoicechat.com/privacy in your browser.');
+        });
+        return;
+      }
+      if (item.route === 'terms-of-use') {
+        router.push('/terms-of-use');
+        return;
+      }
+      if (item.route === 'account') {
+        router.push('/profile');
+        return;
+      }
+      if (item.route) {
+        router.push(item.route as any);
+      }
+      return;
+    }
+
+    switch (item.label) {
+      case 'Match switch':
+        setMatchSwitchVisible(true);
+        refreshMatchSwitch();
+        break;
+      case 'Privacy':
+        setPrivacyVisible(true);
+        break;
+      case 'Notifications':
+        setNotificationsVisible(true);
+        break;
+      case 'Message Notification':
+        router.push('/message-notification');
+        break;
+      case 'Blocked list':
+        router.push('/blocked-accounts');
+        break;
+      case 'System language':
+        setSystemLanguageVisible(true);
+        break;
+      case 'Content Language':
+        setContentLanguageVisible(true);
+        break;
+      case 'Share app':
+        setShareAppVisible(true);
+        break;
+      case 'Check for update':
+        setUpdateChecked(false);
+        setUpdateChecking(false);
+        setCheckUpdateVisible(true);
+        break;
+      case 'Help & feedback':
+        setHelpVisible(true);
+        break;
+      case 'About':
+        setAboutVisible(true);
+        break;
+      case 'Clear cache':
+        handleClearCache();
+        break;
+      case 'Clear chat cache':
+        handleClearChatCache();
+        break;
+      default:
+        break;
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle="light-content" {...({ backgroundColor: '#0d0618' } as any)} />
+      <LinearGradient
+        colors={['#1a0a2e', '#16082a', '#0d0618', '#1a0a2e', '#2d1b4e']}
+        locations={[0, 0.25, 0.5, 0.75, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.backButton}
+          activeOpacity={0.8}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="arrow-back" size={22} color="white" />
+        </TouchableOpacity>
+        <Text style={styles.screenTitle}>Settings</Text>
+      </View>
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPad }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.subtitle}>Customize your app preferences.</Text>
+        {settingsLoading ? (
+          <View style={styles.settingsLoadingRow}>
+            <ActivityIndicator size="small" color="#a78bfa" />
+            <Text style={styles.settingsLoadingText}>Loading settings...</Text>
+          </View>
+        ) : null}
+
+        {settingSections.map((section) => (
+          <View key={section.id} style={styles.sectionCard}>
+            {section.title && <Text style={styles.sectionTitle}>{section.title}</Text>}
+            {section.items.map((item) => (
+              <TouchableOpacity
+                key={item.label}
+                style={styles.settingItem}
+                activeOpacity={0.75}
+                onPress={() => handleItemPress(item)}
+              >
+                <View style={styles.itemLeft}>
+                  <View style={styles.itemIconWrap}>
+                    <Ionicons name={item.icon as any} size={18} color="#d8cbff" />
+                  </View>
+                  <View style={styles.itemTextWrap}>
+                    <Text style={styles.itemLabel}>{item.label}</Text>
+                    {item.subtitle ? (
+                      <Text style={styles.itemSubtitle}>{item.subtitle}</Text>
+                    ) : null}
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.45)" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        ))}
+
+        <TouchableOpacity
+          style={[styles.sectionCard, styles.dangerButton]}
+          activeOpacity={0.8}
+          onPress={handleLogout}
+          disabled={loggingOut}
+        >
+          {loggingOut ? (
+            <ActivityIndicator size="small" color="#ff8a8a" />
+          ) : (
+            <Text style={styles.dangerText}>Log out</Text>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sectionCard, styles.deleteButton]}
+          activeOpacity={0.8}
+          onPress={() => setDeleteAccountVisible(true)}
+        >
+          <Text style={styles.deleteText}>Delete account</Text>
+        </TouchableOpacity>
+      </ScrollView>
+
+      {/* ── MATCH SWITCH MODAL ── */}
+      <Modal
+        visible={matchSwitchVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMatchSwitchVisible(false)}
+      >
+        <View style={styles.matchSwitchOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setMatchSwitchVisible(false)}
+          />
+          <View style={styles.matchSwitchContainer}>
+            <LinearGradient
+              colors={['#1e0a3c', '#2d1b4e', '#1a0a2e']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.matchSwitchContent}
+            >
+              {/* Phone Frame */}
+              <View style={styles.phoneFrame}>
+                <LinearGradient
+                  colors={['#a18cff', '#7c4dff']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.phoneFrameGradient}
+                >
+                  <View style={styles.phoneNotch} />
+                  <View style={styles.profileDisplayArea}>
+                    <View style={styles.profileCircle}>
+                      <ProfileAvatarWithFrame
+                        avatarSource={
+                          currentUserAvatar
+                            ? { uri: currentUserAvatar }
+                            : require('../../../../assets/images/splash-icon.png')
+                        }
+                        frameSource={decorations.frameUrl ?? vipProfileFrame}
+                        size={112}
+                        avatarStyle={styles.profileImage}
+                        {...(decorations.frameUrl
+                          ? { frameResizeMode: 'contain' }
+                          : vipProfileFrame
+                          ? {
+                              frameScale: VIP_PROFILE_FRAME_LAYOUT.frameScale,
+                              frameResizeMode: VIP_PROFILE_FRAME_LAYOUT.frameResizeMode,
+                              frameOffsetX: VIP_PROFILE_FRAME_LAYOUT.frameOffsetX,
+                              frameOffsetY: VIP_PROFILE_FRAME_LAYOUT.frameOffsetY,
+                              frameBleed: VIP_PROFILE_FRAME_LAYOUT.frameBleed,
+                              avatarBoost: VIP_PROFILE_FRAME_LAYOUT.avatarBoost,
+                              avatarOffsetY: VIP_PROFILE_FRAME_LAYOUT.avatarOffsetY,
+                            }
+                          : {})}
+                      />
+                    </View>
+                  </View>
+                </LinearGradient>
+              </View>
+
+              <TouchableOpacity
+                style={styles.closeButtonMatch}
+                activeOpacity={0.8}
+                onPress={() => setMatchSwitchVisible(false)}
+              >
+                <Text style={styles.closeButtonMatchText}>Close</Text>
+              </TouchableOpacity>
+
+              <View style={styles.matchSwitchToggleSection}>
+                <Text style={styles.matchSwitchTitle}>Match switch</Text>
+                <Text style={styles.matchSwitchDescription}>
+                  Close will not match people for you.
+                </Text>
+                <Switch
+                  style={styles.toggleSwitch}
+                  value={matchSwitchEnabled}
+                  onValueChange={handleToggleMatchSwitch}
+                  disabled={settingsSaving}
+                  trackColor={{ false: '#ccc', true: '#7c4dff' }}
+                  thumbColor={matchSwitchEnabled ? '#fff' : '#f4f3f4'}
+                />
+              </View>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── NOTIFICATIONS BOTTOM SHEET ── */}
+      <Modal
+        visible={notificationsVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNotificationsVisible(false)}
+      >
+        <View style={styles.notificationsOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setNotificationsVisible(false)}
+          />
+          <SafeAreaView edges={['bottom']} style={styles.bottomSheetSafe}>
+            <View style={[styles.notificationsSheet, { paddingBottom: sheetBottomPad }]}>
+              <View style={styles.handleBar} />
+              {[
+                'All notifications',
+                'Only message, moments & interaction alerts',
+                'Only message alerts',
+                'No notifications',
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.optionRow, notificationOption === opt && styles.optionSelected]}
+                  onPress={() => {
+                    setNotificationsVisible(false);
+                    persistSettings({ notificationOption: opt }, () =>
+                      setNotificationOption(opt)
+                    );
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.optionText,
+                      notificationOption === opt && styles.optionTextSelected,
+                    ]}
+                  >
+                    {opt}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setNotificationsVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ── PRIVACY MODAL ── */}
+      <Modal
+        visible={privacyVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPrivacyVisible(false)}
+      >
+        <View style={styles.privacyOverlay}>
+          <TouchableOpacity
+            style={styles.privacyBackdrop}
+            activeOpacity={1}
+            onPress={() => setPrivacyVisible(false)}
+          />
+          <SafeAreaView style={styles.privacyPanel} edges={['bottom']}>
+            <LinearGradient
+              colors={['#1a0a2e', '#16082a', '#0d0618']}
+              style={StyleSheet.absoluteFill}
+            />
+
+            <View style={styles.privacyHeader}>
+              <Text style={styles.privacyTitle}>Privacy</Text>
+              <TouchableOpacity
+                onPress={() => setPrivacyVisible(false)}
+                style={styles.privacyCloseBtn}
+              >
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.privacyDivider} />
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: sheetBottomPad + 8 }}
+            >
+              <View style={styles.privacyOptionItem}>
+                <View style={styles.privacyOptionLeft}>
+                  <Text style={styles.privacyOptionLabel}>Prevent following into room</Text>
+                  <Text style={styles.privacyOptionValue}>
+                    {preventFollowing ? 'On' : 'Off'}
+                  </Text>
+                </View>
+                <Switch
+                  value={preventFollowing}
+                  onValueChange={(value) =>
+                    persistSettings({ preventFollowing: value }, () =>
+                      setPreventFollowing(value)
+                    )
+                  }
+                  disabled={settingsSaving}
+                  trackColor={{ false: '#ccc', true: '#7c4dff' }}
+                  thumbColor={preventFollowing ? '#fff' : '#f4f3f4'}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={styles.privacyOptionItem}
+                activeOpacity={0.7}
+                onPress={() =>
+                  Alert.alert('Who can chat to me?', 'Select who can send you messages', [
+                    {
+                      text: 'Everyone',
+                      onPress: () =>
+                        persistSettings({ chatPermission: 'Everyone' }, () =>
+                          setChatPermission('Everyone')
+                        ),
+                    },
+                    {
+                      text: 'Friends only',
+                      onPress: () =>
+                        persistSettings({ chatPermission: 'Friends only' }, () =>
+                          setChatPermission('Friends only')
+                        ),
+                    },
+                    {
+                      text: 'Nobody',
+                      onPress: () =>
+                        persistSettings({ chatPermission: 'Nobody' }, () =>
+                          setChatPermission('Nobody')
+                        ),
+                    },
+                    { text: 'Cancel', style: 'cancel' },
+                  ])
+                }
+              >
+                <View style={styles.privacyOptionLeft}>
+                  <Text style={styles.privacyOptionLabel}>Who can chat to me?</Text>
+                  <Text style={styles.privacyOptionValue}>{chatPermission}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.5)" />
+              </TouchableOpacity>
+
+              <View style={styles.privacyOptionItem}>
+                <View style={styles.privacyOptionLeft}>
+                  <Text style={styles.privacyOptionLabel}>Mysterious Visitor</Text>
+                  <Text style={styles.privacyOptionValue}>
+                    {mysteriousVisitor ? 'On' : 'Off'}
+                  </Text>
+                </View>
+                <Switch
+                  value={mysteriousVisitor}
+                  onValueChange={(value) =>
+                    persistSettings({ mysteriousVisitor: value }, () =>
+                      setMysteriousVisitor(value)
+                    )
+                  }
+                  disabled={settingsSaving}
+                  trackColor={{ false: '#ccc', true: '#7c4dff' }}
+                  thumbColor={mysteriousVisitor ? '#fff' : '#f4f3f4'}
+                />
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ── SYSTEM LANGUAGE MODAL ── */}
+      <Modal
+        visible={systemLanguageVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSystemLanguageVisible(false)}
+      >
+        <View style={styles.languageOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setSystemLanguageVisible(false)}
+          />
+          <SafeAreaView edges={['bottom']} style={styles.bottomSheetSafe}>
+            <View style={[styles.languageSheet, { paddingBottom: sheetBottomPad }]}>
+              <View style={styles.handleBar} />
+              <Text style={styles.sheetTitle}>System Language</Text>
+              <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                {languages.map((lang) => (
+                  <TouchableOpacity
+                    key={lang}
+                    style={[
+                      styles.languageOption,
+                      systemLanguage === lang && styles.languageOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setSystemLanguageVisible(false);
+                      persistSettings({ systemLanguage: lang }, () =>
+                        setSystemLanguage(lang)
+                      );
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.languageOptionText,
+                        systemLanguage === lang && styles.languageOptionTextSelected,
+                      ]}
+                    >
+                      {lang}
+                    </Text>
+                    {systemLanguage === lang && (
+                      <Ionicons name="checkmark" size={20} color="#a78bfa" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity
+                style={styles.langCancelButton}
+                onPress={() => setSystemLanguageVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.langCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ── CONTENT LANGUAGE MODAL ── */}
+      <Modal
+        visible={contentLanguageVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setContentLanguageVisible(false)}
+      >
+        <View style={styles.languageOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setContentLanguageVisible(false)}
+          />
+          <SafeAreaView edges={['bottom']} style={styles.bottomSheetSafe}>
+            <View style={[styles.languageSheet, { paddingBottom: sheetBottomPad }]}>
+              <View style={styles.handleBar} />
+              <Text style={styles.sheetTitle}>Content Language</Text>
+              <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                {languages.map((lang) => (
+                  <TouchableOpacity
+                    key={lang}
+                    style={[
+                      styles.languageOption,
+                      contentLanguage === lang && styles.languageOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setContentLanguageVisible(false);
+                      persistSettings({ contentLanguage: lang }, () =>
+                        setContentLanguage(lang)
+                      );
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.languageOptionText,
+                        contentLanguage === lang && styles.languageOptionTextSelected,
+                      ]}
+                    >
+                      {lang}
+                    </Text>
+                    {contentLanguage === lang && (
+                      <Ionicons name="checkmark" size={20} color="#a78bfa" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity
+                style={styles.langCancelButton}
+                onPress={() => setContentLanguageVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.langCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ── CHECK FOR UPDATE MODAL ── */}
+      <Modal
+        visible={checkUpdateVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCheckUpdateVisible(false)}
+      >
+        <View style={styles.updateOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setCheckUpdateVisible(false)}
+          />
+          <View style={styles.updateContainer}>
+            <LinearGradient
+              colors={['#1e0a3c', '#2d1b4e', '#1a0a2e']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.updateContent}
+            >
+              <LinearGradient colors={['#7c4dff', '#a78bfa']} style={styles.updateIconCircle}>
+                {updateChecked ? (
+                  <Ionicons name="checkmark-circle" size={42} color="white" />
+                ) : (
+                  <Ionicons name="rocket-outline" size={42} color="white" />
+                )}
+              </LinearGradient>
+
+              <Text style={styles.updateTitle}>
+                {updateChecked ? "You're up to date!" : 'Check for Update'}
+              </Text>
+
+              <View style={styles.versionBadge}>
+                <Ionicons name="phone-portrait-outline" size={14} color="#a78bfa" />
+                <Text style={styles.versionText}>Current version  v1.0.0</Text>
+              </View>
+
+              {updateChecked ? (
+                <Text style={styles.updateSubtext}>
+                  Tuk-Tuk is running the latest version. We&apos;ll notify you when a new update is available.
+                </Text>
+              ) : (
+                <Text style={styles.updateSubtext}>
+                  Tap below to check if a newer version of Tuk-Tuk is available for your device.
+                </Text>
+              )}
+
+              {updateChecking ? (
+                <View style={styles.updateCheckingRow}>
+                  <ActivityIndicator color="#a78bfa" size="small" />
+                  <Text style={styles.updateCheckingText}>Checking for updates...</Text>
+                </View>
+              ) : updateChecked ? (
+                <View style={styles.updateSuccessRow}>
+                  <Ionicons name="shield-checkmark" size={16} color="#4ade80" />
+                  <Text style={styles.updateSuccessText}>Latest version installed</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.updateButton}
+                  onPress={handleCheckUpdate}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={['#7c4dff', '#a855f7']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.updateButtonGradient}
+                  >
+                    <Ionicons name="refresh" size={18} color="white" />
+                    <Text style={styles.updateButtonText}>Check Now</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={styles.updateCloseBtn}
+                onPress={() => setCheckUpdateVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.updateCloseBtnText}>Close</Text>
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── DELETE ACCOUNT MODAL ── */}
+      <Modal
+        visible={deleteAccountVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeDeleteAccountModal}
+      >
+        <View style={styles.helpOverlay}>
+          <TouchableOpacity
+            style={styles.helpBackdrop}
+            activeOpacity={1}
+            onPress={closeDeleteAccountModal}
+          />
+          <SafeAreaView style={styles.deleteAccountPanel} edges={['bottom']}>
+            <LinearGradient
+              colors={['#1a0a2e', '#16082a', '#0d0618']}
+              style={StyleSheet.absoluteFill}
+            />
+
+            <View style={styles.helpHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.deleteAccountTitle}>Delete account</Text>
+                <Text style={styles.deleteAccountSubtitle}>This action cannot be undone</Text>
+              </View>
+              <TouchableOpacity onPress={closeDeleteAccountModal} style={styles.helpCloseBtn}>
+                <Ionicons name="close" size={22} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={[
+                styles.deleteAccountContent,
+                { paddingBottom: sheetBottomPad + 16 },
+              ]}
+            >
+              <Text style={styles.deleteAccountLabel}>Reason for leaving</Text>
+              <View style={styles.deleteReasonList}>
+                {DELETE_ACCOUNT_REASONS.map((reason) => {
+                  const selected = deleteReason === reason;
+                  return (
+                    <TouchableOpacity
+                      key={reason}
+                      style={[
+                        styles.deleteReasonItem,
+                        selected && styles.deleteReasonItemActive,
+                      ]}
+                      activeOpacity={0.8}
+                      onPress={() => setDeleteReason(reason)}
+                    >
+                      <Text
+                        style={[
+                          styles.deleteReasonText,
+                          selected && styles.deleteReasonTextActive,
+                        ]}
+                      >
+                        {reason}
+                      </Text>
+                      {selected ? (
+                        <Ionicons name="checkmark-circle" size={18} color="#f87171" />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.deleteAccountLabel}>Additional comment</Text>
+              <TextInput
+                style={styles.deleteCommentInput}
+                placeholder="Tell us more about why you are leaving..."
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                multiline
+                numberOfLines={4}
+                value={deleteComment}
+                onChangeText={setDeleteComment}
+                textAlignVertical="top"
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.deleteConfirmBtn,
+                  (!canSubmitDeleteAccount || deletingAccount) && { opacity: 0.45 },
+                ]}
+                activeOpacity={0.8}
+                disabled={!canSubmitDeleteAccount || deletingAccount}
+                onPress={handleConfirmDeleteAccount}
+              >
+                {deletingAccount ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.deleteConfirmBtnText}>Delete my account</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.deleteCancelBtn}
+                activeOpacity={0.8}
+                onPress={closeDeleteAccountModal}
+                disabled={deletingAccount}
+              >
+                <Text style={styles.deleteCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ── HELP & FEEDBACK MODAL ── */}
+      <Modal
+        visible={helpVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setHelpVisible(false)}
+      >
+        <View style={styles.helpOverlay}>
+          <TouchableOpacity
+            style={styles.helpBackdrop}
+            activeOpacity={1}
+            onPress={() => setHelpVisible(false)}
+          />
+          <SafeAreaView style={styles.helpPanel} edges={['bottom']}>
+            <LinearGradient
+              colors={['#1a0a2e', '#16082a', '#0d0618']}
+              style={StyleSheet.absoluteFill}
+            />
+
+            <View style={styles.helpHeader}>
+              <View>
+                <Text style={styles.helpTitle}>Help & Feedback</Text>
+                <Text style={styles.helpSubtitle}>We&apos;re here to help</Text>
+              </View>
+              <TouchableOpacity onPress={() => setHelpVisible(false)} style={styles.helpCloseBtn}>
+                <Ionicons name="close" size={22} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: sheetBottomPad + 24 }}
+            >
+              <Text style={styles.helpSectionLabel}>Frequently Asked Questions</Text>
+              {faqs.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.faqItem}
+                  activeOpacity={0.8}
+                  onPress={() => setExpandedFaq(expandedFaq === item.id ? null : item.id)}
+                >
+                  <View style={styles.faqQuestion}>
+                    <Ionicons
+                      name="help-circle"
+                      size={18}
+                      color="#a78bfa"
+                      style={{ marginRight: 10 }}
+                    />
+                    <Text style={styles.faqQuestionText}>{item.q}</Text>
+                    <Ionicons
+                      name={expandedFaq === item.id ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color="rgba(255,255,255,0.45)"
+                    />
+                  </View>
+                  {expandedFaq === item.id && (
+                    <View style={styles.faqAnswer}>
+                      <Text style={styles.faqAnswerText}>{item.a}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
+
+              <Text style={styles.helpSectionLabel}>Contact Support</Text>
+              <TouchableOpacity
+                style={styles.contactRow}
+                activeOpacity={0.8}
+                onPress={handleEmailSupport}
+              >
+                <View style={[styles.contactIcon, { backgroundColor: 'rgba(59,130,246,0.15)' }]}>
+                  <Ionicons name="mail-outline" size={20} color="#60a5fa" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.contactLabel}>Email Support</Text>
+                  <Text style={styles.contactValue}>{SUPPORT_EMAIL}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.contactRow}
+                activeOpacity={0.8}
+                onPress={handleWhatsAppSupport}
+              >
+                <View style={[styles.contactIcon, { backgroundColor: 'rgba(37,211,102,0.15)' }]}>
+                  <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.contactLabel}>WhatsApp Support</Text>
+                  <Text style={styles.contactValue}>Mon – Fri, 9 AM – 6 PM</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
+              </TouchableOpacity>
+
+              <Text style={styles.helpSectionLabel}>Send Feedback</Text>
+              <View style={styles.feedbackCard}>
+                {feedbackSent ? (
+                  <View style={styles.feedbackSentBox}>
+                    <Ionicons name="checkmark-circle" size={36} color="#4ade80" />
+                    <Text style={styles.feedbackSentText}>Thank you for your feedback!</Text>
+                    <Text style={styles.feedbackSentSub}>
+                      We read every message and use it to improve Tuk-Tuk.
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <TextInput
+                      style={styles.feedbackInput}
+                      placeholder="Tell us what's on your mind..."
+                      placeholderTextColor="rgba(255,255,255,0.35)"
+                      multiline
+                      numberOfLines={4}
+                      value={feedbackText}
+                      onChangeText={setFeedbackText}
+                      textAlignVertical="top"
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.feedbackSendBtn,
+                        (!feedbackText.trim() || feedbackSubmitting) && { opacity: 0.45 },
+                      ]}
+                      onPress={handleSendFeedback}
+                      activeOpacity={0.8}
+                      disabled={!feedbackText.trim() || feedbackSubmitting}
+                    >
+                      <LinearGradient
+                        colors={['#7c4dff', '#a855f7']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.feedbackSendBtnGradient}
+                      >
+                        {feedbackSubmitting ? (
+                          <ActivityIndicator size="small" color="white" />
+                        ) : (
+                          <>
+                            <Ionicons name="send" size={16} color="white" />
+                            <Text style={styles.feedbackSendBtnText}>Send Feedback</Text>
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ── ABOUT MODAL ── */}
+      <Modal
+        visible={aboutVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAboutVisible(false)}
+      >
+        <View style={styles.aboutOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setAboutVisible(false)}
+          />
+          <View style={styles.aboutContainer}>
+            <LinearGradient
+              colors={['#1e0a3c', '#2d1b4e', '#1a0a2e']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.aboutContent}
+            >
+              <TouchableOpacity
+                style={styles.aboutCloseBtn}
+                onPress={() => setAboutVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="close" size={20} color="rgba(255,255,255,0.7)" />
+              </TouchableOpacity>
+
+              <LinearGradient
+                colors={['#7c4dff', '#a855f7', '#ec4899']}
+                style={styles.aboutIconCircle}
+              >
+                <Image
+                  source={require('../../../../assets/images/splash-icon.png')}
+                  style={styles.aboutIconImage}
+                  resizeMode="contain"
+                />
+              </LinearGradient>
+
+              <Text style={styles.aboutAppName}>Tuk-Tuk</Text>
+              <Text style={styles.aboutTagline}>Connect. Match. Vibe.</Text>
+
+              <View style={styles.aboutVersionRow}>
+                <View style={styles.aboutVersionBadge}>
+                  <Text style={styles.aboutVersionText}>Version 1.0.0</Text>
+                </View>
+                <View style={styles.aboutBuildBadge}>
+                  <Text style={styles.aboutBuildText}>Build 100</Text>
+                </View>
+              </View>
+
+              <View style={styles.aboutDivider} />
+
+              <Text style={styles.aboutDescription}>
+                Tuk-Tuk is your social companion for meeting new people, joining voice parties, and
+                building genuine connections nearby.
+              </Text>
+
+              <View style={styles.aboutStatsRow}>
+                <View style={styles.aboutStat}>
+                  <Text style={styles.aboutStatNumber}>50K+</Text>
+                  <Text style={styles.aboutStatLabel}>Users</Text>
+                </View>
+                <View style={styles.aboutStatDivider} />
+                <View style={styles.aboutStat}>
+                  <Text style={styles.aboutStatNumber}>120+</Text>
+                  <Text style={styles.aboutStatLabel}>Countries</Text>
+                </View>
+                <View style={styles.aboutStatDivider} />
+                <View style={styles.aboutStat}>
+                  <Text style={styles.aboutStatNumber}>4.8★</Text>
+                  <Text style={styles.aboutStatLabel}>Rating</Text>
+                </View>
+              </View>
+
+              <View style={styles.aboutDivider} />
+
+              <Text style={styles.aboutFollowText}>Follow us</Text>
+              <View style={styles.aboutSocialRow}>
+                <TouchableOpacity
+                  style={styles.aboutSocialBtn}
+                  activeOpacity={0.8}
+                  onPress={() => Linking.openURL('https://instagram.com/tuktukvoicechat').catch(() => {})}
+                >
+                  <Ionicons name="logo-instagram" size={22} color="#e1306c" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.aboutSocialBtn}
+                  activeOpacity={0.8}
+                  onPress={() => Linking.openURL('https://twitter.com').catch(() => {})}
+                >
+                  <Ionicons name="logo-twitter" size={22} color="#1DA1F2" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.aboutSocialBtn}
+                  activeOpacity={0.8}
+                  onPress={() => Linking.openURL('https://tiktok.com').catch(() => {})}
+                >
+                  <Ionicons name="logo-tiktok" size={22} color="white" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.aboutSocialBtn}
+                  activeOpacity={0.8}
+                  onPress={handleEmailSupport}
+                >
+                  <Ionicons name="mail-outline" size={22} color="#a78bfa" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.aboutCopyright}>© 2025 Tuk-Tuk Inc. All rights reserved.</Text>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── SHARE APP MODAL ── */}
+      <Modal
+        visible={shareAppVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShareAppVisible(false)}
+      >
+        <View style={styles.shareOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setShareAppVisible(false)}
+          />
+          <View style={styles.shareContainer}>
+            <LinearGradient
+              colors={['#1e0a3c', '#2d1b4e', '#1a0a2e']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.shareContent}
+            >
+              <Text style={styles.shareTitle}>Share Tuk-Tuk App</Text>
+              <Text style={styles.shareDescription}>Invite your friends to join Tuk-Tuk</Text>
+
+              <View style={styles.shareButtonsGrid}>
+                <TouchableOpacity
+                  style={styles.shareButton}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    const text = encodeURIComponent('Join me on Tuk-Tuk! Download now: https://tuktukvoicechat.com');
+                    Linking.openURL(`whatsapp://send?text=${text}`).catch(() => {
+                      Linking.openURL(`https://wa.me/?text=${text}`).catch(() => {});
+                    });
+                  }}
+                >
+                  <View style={styles.shareButtonIcon}>
+                    <Ionicons name="logo-whatsapp" size={28} color="#25D366" />
+                  </View>
+                  <Text style={styles.shareButtonLabel}>WhatsApp</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.shareButton}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    Linking.openURL('https://www.facebook.com/sharer/sharer.php?u=https://tuktukvoicechat.com').catch(() => {});
+                  }}
+                >
+                  <View style={styles.shareButtonIcon}>
+                    <Ionicons name="logo-facebook" size={28} color="#1877F2" />
+                  </View>
+                  <Text style={styles.shareButtonLabel}>Facebook</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.shareButton}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    const text = encodeURIComponent('Join me on Tuk-Tuk! https://tuktukvoicechat.com');
+                    Linking.openURL(`https://twitter.com/intent/tweet?text=${text}`).catch(() => {});
+                  }}
+                >
+                  <View style={styles.shareButtonIcon}>
+                    <Ionicons name="logo-twitter" size={28} color="#1DA1F2" />
+                  </View>
+                  <Text style={styles.shareButtonLabel}>Twitter</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.shareButton}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    Linking.openURL('mailto:?subject=Join%20me%20on%20Tuk-Tuk&body=Download%20Tuk-Tuk%20at%20https://tuktukvoicechat.com').catch(() => {});
+                  }}
+                >
+                  <View style={styles.shareButtonIcon}>
+                    <Ionicons name="mail" size={28} color="#a78bfa" />
+                  </View>
+                  <Text style={styles.shareButtonLabel}>Email</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={styles.shareCloseButton}
+                onPress={() => setShareAppVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.shareCloseText}>Close</Text>
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+
+      <ClearChatCacheModal
+        visible={clearChatCacheVisible}
+        onClose={() => setClearChatCacheVisible(false)}
+      />
+    </SafeAreaView>
+  );
+}
+
+export default SettingsScreen;
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0d0618',
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 12,
+  },
+  backButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  screenTitle: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  subtitle: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 14,
+    marginBottom: 14,
+  },
+  settingsLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  settingsLoadingText: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+  },
+  sectionCard: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  sectionTitle: {
+    color: '#c4b5fd',
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+  },
+  settingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  itemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  itemIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: 'rgba(124,77,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemTextWrap: {
+    flex: 1,
+  },
+  itemLabel: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  itemSubtitle: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  dangerButton: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  dangerText: {
+    color: '#ff6b81',
+    fontSize: 16,
+    fontWeight: '800',
+    padding: 14,
+  },
+  deleteButton: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  deleteText: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 14,
+    fontWeight: '700',
+    padding: 14,
+  },
+
+  // ── MATCH SWITCH MODAL ──
+  matchSwitchOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  matchSwitchContainer: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 32,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(26, 10, 46, 0.9)',
+  },
+  matchSwitchContent: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 40,
+  },
+  phoneFrame: {
+    width: 200,
+    height: 340,
+    borderRadius: 40,
+    overflow: 'hidden',
+    marginBottom: 28,
+    borderWidth: 10,
+    borderColor: 'rgba(255,255,255,0.15)',
+    shadowColor: '#7c4dff',
+    shadowOffset: { width: 0, height: 15 },
+    shadowOpacity: 0.4,
+    shadowRadius: 25,
+  },
+  phoneFrameGradient: {
+    flex: 1,
+    justifyContent: 'space-between',
+    paddingTop: 16,
+    paddingBottom: 20,
+    alignItems: 'center',
+  },
+  phoneNotch: {
+    width: 120,
+    height: 24,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  profileDisplayArea: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  profileCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    padding: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileImage: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+  },
+  closeButtonMatch: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 24,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    marginBottom: 32,
+  },
+  closeButtonMatchText: {
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  matchSwitchToggleSection: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 14,
+  },
+  matchSwitchTitle: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  matchSwitchDescription: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  toggleSwitch: {
+    marginTop: 16,
+    transform: [{ scaleX: 1.3 }, { scaleY: 1.3 }],
+  },
+
+  // ── PRIVACY MODAL ──
+  privacyOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  privacyBackdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  privacyPanel: {
+    height: '85%',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderColor: 'rgba(124,77,255,0.3)',
+  },
+  privacyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 14,
+  },
+  privacyTitle: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  privacyCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  privacyDivider: {
+    height: 1,
+    backgroundColor: 'rgba(124,77,255,0.2)',
+    marginHorizontal: 16,
+  },
+  privacyOptionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  privacyOptionLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  privacyOptionLabel: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  privacyOptionValue: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  notificationsOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  bottomSheetSafe: {
+    width: '100%',
+  },
+  notificationsSheet: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    paddingHorizontal: 18,
+    minHeight: 260,
+  },
+  handleBar: {
+    width: 56,
+    height: 6,
+    borderRadius: 4,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  optionRow: {
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+    alignItems: 'center',
+  },
+  optionText: {
+    fontSize: 16,
+    color: '#111',
+    textAlign: 'center',
+  },
+  optionSelected: {
+    backgroundColor: 'rgba(124,77,255,0.06)',
+  },
+  optionTextSelected: {
+    color: '#7c4dff',
+    fontWeight: '800',
+  },
+  cancelButton: {
+    marginTop: 12,
+    backgroundColor: '#f3f4f6',
+    paddingVertical: 14,
+    borderRadius: 26,
+    alignItems: 'center',
+  },
+  cancelText: {
+    color: '#111827',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  // ── SYSTEM/CONTENT LANGUAGE MODALS ──
+  languageOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  languageSheet: {
+    backgroundColor: 'rgba(26, 10, 46, 0.95)',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 12,
+    paddingHorizontal: 18,
+    maxHeight: '80%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(124,77,255,0.3)',
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: 'white',
+    marginBottom: 18,
+    textAlign: 'center',
+  },
+  languageOption: {
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  languageOptionText: {
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.75)',
+    fontWeight: '600',
+  },
+  languageOptionSelected: {
+    backgroundColor: 'rgba(124, 77, 255, 0.12)',
+  },
+  languageOptionTextSelected: {
+    color: '#a78bfa',
+    fontWeight: '800',
+  },
+  langCancelButton: {
+    marginTop: 14,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 12,
+    borderRadius: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  langCancelText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  // ── SHARE APP MODAL ──
+  shareOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  shareContainer: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 28,
+    overflow: 'hidden',
+  },
+  shareContent: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+  },
+  shareTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: 'white',
+    marginBottom: 8,
+  },
+  shareDescription: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
+    marginBottom: 28,
+  },
+  shareButtonsGrid: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-around',
+    marginBottom: 24,
+  },
+  shareButton: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  shareButtonIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  shareButtonLabel: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  shareCloseButton: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 24,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  shareCloseText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  // ── CHECK FOR UPDATE ──
+  updateOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  updateContainer: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 28,
+    overflow: 'hidden',
+  },
+  updateContent: {
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 36,
+  },
+  updateIconCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  updateTitle: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  versionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(124,77,255,0.18)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    gap: 6,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(167,139,250,0.3)',
+  },
+  versionText: {
+    color: '#a78bfa',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  updateSubtext: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  updateCheckingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 24,
+  },
+  updateCheckingText: {
+    color: '#a78bfa',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  updateSuccessRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(74,222,128,0.1)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(74,222,128,0.25)',
+  },
+  updateSuccessText: {
+    color: '#4ade80',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  updateButton: {
+    width: '100%',
+    borderRadius: 26,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  updateButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+  },
+  updateButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  updateCloseBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 28,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  updateCloseBtnText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  // ── HELP & FEEDBACK ──
+  helpOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  helpBackdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  helpPanel: {
+    height: '90%',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderColor: 'rgba(124,77,255,0.3)',
+  },
+  helpHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 14,
+  },
+  helpTitle: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  helpSubtitle: {
+    color: 'rgba(167,139,250,0.8)',
+    fontSize: 13,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  helpCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  helpSectionLabel: {
+    color: '#c4b5fd',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+  },
+  faqItem: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  faqQuestion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  faqQuestionText: {
+    flex: 1,
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '700',
+    marginRight: 8,
+  },
+  faqAnswer: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.07)',
+  },
+  faqAnswerText: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 13,
+    lineHeight: 19,
+    paddingTop: 10,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  contactIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contactLabel: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  contactValue: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  feedbackCard: {
+    marginHorizontal: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(124,77,255,0.2)',
+  },
+  feedbackInput: {
+    color: 'white',
+    fontSize: 14,
+    minHeight: 100,
+    paddingTop: 4,
+    marginBottom: 14,
+  },
+  feedbackSendBtn: {
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  feedbackSendBtnGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 13,
+  },
+  feedbackSendBtnText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  feedbackSentBox: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    gap: 10,
+  },
+  feedbackSentText: {
+    color: '#4ade80',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  feedbackSentSub: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+
+  // ── ABOUT ──
+  aboutOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.88)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  aboutContainer: {
+    width: '100%',
+    maxWidth: 370,
+    borderRadius: 30,
+    overflow: 'hidden',
+  },
+  aboutContent: {
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    paddingTop: 20,
+    paddingBottom: 28,
+  },
+  aboutCloseBtn: {
+    alignSelf: 'flex-end',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  aboutIconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    shadowColor: '#7c4dff',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+  },
+  aboutIconImage: {
+    width: 60,
+    height: 60,
+  },
+  aboutAppName: {
+    color: 'white',
+    fontSize: 30,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  aboutTagline: {
+    color: '#a78bfa',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
+    marginBottom: 14,
+    letterSpacing: 1,
+  },
+  aboutVersionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 18,
+  },
+  aboutVersionBadge: {
+    backgroundColor: 'rgba(124,77,255,0.2)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(167,139,250,0.3)',
+  },
+  aboutVersionText: {
+    color: '#a78bfa',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  aboutBuildBadge: {
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  aboutBuildText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  aboutDivider: {
+    width: '100%',
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginVertical: 16,
+  },
+  aboutDescription: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  aboutStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    width: '100%',
+    justifyContent: 'space-around',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  aboutStat: {
+    alignItems: 'center',
+  },
+  aboutStatNumber: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  aboutStatLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  aboutStatDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  aboutFollowText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  aboutSocialRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  aboutSocialBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  aboutCopyright: {
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 11,
+    textAlign: 'center',
+  },
+
+  // ── DELETE ACCOUNT ──
+  deleteAccountPanel: {
+    maxHeight: '82%',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderColor: 'rgba(248,113,113,0.35)',
+  },
+  deleteAccountContent: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+  },
+  deleteAccountTitle: {
+    color: '#f87171',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  deleteAccountSubtitle: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  deleteAccountLabel: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 10,
+    marginTop: 8,
+  },
+  deleteReasonList: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  deleteReasonItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  deleteReasonItemActive: {
+    backgroundColor: 'rgba(248,113,113,0.12)',
+    borderColor: 'rgba(248,113,113,0.35)',
+  },
+  deleteReasonText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+    paddingRight: 8,
+  },
+  deleteReasonTextActive: {
+    color: '#fecaca',
+  },
+  deleteCommentInput: {
+    minHeight: 110,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: 'white',
+    fontSize: 14,
+    marginBottom: 20,
+  },
+  deleteConfirmBtn: {
+    backgroundColor: '#dc2626',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  deleteConfirmBtnText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  deleteCancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  deleteCancelBtnText: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+});

@@ -1,5 +1,178 @@
-import { apiClient } from '@shared/network/apiClient';
-import { ENDPOINTS } from '@shared/network/endpoints';
+import API, { authRequestConfig } from '@/api/axios';
+import { API_BASE_URL } from '@/config/env';
+import { getNotifications, getUnreadNotificationCount } from '@/api/notificationApi';
+import {
+  createPost as apiCreatePost,
+  deletePost as apiDeletePost,
+  likePost as apiLikePost,
+  unlikePost as apiUnlikePost,
+  getPostComments as apiGetPostComments,
+  addComment as apiAddComment,
+  getOnlinePosts,
+  getFollowingPosts,
+  getDiscoverPosts,
+} from '@/api/postApi';
+import { getAppUserId } from '@/utils/sessionUser';
+import { partyApi } from '@/features/party/api/partyApi';
+
+export const toAbsoluteUrl = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  if (
+    trimmed.startsWith('file://') ||
+    trimmed.startsWith('content://') ||
+    trimmed.startsWith('ph://')
+  ) {
+    return trimmed;
+  }
+
+  if (
+    trimmed.includes('.ngrok-free.dev') ||
+    trimmed.includes('.ngrok.io') ||
+    trimmed.includes('localhost:') ||
+    trimmed.includes('127.0.0.1:') ||
+    trimmed.includes('10.0.2.2:')
+  ) {
+    try {
+      const match = trimmed.match(/^https?:\/\/[^\/]+(\/.*)$/);
+      if (match && match[1]) {
+        return `${API_BASE_URL}${match[1]}`;
+      }
+    } catch {}
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('/')) return `${API_BASE_URL}${trimmed}`;
+  return `${API_BASE_URL}/${trimmed}`;
+};
+
+const firstText = (...values) =>
+  values.find((value) => typeof value === 'string' && value.trim().length > 0) ?? null;
+
+const firstValue = (...values) =>
+  values.find((value) => value !== undefined && value !== null) ?? null;
+
+export const normalizePost = (post, currentUserId = null) => {
+  if (!post) return null;
+  const author =
+    post.user ??
+    post.author ??
+    post.poster ??
+    post.member ??
+    post.userData ??
+    post.userInfo ??
+    (typeof post.createdBy === 'object' ? post.createdBy : null) ??
+    {};
+  const media = post.media ?? post.attachment ?? {};
+
+  const isVideo = Boolean(
+    post.hasVideo ||
+    post.type === 'video' ||
+    post.mediaType === 'video' ||
+    media.type === 'video' ||
+    media.mediaType === 'video'
+  );
+
+  const videoUrl = firstText(
+    post.videoUrl,
+    media.videoUrl,
+    media.mediaUrl,
+    isVideo ? media.url : null
+  );
+
+  const rawImageList = !isVideo
+    ? (
+        (Array.isArray(post.mediaUrls) && post.mediaUrls) ||
+        (Array.isArray(post.imageUrls) && post.imageUrls) ||
+        (Array.isArray(post.images) && post.images) ||
+        (Array.isArray(post.media) && post.media) ||
+        []
+      )
+    : [];
+
+  const imageUrlList = rawImageList
+    .map((item) => (typeof item === 'string' ? item : firstText(item?.url, item?.imageUrl, item?.mediaUrl)))
+    .filter(Boolean)
+    .map(toAbsoluteUrl);
+
+  const imageUrl = firstText(
+    post.imageUrl,
+    post.mediaUrl,
+    post.image,
+    post.photoUrl,
+    post.postImage,
+    post.thumbnailUrl,
+    media.imageUrl,
+    media.mediaUrl,
+    !isVideo ? media.url : null,
+    imageUrlList[0] ?? null
+  );
+
+  const resolvedImageUrl = toAbsoluteUrl(imageUrl);
+  const imageUrls = resolvedImageUrl
+    ? [resolvedImageUrl, ...imageUrlList.filter((u) => u !== resolvedImageUrl)]
+    : imageUrlList;
+
+  const resolvedUserId = firstValue(
+    post.userId,
+    post.authorId,
+    post.ownerId,
+    post.createdBy,
+    post.createdByUserId,
+    post.postedBy,
+    post.memberId,
+    author.id,
+    author.userId
+  );
+
+  const isOwn = Boolean(
+    post._isOwn ||
+    (currentUserId && resolvedUserId && String(resolvedUserId) === String(currentUserId))
+  );
+
+  return {
+    ...post,
+    id: String(firstValue(post.id, post.postId, post._id) || `post_${Date.now()}`),
+    userId: resolvedUserId ? String(resolvedUserId) : null,
+    name: firstText(
+      post.name,
+      post.username,
+      post.authorName,
+      post.displayName,
+      author.name,
+      author.username,
+      author.displayName,
+      author.fullName
+    ) || 'User',
+    avatar: toAbsoluteUrl(firstText(
+      post.avatar,
+      post.avatarUrl,
+      post.profileImage,
+      post.profileImageUrl,
+      post.profilePic,
+      post.authorAvatar,
+      post.userAvatar,
+      author.avatar,
+      author.avatarUrl,
+      author.profileImage,
+      author.profileImageUrl,
+      author.profilePic,
+      author.photoUrl
+    )),
+    text: firstText(post.text, post.caption, post.content, post.description) || '',
+    imageUrl: resolvedImageUrl,
+    imageUrls,
+    videoUrl: toAbsoluteUrl(videoUrl),
+    hasVideo: Boolean(isVideo || toAbsoluteUrl(videoUrl)),
+    duration: post.duration || null,
+    likeCount: Number(post.likeCount ?? post.likes ?? post.totalLikes ?? 0),
+    commentsCount: Number(post.commentsCount ?? post.comments ?? 0),
+    createdAt: post.createdAt || post.timestamp || 'Just now',
+    _isOwn: isOwn,
+  };
+};
 
 const MOCK_BANNER_SLIDES = [
   {
@@ -19,113 +192,78 @@ const MOCK_BANNER_SLIDES = [
   },
 ];
 
-const MOCK_ROOMS = [
-  {
-    id: 'room-1',
-    name: 'Vipin Sharma n...',
-    listenerCount: 0,
-    image: require('@assets/images/room_good_vibes.jpg'),
-    region: 'Global',
-    isLive: true,
-  },
-  {
-    id: 'room-2',
-    name: 'TukTuk Official',
-    listenerCount: 0,
-    image: require('@assets/images/room_music_chill.jpg'),
-    region: 'Global',
-    isLive: true,
-  },
-  {
-    id: 'room-3',
-    name: 'New Updated...',
-    listenerCount: 0,
-    image: require('@assets/images/room_gaming_zone.jpg'),
-    region: 'Global',
-    isLive: true,
-  },
-  {
-    id: 'room-4',
-    name: "Good Vibes Only",
-    listenerCount: 8200,
-    image: require('@assets/images/room_lets_talk.jpg'),
-    region: 'Global',
-    isLive: true,
-  },
-];
+export const parseRoomsResponse = (data) => {
+  if (Array.isArray(data)) return data;
+  return (
+    data?.content ??
+    data?.data ??
+    data?.items ??
+    data?.rooms ??
+    data?.recommendations ??
+    data?.recently ??
+    data?.following ??
+    data?.managed ??
+    data?.follows ??
+    []
+  );
+};
 
-const MOCK_POSTS = [
-  {
-    id: 'p1',
-    userId: 'u101',
-    name: 'Aanya Sharma',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200',
-    text: 'What an energetic voice party tonight! Thank you everyone for the virtual gifts and love! 🚀💖',
-    imageUrl: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&q=80',
-    imageUrls: [
-      'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&q=80',
-      'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800&q=80',
-    ],
-    likeCount: 248,
-    commentsCount: 36,
-    createdAt: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
-    hasVideo: false,
-  },
-  {
-    id: 'p2',
-    userId: 'u102',
-    name: 'Kabir Singhania',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
-    text: 'Live podcast streaming starts at 10 PM sharp. Join room #101 for special guest revelations! 🎙️🔥',
-    imageUrl: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800&q=80',
-    imageUrls: ['https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800&q=80'],
-    likeCount: 184,
-    commentsCount: 19,
-    createdAt: new Date(Date.now() - 1000 * 60 * 80).toISOString(),
-    hasVideo: false,
-  },
-  {
-    id: 'p3',
-    userId: 'u103',
-    name: 'Rohan Mehta',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200',
-    text: 'Met amazing friends on Tuk-Tuk today. Ready for the next Truth & Dare battle! 😎⚡',
-    imageUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&q=80',
-    imageUrls: ['https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&q=80'],
-    likeCount: 92,
-    commentsCount: 11,
-    createdAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-    hasVideo: false,
-  },
-];
+export const normalizeRoom = (room, index = 0) => {
+  if (!room) return null;
+  const rawRoom = room?.room ?? room?.data ?? room;
+  const id = String(rawRoom.roomId || rawRoom.id || rawRoom._id || `room_${index}`);
+  const name =
+    firstText(rawRoom.name, rawRoom.title, rawRoom.roomName, rawRoom.displayName) ||
+    'Live Party';
+  const title =
+    firstText(rawRoom.title, rawRoom.name, rawRoom.roomName, rawRoom.description) ||
+    name;
 
-const MOCK_NOTIFICATIONS = [
-  {
-    id: 'n1',
-    title: 'Kabir Singhania',
-    message: 'started a new Voice Party: Late Night Ghazals & Stories 🌙',
-    time: '5m ago',
-    unread: true,
-    type: 'party',
-    imageUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=200',
-  },
-  {
-    id: 'n2',
-    title: 'Daily Rewards',
-    message: 'Your 500 Daily Free Diamonds are ready to claim! 💎',
-    time: '1h ago',
-    unread: true,
-    type: 'gift',
-  },
-  {
-    id: 'n3',
-    title: 'Aanya Sharma',
-    message: 'liked your moment: "What an energetic voice party tonight..." 👍',
-    time: '2h ago',
-    unread: false,
-    type: 'like',
-  },
-];
+  const rawImage = firstText(
+    rawRoom.profileImageUrl,
+    rawRoom.profilePicUrl,
+    rawRoom.imageUrl,
+    rawRoom.roomImageUrl,
+    rawRoom.coverImage,
+    rawRoom.coverUrl,
+    rawRoom.avatarUrl,
+    typeof rawRoom.image === 'string' ? rawRoom.image : null,
+    rawRoom.image?.uri
+  );
+
+  const resolvedCover = toAbsoluteUrl(rawImage);
+  const listenerCount = Number(
+    rawRoom.userCount ??
+    rawRoom.listenerCount ??
+    rawRoom.memberCount ??
+    rawRoom.onlineCount ??
+    rawRoom.participantCount ??
+    0
+  );
+
+  const region = firstText(rawRoom.countryCode, rawRoom.region, rawRoom.country) || 'Global';
+  const isLive = String(rawRoom.status || '').toUpperCase() === 'LIVE' || rawRoom.isLive !== false;
+
+  return {
+    ...rawRoom,
+    id,
+    roomId: id,
+    name,
+    title,
+    imageUrl: resolvedCover,
+    profileImageUrl: resolvedCover,
+    coverImage: resolvedCover,
+    image: resolvedCover ? { uri: resolvedCover } : (typeof rawRoom.image === 'number' ? rawRoom.image : null),
+    listenerCount,
+    memberCount: listenerCount,
+    userCount: listenerCount,
+    region,
+    countryCode: rawRoom.countryCode || null,
+    status: rawRoom.status || (isLive ? 'LIVE' : 'OFFLINE'),
+    isLive,
+    hostId: rawRoom.hostId || null,
+  };
+};
 
 const MOCK_GIFTS = [
   { id: 'g1', name: 'Rose', value: 10, emoji: '🌹', colors: ['#E11D48', '#BE123C'], isFree: true, description: 'Send sweet gesture' },
@@ -136,240 +274,233 @@ const MOCK_GIFTS = [
 
 export const homeApi = {
   getHomeData: async () => {
+    let notifsData = null;
+    let unreadCount = 0;
+    let currentUserId = null;
+
     try {
-      const response = await apiClient.get(ENDPOINTS.HOME.FEED);
-      if (response && response.data) return response.data;
-    } catch {
-      // Graceful fallback to mock data
+      currentUserId = await getAppUserId();
+    } catch {}
+
+    try {
+      const [notifsRes, unreadRes] = await Promise.allSettled([
+        getNotifications({ page: 0, size: 20 }),
+        getUnreadNotificationCount(),
+      ]);
+      const rawList = notifsRes.status === 'fulfilled' ? notifsRes.value : null;
+      const rawCount = unreadRes.status === 'fulfilled' ? unreadRes.value : null;
+      const list = rawList?.content ?? rawList?.data ?? (Array.isArray(rawList) ? rawList : []);
+      if (Array.isArray(list) && list.length > 0) {
+        notifsData = list.map((n) => ({
+          id: String(n.id || n.notificationId || `notif_${Date.now()}`),
+          title: n.title || n.senderName || 'Notification',
+          message: n.body || n.message || n.content || '',
+          time: n.time || (n.createdAt ? new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'),
+          unread: n.unread ?? !n.isRead ?? true,
+          type: n.type || 'system',
+          imageUrl: toAbsoluteUrl(n.imageUrl || n.avatar || null),
+        }));
+      }
+      unreadCount = typeof rawCount === 'number' ? rawCount : (rawCount?.count ?? rawCount?.unreadCount ?? (notifsData ? notifsData.filter((n) => n.unread).length : 0));
+    } catch {}
+
+    let feedPosts = [];
+    let feedHasMore = false;
+    let homeInitData = null;
+
+    try {
+      const authCfg = await authRequestConfig().catch(() => ({}));
+      const [initRes, feedRes] = await Promise.allSettled([
+        API.get('/api/home/init', authCfg),
+        API.get('/api/home/feed?tab=for_you&page=1&limit=10', authCfg),
+      ]);
+
+      if (initRes.status === 'fulfilled' && initRes.value?.data) {
+        homeInitData = initRes.value.data;
+      }
+
+      if (feedRes.status === 'fulfilled' && feedRes.value?.data) {
+        const rawFeed = feedRes.value.data;
+        const rawList = Array.isArray(rawFeed) ? rawFeed : rawFeed?.posts || rawFeed?.content || rawFeed?.data || [];
+        feedPosts = rawList.map((p) => normalizePost(p, currentUserId)).filter(Boolean);
+        feedHasMore = Boolean(rawFeed?.hasMore ?? false);
+      }
+    } catch (err) {
+      console.warn('[homeApi] getHomeData network fetch error:', err?.message);
     }
+
+    let activeUsersCount = 1;
+    let popularRooms = [];
+
+    const [activeRes, roomsRes] = await Promise.allSettled([
+      homeApi.getActiveUsersCount(),
+      homeApi.getPopularRooms('Trending'),
+    ]);
+
+    if (activeRes.status === 'fulfilled' && typeof activeRes.value === 'number' && activeRes.value > 0) {
+      activeUsersCount = activeRes.value;
+    }
+
+    if (roomsRes.status === 'fulfilled' && Array.isArray(roomsRes.value)) {
+      popularRooms = roomsRes.value;
+    }
+
     return {
-      userProfile: {
-        id: 'u_current',
+      userProfile: homeInitData?.userProfile || {
+        id: currentUserId || 'u_current',
         name: 'Sakshi',
         diamonds: 28961.4,
         avatarUrl: null,
       },
       stats: {
-        activeUsers: 1,
-        featuredUserAvatar: 'https://randomuser.me/api/portraits/men/45.jpg',
+        activeUsers: activeUsersCount,
+        featuredUserAvatar: toAbsoluteUrl(homeInitData?.stats?.featuredUserAvatar) || 'https://randomuser.me/api/portraits/men/45.jpg',
       },
-      bannerSlides: MOCK_BANNER_SLIDES,
-      popularRooms: MOCK_ROOMS,
-      feedPosts: MOCK_POSTS,
-      notifications: MOCK_NOTIFICATIONS,
-      unreadCount: 20,
-      gifts: MOCK_GIFTS,
-      searchSuggestions: ['Voice Party', 'Aanya', 'Singing', 'Kabir', 'Gaming'],
-      trendingTags: ['#VoicePartyCarnival', '#LateNightVibes', '#TukTukStar', '#GamingZone'],
+      bannerSlides: homeInitData?.bannerSlides?.length ? homeInitData.bannerSlides.map((b) => ({
+        ...b,
+        imageUrl: toAbsoluteUrl(b.imageUrl),
+      })) : MOCK_BANNER_SLIDES,
+      popularRooms: popularRooms.length
+        ? popularRooms
+        : (homeInitData?.popularRooms?.length
+            ? homeInitData.popularRooms.map(normalizeRoom).filter(Boolean)
+            : []),
+      feedPosts,
+      feedHasMore,
+      notifications: notifsData || [],
+      unreadCount,
+      gifts: homeInitData?.gifts || MOCK_GIFTS,
+      searchSuggestions: homeInitData?.searchSuggestions || ['Voice Party', 'Aanya', 'Singing', 'Kabir', 'Gaming'],
+      trendingTags: homeInitData?.trendingTags || ['#VoicePartyCarnival', '#LateNightVibes', '#TukTukStar', '#GamingZone'],
     };
   },
 
   refreshFeed: async (tab = 'For You', page = 1) => {
+    let currentUserId = null;
     try {
-      const response = await apiClient.get(
-        `${ENDPOINTS.HOME.FEED}?tab=${encodeURIComponent(tab)}&page=${page}`
-      );
-      if (response && response.data) return response.data;
-    } catch {
-      // fallback
-    }
+      currentUserId = await getAppUserId();
+    } catch {}
 
-    if (tab === 'Online') {
-      return {
-        posts: [
-          {
-            id: 'p_on_1',
-            userId: 'u101',
-            name: 'Aanya Sharma',
-            avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200',
-            text: 'Live right now in Room #101! Join for special guest announcements 🎉',
-            imageUrl: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&q=80',
-            imageUrls: ['https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&q=80'],
-            likeCount: 312,
-            commentsCount: 45,
-            createdAt: 'Just now',
-          },
-          {
-            id: 'p_on_2',
-            userId: 'u102',
-            name: 'Kabir Singhania',
-            avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
-            text: 'Chilling online with new tracks. Drop your song requests! 🎶',
-            likeCount: 154,
-            commentsCount: 22,
-            createdAt: '5m ago',
-          },
-        ],
-        hasMore: false,
-      };
-    }
+    const key = String(tab).toLowerCase().trim();
 
-    if (tab === 'Following') {
-      return {
-        posts: [
-          {
-            id: 'p_fol_1',
-            userId: 'u101',
-            name: 'Aanya Sharma',
-            avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200',
-            text: 'Behind the scenes at today’s stream! Thank you for 10K followers! ❤️✨',
-            imageUrl: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800&q=80',
-            imageUrls: ['https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800&q=80'],
-            likeCount: 420,
-            commentsCount: 68,
-            createdAt: '1h ago',
-          },
-        ],
-        hasMore: false,
-      };
-    }
+    try {
+      if (key === 'online') {
+        const data = await getOnlinePosts(Math.max(0, page - 1), 10);
+        const list = Array.isArray(data) ? data : data?.posts || data?.content || data?.data || [];
+        const posts = list.map((p) => normalizePost(p, currentUserId)).filter(Boolean);
+        return { posts, hasMore: data?.hasMore ?? data?.hasNext ?? !data?.last ?? false };
+      }
 
-    if (tab === 'New') {
-      return {
-        posts: [
-          {
-            id: 'p_new_1',
-            userId: 'u104',
-            name: 'Neha Kapoor',
-            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
-            text: 'Just joined Tuk-Tuk! Excited to meet everyone and host my first party soon! 🌸👋',
-            likeCount: 18,
-            commentsCount: 5,
-            createdAt: '2m ago',
-          },
-          ...MOCK_POSTS,
-        ],
-        hasMore: false,
-      };
-    }
+      if (key === 'following') {
+        const data = await getFollowingPosts(Math.max(0, page - 1), 10);
+        const list = Array.isArray(data) ? data : data?.posts || data?.content || data?.data || [];
+        const posts = list.map((p) => normalizePost(p, currentUserId)).filter(Boolean);
+        return { posts, hasMore: data?.hasMore ?? data?.hasNext ?? !data?.last ?? false };
+      }
 
-    return {
-      posts: MOCK_POSTS,
-      hasMore: false,
-    };
+      if (key === 'new' || key === 'discover') {
+        const data = await getDiscoverPosts(Math.max(0, page - 1), 10);
+        const list = Array.isArray(data) ? data : data?.posts || data?.content || data?.data || [];
+        const posts = list.map((p) => normalizePost(p, currentUserId)).filter(Boolean);
+        return { posts, hasMore: data?.hasMore ?? data?.hasNext ?? !data?.last ?? false };
+      }
+
+      // Default: 'For You'
+      const authCfg = await authRequestConfig().catch(() => ({}));
+      const response = await API.get(`/api/home/feed?tab=for_you&page=${page}&limit=10`, authCfg);
+      const data = response?.data;
+      const list = Array.isArray(data) ? data : data?.posts || data?.content || data?.data || [];
+      const posts = list.map((p) => normalizePost(p, currentUserId)).filter(Boolean);
+      return { posts, hasMore: data?.hasMore ?? false };
+    } catch (err) {
+      console.warn(`[homeApi] refreshFeed failed for tab=${tab}:`, err?.message);
+      return { posts: [], hasMore: false };
+    }
   },
 
   getPopularRooms: async (filter = 'Trending') => {
     try {
-      const response = await apiClient.get(
-        `${ENDPOINTS.PARTY.ROOM_LIST}?filter=${encodeURIComponent(filter)}`
-      );
-      if (response && response.data) return response.data;
-    } catch {
-      // fallback
-    }
+      const key = String(filter || '').toLowerCase().trim();
+      let rawData = null;
 
-    if (filter === 'Nearby') {
-      return [
-        {
-          id: 'room-near-1',
-          name: 'Delhi NCR Friends ☕',
-          listenerCount: 3400,
-          image: require('@assets/images/room_music_chill.jpg'),
-          region: 'Delhi, IN',
-          isLive: true,
-        },
-        {
-          id: 'room-near-2',
-          name: 'Mumbai Night Live 🌃',
-          listenerCount: 5100,
-          image: require('@assets/images/room_good_vibes.jpg'),
-          region: 'Mumbai, IN',
-          isLive: true,
-        },
-        {
-          id: 'room-near-3',
-          name: 'Bangalore Tech & Chai 💻',
-          listenerCount: 2900,
-          image: require('@assets/images/room_gaming_zone.jpg'),
-          region: 'Bengaluru, IN',
-          isLive: true,
-        },
-      ];
-    }
+      if (key === 'following') {
+        rawData = await partyApi.getFollowingRooms();
+      } else if (key === 'nearby' || key === 'recently') {
+        rawData = await partyApi.getRecentlyRooms();
+      } else {
+        // Trending, Global, or any other filter
+        rawData = await partyApi.getRoomRecommendations();
+      }
 
-    if (filter === 'Following') {
-      return [
-        {
-          id: 'room-fol-1',
-          name: 'Aanya Live Concert 🎤',
-          listenerCount: 9400,
-          image: require('@assets/images/room_lets_talk.jpg'),
-          region: 'Global',
-          isLive: true,
-        },
-        {
-          id: 'room-fol-2',
-          name: 'Kabir & Friends Jam 🎸',
-          listenerCount: 7100,
-          image: require('@assets/images/room_music_chill.jpg'),
-          region: 'India',
-          isLive: true,
-        },
-      ];
+      const list = parseRoomsResponse(rawData);
+      return list.map(normalizeRoom).filter(Boolean);
+    } catch (err) {
+      console.warn(`[homeApi] getPopularRooms failed for filter=${filter}:`, err?.message);
+      return [];
     }
-
-    return MOCK_ROOMS;
   },
 
-  getPostComments: async (postId) => {
-    return [
-      {
-        id: 'c1',
-        user: { name: 'Kabir', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200' },
-        text: 'Loved this live stream so much! Great energy! 🙌🔥',
-        createdAt: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
-      },
-      {
-        id: 'c2',
-        user: { name: 'Aanya', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200' },
-        text: 'Looking forward to the next party tomorrow night! ❤️',
-        createdAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-      },
-    ];
+  getPostComments: async (postId, page = 0, size = 20) => {
+    try {
+      const data = await apiGetPostComments(postId, page, size);
+      const list = Array.isArray(data) ? data : data?.content || data?.comments || data?.data || [];
+      return list;
+    } catch (err) {
+      console.warn('[homeApi] getPostComments failed:', err?.message);
+      return [];
+    }
   },
 
   addComment: async (postId, text) => {
-    return {
-      id: `c_${Date.now()}`,
-      user: { name: 'You' },
-      text,
-      createdAt: new Date().toISOString(),
-    };
+    return apiAddComment(postId, text);
   },
 
   likePost: async (postId) => {
-    return { success: true };
+    return apiLikePost(postId);
   },
 
   unlikePost: async (postId) => {
-    return { success: true };
+    return apiUnlikePost(postId);
   },
 
-  createPost: async ({ caption, photos, video, mediaType }) => {
-    return {
-      id: `post_${Date.now()}`,
-      text: caption,
-      imageUrls: photos?.map((p) => p.uri) || [],
-      imageUrl: photos?.[0]?.uri || null,
-      hasVideo: mediaType === 'video',
-      likeCount: 0,
-      createdAt: new Date().toISOString(),
-    };
+  createPost: async (payload) => {
+    return apiCreatePost(payload);
   },
 
   deletePost: async (postId) => {
-    return { success: true };
+    return apiDeletePost(postId);
   },
 
   searchPeople: async (query) => {
-    const q = query.toLowerCase();
-    const mockUsers = [
-      { id: 'u101', name: 'Aanya Sharma', isOnline: true, level: 14, vip: true, avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200' },
-      { id: 'u102', name: 'Kabir Singhania', isOnline: true, level: 22, vip: true, avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200' },
-      { id: 'u103', name: 'Rohan Mehta', isOnline: false, level: 18, vip: false, avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200' },
-    ];
-    return mockUsers.filter((u) => u.name.toLowerCase().includes(q));
+    try {
+      const authCfg = await authRequestConfig().catch(() => ({}));
+      const response = await API.get(`/api/app/users/search?q=${encodeURIComponent(query)}&page=0&limit=20`, authCfg);
+      const data = response?.data;
+      const list = Array.isArray(data) ? data : data?.users || data?.content || data?.data || [];
+      return list.map((u) => ({
+        id: String(u.id || u.userId),
+        userId: String(u.userId || u.id),
+        name: u.name || u.username || 'User',
+        avatar: toAbsoluteUrl(u.avatar || u.avatarUrl || u.profileImage),
+        isOnline: Boolean(u.isOnline || u.online),
+        level: u.level || 1,
+        vip: Boolean(u.vip),
+      }));
+    } catch {
+      return [];
+    }
+  },
+
+  getActiveUsersCount: async () => {
+    try {
+      const authCfg = await authRequestConfig().catch(() => ({}));
+      const res = await API.get('/api/app/users/active/count', authCfg);
+      const count = res?.data?.activeUsers ?? res?.data?.count;
+      return typeof count === 'number' ? count : (Number(count) || 1);
+    } catch (err) {
+      console.warn('[homeApi] getActiveUsersCount error:', err?.message);
+      return 1;
+    }
   },
 };
 

@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { roomApi } from '../api/roomApi';
-import { seatApi } from '../api/seatApi';
+import { partyApi } from '../api/partyApi';
 import { usePartyStore } from '../store/partyStore';
 import { logger } from '@shared/utils/logger';
 
@@ -22,16 +21,40 @@ export function useVoiceParty(roomId) {
       setLoading(true);
       setError(null);
 
-      // In real backend: roomApi.getRoomDetails(roomId); seatApi.getSeats(roomId)
-      // Provide clean mock placeholder data for foundation
-      const roomDetails = {
-        id: roomId,
-        title: `Party Room #${roomId}`,
-        avatar: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150',
-        hostId: 'user_host_1',
-        hostName: 'Host King',
-        memberCount: 42,
-      };
+      let roomDetails = null;
+      try {
+        const raw = await partyApi.getRoomById(roomId);
+        const data = raw?.data || raw;
+        if (data && (data.roomId || data.id)) {
+          roomDetails = {
+            id: String(data.roomId || data.id),
+            roomId: String(data.roomId || data.id),
+            title: data.name || data.title || `Party Room #${roomId}`,
+            name: data.name || data.title || `Party Room #${roomId}`,
+            avatar: data.profileImageUrl || data.imageUrl || data.roomImageUrl || data.avatarUrl,
+            hostId: data.hostId || null,
+            hostName: data.name || 'Host',
+            memberCount: data.userCount ?? 0,
+            status: data.status || 'LIVE',
+            ...data,
+          };
+        }
+      } catch (apiErr) {
+        logger.warn('useVoiceParty', `Failed to fetch room from backend: ${apiErr?.message}`);
+      }
+
+      if (!roomDetails) {
+        roomDetails = {
+          id: roomId,
+          roomId,
+          title: `Party Room #${roomId}`,
+          name: `Party Room #${roomId}`,
+          avatar: null,
+          hostId: null,
+          hostName: 'Host',
+          memberCount: 0,
+        };
+      }
 
       setRoom(roomDetails);
     } catch (err) {
